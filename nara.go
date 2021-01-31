@@ -86,7 +86,7 @@ func main() {
 
 func announce(client mqtt.Client) {
 	topic := fmt.Sprintf("%s/%s", "nara/plaza", me.Name)
-	logrus.Println("announcing self on", topic, me.Status)
+	logrus.Println("plaza shoutout on", topic)
 
 	me.Status.LastSeen = time.Now().Unix()
 
@@ -126,7 +126,9 @@ func plazaHandler(client mqtt.Client, msg mqtt.Message) {
 
 	other, present := neighbourhood[from]
 	if present {
+		status.LastSeen = time.Now().Unix()
 		other.Status = status
+		neighbourhood[from] = other
 	} else {
 		logrus.Println("unknown neighbour", from)
 		heyThere(client)
@@ -147,6 +149,7 @@ func heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 		go measurePing(nara.Name, nara.Ip)
 	}
 
+	nara.Status.LastSeen = time.Now().Unix()
 	neighbourhood[nara.Name] = nara
 	logrus.Println("heyThereHandler discovered", nara.Name)
 	// logrus.Printf("neighbourhood: %+v", neighbourhood)
