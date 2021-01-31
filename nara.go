@@ -85,7 +85,7 @@ func main() {
 
 	for {
 		time.Sleep(10 * time.Millisecond)
-		runtime.Gosched()
+		runtime.Gosched() // https://blog.container-solutions.com/surprise-golang-thread-scheduling
 		// <-inbox
 	}
 }
