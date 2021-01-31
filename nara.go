@@ -17,8 +17,10 @@ import (
 	"time"
 
 	"os"
+	"os/signal"
 	"runtime"
 	"sort"
+	"syscall"
 
 	"github.com/kataras/tablewriter"
 	"github.com/lensesio/tableprinter"
@@ -83,11 +85,25 @@ func main() {
 		go printNeigbourhoodForever()
 	}
 
+	SetupCloseHandler(client)
+	defer chau(client)
+
 	for {
 		time.Sleep(10 * time.Millisecond)
 		runtime.Gosched() // https://blog.container-solutions.com/surprise-golang-thread-scheduling
 		// <-inbox
 	}
+}
+
+func SetupCloseHandler(client mqtt.Client) {
+	c := make(chan os.Signal)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-c
+		fmt.Println("\r- Ctrl+C pressed in Terminal")
+		chau(client)
+		os.Exit(0)
+	}()
 }
 
 func announce(client mqtt.Client) {
@@ -185,6 +201,35 @@ func heyThere(client mqtt.Client) {
 	token.Wait()
 }
 
+func chauHandler(client mqtt.Client, msg mqtt.Message) {
+	var nara Nara
+	json.Unmarshal(msg.Payload(), &nara)
+
+	if nara.Name == me.Name || nara.Name == "" {
+		return
+	}
+
+	_, present := neighbourhood[nara.Name]
+	if present {
+		delete(neighbourhood, nara.Name)
+	}
+
+	logrus.Printf("%s: chau!", nara.Name)
+}
+
+func chau(client mqtt.Client) {
+	topic := "nara/plaza/chau"
+	logrus.Printf("posting to %s", topic)
+
+	payload, err := json.Marshal(me)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	token := client.Publish(topic, 0, false, string(payload))
+	token.Wait()
+}
+
 func measurePing(name string, dest string) {
 	logrus.Println("setting up pinger for", name, dest)
 	for {
@@ -231,6 +276,10 @@ var connectHandler mqtt.OnConnectHandler = func(client mqtt.Client) {
 	}
 
 	if token := client.Subscribe("nara/plaza/hey_there", 0, heyThereHandler); token.Wait() && token.Error() != nil {
+		panic(token.Error())
+	}
+
+	if token := client.Subscribe("nara/plaza/chau", 0, chauHandler); token.Wait() && token.Error() != nil {
 		panic(token.Error())
 	}
 
