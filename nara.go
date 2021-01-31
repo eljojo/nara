@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"os"
+	"runtime"
 	"sort"
 
 	"github.com/kataras/tablewriter"
@@ -44,7 +45,7 @@ type HostStats struct {
 
 var me = &Nara{}
 
-// var inbox = make(chan [2]string, 1)
+// var inbox = make(chan [2]string)
 var neighbourhood = make(map[string]Nara)
 var lastHeyThere int64
 
@@ -83,7 +84,9 @@ func main() {
 	}
 
 	for {
-		//<-inbox
+		time.Sleep(10 * time.Millisecond)
+		runtime.Gosched()
+		// <-inbox
 	}
 }
 
