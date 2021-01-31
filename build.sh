@@ -6,8 +6,6 @@ echo ""
 echo "=> building nara on $(hostname)"
 git pull
 ./get_deps.sh
-echo "stopping nara *for build performance*"
-sudo systemctl stop nara
 echo "building"
 go build nara.go
 echo "restarting service"
