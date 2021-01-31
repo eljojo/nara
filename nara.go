@@ -9,17 +9,20 @@ import (
 	"github.com/sparrc/go-ping"
 	"math/rand"
 	// "strconv"
+	"errors"
+	"net"
 	"strings"
 	"time"
 )
 
 type Nara struct {
 	Name   string
+	Ip     string
 	Status NaraStatus
 }
 
 type NaraStatus struct {
-	PingGoogle string
+	PingStats map[string]string
 }
 
 var me = &Nara{}
@@ -37,10 +40,19 @@ func main() {
 
 	flag.Parse()
 	me.Name = *naraIdPtr
+	me.Status.PingStats = make(map[string]string)
+
+	ip, err := externalIP()
+	if err == nil {
+		me.Ip = ip
+		logrus.Println("local ip", ip)
+	} else {
+		logrus.Panic(err)
+	}
 
 	client := connectMQTT(*mqttHostPtr, *mqttUserPtr, *mqttPassPtr, *naraIdPtr)
 	go announceForever(client)
-	go measurePing()
+	go measurePing("google", "8.8.8.8")
 
 	for {
 		<-inbox
@@ -49,7 +61,7 @@ func main() {
 
 func announce(client mqtt.Client) {
 	topic := fmt.Sprintf("%s/%s", "nara/plaza", me.Name)
-	logrus.Println("announcing self on", topic)
+	logrus.Println("announcing self on", topic, me.Status)
 
 	payload, err := json.Marshal(me.Status)
 	if err != nil {
@@ -70,6 +82,9 @@ func announceForever(client mqtt.Client) {
 }
 
 func plazaHandler(client mqtt.Client, msg mqtt.Message) {
+	if !strings.Contains(msg.Topic(), "nara/plaza/") {
+		return
+	}
 	var from = strings.Split(msg.Topic(), "nara/plaza/")[1]
 
 	if from == me.Name {
@@ -79,14 +94,13 @@ func plazaHandler(client mqtt.Client, msg mqtt.Message) {
 	var status NaraStatus
 	json.Unmarshal(msg.Payload(), &status)
 
-	fmt.Printf("plazaHandler ")
-	fmt.Printf("update from %s: ", from)
-	fmt.Printf("%s\n", status)
+	logrus.Printf("plazaHandler update from %s: %+v", from, status)
 
 	other, present := neighbourhood[from]
 	if present {
 		other.Status = status
 	} else {
+		logrus.Println("unknown neighbour", from)
 		heyThere(client)
 	}
 	inbox <- [2]string{msg.Topic(), string(msg.Payload())}
@@ -95,11 +109,21 @@ func plazaHandler(client mqtt.Client, msg mqtt.Message) {
 func heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 	var nara Nara
 	json.Unmarshal(msg.Payload(), &nara)
-	neighbourhood[nara.Name] = nara
 
-	fmt.Printf("heyThereHandler ")
-	fmt.Printf("%s\n", neighbourhood)
+	if nara.Name == me.Name {
+		return
+	}
+
+	_, present := neighbourhood[nara.Name]
+	if !present {
+		go measurePing(nara.Name, nara.Ip)
+	}
+
+	neighbourhood[nara.Name] = nara
+	logrus.Println("heyThereHandler discovered", nara.Name)
+	logrus.Printf("neighbourhood: %+v", neighbourhood)
 	heyThere(client)
+
 }
 
 func heyThere(client mqtt.Client) {
@@ -109,7 +133,7 @@ func heyThere(client mqtt.Client) {
 	lastHeyThere = time.Now().Unix()
 
 	topic := "nara/hey_there"
-	logrus.Println("announcing self on", topic)
+	logrus.Println("hey there! announcing on", topic, me)
 
 	payload, err := json.Marshal(me)
 	if err != nil {
@@ -120,9 +144,10 @@ func heyThere(client mqtt.Client) {
 	token.Wait()
 }
 
-func measurePing() {
+func measurePing(name string, dest string) {
+	logrus.Println("setting up pinger for", name, dest)
 	for {
-		pinger, err := ping.NewPinger("8.8.8.8")
+		pinger, err := ping.NewPinger(dest)
 		if err != nil {
 			panic(err)
 		}
@@ -135,7 +160,7 @@ func measurePing() {
 		stats := pinger.Statistics() // get send/receive/rtt stats
 
 		// me.Status.PingGoogle = fmt.Sprintf("%sms", strconv.Itoa(rand.Intn(100)))
-		me.Status.PingGoogle = stats.AvgRtt.String()
+		me.Status.PingStats[name] = stats.AvgRtt.String()
 		time.Sleep(5 * time.Second)
 	}
 }
@@ -171,4 +196,42 @@ func connectMQTT(host string, user string, pass string, deviceId string) mqtt.Cl
 
 var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err error) {
 	logrus.Printf("MQTT Connection lost: %v", err)
+}
+
+// https://stackoverflow.com/questions/23558425/how-do-i-get-the-local-ip-address-in-go
+func externalIP() (string, error) {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return "", err
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue // interface down
+		}
+		if iface.Flags&net.FlagLoopback != 0 {
+			continue // loopback interface
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			return "", err
+		}
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip == nil || ip.IsLoopback() {
+				continue
+			}
+			ip = ip.To4()
+			if ip == nil {
+				continue // not an ipv4 address
+			}
+			return ip.String(), nil
+		}
+	}
+	return "", errors.New("are you connected to the network?")
 }
