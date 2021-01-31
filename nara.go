@@ -18,10 +18,11 @@ import (
 )
 
 type Nara struct {
-	Name     string
-	Hostname string
-	Ip       string
-	Status   NaraStatus
+	Name      string
+	Hostname  string
+	Ip        string
+	Status    NaraStatus
+	StartTime int64
 }
 
 type NaraStatus struct {
@@ -52,6 +53,7 @@ func main() {
 	flag.Parse()
 	me.Name = *naraIdPtr
 	me.Status.PingStats = make(map[string]string)
+	me.StartTime = time.Now().Unix()
 	me.Status.LastSeen = time.Now().Unix()
 
 	ip, err := externalIP()
