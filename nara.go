@@ -146,7 +146,7 @@ func heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 	var nara Nara
 	json.Unmarshal(msg.Payload(), &nara)
 
-	if nara.Name == me.Name {
+	if nara.Name == me.Name || nara.Name == "" {
 		return
 	}
 

@@ -4,7 +4,7 @@ cd "$(dirname "$(realpath "$0")")";
 
 echo ""
 echo "=> building nara on $(hostname)"
-git pull
+git pull --ff-only
 ./get_deps.sh
 echo "building"
 go build nara.go
