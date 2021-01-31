@@ -167,7 +167,7 @@ func heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 }
 
 func heyThere(client mqtt.Client) {
-	if (time.Now().Unix() - lastHeyThere) <= 30 {
+	if (time.Now().Unix() - lastHeyThere) <= 60 {
 		return
 	}
 
