@@ -6,8 +6,9 @@ import (
 	"fmt"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/sirupsen/logrus"
+	"github.com/sparrc/go-ping"
 	"math/rand"
-	"strconv"
+	// "strconv"
 	"strings"
 	"time"
 )
@@ -121,7 +122,20 @@ func heyThere(client mqtt.Client) {
 
 func measurePing() {
 	for {
-		me.Status.PingGoogle = fmt.Sprintf("%sms", strconv.Itoa(rand.Intn(100)))
+		pinger, err := ping.NewPinger("8.8.8.8")
+		if err != nil {
+			panic(err)
+		}
+		pinger.Count = 5
+		err = pinger.Run() // blocks until finished
+		if err != nil {
+			// panic(err)
+			continue
+		}
+		stats := pinger.Statistics() // get send/receive/rtt stats
+
+		// me.Status.PingGoogle = fmt.Sprintf("%sms", strconv.Itoa(rand.Intn(100)))
+		me.Status.PingGoogle = stats.AvgRtt.String()
 		time.Sleep(5 * time.Second)
 	}
 }
