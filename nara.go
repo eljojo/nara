@@ -169,6 +169,7 @@ func measurePing(name string, dest string) {
 		pinger.Count = 5
 		err = pinger.Run() // blocks until finished
 		if err != nil {
+			me.Status.PingStats[name] = "error"
 			// panic(err)
 			continue
 		}
