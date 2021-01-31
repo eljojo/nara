@@ -7,11 +7,24 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/sirupsen/logrus"
 	"math/rand"
+	"strconv"
+	"strings"
 	"time"
 )
 
-var me = &Nara{Name: ""}
+type Nara struct {
+	Name   string
+	Status NaraStatus
+}
+
+type NaraStatus struct {
+	PingGoogle string
+}
+
+var me = &Nara{}
 var inbox = make(chan [2]string, 1)
+var neighbourhood = make(map[string]Nara)
+var lastHeyThere int64
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
@@ -26,26 +39,18 @@ func main() {
 
 	client := connectMQTT(*mqttHostPtr, *mqttUserPtr, *mqttPassPtr, *naraIdPtr)
 	go announceForever(client)
+	go measurePing()
 
 	for {
 		<-inbox
 	}
 }
 
-type Nara struct {
-	Name   string
-	Status NaraStatus
-}
-
-type NaraStatus struct {
-	PingGoogle string
-}
-
 func announce(client mqtt.Client) {
-	topic := "nara/plaza"
-	logrus.Println("Publishing to", topic)
+	topic := fmt.Sprintf("%s/%s", "nara/plaza", me.Name)
+	logrus.Println("announcing self on", topic)
 
-	payload, err := json.Marshal(me)
+	payload, err := json.Marshal(me.Status)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -63,6 +68,78 @@ func announceForever(client mqtt.Client) {
 	}
 }
 
+func plazaHandler(client mqtt.Client, msg mqtt.Message) {
+	var from = strings.Split(msg.Topic(), "nara/plaza/")[1]
+
+	if from == me.Name {
+		return
+	}
+
+	var status NaraStatus
+	json.Unmarshal(msg.Payload(), &status)
+
+	fmt.Printf("plazaHandler ")
+	fmt.Printf("update from %s: ", from)
+	fmt.Printf("%s\n", status)
+
+	other, present := neighbourhood[from]
+	if present {
+		other.Status = status
+	} else {
+		heyThere(client)
+	}
+	inbox <- [2]string{msg.Topic(), string(msg.Payload())}
+}
+
+func heyThereHandler(client mqtt.Client, msg mqtt.Message) {
+	var nara Nara
+	json.Unmarshal(msg.Payload(), &nara)
+	neighbourhood[nara.Name] = nara
+
+	fmt.Printf("heyThereHandler ")
+	fmt.Printf("%s\n", neighbourhood)
+	heyThere(client)
+}
+
+func heyThere(client mqtt.Client) {
+	if (time.Now().Unix() - lastHeyThere) <= 5 {
+		return
+	}
+	lastHeyThere = time.Now().Unix()
+
+	topic := "nara/hey_there"
+	logrus.Println("announcing self on", topic)
+
+	payload, err := json.Marshal(me)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	token := client.Publish(topic, 0, false, string(payload))
+	token.Wait()
+}
+
+func measurePing() {
+	for {
+		me.Status.PingGoogle = fmt.Sprintf("%sms", strconv.Itoa(rand.Intn(100)))
+		time.Sleep(5 * time.Second)
+	}
+}
+
+var connectHandler mqtt.OnConnectHandler = func(client mqtt.Client) {
+	logrus.Println("Connected to MQTT")
+
+	if token := client.Subscribe("nara/plaza/#", 0, plazaHandler); token.Wait() && token.Error() != nil {
+		panic(token.Error())
+	}
+
+	if token := client.Subscribe("nara/hey_there", 0, heyThereHandler); token.Wait() && token.Error() != nil {
+		panic(token.Error())
+	}
+
+	heyThere(client)
+}
+
 func connectMQTT(host string, user string, pass string, deviceId string) mqtt.Client {
 	opts := mqtt.NewClientOptions()
 	opts.AddBroker(host)
@@ -76,22 +153,6 @@ func connectMQTT(host string, user string, pass string, deviceId string) mqtt.Cl
 		panic(token.Error())
 	}
 	return client
-}
-
-func plazaHandler(client mqtt.Client, msg mqtt.Message) {
-	fmt.Printf("plazaHandler")
-	fmt.Printf("[%s]  ", msg.Topic())
-	fmt.Printf("%s\n", msg.Payload())
-	inbox <- [2]string{msg.Topic(), string(msg.Payload())}
-}
-
-var connectHandler mqtt.OnConnectHandler = func(client mqtt.Client) {
-	logrus.Println("Connected to MQTT")
-	if token := client.Subscribe("nara/plaza", 0, plazaHandler); token.Wait() && token.Error() != nil {
-		panic(token.Error())
-	}
-
-	announce(client)
 }
 
 var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err error) {
