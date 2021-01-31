@@ -3,13 +3,13 @@ export PATH=$PATH:/usr/local/go/bin
 cd "$(dirname "$(realpath "$0")")";
 
 echo ""
-echo "=> building nara on $(hostname)"
+echo "=> deploying nara on $(hostname)"
 git pull --ff-only
 ./get_deps.sh
-echo "building"
+echo "[$(hostname)] building"
 go build nara.go
-echo "restarting service"
+echo "[$(hostname)] restarting service"
 sudo systemctl restart nara
-echo "=> succesfully built nara on $(hostname)"
+echo "=> succesfully deployed nara on $(hostname)"
 echo ""
 echo ""
