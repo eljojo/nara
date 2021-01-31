@@ -230,6 +230,12 @@ func externalIP() (string, error) {
 			if ip == nil {
 				continue // not an ipv4 address
 			}
+
+			// HACK
+			if ip.String() == "192.168.0.2" {
+				continue
+			}
+
 			return ip.String(), nil
 		}
 	}
