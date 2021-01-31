@@ -27,6 +27,7 @@ type Nara struct {
 type NaraStatus struct {
 	PingStats map[string]string
 	HostStats HostStats
+	LastSeen  int64
 }
 
 type HostStats struct {
@@ -51,6 +52,7 @@ func main() {
 	flag.Parse()
 	me.Name = *naraIdPtr
 	me.Status.PingStats = make(map[string]string)
+	me.Status.LastSeen = time.Now().Unix()
 
 	ip, err := externalIP()
 	if err == nil {
@@ -77,6 +79,8 @@ func announce(client mqtt.Client) {
 	topic := fmt.Sprintf("%s/%s", "nara/plaza", me.Name)
 	logrus.Println("announcing self on", topic, me.Status)
 
+	me.Status.LastSeen = time.Now().Unix()
+
 	payload, err := json.Marshal(me.Status)
 	if err != nil {
 		fmt.Println(err)
@@ -89,7 +93,6 @@ func announce(client mqtt.Client) {
 func announceForever(client mqtt.Client) {
 	// chattiness := rand.Intn(15) + 5
 	chattiness := 15
-	logrus.Println("chattiness = ", chattiness)
 	for {
 		time.Sleep(time.Duration(rand.Intn(30)+chattiness) * time.Second)
 
@@ -169,13 +172,16 @@ func measurePing(name string, dest string) {
 	for {
 		pinger, err := ping.NewPinger(dest)
 		if err != nil {
-			panic(err)
+			me.Status.PingStats[name] = "error"
+			time.Sleep(30 * time.Second)
+			//panic(err)
+			continue
 		}
 		pinger.Count = 5
 		err = pinger.Run() // blocks until finished
 		if err != nil {
 			me.Status.PingStats[name] = "error"
-			time.Sleep(5 * time.Second)
+			time.Sleep(30 * time.Second)
 			// panic(err)
 			continue
 		}
@@ -183,7 +189,7 @@ func measurePing(name string, dest string) {
 
 		// me.Status.PingGoogle = fmt.Sprintf("%sms", strconv.Itoa(rand.Intn(100)))
 		me.Status.PingStats[name] = stats.AvgRtt.String()
-		time.Sleep(5 * time.Second)
+		time.Sleep(30 * time.Second)
 	}
 }
 
