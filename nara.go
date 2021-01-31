@@ -10,23 +10,33 @@ import (
 	"math/rand"
 	// "strconv"
 	"errors"
+	"github.com/shirou/gopsutil/host"
+	"github.com/shirou/gopsutil/load"
 	"net"
 	"strings"
 	"time"
 )
 
 type Nara struct {
-	Name   string
-	Ip     string
-	Status NaraStatus
+	Name     string
+	Hostname string
+	Ip       string
+	Status   NaraStatus
 }
 
 type NaraStatus struct {
 	PingStats map[string]string
+	HostStats HostStats
+}
+
+type HostStats struct {
+	Uptime  uint64
+	LoadAvg float64
 }
 
 var me = &Nara{}
-var inbox = make(chan [2]string, 1)
+
+// var inbox = make(chan [2]string, 1)
 var neighbourhood = make(map[string]Nara)
 var lastHeyThere int64
 
@@ -50,12 +60,16 @@ func main() {
 		logrus.Panic(err)
 	}
 
+	hostinfo, _ := host.Info()
+	me.Hostname = hostinfo.Hostname
+
 	client := connectMQTT(*mqttHostPtr, *mqttUserPtr, *mqttPassPtr, *naraIdPtr)
 	go announceForever(client)
 	go measurePing("google", "8.8.8.8")
+	go updateHostStats()
 
 	for {
-		<-inbox
+		//<-inbox
 	}
 }
 
@@ -73,7 +87,8 @@ func announce(client mqtt.Client) {
 }
 
 func announceForever(client mqtt.Client) {
-	chattiness := rand.Intn(15) + 5
+	// chattiness := rand.Intn(15) + 5
+	chattiness := 5
 	logrus.Println("chattiness = ", chattiness)
 	for {
 		time.Sleep(time.Duration(chattiness) * time.Second)
@@ -103,7 +118,7 @@ func plazaHandler(client mqtt.Client, msg mqtt.Message) {
 		logrus.Println("unknown neighbour", from)
 		heyThere(client)
 	}
-	inbox <- [2]string{msg.Topic(), string(msg.Payload())}
+	// inbox <- [2]string{msg.Topic(), string(msg.Payload())}
 }
 
 func heyThereHandler(client mqtt.Client, msg mqtt.Message) {
@@ -161,6 +176,18 @@ func measurePing(name string, dest string) {
 
 		// me.Status.PingGoogle = fmt.Sprintf("%sms", strconv.Itoa(rand.Intn(100)))
 		me.Status.PingStats[name] = stats.AvgRtt.String()
+		time.Sleep(5 * time.Second)
+	}
+}
+
+func updateHostStats() {
+	for {
+		uptime, _ := host.Uptime()
+		me.Status.HostStats.Uptime = uptime
+
+		load, _ := load.Avg()
+		me.Status.HostStats.LoadAvg = load.Load1
+
 		time.Sleep(5 * time.Second)
 	}
 }
