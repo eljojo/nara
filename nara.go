@@ -91,8 +91,8 @@ func main() {
 }
 
 func announce(client mqtt.Client) {
-	topic := fmt.Sprintf("%s/%s", "nara/plaza", me.Name)
-	logrus.Println("plaza shoutout on", topic)
+	topic := fmt.Sprintf("%s/%s", "nara/newspaper", me.Name)
+	logrus.Println("posting on", topic)
 
 	me.Status.LastSeen = time.Now().Unix()
 
@@ -115,11 +115,11 @@ func announceForever(client mqtt.Client) {
 	}
 }
 
-func plazaHandler(client mqtt.Client, msg mqtt.Message) {
-	if !strings.Contains(msg.Topic(), "nara/plaza/") {
+func newspaperHandler(client mqtt.Client, msg mqtt.Message) {
+	if !strings.Contains(msg.Topic(), "nara/newspaper/") {
 		return
 	}
-	var from = strings.Split(msg.Topic(), "nara/plaza/")[1]
+	var from = strings.Split(msg.Topic(), "nara/newspaper/")[1]
 
 	if from == me.Name {
 		return
@@ -128,7 +128,7 @@ func plazaHandler(client mqtt.Client, msg mqtt.Message) {
 	var status NaraStatus
 	json.Unmarshal(msg.Payload(), &status)
 
-	// logrus.Printf("plazaHandler update from %s: %+v", from, status)
+	// logrus.Printf("newspaperHandler update from %s: %+v", from, status)
 
 	other, present := neighbourhood[from]
 	if present {
@@ -136,7 +136,7 @@ func plazaHandler(client mqtt.Client, msg mqtt.Message) {
 		other.Status = status
 		neighbourhood[from] = other
 	} else {
-		logrus.Println("unknown neighbour", from)
+		logrus.Println("whodis?", from)
 		heyThere(client)
 	}
 	// inbox <- [2]string{msg.Topic(), string(msg.Payload())}
@@ -157,7 +157,7 @@ func heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 
 	nara.Status.LastSeen = time.Now().Unix()
 	neighbourhood[nara.Name] = nara
-	logrus.Println("heyThereHandler discovered", nara.Name)
+	logrus.Printf("%s: hey there!", nara.Name)
 	// logrus.Printf("neighbourhood: %+v", neighbourhood)
 
 	// sleep some random amount to avoid ddosing new friends
@@ -173,8 +173,8 @@ func heyThere(client mqtt.Client) {
 
 	lastHeyThere = time.Now().Unix()
 
-	topic := "nara/hey_there"
-	logrus.Printf("hey there! announcing on %s", topic)
+	topic := "nara/plaza/hey_there"
+	logrus.Printf("posting to %s", topic)
 
 	payload, err := json.Marshal(me)
 	if err != nil {
@@ -226,11 +226,11 @@ func updateHostStats() {
 var connectHandler mqtt.OnConnectHandler = func(client mqtt.Client) {
 	logrus.Println("Connected to MQTT")
 
-	if token := client.Subscribe("nara/plaza/#", 0, plazaHandler); token.Wait() && token.Error() != nil {
+	if token := client.Subscribe("nara/newspaper/#", 0, newspaperHandler); token.Wait() && token.Error() != nil {
 		panic(token.Error())
 	}
 
-	if token := client.Subscribe("nara/hey_there", 0, heyThereHandler); token.Wait() && token.Error() != nil {
+	if token := client.Subscribe("nara/plaza/hey_there", 0, heyThereHandler); token.Wait() && token.Error() != nil {
 		panic(token.Error())
 	}
 
