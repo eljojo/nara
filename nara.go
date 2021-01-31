@@ -295,10 +295,12 @@ func externalIP() (string, error) {
 }
 
 type neighbour struct {
-	Name     string `header:"name"`
-	Ip       string `header:"IP"`
-	Ping     string `header:"ping"`
-	LastSeen string `header:"last seen"`
+	Name     string  `header:"name"`
+	Ip       string  `header:"IP"`
+	Ping     string  `header:"ping"`
+	LastSeen string  `header:"last seen"`
+	Uptime   string  `header:"uptime"`
+	Load     float64 `header:"load"`
 }
 
 func printNeigbourhoodForever() {
@@ -320,7 +322,9 @@ func printNeigbourhood() {
 			ping, _ = nara.Status.PingStats[me.Name]
 		}
 		lastSeen := fmt.Sprintf("%ds ago", now-nara.Status.LastSeen)
-		nei := neighbour{nara.Name, nara.Ip, ping, lastSeen}
+		uptime := fmt.Sprintf("%ds", now-nara.StartTime)
+		loadAvg := nara.Status.HostStats.LoadAvg
+		nei := neighbour{nara.Name, nara.Ip, ping, lastSeen, uptime, loadAvg}
 		naras = append(naras, nei)
 	}
 
