@@ -2,19 +2,25 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"github.com/shirou/gopsutil/host"
+	"github.com/shirou/gopsutil/load"
 	"github.com/sirupsen/logrus"
 	"github.com/sparrc/go-ping"
 	"math/rand"
-	// "strconv"
-	"errors"
-	"github.com/shirou/gopsutil/host"
-	"github.com/shirou/gopsutil/load"
 	"net"
+	// "strconv"
 	"strings"
 	"time"
+
+	"os"
+	"sort"
+
+	"github.com/kataras/tablewriter"
+	"github.com/lensesio/tableprinter"
 )
 
 type Nara struct {
@@ -71,6 +77,7 @@ func main() {
 	go announceForever(client)
 	go measurePing("google", "8.8.8.8")
 	go updateHostStats()
+	go printNeigbourhoodForever()
 
 	for {
 		//<-inbox
@@ -115,7 +122,7 @@ func plazaHandler(client mqtt.Client, msg mqtt.Message) {
 	var status NaraStatus
 	json.Unmarshal(msg.Payload(), &status)
 
-	logrus.Printf("plazaHandler update from %s: %+v", from, status)
+	// logrus.Printf("plazaHandler update from %s: %+v", from, status)
 
 	other, present := neighbourhood[from]
 	if present {
@@ -142,7 +149,7 @@ func heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 
 	neighbourhood[nara.Name] = nara
 	logrus.Println("heyThereHandler discovered", nara.Name)
-	logrus.Printf("neighbourhood: %+v", neighbourhood)
+	// logrus.Printf("neighbourhood: %+v", neighbourhood)
 
 	// sleep some random amount to avoid ddosing new friends
 	time.Sleep(time.Duration(rand.Intn(10)) * time.Second)
@@ -158,7 +165,7 @@ func heyThere(client mqtt.Client) {
 	lastHeyThere = time.Now().Unix()
 
 	topic := "nara/hey_there"
-	logrus.Println("hey there! announcing on", topic, me)
+	logrus.Printf("hey there! announcing on %s", topic)
 
 	payload, err := json.Marshal(me)
 	if err != nil {
@@ -282,4 +289,50 @@ func externalIP() (string, error) {
 		}
 	}
 	return "", errors.New("are you connected to the network?")
+}
+
+type neighbour struct {
+	Name     string `header:"name"`
+	Ip       string `header:"IP"`
+	Ping     string `header:"ping"`
+	LastSeen string `header:"last seen"`
+}
+
+func printNeigbourhoodForever() {
+	for {
+		printNeigbourhood()
+		time.Sleep(5 * time.Second)
+	}
+}
+
+func printNeigbourhood() {
+	now := time.Now().Unix()
+
+	printer := tableprinter.New(os.Stdout)
+	naras := make([]neighbour, 0, len(neighbourhood))
+
+	for _, nara := range neighbourhood {
+		ping, present := me.Status.PingStats[nara.Name]
+		if !present {
+			ping, _ = nara.Status.PingStats[me.Name]
+		}
+		lastSeen := fmt.Sprintf("%ds ago", now-nara.Status.LastSeen)
+		nei := neighbour{nara.Name, nara.Ip, ping, lastSeen}
+		naras = append(naras, nei)
+	}
+
+	sort.Slice(naras, func(i, j int) bool {
+		return naras[j].Name > naras[i].Name
+	})
+
+	// Optionally, customize the table, import of the underline 'tablewriter' package is required for that.
+	printer.BorderTop, printer.BorderBottom, printer.BorderLeft, printer.BorderRight = true, true, true, true
+	printer.CenterSeparator = "│"
+	printer.ColumnSeparator = "│"
+	printer.RowSeparator = "─"
+	printer.HeaderBgColor = tablewriter.BgBlackColor
+	printer.HeaderFgColor = tablewriter.FgGreenColor
+
+	// Print the slice of structs as table, as shown above.
+	printer.Print(naras)
 }
