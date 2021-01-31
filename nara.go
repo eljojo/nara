@@ -75,7 +75,7 @@ func main() {
 
 	client := connectMQTT(*mqttHostPtr, *mqttUserPtr, *mqttPassPtr, *naraIdPtr)
 	go announceForever(client)
-	go measurePing("google", "8.8.8.8")
+	// go measurePing("google", "8.8.8.8")
 	go updateHostStats()
 	go printNeigbourhoodForever()
 
@@ -146,7 +146,7 @@ func heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 
 	_, present := neighbourhood[nara.Name]
 	if !present {
-		go measurePing(nara.Name, nara.Ip)
+		// go measurePing(nara.Name, nara.Ip)
 	}
 
 	nara.Status.LastSeen = time.Now().Unix()
