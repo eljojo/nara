@@ -55,7 +55,7 @@ func main() {
 	mqttUserPtr := flag.String("mqtt-user", "my_username", "mqtt server username")
 	mqttPassPtr := flag.String("mqtt-pass", "my_password", "mqtt server password")
 	naraIdPtr := flag.String("nara-id", "raspberry", "nara id")
-	showNeighboursPtr := flag.Bool("show-neighbours", false, "show table with neighbourhood")
+	showNeighboursPtr := flag.Bool("show-neighbours", true, "show table with neighbourhood")
 
 	flag.Parse()
 	me.Name = *naraIdPtr
