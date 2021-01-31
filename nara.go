@@ -88,10 +88,11 @@ func announce(client mqtt.Client) {
 
 func announceForever(client mqtt.Client) {
 	// chattiness := rand.Intn(15) + 5
-	chattiness := 5
+	chattiness := 15
 	logrus.Println("chattiness = ", chattiness)
 	for {
-		time.Sleep(time.Duration(chattiness) * time.Second)
+		time.Sleep(time.Duration(rand.Intn(30)+chattiness) * time.Second)
+
 		announce(client)
 	}
 }
@@ -137,14 +138,18 @@ func heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 	neighbourhood[nara.Name] = nara
 	logrus.Println("heyThereHandler discovered", nara.Name)
 	logrus.Printf("neighbourhood: %+v", neighbourhood)
-	heyThere(client)
 
+	// sleep some random amount to avoid ddosing new friends
+	time.Sleep(time.Duration(rand.Intn(10)) * time.Second)
+
+	heyThere(client)
 }
 
 func heyThere(client mqtt.Client) {
-	if (time.Now().Unix() - lastHeyThere) <= 5 {
+	if (time.Now().Unix() - lastHeyThere) <= 30 {
 		return
 	}
+
 	lastHeyThere = time.Now().Unix()
 
 	topic := "nara/hey_there"
@@ -170,6 +175,7 @@ func measurePing(name string, dest string) {
 		err = pinger.Run() // blocks until finished
 		if err != nil {
 			me.Status.PingStats[name] = "error"
+			time.Sleep(5 * time.Second)
 			// panic(err)
 			continue
 		}
