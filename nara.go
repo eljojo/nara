@@ -79,7 +79,7 @@ func main() {
 
 	client := connectMQTT(*mqttHostPtr, *mqttUserPtr, *mqttPassPtr, *naraIdPtr)
 	go announceForever(client)
-	go measurePing("google", "8.8.8.8")
+	go measurePingForever()
 	go updateHostStats()
 	if *showNeighboursPtr {
 		go printNeigbourhoodForever()
@@ -166,11 +166,6 @@ func heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 		return
 	}
 
-	_, present := neighbourhood[nara.Name]
-	if !present {
-		go measurePing(nara.Name, nara.Ip)
-	}
-
 	nara.Status.LastSeen = time.Now().Unix()
 	neighbourhood[nara.Name] = nara
 	logrus.Printf("%s: hey there!", nara.Name)
@@ -230,30 +225,39 @@ func chau(client mqtt.Client) {
 	token.Wait()
 }
 
-func measurePing(name string, dest string) {
-	logrus.Println("setting up pinger for", name, dest)
+func measurePingForever() {
 	for {
-		pinger, err := ping.NewPinger(dest)
-		if err != nil {
-			delete(me.Status.PingStats, name)
-			time.Sleep(30 * time.Second)
-			//panic(err)
-			continue
+		ping, err := measurePing("google", "8.8.8.8")
+		if err == nil {
+			me.Status.PingStats["google"] = ping
+		} else {
+			delete(me.Status.PingStats, "google")
 		}
-		pinger.Count = 5
-		err = pinger.Run() // blocks until finished
-		if err != nil {
-			delete(me.Status.PingStats, name)
-			time.Sleep(30 * time.Second)
-			// panic(err)
-			continue
-		}
-		stats := pinger.Statistics() // get send/receive/rtt stats
 
-		// me.Status.PingGoogle = fmt.Sprintf("%sms", strconv.Itoa(rand.Intn(100)))
-		me.Status.PingStats[name] = float64(stats.AvgRtt/time.Microsecond) / 1000
-		time.Sleep(30 * time.Second)
+		for name, nara := range neighbourhood {
+			ping, err := measurePing(name, nara.Ip)
+			if err == nil {
+				me.Status.PingStats[name] = ping
+			} else {
+				delete(me.Status.PingStats, name)
+			}
+		}
+		time.Sleep(5 * time.Second)
 	}
+}
+
+func measurePing(name string, dest string) (float64, error) {
+	pinger, err := ping.NewPinger(dest)
+	if err != nil {
+		return 0, err
+	}
+	pinger.Count = 5
+	err = pinger.Run() // blocks until finished
+	if err != nil {
+		return 0, err
+	}
+	stats := pinger.Statistics() // get send/receive/rtt stats
+	return float64(stats.AvgRtt/time.Microsecond) / 1000, nil
 }
 
 func updateHostStats() {
