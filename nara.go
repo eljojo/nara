@@ -100,7 +100,7 @@ func SetupCloseHandler(client mqtt.Client) {
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-c
-		fmt.Println("\r- Ctrl+C pressed in Terminal")
+		fmt.Println("babaayyy")
 		chau(client)
 		os.Exit(0)
 	}()
