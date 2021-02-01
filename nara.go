@@ -185,7 +185,8 @@ func heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 }
 
 func heyThere(client mqtt.Client) {
-	if (time.Now().Unix() - lastHeyThere) <= 60 {
+	ts := chattinessRate(*me, 45, 120)
+	if (time.Now().Unix() - lastHeyThere) <= ts {
 		return
 	}
 
