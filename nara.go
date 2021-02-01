@@ -35,7 +35,7 @@ type Nara struct {
 }
 
 type NaraStatus struct {
-	PingStats map[string]string
+	PingStats map[string]float64
 	HostStats HostStats
 	LastSeen  int64
 }
@@ -62,7 +62,7 @@ func main() {
 
 	flag.Parse()
 	me.Name = *naraIdPtr
-	me.Status.PingStats = make(map[string]string)
+	me.Status.PingStats = make(map[string]float64)
 	me.StartTime = time.Now().Unix()
 	me.Status.LastSeen = time.Now().Unix()
 
@@ -235,7 +235,7 @@ func measurePing(name string, dest string) {
 	for {
 		pinger, err := ping.NewPinger(dest)
 		if err != nil {
-			me.Status.PingStats[name] = "error"
+			delete(me.Status.PingStats, name)
 			time.Sleep(30 * time.Second)
 			//panic(err)
 			continue
@@ -243,7 +243,7 @@ func measurePing(name string, dest string) {
 		pinger.Count = 5
 		err = pinger.Run() // blocks until finished
 		if err != nil {
-			me.Status.PingStats[name] = "error"
+			delete(me.Status.PingStats, name)
 			time.Sleep(30 * time.Second)
 			// panic(err)
 			continue
@@ -251,7 +251,7 @@ func measurePing(name string, dest string) {
 		stats := pinger.Statistics() // get send/receive/rtt stats
 
 		// me.Status.PingGoogle = fmt.Sprintf("%sms", strconv.Itoa(rand.Intn(100)))
-		me.Status.PingStats[name] = stats.AvgRtt.String()
+		me.Status.PingStats[name] = float64(stats.AvgRtt/time.Microsecond) / 1000
 		time.Sleep(30 * time.Second)
 	}
 }
@@ -372,10 +372,7 @@ func printNeigbourhood() {
 	naras := make([]neighbour, 0, len(neighbourhood))
 
 	for _, nara := range neighbourhood {
-		ping, present := me.Status.PingStats[nara.Name]
-		if !present {
-			ping, _ = nara.Status.PingStats[me.Name]
-		}
+		ping := pingBetweenMs(*me, nara)
 		lastSeen := fmt.Sprintf("%ds ago", now-nara.Status.LastSeen)
 		uptime := fmt.Sprintf("%ds", now-nara.StartTime)
 		loadAvg := nara.Status.HostStats.LoadAvg
@@ -397,4 +394,20 @@ func printNeigbourhood() {
 
 	// Print the slice of structs as table, as shown above.
 	printer.Print(naras)
+}
+
+func pingBetween(a Nara, b Nara) float64 {
+	ping, present := a.Status.PingStats[b.Name]
+	if !present {
+		ping, _ = b.Status.PingStats[a.Name]
+	}
+	return ping
+}
+
+func pingBetweenMs(a Nara, b Nara) string {
+	ping := pingBetween(a, b)
+	if ping == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%.2fms", ping)
 }
