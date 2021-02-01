@@ -35,9 +35,10 @@ type Nara struct {
 }
 
 type NaraStatus struct {
-	PingStats map[string]float64
-	HostStats HostStats
-	LastSeen  int64
+	PingStats  map[string]float64
+	HostStats  HostStats
+	LastSeen   int64
+	Chattiness int64
 }
 
 type HostStats struct {
@@ -65,6 +66,7 @@ func main() {
 	me.Status.PingStats = make(map[string]float64)
 	me.StartTime = time.Now().Unix()
 	me.Status.LastSeen = time.Now().Unix()
+	me.Status.Chattiness = 50
 
 	ip, err := externalIP()
 	if err == nil {
@@ -122,10 +124,12 @@ func announce(client mqtt.Client) {
 }
 
 func announceForever(client mqtt.Client) {
-	// chattiness := rand.Intn(15) + 5
-	chattiness := 15
 	for {
-		time.Sleep(time.Duration(rand.Intn(30)+chattiness) * time.Second)
+		min_time := int64(5)
+		max_time := int64(60)
+		ts := min_time + ((max_time - min_time) * (100 - me.Status.Chattiness) / 100)
+		logrus.Println("chattines =", me.Status.Chattiness, "ts =", ts)
+		time.Sleep(time.Duration(ts) * time.Second)
 
 		announce(client)
 	}
@@ -268,6 +272,12 @@ func updateHostStats() {
 		load, _ := load.Avg()
 		me.Status.HostStats.LoadAvg = load.Load1
 
+		if load.Load1 < 1 {
+			me.Status.Chattiness = int64((1 - load.Load1) * 100)
+		} else {
+			me.Status.Chattiness = 0
+		}
+
 		time.Sleep(5 * time.Second)
 	}
 }
@@ -354,12 +364,13 @@ func externalIP() (string, error) {
 }
 
 type neighbour struct {
-	Name     string  `header:"name"`
-	Ip       string  `header:"IP"`
-	Ping     string  `header:"ping"`
-	LastSeen string  `header:"last seen"`
-	Uptime   string  `header:"uptime"`
-	Load     float64 `header:"load"`
+	Name       string  `header:"name"`
+	Ip         string  `header:"IP"`
+	Ping       string  `header:"ping"`
+	LastSeen   string  `header:"last seen"`
+	Uptime     string  `header:"uptime"`
+	Load       float64 `header:"load"`
+	Chattiness int64   `header:"chat"`
 }
 
 func printNeigbourhoodForever() {
@@ -380,7 +391,7 @@ func printNeigbourhood() {
 		lastSeen := fmt.Sprintf("%ds ago", now-nara.Status.LastSeen)
 		uptime := fmt.Sprintf("%ds", now-nara.StartTime)
 		loadAvg := nara.Status.HostStats.LoadAvg
-		nei := neighbour{nara.Name, nara.Ip, ping, lastSeen, uptime, loadAvg}
+		nei := neighbour{nara.Name, nara.Ip, ping, lastSeen, uptime, loadAvg, nara.Status.Chattiness}
 		naras = append(naras, nei)
 	}
 
