@@ -163,7 +163,9 @@ func newspaperHandler(client mqtt.Client, msg mqtt.Message) {
 		neighbourhood[from] = other
 	} else {
 		logrus.Println("whodis?", from)
-		heyThere(client)
+		if me.Status.Chattiness > 0 {
+			heyThere(client)
+		}
 	}
 	// inbox <- [2]string{msg.Topic(), string(msg.Payload())}
 }
