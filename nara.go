@@ -60,6 +60,7 @@ func main() {
 	mqttPassPtr := flag.String("mqtt-pass", "my_password", "mqtt server password")
 	naraIdPtr := flag.String("nara-id", "raspberry", "nara id")
 	showNeighboursPtr := flag.Bool("show-neighbours", true, "show table with neighbourhood")
+	showNeighboursSpeedPtr := flag.Int("refresh-rate", 60, "refresh rate in seconds for neighbourhood table")
 
 	flag.Parse()
 	me.Name = *naraIdPtr
@@ -84,7 +85,7 @@ func main() {
 	go measurePingForever()
 	go updateHostStats()
 	if *showNeighboursPtr {
-		go printNeigbourhoodForever()
+		go printNeigbourhoodForever(*showNeighboursSpeedPtr)
 	}
 
 	SetupCloseHandler(client)
@@ -125,14 +126,16 @@ func announce(client mqtt.Client) {
 
 func announceForever(client mqtt.Client) {
 	for {
-		min_time := int64(5)
-		max_time := int64(60)
-		ts := min_time + ((max_time - min_time) * (100 - me.Status.Chattiness) / 100)
+		ts := chattinessRate(*me, 5, 60)
 		logrus.Println("chattines =", me.Status.Chattiness, "ts =", ts)
 		time.Sleep(time.Duration(ts) * time.Second)
 
 		announce(client)
 	}
+}
+
+func chattinessRate(nara Nara, min int64, max int64) int64 {
+	return min + ((max - min) * (100 - nara.Status.Chattiness) / 100)
 }
 
 func newspaperHandler(client mqtt.Client, msg mqtt.Message) {
@@ -246,7 +249,8 @@ func measurePingForever() {
 				delete(me.Status.PingStats, name)
 			}
 		}
-		time.Sleep(5 * time.Second)
+		ts := chattinessRate(*me, 5, 120)
+		time.Sleep(time.Duration(ts) * time.Second)
 	}
 }
 
@@ -373,10 +377,10 @@ type neighbour struct {
 	Chattiness int64   `header:"chat"`
 }
 
-func printNeigbourhoodForever() {
+func printNeigbourhoodForever(refreshRate int) {
 	for {
 		printNeigbourhood()
-		time.Sleep(5 * time.Second)
+		time.Sleep(time.Duration(refreshRate) * time.Second)
 	}
 }
 
