@@ -127,7 +127,6 @@ func announce(client mqtt.Client) {
 func announceForever(client mqtt.Client) {
 	for {
 		ts := chattinessRate(*me, 5, 60)
-		logrus.Println("chattines =", me.Status.Chattiness, "ts =", ts)
 		time.Sleep(time.Duration(ts) * time.Second)
 
 		announce(client)
@@ -140,7 +139,7 @@ func chattinessRate(nara Nara, min int64, max int64) int64 {
 
 func newspaperHandler(client mqtt.Client, msg mqtt.Message) {
 	if me.Status.Chattiness <= 10 && rand.Intn(int(me.Status.Chattiness)+1) == 0 {
-		logrus.Println("skipping newspaper event due to low chattiness")
+		// logrus.Println("skipping newspaper event due to low chattiness")
 		return
 	}
 	if !strings.Contains(msg.Topic(), "nara/newspaper/") {
@@ -392,7 +391,11 @@ func printNeigbourhood() {
 	now := time.Now().Unix()
 
 	printer := tableprinter.New(os.Stdout)
-	naras := make([]neighbour, 0, len(neighbourhood))
+	naras := make([]neighbour, 0, len(neighbourhood)+1)
+
+	uptime := fmt.Sprintf("%ds", now-me.StartTime)
+	nei := neighbour{me.Name, me.Ip, "-", "-", uptime, me.Status.HostStats.LoadAvg, me.Status.Chattiness}
+	naras = append(naras, nei)
 
 	for _, nara := range neighbourhood {
 		ping := pingBetweenMs(*me, nara)
