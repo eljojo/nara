@@ -139,6 +139,10 @@ func chattinessRate(nara Nara, min int64, max int64) int64 {
 }
 
 func newspaperHandler(client mqtt.Client, msg mqtt.Message) {
+	if me.Status.Chattiness <= 10 && rand.Intn(int(me.Status.Chattiness)+1) == 0 {
+		logrus.Println("skipping newspaper event due to low chattiness")
+		return
+	}
 	if !strings.Contains(msg.Topic(), "nara/newspaper/") {
 		return
 	}
@@ -235,23 +239,22 @@ func chau(client mqtt.Client) {
 
 func measurePingForever() {
 	for {
-		ping, err := measurePing("google", "8.8.8.8")
-		if err == nil {
-			me.Status.PingStats["google"] = ping
-		} else {
-			delete(me.Status.PingStats, "google")
-		}
+		measureAndStorePing("google", "8.8.8.8")
 
 		for name, nara := range neighbourhood {
-			ping, err := measurePing(name, nara.Ip)
-			if err == nil {
-				me.Status.PingStats[name] = ping
-			} else {
-				delete(me.Status.PingStats, name)
-			}
+			measureAndStorePing(name, nara.Ip)
 		}
 		ts := chattinessRate(*me, 5, 120)
 		time.Sleep(time.Duration(ts) * time.Second)
+	}
+}
+
+func measureAndStorePing(name string, dest string) {
+	ping, err := measurePing(name, dest)
+	if err == nil {
+		me.Status.PingStats[name] = ping
+	} else {
+		delete(me.Status.PingStats, name)
 	}
 }
 
