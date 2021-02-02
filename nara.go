@@ -402,7 +402,7 @@ func printNeigbourhood() {
 	for _, nara := range neighbourhood {
 		ping := pingBetweenMs(*me, nara)
 		lastSeen := fmt.Sprintf("%ds ago", now-nara.Status.LastSeen)
-		uptime := fmt.Sprintf("%ds", now-nara.StartTime)
+		uptime := fmt.Sprintf("%ds", nara.Status.LastSeen-nara.StartTime)
 		loadAvg := nara.Status.HostStats.LoadAvg
 		nei := neighbour{nara.Name, nara.Ip, ping, lastSeen, uptime, loadAvg, nara.Status.Chattiness}
 		naras = append(naras, nei)
