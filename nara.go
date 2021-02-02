@@ -137,9 +137,17 @@ func chattinessRate(nara Nara, min int64, max int64) int64 {
 	return min + ((max - min) * (100 - nara.Status.Chattiness) / 100)
 }
 
+var skippingEvents = false
+
 func newspaperHandler(client mqtt.Client, msg mqtt.Message) {
-	if me.Status.Chattiness <= 10 && rand.Intn(int(me.Status.Chattiness)+1) == 0 {
-		// logrus.Println("skipping newspaper event due to low chattiness")
+	if me.Status.Chattiness <= 10 && skippingEvents == false {
+		logrus.Println("[warning] low chattiness, newspaper events may be dropped")
+		skippingEvents = true
+	} else if me.Status.Chattiness > 10 && skippingEvents == true {
+		logrus.Println("[recovered] chattiness is healthy again, not dropping events anymore")
+		skippingEvents = false
+	}
+	if skippingEvents == true && rand.Intn(2) == 0 {
 		return
 	}
 	if !strings.Contains(msg.Topic(), "nara/newspaper/") {
