@@ -230,6 +230,11 @@ func chauHandler(client mqtt.Client, msg mqtt.Message) {
 		delete(neighbourhood, nara.Name)
 	}
 
+	_, present = me.Status.PingStats[nara.Name]
+	if present {
+		delete(me.Status.PingStats, nara.Name)
+	}
+
 	logrus.Printf("%s: chau!", nara.Name)
 }
 
