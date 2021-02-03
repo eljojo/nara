@@ -433,11 +433,14 @@ func printNeigbourhood() {
 }
 
 func pingBetween(a Nara, b Nara) float64 {
-	ping, present := a.Status.PingStats[b.Name]
-	if !present {
-		ping, _ = b.Status.PingStats[a.Name]
+	a_ping, a_ping_present := a.Status.PingStats[b.Name]
+	b_ping, b_ping_present := b.Status.PingStats[a.Name]
+	if a_ping_present && b_ping_present {
+		return (a_ping + b_ping) / 2
+	} else if a_ping_present {
+		return a_ping
 	}
-	return ping
+	return b_ping
 }
 
 func pingBetweenMs(a Nara, b Nara) string {
