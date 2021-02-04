@@ -38,6 +38,8 @@ type HostStats struct {
 
 var me = &Nara{}
 
+var forceChattiness int
+
 // var inbox = make(chan [2]string)
 
 func main() {
@@ -49,13 +51,16 @@ func main() {
 	naraIdPtr := flag.String("nara-id", "raspberry", "nara id")
 	showNeighboursPtr := flag.Bool("show-neighbours", true, "show table with neighbourhood")
 	showNeighboursSpeedPtr := flag.Int("refresh-rate", 60, "refresh rate in seconds for neighbourhood table")
+	forceChattinessPtr := flag.Int("force-chattiness", -1, "specific chattiness to force, -1 for auto (default)")
 
 	flag.Parse()
+	forceChattiness = *forceChattinessPtr
+
 	me.Name = *naraIdPtr
 	me.Status.PingStats = make(map[string]float64)
 	me.StartTime = time.Now().Unix()
 	me.Status.LastSeen = time.Now().Unix()
-	me.Status.Chattiness = 50
+	updateHostStats()
 
 	ip, err := externalIP()
 	if err == nil {
@@ -71,7 +76,7 @@ func main() {
 	client := connectMQTT(*mqttHostPtr, *mqttUserPtr, *mqttPassPtr, *naraIdPtr)
 	go announceForever(client)
 	go measurePingForever()
-	go updateHostStats()
+	go updateHostStatsForever()
 	if *showNeighboursPtr {
 		go printNeigbourhoodForever(*showNeighboursSpeedPtr)
 	}

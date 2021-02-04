@@ -45,21 +45,28 @@ func measurePing(name string, dest string) (float64, error) {
 	return float64(stats.AvgRtt/time.Microsecond) / 1000, nil
 }
 
-func updateHostStats() {
+func updateHostStatsForever() {
 	for {
-		uptime, _ := host.Uptime()
-		me.Status.HostStats.Uptime = uptime
+		updateHostStats()
+		time.Sleep(5 * time.Second)
+	}
+}
 
-		load, _ := load.Avg()
-		me.Status.HostStats.LoadAvg = load.Load1
+func updateHostStats() {
+	uptime, _ := host.Uptime()
+	me.Status.HostStats.Uptime = uptime
 
+	load, _ := load.Avg()
+	me.Status.HostStats.LoadAvg = load.Load1
+
+	if forceChattiness >= 0 && forceChattiness <= 100 {
+		me.Status.Chattiness = int64(forceChattiness)
+	} else {
 		if load.Load1 < 1 {
 			me.Status.Chattiness = int64((1 - load.Load1) * 100)
 		} else {
 			me.Status.Chattiness = 0
 		}
-
-		time.Sleep(5 * time.Second)
 	}
 }
 
