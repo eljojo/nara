@@ -10,8 +10,6 @@ import (
 	"github.com/lensesio/tableprinter"
 )
 
-var neighbourhood = make(map[string]Nara)
-
 type neighbour struct {
 	Name       string  `header:"name"`
 	Ip         string  `header:"IP"`

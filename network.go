@@ -10,6 +10,7 @@ import (
 	"time"
 )
 
+var neighbourhood = make(map[string]Nara)
 var lastHeyThere int64
 
 func announce(client mqtt.Client) {
