@@ -6,7 +6,7 @@ echo ""
 echo "=> deploying nara on $(hostname)"
 ./get_deps.sh
 echo "[$(hostname)] building"
-go build nara.go
+go build
 echo "[$(hostname)] restarting service"
 sudo systemctl restart nara
 echo "=> succesfully deployed nara on $(hostname)"
