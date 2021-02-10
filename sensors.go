@@ -34,7 +34,7 @@ func measureAndStorePing(name string, dest string) {
 }
 
 func measurePing(name string, dest string) (float64, error) {
-	logrus.Println("pinging", name, dest)
+	logrus.Debug("pinging", name, dest)
 	pinger, err := ping.NewPinger(dest)
 	if err != nil {
 		return 0, err

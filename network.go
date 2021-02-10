@@ -15,7 +15,7 @@ var lastHeyThere int64
 
 func announce(client mqtt.Client) {
 	topic := fmt.Sprintf("%s/%s", "nara/newspaper", me.Name)
-	logrus.Println("posting on", topic)
+	logrus.Debug("posting on", topic)
 
 	me.Status.LastSeen = time.Now().Unix()
 

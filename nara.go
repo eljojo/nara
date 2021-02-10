@@ -52,6 +52,7 @@ func main() {
 	showNeighboursPtr := flag.Bool("show-neighbours", true, "show table with neighbourhood")
 	showNeighboursSpeedPtr := flag.Int("refresh-rate", 60, "refresh rate in seconds for neighbourhood table")
 	forceChattinessPtr := flag.Int("force-chattiness", -1, "specific chattiness to force, -1 for auto (default)")
+	verbosePtr := flag.Bool("verbose", false, "log debug stuff")
 
 	flag.Parse()
 	forceChattiness = *forceChattinessPtr
@@ -79,6 +80,10 @@ func main() {
 	go updateHostStatsForever()
 	if *showNeighboursPtr {
 		go printNeigbourhoodForever(*showNeighboursSpeedPtr)
+	}
+
+	if *verbosePtr {
+		logrus.SetLevel(logrus.DebugLevel)
 	}
 
 	SetupCloseHandler(client)
