@@ -4,7 +4,7 @@ cd "$(dirname "$(realpath "$0")")";
 
 echo ""
 echo "=> deploying nara on $(hostname)"
-./get_deps.sh
+# ./get_deps.sh
 echo "[$(hostname)] building"
 go build
 echo "[$(hostname)] restarting service"
