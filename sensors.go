@@ -37,7 +37,7 @@ func measurePing(name string, dest string) (float64, error) {
 		return 0, err
 	}
 	pinger.Count = 5
-	pinger.Timeout = time.Second * 100000
+	pinger.Timeout = time.Second * 1000
 	err = pinger.Run() // blocks until finished
 	if err != nil {
 		return 0, err
