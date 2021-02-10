@@ -28,6 +28,7 @@ func measureAndStorePing(name string, dest string) {
 	if err == nil {
 		me.Status.PingStats[name] = ping
 	} else {
+		logrus.Println("problem when pinging", dest, err)
 		delete(me.Status.PingStats, name)
 	}
 }
