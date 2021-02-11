@@ -25,7 +25,7 @@ func measurePingForever() {
 
 func measureAndStorePing(name string, dest string) {
 	ping, err := measurePing(name, dest)
-	if err == nil {
+	if err == nil && ping > 0 {
 		me.Status.PingStats[name] = ping
 	} else {
 		logrus.Println("problem when pinging", dest, err)
