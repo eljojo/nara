@@ -172,3 +172,31 @@ func chau(client mqtt.Client) {
 	token := client.Publish(topic, 0, false, string(payload))
 	token.Wait()
 }
+
+func formOpinion() {
+	time.Sleep(60 * time.Second)
+	logrus.Printf("forming opinions")
+	for name, _ := range neighbourhood {
+		startTime := findStartingTimeFromNeighbourhoodForNara(name)
+		if startTime > 0 {
+			observation, _ := me.Status.Observations[name]
+			observation.StartTime = startTime
+			logrus.Printf("adjusting start time for %s based on neighbours opinion", name)
+			me.Status.Observations[name] = observation
+		}
+	}
+}
+
+func findStartingTimeFromNeighbourhoodForNara(name string) int64 {
+	var startTime int64 = 0
+	for _, nara := range neighbourhood {
+		observed_start_time := nara.Status.Observations[name].StartTime
+		if startTime == 0 && observed_start_time > 0 {
+			startTime = observed_start_time
+		}
+		if startTime != observed_start_time && observed_start_time > 0 {
+			return 0
+		}
+	}
+	return startTime
+}

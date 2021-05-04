@@ -83,6 +83,7 @@ func main() {
 	go announceForever(client)
 	go measurePingForever()
 	go updateHostStatsForever()
+	go formOpinion()
 	if *showNeighboursPtr {
 		go printNeigbourhoodForever(*showNeighboursSpeedPtr)
 	}
