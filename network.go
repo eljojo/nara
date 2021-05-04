@@ -181,7 +181,7 @@ func chau(client mqtt.Client) {
 }
 
 func formOpinion() {
-	time.Sleep(40 * time.Second)
+	time.Sleep(60 * time.Second)
 	logrus.Printf("forming opinions")
 	for name, _ := range neighbourhood {
 		startTime := findStartingTimeFromNeighbourhoodForNara(name)
@@ -195,16 +195,25 @@ func formOpinion() {
 }
 
 func findStartingTimeFromNeighbourhoodForNara(name string) int64 {
-	var startTime int64 = 0
+	times := make(map[int64]int)
+
 	for _, nara := range neighbourhood {
 		observed_start_time := nara.Status.Observations[name].StartTime
-		if startTime == 0 && observed_start_time > 0 {
-			startTime = observed_start_time
-		}
-		if startTime > 0 && startTime != observed_start_time && observed_start_time > 0 {
-			logrus.Printf("giving up on finding starting time for %s, %s has inconsistent data", name, nara.Name)
-			return 0
+		if observed_start_time > 0 {
+			times[observed_start_time] += 1
 		}
 	}
+
+	var startTime int64
+	maxCount := 0
+	one_third := len(times) / 3
+
+	for time, count := range times {
+		if count > maxCount && count > one_third {
+			maxCount = count
+			startTime = time
+		}
+	}
+
 	return startTime
 }
