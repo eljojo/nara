@@ -129,12 +129,11 @@ func chauHandler(client mqtt.Client, msg mqtt.Message) {
 		return
 	}
 
-	_, present := neighbourhood[nara.Name]
-	if present {
-		delete(neighbourhood, nara.Name)
-	}
+	nara.Status.LastSeen = time.Now().Unix()
+	nara.Status.Connected = "OFFLINE"
+	neighbourhood[nara.Name] = nara
 
-	_, present = me.Status.PingStats[nara.Name]
+	_, present := me.Status.PingStats[nara.Name]
 	if present {
 		delete(me.Status.PingStats, nara.Name)
 	}
@@ -146,6 +145,7 @@ func chau(client mqtt.Client) {
 	topic := "nara/plaza/chau"
 	logrus.Printf("posting to %s", topic)
 
+	me.Status.Connected = "OFFLINE"
 	payload, err := json.Marshal(me)
 	if err != nil {
 		fmt.Println(err)

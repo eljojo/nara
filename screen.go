@@ -41,6 +41,9 @@ func printNeigbourhood() {
 		ping := pingBetweenMs(*me, nara)
 		lastSeen := fmt.Sprintf("%ds ago", now-nara.Status.LastSeen)
 		uptime := fmt.Sprintf("%ds", nara.Status.LastSeen-nara.StartTime)
+		if nara.Status.Connected != "ONLINE" {
+			uptime = nara.Status.Connected
+		}
 		loadAvg := nara.Status.HostStats.LoadAvg
 		nei := neighbour{nara.Name, nara.Ip, ping, lastSeen, uptime, loadAvg, nara.Status.Chattiness}
 		naras = append(naras, nei)

@@ -29,6 +29,7 @@ type NaraStatus struct {
 	HostStats  HostStats
 	LastSeen   int64
 	Chattiness int64
+	Connected  string
 }
 
 type HostStats struct {
@@ -73,6 +74,7 @@ func main() {
 
 	hostinfo, _ := host.Info()
 	me.Hostname = hostinfo.Hostname
+	me.Status.Connected = "ONLINE"
 
 	client := connectMQTT(*mqttHostPtr, *mqttUserPtr, *mqttPassPtr, *naraIdPtr)
 	go announceForever(client)

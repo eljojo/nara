@@ -16,6 +16,9 @@ func measurePingForever() {
 		measureAndStorePing("google", "8.8.8.8")
 
 		for name, nara := range neighbourhood {
+			if nara.Status.Connected == "OFFLINE" {
+				continue
+			}
 			measureAndStorePing(name, nara.Ip)
 		}
 		ts := chattinessRate(*me, 5, 120)
