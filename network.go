@@ -70,17 +70,14 @@ func newspaperHandler(client mqtt.Client, msg mqtt.Message) {
 	if present {
 		other.Status = status
 		neighbourhood[from] = other
-
-		observation, _ := me.Status.Observations[from]
-		observation.LastSeen = time.Now().Unix()
-		observation.Online = "ONLINE"
-		me.Status.Observations[from] = observation
 	} else {
 		logrus.Println("whodis?", from)
 		if me.Status.Chattiness > 0 {
 			heyThere(client)
 		}
 	}
+
+	recordObservationOnlineNara(from)
 	// inbox <- [2]string{msg.Topic(), string(msg.Payload())}
 }
 
@@ -92,31 +89,33 @@ func heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 		return
 	}
 
+	recordObservationOnlineNara(nara.Name)
 	neighbourhood[nara.Name] = nara
-
-	observation, seenBefore := me.Status.Observations[nara.Name]
-
-	if !seenBefore {
-		observation.StartTime = time.Now().Unix()
-	}
-
-	if observation.Online == "OFFLINE" {
-		observation.Restarts += 1
-		logrus.Printf("%s: hey there! (seen before)", nara.Name)
-	} else {
-		logrus.Printf("%s: hey there!", nara.Name)
-	}
-
-	observation.Online = "ONLINE"
-	observation.LastSeen = time.Now().Unix()
-	me.Status.Observations[nara.Name] = observation
-
+	logrus.Printf("%s: hey there!", nara.Name)
 	// logrus.Printf("neighbourhood: %+v", neighbourhood)
 
 	// sleep some random amount to avoid ddosing new friends
 	time.Sleep(time.Duration(rand.Intn(10)) * time.Second)
 
 	heyThere(client)
+}
+
+func recordObservationOnlineNara(name string) {
+	observation, seenBefore := me.Status.Observations[name]
+
+	if !seenBefore {
+		observation.StartTime = time.Now().Unix()
+		logrus.Printf("observation: seen %s for the first time", name)
+	}
+
+	if observation.Online == "OFFLINE" {
+		observation.Restarts += 1
+		logrus.Printf("observation: %s came back online", name)
+	}
+
+	observation.Online = "ONLINE"
+	observation.LastSeen = time.Now().Unix()
+	me.Status.Observations[name] = observation
 }
 
 func heyThere(client mqtt.Client) {
