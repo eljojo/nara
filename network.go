@@ -181,7 +181,7 @@ func chau(client mqtt.Client) {
 }
 
 func formOpinion() {
-	time.Sleep(60 * time.Second)
+	time.Sleep(40 * time.Second)
 	logrus.Printf("forming opinions")
 	for name, _ := range neighbourhood {
 		startTime := findStartingTimeFromNeighbourhoodForNara(name)
