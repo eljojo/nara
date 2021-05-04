@@ -16,7 +16,7 @@ func measurePingForever() {
 		measureAndStorePing("google", "8.8.8.8")
 
 		for name, nara := range neighbourhood {
-			if nara.Status.Connected == "OFFLINE" {
+			if me.Status.Observations[nara.Name].Online == "OFFLINE" {
 				continue
 			}
 			measureAndStorePing(name, nara.Ip)

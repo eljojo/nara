@@ -17,8 +17,6 @@ func announce(client mqtt.Client) {
 	topic := fmt.Sprintf("%s/%s", "nara/newspaper", me.Name)
 	logrus.Debug("posting on", topic)
 
-	me.Status.LastSeen = time.Now().Unix()
-
 	payload, err := json.Marshal(me.Status)
 	if err != nil {
 		fmt.Println(err)
@@ -70,9 +68,13 @@ func newspaperHandler(client mqtt.Client, msg mqtt.Message) {
 
 	other, present := neighbourhood[from]
 	if present {
-		status.LastSeen = time.Now().Unix()
 		other.Status = status
 		neighbourhood[from] = other
+
+		observation, _ := me.Status.Observations[from]
+		observation.LastSeen = time.Now().Unix()
+		observation.Online = "ONLINE"
+		me.Status.Observations[from] = observation
 	} else {
 		logrus.Println("whodis?", from)
 		if me.Status.Chattiness > 0 {
@@ -90,9 +92,25 @@ func heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 		return
 	}
 
-	nara.Status.LastSeen = time.Now().Unix()
 	neighbourhood[nara.Name] = nara
-	logrus.Printf("%s: hey there!", nara.Name)
+
+	observation, seenBefore := me.Status.Observations[nara.Name]
+
+	if !seenBefore {
+		observation.StartTime = time.Now().Unix()
+	}
+
+	if observation.Online == "OFFLINE" {
+		observation.Restarts += 1
+		logrus.Printf("%s: hey there! (seen before)", nara.Name)
+	} else {
+		logrus.Printf("%s: hey there!", nara.Name)
+	}
+
+	observation.Online = "ONLINE"
+	observation.LastSeen = time.Now().Unix()
+	me.Status.Observations[nara.Name] = observation
+
 	// logrus.Printf("neighbourhood: %+v", neighbourhood)
 
 	// sleep some random amount to avoid ddosing new friends
@@ -129,8 +147,10 @@ func chauHandler(client mqtt.Client, msg mqtt.Message) {
 		return
 	}
 
-	nara.Status.LastSeen = time.Now().Unix()
-	nara.Status.Connected = "OFFLINE"
+	observation, _ := me.Status.Observations[nara.Name]
+	observation.Online = "OFFLINE"
+	observation.LastSeen = time.Now().Unix()
+	me.Status.Observations[nara.Name] = observation
 	neighbourhood[nara.Name] = nara
 
 	_, present := me.Status.PingStats[nara.Name]
@@ -145,7 +165,6 @@ func chau(client mqtt.Client) {
 	topic := "nara/plaza/chau"
 	logrus.Printf("posting to %s", topic)
 
-	me.Status.Connected = "OFFLINE"
 	payload, err := json.Marshal(me)
 	if err != nil {
 		fmt.Println(err)

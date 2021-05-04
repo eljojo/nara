@@ -17,24 +17,29 @@ import (
 )
 
 type Nara struct {
-	Name      string
-	Hostname  string
-	Ip        string
-	Status    NaraStatus
-	StartTime int64
+	Name     string
+	Hostname string
+	Ip       string
+	Status   NaraStatus
 }
 
 type NaraStatus struct {
-	PingStats  map[string]float64
-	HostStats  HostStats
-	LastSeen   int64
-	Chattiness int64
-	Connected  string
+	PingStats    map[string]float64
+	HostStats    HostStats
+	Chattiness   int64
+	Observations map[string]NaraObservation
 }
 
 type HostStats struct {
 	Uptime  uint64
 	LoadAvg float64
+}
+
+type NaraObservation struct {
+	Online    string
+	StartTime int64
+	Restarts  int64
+	LastSeen  int64
 }
 
 var me = &Nara{}
@@ -60,8 +65,7 @@ func main() {
 
 	me.Name = *naraIdPtr
 	me.Status.PingStats = make(map[string]float64)
-	me.StartTime = time.Now().Unix()
-	me.Status.LastSeen = time.Now().Unix()
+	me.Status.Observations = make(map[string]NaraObservation)
 	updateHostStats()
 
 	ip, err := externalIP()
@@ -74,7 +78,6 @@ func main() {
 
 	hostinfo, _ := host.Info()
 	me.Hostname = hostinfo.Hostname
-	me.Status.Connected = "ONLINE"
 
 	client := connectMQTT(*mqttHostPtr, *mqttUserPtr, *mqttPassPtr, *naraIdPtr)
 	go announceForever(client)
