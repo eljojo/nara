@@ -106,6 +106,13 @@ func recordObservationOnlineNara(name string) {
 	if observation.StartTime == 0 {
 		observation.StartTime = time.Now().Unix()
 		logrus.Printf("observation: seen %s for the first time", name)
+
+		startTime := findStartingTimeFromNeighbourhoodForNara(name)
+		if startTime > 0 {
+			observation, _ := me.Status.Observations[name]
+			observation.StartTime = startTime
+			logrus.Printf("adjusting start time for %s based on neighbours opinion", name)
+		}
 	}
 
 	if observation.Online == "OFFLINE" {
