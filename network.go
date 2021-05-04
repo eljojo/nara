@@ -201,7 +201,8 @@ func findStartingTimeFromNeighbourhoodForNara(name string) int64 {
 		if startTime == 0 && observed_start_time > 0 {
 			startTime = observed_start_time
 		}
-		if startTime != observed_start_time && observed_start_time > 0 {
+		if startTime > 0 && startTime != observed_start_time && observed_start_time > 0 {
+			logrus.Printf("giving up on finding starting time for %s, %s has inconsistent data", name, nara.Name)
 			return 0
 		}
 	}
