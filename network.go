@@ -101,9 +101,9 @@ func heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 }
 
 func recordObservationOnlineNara(name string) {
-	observation, seenBefore := me.Status.Observations[name]
+	observation, _ := me.Status.Observations[name]
 
-	if !seenBefore {
+	if observation.StartTime == 0 {
 		observation.StartTime = time.Now().Unix()
 		logrus.Printf("observation: seen %s for the first time", name)
 	}
