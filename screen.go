@@ -30,28 +30,14 @@ func printNeigbourhoodForever(refreshRate int) {
 }
 
 func printNeigbourhood() {
-	now := time.Now().Unix()
-
 	printer := tableprinter.New(os.Stdout)
 	naras := make([]neighbour, 0, len(neighbourhood)+1)
 
-	observation, _ := me.Status.Observations[me.Name]
-	lastSeen := fmt.Sprintf("%ds ago", now-observation.LastSeen)
-	uptime := fmt.Sprintf("%ds", observation.LastSeen-observation.LastRestart)
-	nei := neighbour{me.Name, me.Ip, "", lastSeen, uptime, "", me.Status.HostStats.LoadAvg, observation.Restarts, me.Status.Chattiness}
+	nei := generateScreenRow(*me)
 	naras = append(naras, nei)
 
 	for _, nara := range neighbourhood {
-		ping := pingBetweenMs(*me, nara)
-		observation, _ := me.Status.Observations[nara.Name]
-		lastSeen := fmt.Sprintf("%ds ago", now-observation.LastSeen)
-		uptime := fmt.Sprintf("%ds", observation.LastSeen-observation.LastRestart)
-		first_seen := time.Unix(observation.StartTime, 0).Format("Jan 2")
-		if observation.Online != "ONLINE" {
-			ping = observation.Online
-		}
-		loadAvg := nara.Status.HostStats.LoadAvg
-		nei := neighbour{nara.Name, nara.Ip, ping, lastSeen, uptime, first_seen, loadAvg, observation.Restarts, nara.Status.Chattiness}
+		nei := generateScreenRow(nara)
 		naras = append(naras, nei)
 	}
 
@@ -69,4 +55,22 @@ func printNeigbourhood() {
 
 	// Print the slice of structs as table, as shown above.
 	printer.Print(naras)
+}
+
+func generateScreenRow(nara Nara) neighbour {
+	now := time.Now().Unix()
+	ping := ""
+	if nara.Name != me.Name {
+		ping = pingBetweenMs(*me, nara)
+	}
+	observation, _ := me.Status.Observations[nara.Name]
+	lastSeen := fmt.Sprintf("%ds ago", now-observation.LastSeen)
+	uptime := fmt.Sprintf("%ds", observation.LastSeen-observation.LastRestart)
+	first_seen := fmt.Sprintf("%d days ago", (now-observation.StartTime)/86400)
+	if observation.Online != "ONLINE" {
+		ping = observation.Online
+	}
+	loadAvg := nara.Status.HostStats.LoadAvg
+	nei := neighbour{nara.Name, nara.Ip, ping, lastSeen, uptime, first_seen, loadAvg, observation.Restarts, nara.Status.Chattiness}
+	return nei
 }
