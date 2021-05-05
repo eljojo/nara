@@ -89,9 +89,10 @@ func heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 		return
 	}
 
-	recordObservationOnlineNara(nara.Name)
 	neighbourhood[nara.Name] = nara
 	logrus.Printf("%s: hey there!", nara.Name)
+	recordObservationOnlineNara(nara.Name)
+
 	// logrus.Printf("neighbourhood: %+v", neighbourhood)
 
 	// sleep some random amount to avoid ddosing new friends
@@ -109,9 +110,7 @@ func recordObservationOnlineNara(name string) {
 
 		startTime := findStartingTimeFromNeighbourhoodForNara(name)
 		if startTime > 0 {
-			observation, _ := me.Status.Observations[name]
 			observation.StartTime = startTime
-			logrus.Printf("adjusting start time for %s based on neighbours opinion", name)
 		}
 	}
 
@@ -184,13 +183,18 @@ func formOpinion() {
 	time.Sleep(60 * time.Second)
 	logrus.Printf("forming opinions")
 	for name, _ := range neighbourhood {
+		observation, _ := me.Status.Observations[name]
 		startTime := findStartingTimeFromNeighbourhoodForNara(name)
 		if startTime > 0 {
-			observation, _ := me.Status.Observations[name]
 			observation.StartTime = startTime
 			logrus.Printf("adjusting start time for %s based on neighbours opinion", name)
-			me.Status.Observations[name] = observation
 		}
+		restarts := findRestartCountFromNeighbourhoodForNara(name)
+		if restarts > 0 {
+			logrus.Printf("adjusting restart count to %d for %s based on neighbours opinion", restarts, name)
+			observation.Restarts = restarts
+		}
+		me.Status.Observations[name] = observation
 	}
 }
 
@@ -205,15 +209,37 @@ func findStartingTimeFromNeighbourhoodForNara(name string) int64 {
 	}
 
 	var startTime int64
-	maxCount := 0
+	maxSeen := 0
 	one_third := len(times) / 3
 
 	for time, count := range times {
-		if count > maxCount && count > one_third {
-			maxCount = count
+		if count > maxSeen && count > one_third {
+			maxSeen = count
 			startTime = time
 		}
 	}
 
 	return startTime
+}
+
+func findRestartCountFromNeighbourhoodForNara(name string) int64 {
+	values := make(map[int64]int)
+
+	for _, nara := range neighbourhood {
+		restarts := nara.Status.Observations[name].Restarts
+		values[restarts] += 1
+	}
+
+	var result int64
+	maxSeen := 0
+	one_third := len(values) / 3
+
+	for restarts, count := range values {
+		if count > maxSeen && count > one_third {
+			maxSeen = count
+			result = restarts
+		}
+	}
+
+	return result
 }
