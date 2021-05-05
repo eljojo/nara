@@ -114,13 +114,14 @@ func recordObservationOnlineNara(name string) {
 
 		observation.Restarts = findRestartCountFromNeighbourhoodForNara(name)
 		observation.StartTime = findStartingTimeFromNeighbourhoodForNara(name)
-
-		if observation.LastRestart == 0 {
-			observation.LastRestart = time.Now().Unix()
-		}
+		observation.LastRestart = findLastRestartFromNeighbourhoodForNara(name)
 
 		if observation.StartTime == 0 {
 			observation.StartTime = time.Now().Unix()
+		}
+
+		if observation.LastRestart == 0 && name == me.Name {
+			observation.LastRestart = time.Now().Unix()
 		}
 	}
 
@@ -205,6 +206,11 @@ func formOpinion() {
 			logrus.Printf("adjusting restart count to %d for %s based on neighbours opinion", restarts, name)
 			observation.Restarts = restarts
 		}
+		lastRestart := findLastRestartFromNeighbourhoodForNara(name)
+		if lastRestart > 0 {
+			logrus.Printf("adjusting last restart date for %s based on neighbours opinion", name)
+			observation.LastRestart = lastRestart
+		}
 		me.Status.Observations[name] = observation
 	}
 }
@@ -249,6 +255,29 @@ func findRestartCountFromNeighbourhoodForNara(name string) int64 {
 		if count > maxSeen && count > one_third {
 			maxSeen = count
 			result = restarts
+		}
+	}
+
+	return result
+}
+func findLastRestartFromNeighbourhoodForNara(name string) int64 {
+	values := make(map[int64]int)
+
+	for _, nara := range neighbourhood {
+		last_restart := nara.Status.Observations[name].LastRestart
+		if last_restart > 0 {
+			values[last_restart] += 1
+		}
+	}
+
+	var result int64
+	maxSeen := 0
+	one_third := len(values) / 3
+
+	for last_restart, count := range values {
+		if count > maxSeen && count > one_third {
+			maxSeen = count
+			result = last_restart
 		}
 	}
 

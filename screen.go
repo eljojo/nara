@@ -71,6 +71,9 @@ func generateScreenRow(nara Nara) neighbour {
 	lastSeen := timeAgoFriendly(now - observation.LastSeen)
 	first_seen := timeAgoFriendly(now - observation.StartTime)
 	uptime := timeDiffFriendly(observation.LastSeen - observation.LastRestart)
+	if observation.LastRestart == 0 {
+		uptime = "?"
+	}
 	if observation.Online != "ONLINE" {
 		ping = observation.Online
 	}
