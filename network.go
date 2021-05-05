@@ -105,12 +105,14 @@ func recordObservationOnlineNara(name string) {
 	observation, _ := me.Status.Observations[name]
 
 	if observation.StartTime == 0 {
-		observation.StartTime = time.Now().Unix()
 		logrus.Printf("observation: seen %s for the first time", name)
 
-		startTime := findStartingTimeFromNeighbourhoodForNara(name)
-		if startTime > 0 {
-			observation.StartTime = startTime
+		// seed with values from neighbours when seen for the first time
+		observation.Restarts = findRestartCountFromNeighbourhoodForNara(name)
+		observation.StartTime = findStartingTimeFromNeighbourhoodForNara(name)
+
+		if observation.StartTime == 0 {
+			observation.StartTime = time.Now().Unix()
 		}
 	}
 
