@@ -17,9 +17,11 @@ func measurePingForever() {
 		measureAndStorePing("google", "8.8.8.8")
 
 		for name, nara := range neighbourhood {
-			if me.Status.Observations[nara.Name].Online == "OFFLINE" {
+			if me.Status.Observations[nara.Name].Online != "ONLINE" {
+				delete(me.Status.PingStats, name)
 				continue
 			}
+
 			measureAndStorePing(name, nara.Ip)
 		}
 		ts := chattinessRate(*me, 5, 120)
@@ -33,15 +35,6 @@ func measureAndStorePing(name string, dest string) {
 		me.Status.PingStats[name] = ping
 	} else {
 		// logrus.Println("problem when pinging", dest, err)
-
-		// mark as missing when ping fails and last update was more than 2 minutes ago
-		observation, _ := me.Status.Observations[name]
-		now := time.Now().Unix()
-		if (now-observation.LastSeen) > 240 && !skippingEvents {
-			observation.Online = "MISSING"
-			me.Status.Observations[name] = observation
-		}
-
 		delete(me.Status.PingStats, name)
 	}
 }

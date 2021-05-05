@@ -283,3 +283,23 @@ func findLastRestartFromNeighbourhoodForNara(name string) int64 {
 
 	return result
 }
+
+func observationMaintenance() {
+	for {
+		now := time.Now().Unix()
+
+		for name, observation := range me.Status.Observations {
+			if observation.Online == "ONLINE" {
+				continue
+			}
+
+			if (now-observation.LastSeen) > 240 && !skippingEvents {
+				observation.Online = "MISSING"
+				me.Status.Observations[name] = observation
+				logrus.Printf("observation: %s has disappeared", name)
+			}
+		}
+
+		time.Sleep(5 * time.Second)
+	}
+}
