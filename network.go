@@ -289,7 +289,8 @@ func observationMaintenance() {
 		now := time.Now().Unix()
 
 		for name, observation := range me.Status.Observations {
-			if observation.Online == "ONLINE" {
+			// only do maintenance on naras that are online
+			if observation.Online != "ONLINE" {
 				continue
 			}
 
