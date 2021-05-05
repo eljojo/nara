@@ -30,6 +30,10 @@ func printNeigbourhoodForever(refreshRate int) {
 }
 
 func printNeigbourhood() {
+	if len(neighbourhood) == 0 {
+		return
+	}
+
 	printer := tableprinter.New(os.Stdout)
 	naras := make([]neighbour, 0, len(neighbourhood)+1)
 
@@ -64,13 +68,31 @@ func generateScreenRow(nara Nara) neighbour {
 		ping = pingBetweenMs(*me, nara)
 	}
 	observation, _ := me.Status.Observations[nara.Name]
-	lastSeen := fmt.Sprintf("%ds ago", now-observation.LastSeen)
-	uptime := fmt.Sprintf("%ds", observation.LastSeen-observation.LastRestart)
-	first_seen := fmt.Sprintf("%d days ago", (now-observation.StartTime)/86400)
+	lastSeen := timeAgoFriendly(now - observation.LastSeen)
+	first_seen := timeAgoFriendly(now - observation.StartTime)
+	uptime := timeDiffFriendly(observation.LastSeen - observation.LastRestart)
 	if observation.Online != "ONLINE" {
 		ping = observation.Online
 	}
 	loadAvg := nara.Status.HostStats.LoadAvg
 	nei := neighbour{nara.Name, nara.Ip, ping, lastSeen, uptime, first_seen, loadAvg, observation.Restarts, nara.Status.Chattiness}
 	return nei
+}
+
+func timeAgoFriendly(running_time int64) string {
+	return fmt.Sprintf("%s ago", timeDiffFriendly(running_time))
+}
+
+func timeDiffFriendly(running_time int64) string {
+	first_seen := ""
+	if running_time > 86400 {
+		first_seen = fmt.Sprintf("%d days", running_time/86400)
+	} else if running_time > 3600 {
+		first_seen = fmt.Sprintf("%d hours", running_time/3600)
+	} else if running_time > 60 {
+		first_seen = fmt.Sprintf("%d mins", running_time/60)
+	} else {
+		first_seen = fmt.Sprintf("%ds", running_time)
+	}
+	return first_seen
 }
