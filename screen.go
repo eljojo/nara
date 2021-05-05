@@ -85,11 +85,11 @@ func timeAgoFriendly(running_time int64) string {
 
 func timeDiffFriendly(running_time int64) string {
 	first_seen := ""
-	if running_time > 86400 {
+	if running_time >= (3600 * 24 * 2) {
 		first_seen = fmt.Sprintf("%d days", running_time/86400)
-	} else if running_time > 3600 {
+	} else if running_time >= (3600 * 2) {
 		first_seen = fmt.Sprintf("%d hours", running_time/3600)
-	} else if running_time > 60 {
+	} else if running_time >= 120 {
 		first_seen = fmt.Sprintf("%d mins", running_time/60)
 	} else {
 		first_seen = fmt.Sprintf("%ds", running_time)
