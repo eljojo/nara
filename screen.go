@@ -34,7 +34,10 @@ func printNeigbourhood() {
 	printer := tableprinter.New(os.Stdout)
 	naras := make([]neighbour, 0, len(neighbourhood)+1)
 
-	nei := neighbour{me.Name, me.Ip, "", "", "", me.Status.HostStats.LoadAvg, 0, me.Status.Chattiness}
+	observation, _ := me.Status.Observations[me.Name]
+	lastSeen := fmt.Sprintf("%ds ago", now-observation.LastSeen)
+	uptime := fmt.Sprintf("%ds", observation.LastSeen-observation.StartTime)
+	nei := neighbour{me.Name, me.Ip, "", lastSeen, uptime, me.Status.HostStats.LoadAvg, observation.Restarts, me.Status.Chattiness}
 	naras = append(naras, nei)
 
 	for _, nara := range neighbourhood {

@@ -17,6 +17,9 @@ func announce(client mqtt.Client) {
 	topic := fmt.Sprintf("%s/%s", "nara/newspaper", me.Name)
 	logrus.Debug("posting on", topic)
 
+	// update neighbour's opinion on us
+	recordObservationOnlineNara(me.Name)
+
 	payload, err := json.Marshal(me.Status)
 	if err != nil {
 		fmt.Println(err)
