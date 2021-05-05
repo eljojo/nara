@@ -66,13 +66,14 @@ func updateHostStats() {
 	me.Status.HostStats.Uptime = uptime
 
 	load, _ := load.Avg()
-	me.Status.HostStats.LoadAvg = load.Load1 / float64(runtime.NumCPU())
+	loadavg := load.Load1 / float64(runtime.NumCPU())
+	me.Status.HostStats.LoadAvg = loadavg
 
 	if forceChattiness >= 0 && forceChattiness <= 100 {
 		me.Status.Chattiness = int64(forceChattiness)
 	} else {
-		if load.Load1 < 1 {
-			me.Status.Chattiness = int64((1 - load.Load1) * 100)
+		if loadavg < 1 {
+			me.Status.Chattiness = int64((1 - loadavg) * 100)
 		} else {
 			me.Status.Chattiness = 0
 		}
