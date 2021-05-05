@@ -74,7 +74,7 @@ func newspaperHandler(client mqtt.Client, msg mqtt.Message) {
 		other.Status = status
 		neighbourhood[from] = other
 	} else {
-		logrus.Println("whodis?", from)
+		logrus.Printf("%s posted a newspaper story (whodis?)", from)
 		if me.Status.Chattiness > 0 {
 			heyThere(client)
 		}
@@ -93,7 +93,7 @@ func heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 	}
 
 	neighbourhood[nara.Name] = nara
-	logrus.Printf("%s: hey there!", nara.Name)
+	logrus.Printf("%s says: hey there!", nara.Name)
 	recordObservationOnlineNara(nara.Name)
 
 	// logrus.Printf("neighbourhood: %+v", neighbourhood)
