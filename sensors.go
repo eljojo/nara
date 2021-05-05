@@ -8,6 +8,7 @@ import (
 	"github.com/shirou/gopsutil/load"
 	"github.com/sirupsen/logrus"
 	"net"
+	"runtime"
 	"time"
 )
 
@@ -65,7 +66,7 @@ func updateHostStats() {
 	me.Status.HostStats.Uptime = uptime
 
 	load, _ := load.Avg()
-	me.Status.HostStats.LoadAvg = load.Load1
+	me.Status.HostStats.LoadAvg = load.Load1 / float64(runtime.NumCPU())
 
 	if forceChattiness >= 0 && forceChattiness <= 100 {
 		me.Status.Chattiness = int64(forceChattiness)
