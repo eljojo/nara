@@ -111,7 +111,6 @@ func recordObservationOnlineNara(name string) {
 	if is_empty_observation || name == me.Name {
 		if name != me.Name {
 			logrus.Printf("observation: seen %s for the first time", name)
-			observation.LastRestart = time.Now().Unix()
 		}
 
 		observation.Restarts = findRestartCountFromNeighbourhoodForNara(name)
@@ -120,6 +119,9 @@ func recordObservationOnlineNara(name string) {
 
 	if observation.StartTime == 0 {
 		observation.StartTime = time.Now().Unix()
+	}
+	if observation.LastRestart == 0 {
+		observation.LastRestart = time.Now().Unix()
 	}
 
 	if observation.Online == "OFFLINE" {

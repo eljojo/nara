@@ -37,7 +37,7 @@ func printNeigbourhood() {
 
 	observation, _ := me.Status.Observations[me.Name]
 	lastSeen := fmt.Sprintf("%ds ago", now-observation.LastSeen)
-	uptime := fmt.Sprintf("%ds", observation.LastSeen-observation.StartTime)
+	uptime := fmt.Sprintf("%ds", observation.LastSeen-observation.LastRestart)
 	nei := neighbour{me.Name, me.Ip, "", lastSeen, uptime, "", me.Status.HostStats.LoadAvg, observation.Restarts, me.Status.Chattiness}
 	naras = append(naras, nei)
 
@@ -46,7 +46,7 @@ func printNeigbourhood() {
 		observation, _ := me.Status.Observations[nara.Name]
 		lastSeen := fmt.Sprintf("%ds ago", now-observation.LastSeen)
 		uptime := fmt.Sprintf("%ds", observation.LastSeen-observation.LastRestart)
-		first_seen := time.Unix(observation.StartTime, 0).Format("Jan 2nd")
+		first_seen := time.Unix(observation.StartTime, 0).Format("Jan 2")
 		if observation.Online != "ONLINE" {
 			ping = observation.Online
 		}
