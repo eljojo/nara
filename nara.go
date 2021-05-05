@@ -36,10 +36,11 @@ type HostStats struct {
 }
 
 type NaraObservation struct {
-	Online    string
-	StartTime int64
-	Restarts  int64
-	LastSeen  int64
+	Online      string
+	StartTime   int64
+	Restarts    int64
+	LastSeen    int64
+	LastRestart int64
 }
 
 var me = &Nara{}

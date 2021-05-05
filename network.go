@@ -106,23 +106,25 @@ func heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 
 func recordObservationOnlineNara(name string) {
 	observation, _ := me.Status.Observations[name]
+	is_empty_observation := (NaraObservation{}) == observation
 
-	// seed with values from neighbours when seen for the first time
-	if observation.StartTime == 0 || name == me.Name {
+	if is_empty_observation || name == me.Name {
 		if name != me.Name {
 			logrus.Printf("observation: seen %s for the first time", name)
+			observation.LastRestart = time.Now().Unix()
 		}
 
 		observation.Restarts = findRestartCountFromNeighbourhoodForNara(name)
 		observation.StartTime = findStartingTimeFromNeighbourhoodForNara(name)
+	}
 
-		if observation.StartTime == 0 {
-			observation.StartTime = time.Now().Unix()
-		}
+	if observation.StartTime == 0 {
+		observation.StartTime = time.Now().Unix()
 	}
 
 	if observation.Online == "OFFLINE" {
 		observation.Restarts += 1
+		observation.LastRestart = time.Now().Unix()
 		logrus.Printf("observation: %s came back online", name)
 	}
 
