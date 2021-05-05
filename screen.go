@@ -16,6 +16,7 @@ type neighbour struct {
 	Ping       string  `header:"ping"`
 	LastSeen   string  `header:"last seen"`
 	Uptime     string  `header:"uptime"`
+	FirstSeen  string  `header:"first seen"`
 	Load       float64 `header:"load"`
 	Restarts   int64   `header:"restarts"`
 	Chattiness int64   `header:"chat"`
@@ -37,19 +38,20 @@ func printNeigbourhood() {
 	observation, _ := me.Status.Observations[me.Name]
 	lastSeen := fmt.Sprintf("%ds ago", now-observation.LastSeen)
 	uptime := fmt.Sprintf("%ds", observation.LastSeen-observation.StartTime)
-	nei := neighbour{me.Name, me.Ip, "", lastSeen, uptime, me.Status.HostStats.LoadAvg, observation.Restarts, me.Status.Chattiness}
+	nei := neighbour{me.Name, me.Ip, "", lastSeen, uptime, "", me.Status.HostStats.LoadAvg, observation.Restarts, me.Status.Chattiness}
 	naras = append(naras, nei)
 
 	for _, nara := range neighbourhood {
 		ping := pingBetweenMs(*me, nara)
 		observation, _ := me.Status.Observations[nara.Name]
 		lastSeen := fmt.Sprintf("%ds ago", now-observation.LastSeen)
-		uptime := fmt.Sprintf("%ds", observation.LastSeen-observation.StartTime)
+		uptime := fmt.Sprintf("%ds", observation.LastSeen-observation.LastRestart)
+		first_seen := time.Unix(observation.StartTime, 0).Format("Jan 2nd")
 		if observation.Online != "ONLINE" {
 			ping = observation.Online
 		}
 		loadAvg := nara.Status.HostStats.LoadAvg
-		nei := neighbour{nara.Name, nara.Ip, ping, lastSeen, uptime, loadAvg, observation.Restarts, nara.Status.Chattiness}
+		nei := neighbour{nara.Name, nara.Ip, ping, lastSeen, uptime, first_seen, loadAvg, observation.Restarts, nara.Status.Chattiness}
 		naras = append(naras, nei)
 	}
 
