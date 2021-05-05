@@ -33,6 +33,15 @@ func measureAndStorePing(name string, dest string) {
 		me.Status.PingStats[name] = ping
 	} else {
 		// logrus.Println("problem when pinging", dest, err)
+
+		// mark as missing when ping fails and last update was more than 2 minutes ago
+		observation, _ := me.Status.Observations[name]
+		now := time.Now().Unix()
+		if (now-observation.LastSeen) > 240 && !skippingEvents {
+			observation.Online = "MISSING"
+			me.Status.Observations[name] = observation
+		}
+
 		delete(me.Status.PingStats, name)
 	}
 }
