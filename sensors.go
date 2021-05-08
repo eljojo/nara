@@ -9,6 +9,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"net"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -134,8 +135,8 @@ func externalIP() (string, error) {
 				continue // not an ipv4 address
 			}
 
-			// HACK
-			if ip.String() == "192.168.0.2" {
+			// skip non-tailscale IPs
+			if !strings.HasPrefix(ip.String(), "100.") {
 				continue
 			}
 
