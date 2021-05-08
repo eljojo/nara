@@ -125,7 +125,7 @@ func recordObservationOnlineNara(name string) {
 		}
 	}
 
-	if observation.Online != "ONLINE" {
+	if observation.Online != "ONLINE" && observation.Online != "" {
 		observation.Restarts += 1
 		observation.LastRestart = time.Now().Unix()
 		logrus.Printf("observation: %s came back online", name)
