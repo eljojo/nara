@@ -31,7 +31,7 @@ func announce(client mqtt.Client) {
 
 func announceForever(client mqtt.Client) {
 	for {
-		ts := chattinessRate(*me, 5, 60)
+		ts := chattinessRate(*me, 20, 30)
 		time.Sleep(time.Duration(ts) * time.Second)
 
 		announce(client)
@@ -96,11 +96,6 @@ func heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 	logrus.Printf("%s says: hey there!", nara.Name)
 	recordObservationOnlineNara(nara.Name)
 
-	// logrus.Printf("neighbourhood: %+v", neighbourhood)
-
-	// sleep some random amount to avoid ddosing new friends
-	time.Sleep(time.Duration(rand.Intn(10)) * time.Second)
-
 	heyThere(client)
 }
 
@@ -137,7 +132,7 @@ func recordObservationOnlineNara(name string) {
 }
 
 func heyThere(client mqtt.Client) {
-	ts := chattinessRate(*me, 45, 60)
+	ts := chattinessRate(*me, 10, 20)
 	if (time.Now().Unix() - lastHeyThere) <= ts {
 		return
 	}
@@ -192,7 +187,7 @@ func chau(client mqtt.Client) {
 }
 
 func formOpinion() {
-	time.Sleep(60 * time.Second)
+	time.Sleep(40 * time.Second)
 	logrus.Printf("forming opinions")
 	for name, _ := range neighbourhood {
 		observation, _ := me.Status.Observations[name]
@@ -302,6 +297,6 @@ func observationMaintenance() {
 			}
 		}
 
-		time.Sleep(5 * time.Second)
+		time.Sleep(1 * time.Second)
 	}
 }
