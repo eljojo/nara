@@ -96,6 +96,9 @@ func heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 	logrus.Printf("%s says: hey there!", nara.Name)
 	recordObservationOnlineNara(nara.Name)
 
+	// sleep some random amount to avoid ddosing new friends
+	time.Sleep(time.Duration(rand.Intn(3)) * time.Second)
+
 	heyThere(client)
 }
 
