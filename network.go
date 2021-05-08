@@ -137,7 +137,7 @@ func recordObservationOnlineNara(name string) {
 }
 
 func heyThere(client mqtt.Client) {
-	ts := chattinessRate(*me, 45, 120)
+	ts := chattinessRate(*me, 45, 60)
 	if (time.Now().Unix() - lastHeyThere) <= ts {
 		return
 	}
