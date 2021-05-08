@@ -70,6 +70,9 @@ func generateScreenRow(nara Nara) neighbour {
 	observation, _ := me.Status.Observations[nara.Name]
 	lastSeen := timeAgoFriendly(now - observation.LastSeen)
 	first_seen := timeAgoFriendly(now - observation.StartTime)
+	if observation.StartTime == 0 {
+		first_seen = "?"
+	}
 	uptime := timeDiffFriendly(observation.LastSeen - observation.LastRestart)
 	if observation.LastRestart == 0 {
 		uptime = "?"

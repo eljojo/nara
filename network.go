@@ -116,7 +116,7 @@ func recordObservationOnlineNara(name string) {
 		observation.StartTime = findStartingTimeFromNeighbourhoodForNara(name)
 		observation.LastRestart = findLastRestartFromNeighbourhoodForNara(name)
 
-		if observation.StartTime == 0 {
+		if observation.StartTime == 0 && name == me.Name {
 			observation.StartTime = time.Now().Unix()
 		}
 
