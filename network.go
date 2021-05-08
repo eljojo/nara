@@ -294,7 +294,8 @@ func observationMaintenance() {
 				continue
 			}
 
-			if (now-observation.LastSeen) > 240 && !skippingEvents {
+			// mark missing after 100 seconds of no updates
+			if (now-observation.LastSeen) > 100 && !skippingEvents {
 				observation.Online = "MISSING"
 				me.Status.Observations[name] = observation
 				logrus.Printf("observation: %s has disappeared", name)
