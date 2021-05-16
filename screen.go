@@ -12,7 +12,7 @@ import (
 
 type neighbour struct {
 	Name       string  `header:"name"`
-	Ip         string  `header:"IP"`
+	Cluster    string  `header:"Barrio"`
 	Ping       string  `header:"ping"`
 	LastSeen   string  `header:"last seen"`
 	Uptime     string  `header:"uptime"`
@@ -81,7 +81,7 @@ func generateScreenRow(nara Nara) neighbour {
 		ping = observation.Online
 	}
 	loadAvg := nara.Status.HostStats.LoadAvg
-	nei := neighbour{nara.Name, nara.Ip, ping, lastSeen, uptime, first_seen, loadAvg, observation.Restarts, nara.Status.Chattiness}
+	nei := neighbour{nara.Name, observation.ClusterName, ping, lastSeen, uptime, first_seen, loadAvg, observation.Restarts, nara.Status.Chattiness}
 	return nei
 }
 

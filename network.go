@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"github.com/pbnjay/clustering"
 	"github.com/sirupsen/logrus"
 	"math/rand"
+	"sort"
 	"strings"
 	"time"
 )
@@ -297,6 +299,75 @@ func observationMaintenance() {
 			}
 		}
 
+		calculateClusters()
+
 		time.Sleep(1 * time.Second)
+	}
+}
+
+func calculateClusters() {
+	clusterNames := []string{"olive", "terracotta", "peach", "sand", "ocean", "basil", "papaya"}
+
+	distanceMap := make(clustering.DistanceMap)
+
+	// first create distance map with all pings from the perspective of each neighbour
+	for _, nara := range neighbourhood {
+		distanceMap[nara.Name] = make(map[clustering.ClusterItem]float64)
+		for otherNara, ping := range nara.Status.PingStats {
+			if otherNara == "google" {
+				continue
+			}
+			distanceMap[nara.Name][otherNara] = ping
+		}
+
+		// reset observations for offline naras
+		observation, _ := me.Status.Observations[nara.Name]
+		observation.ClusterName = ""
+		me.Status.Observations[nara.Name] = observation
+	}
+
+	// add own ping stats
+	distanceMap[me.Name] = make(map[clustering.ClusterItem]float64)
+	for otherNara, ping := range me.Status.PingStats {
+		if otherNara == "google" {
+			continue
+		}
+		distanceMap[me.Name][otherNara] = ping
+	}
+
+	// find clusters
+	clusters := clustering.NewDistanceMapClusterSet(distanceMap)
+	clustering.Cluster(clusters, clustering.Threshold(10), clustering.CompleteLinkage())
+
+	// create new slice containing clusters for custom sorting
+	res := make([][]string, 0)
+	clusters.EachCluster(-1, func(clusterIndex int) {
+		cl := make([]string, 0)
+		clusters.EachItem(clusterIndex, func(nameInterface clustering.ClusterItem) {
+			name := nameInterface.(string)
+			cl = append(cl, name)
+		})
+		res = append(res, cl)
+	})
+
+	// sort clusters by the total length of their memeber's names
+	sort.Slice(res, func(i, j int) bool {
+		suma := 0
+		sumb := 0
+		for _, v := range res[i] {
+			suma += len(v)
+		}
+		for _, v := range res[j] {
+			sumb += len(v)
+		}
+		return suma > sumb
+	})
+
+	for clusterIndex, cluster := range res {
+		for _, name := range cluster {
+			observation, _ := me.Status.Observations[name]
+			observation.ClusterName = clusterNames[clusterIndex]
+			me.Status.Observations[name] = observation
+		}
 	}
 }

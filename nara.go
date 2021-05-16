@@ -41,6 +41,7 @@ type NaraObservation struct {
 	Restarts    int64
 	LastSeen    int64
 	LastRestart int64
+	ClusterName string
 }
 
 var me = &Nara{}
