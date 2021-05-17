@@ -16,3 +16,5 @@ for m in ${deployMachines[@]}; do
   echo "sleeping for 65 seconds to stabilize narae memory"
   sleep 65
 done
+
+echo "deploy finished, congrats :-)"
