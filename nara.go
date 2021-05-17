@@ -25,6 +25,7 @@ type Nara struct {
 
 type NaraStatus struct {
 	PingStats    map[string]float64
+	Barrio       string
 	HostStats    HostStats
 	Chattiness   int64
 	Observations map[string]NaraObservation

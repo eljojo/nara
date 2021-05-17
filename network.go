@@ -305,9 +305,9 @@ func observationMaintenance() {
 	}
 }
 
-func calculateClusters() {
-	clusterNames := []string{"olive", "terracotta", "peach", "sand", "ocean", "basil", "papaya"}
+var clusterNames = []string{"olive", "terracotta", "peach", "sand", "ocean", "basil", "papaya"}
 
+func calculateClusters() {
 	distanceMap := make(clustering.DistanceMap)
 
 	// first create distance map with all pings from the perspective of each neighbour
@@ -370,4 +370,7 @@ func calculateClusters() {
 			me.Status.Observations[name] = observation
 		}
 	}
+
+	observation, _ := me.Status.Observations[me.Name]
+	me.Status.Barrio = observation.ClusterName
 }
