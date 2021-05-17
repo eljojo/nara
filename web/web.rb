@@ -16,11 +16,12 @@ class NaraWeb
     loop do
       name, status = @client.fetch
       next unless name
+
       @db[name] = status
       @db[name]["LastSeen"] = Time.now.to_i
 
       calculate_verdict!
-      @db.to_a.sort_by { |name, data| data.dig("Verdict", "ClusterName") || name }.to_h
+      @db = @db.to_a.sort_by { |name, data| data.dig("Verdict", "ClusterName") || name }.to_h
     end
   end
 
