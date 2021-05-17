@@ -62,4 +62,4 @@ function NaraList() {
 }
 
 const domContainer = document.querySelector('#naras_container');
-ReactDOM.render(e(NaraList), domContainer);
+ReactDOM.render(React.createElement(NaraList), domContainer);
