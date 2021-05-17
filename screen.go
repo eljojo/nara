@@ -68,6 +68,7 @@ func generateScreenRow(nara Nara) neighbour {
 		ping = pingBetweenMs(*me, nara)
 	}
 	observation, _ := me.Status.Observations[nara.Name]
+	self_observation, _ := nara.Status.Observations[nara.Name]
 	lastSeen := timeAgoFriendly(now - observation.LastSeen)
 	first_seen := timeAgoFriendly(now - observation.StartTime)
 	if observation.StartTime == 0 {
@@ -81,7 +82,7 @@ func generateScreenRow(nara Nara) neighbour {
 		ping = observation.Online
 	}
 	loadAvg := nara.Status.HostStats.LoadAvg
-	nei := neighbour{nara.Name, observation.ClusterName, ping, lastSeen, uptime, first_seen, loadAvg, observation.Restarts, nara.Status.Chattiness}
+	nei := neighbour{nara.Name, self_observation.ClusterName, ping, lastSeen, uptime, first_seen, loadAvg, observation.Restarts, nara.Status.Chattiness}
 	return nei
 }
 
