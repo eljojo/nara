@@ -3,7 +3,6 @@
   <head>
     <meta charset="utf-8" />
     <title>nara</title>
-    <script src="https://code.jquery.com/jquery-3.6.0.js" crossorigin="anonymous"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.1/moment.min.js" crossorigin="anonymous"></script>
     <style>
     body {
@@ -17,55 +16,10 @@
   </style>
   </head>
   <body>
-    <table id="naras">
-      <tr>
-        <th>Name</th>
-        <th>Neighbourhood</th>
-        <th>Nara</th>
-        <th>Last Ping</th>
-        <th>Nara Uptime</th>
-        <th>Nara Lifetime</th>
-        <th>Restarts</th>
-        <th>Host Uptime</th>
-      </tr>
-    </table>
-  <script>
-    $(function() {
-          var $naras = $("#naras");
-          var updateNara = function(name, data) {
-                var ver = data.Verdict;
-                var $nara = $("#nara-" + name)
-                if ($nara.length == 0) {
-                      $nara = $("<tr>").attr("id", "nara-" + name)
-                      $nara.append($("<td>").addClass("name"))
-                      $nara.append($("<td>").addClass("barrio"))
-                      $nara.append($("<td>").addClass("online"))
-                      $nara.append($("<td>").addClass("last_seen"))
-                      $nara.append($("<td>").addClass("last_restart"))
-                      $nara.append($("<td>").addClass("first_seen"))
-                      $nara.append($("<td>").addClass("restarts"))
-                      $nara.append($("<td>").addClass("uptime"))
-                      $naras.append($nara);
-                }
-                $nara.find(".name").text(name)
-                $nara.find(".barrio").text(ver.ClusterName)
-                $nara.find(".online").text(ver.Online)
-                $nara.find(".restarts").text(ver.Restarts)
-                $nara.find(".last_seen").text(moment(ver.LastSeen * 1000).fromNow())
-                $nara.find(".last_restart").text(moment(ver.LastRestart * 1000).fromNow(true ))
-                $nara.find(".first_seen").text(moment(ver.StartTime * 1000).fromNow(true))
-                var uptime = moment().to((moment().unix() - data.HostStats.Uptime) * 1000, true);
-                $nara.find(".uptime").text(uptime)
-              }
-          var updateNaras = function(data) {
-                for (const name in data) {
-                      updateNara(name, data[name]);
-                    }
-          };
-          setInterval(function() {
-                $.ajax({url: '/api.json' }).done(updateNaras);
-              }, 1000);
-      });
-  </script>
+    <div id="naras_container"></div>
+    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+    <script src="https://unpkg.com/react@17/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js" crossorigin></script>
+  <script src="nara.js" type="text/babel"></script>
   </body>
 </html>
