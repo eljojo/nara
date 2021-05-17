@@ -33,6 +33,3 @@ DEPENDENCIES
   puma
   sinatra
   sinatra-contrib
-
-BUNDLED WITH
-   2.2.3
