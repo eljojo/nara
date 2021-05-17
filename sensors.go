@@ -25,7 +25,7 @@ func measurePingForever() {
 
 			measureAndStorePing(name, nara.Ip)
 		}
-		ts := chattinessRate(*me, 5, 120)
+		ts := chattinessRate(*me, 30, 120)
 		time.Sleep(time.Duration(ts) * time.Second)
 	}
 }
