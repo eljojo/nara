@@ -3,8 +3,13 @@ require 'json'
 require 'logger'
 require 'sinatra'
 require "sinatra/json"
+require 'socket'
 
 class NaraWeb
+  def self.hostname
+    @hostname ||= Socket.gethostname
+  end
+
   def self.production?
     return @prod if defined?(@prod)
     @prod = (ENV['RACK_ENV'] == "production")
