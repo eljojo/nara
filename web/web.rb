@@ -71,7 +71,7 @@ class MqttClient
     name = topic.split("/").last
     $log.debug("new update from #{name}")
     [name, JSON.parse(message)]
-  rescue MQTT::ProtocolException, SocketError
+  rescue MQTT::ProtocolException, SocketError, Errno::ECONNREFUSED
     disconnect
     sleep 1
     [nil, nil]
