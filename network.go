@@ -305,9 +305,28 @@ func observationMaintenance() {
 	}
 }
 
-var clusterNames = []string{"olive", "terracotta", "peach", "sand", "ocean", "basil", "papaya"}
+var clusterNames = []string{"olive", "peach", "sand", "ocean", "basil", "papaya", "brunch", "sorbet", "margarita", "bohemian", "terracotta"}
 
 func calculateClusters() {
+
+	distanceMap := prepareClusteringDistanceMap()
+	clusters := clustering.NewDistanceMapClusterSet(distanceMap)
+	clustering.Cluster(clusters, clustering.Threshold(10), clustering.CompleteLinkage())
+	sortedClusters := sortClusters(clusters)
+
+	for clusterIndex, cluster := range sortedClusters {
+		for _, name := range cluster {
+			observation, _ := me.Status.Observations[name]
+			observation.ClusterName = clusterNames[clusterIndex]
+			me.Status.Observations[name] = observation
+		}
+	}
+
+	observation, _ := me.Status.Observations[me.Name]
+	me.Status.Barrio = observation.ClusterName
+}
+
+func prepareClusteringDistanceMap() clustering.DistanceMap {
 	distanceMap := make(clustering.DistanceMap)
 
 	// first create distance map with all pings from the perspective of each neighbour
@@ -335,12 +354,12 @@ func calculateClusters() {
 		distanceMap[me.Name][otherNara] = ping
 	}
 
-	// find clusters
-	clusters := clustering.NewDistanceMapClusterSet(distanceMap)
-	clustering.Cluster(clusters, clustering.Threshold(10), clustering.CompleteLinkage())
+	return distanceMap
+}
 
-	// create new slice containing clusters for custom sorting
+func sortClusters(clusters clustering.ClusterSet) [][]string {
 	res := make([][]string, 0)
+
 	clusters.EachCluster(-1, func(clusterIndex int) {
 		cl := make([]string, 0)
 		clusters.EachItem(clusterIndex, func(nameInterface clustering.ClusterItem) {
@@ -350,27 +369,28 @@ func calculateClusters() {
 		res = append(res, cl)
 	})
 
-	// sort clusters by the total length of their memeber's names
 	sort.Slice(res, func(i, j int) bool {
-		suma := 0
-		sumb := 0
-		for _, v := range res[i] {
-			suma += len(v)
+		oldestI := oldestStarTimeForCluster(res[i])
+		oldestJ := oldestStarTimeForCluster(res[j])
+
+		// tie-break by oldest start time when clusters are same size otherwise sort by size
+		if len(res[i]) == len(res[j]) {
+			return oldestI < oldestJ
+		} else {
+			return len(res[i]) > len(res[j])
 		}
-		for _, v := range res[j] {
-			sumb += len(v)
-		}
-		return suma > sumb
 	})
 
-	for clusterIndex, cluster := range res {
-		for _, name := range cluster {
-			observation, _ := me.Status.Observations[name]
-			observation.ClusterName = clusterNames[clusterIndex]
-			me.Status.Observations[name] = observation
+	return res
+}
+
+func oldestStarTimeForCluster(cluster []string) int64 {
+	oldest := int64(0)
+	for _, name := range cluster {
+		obs, _ := me.Status.Observations[name]
+		if (obs.StartTime > 0 && obs.StartTime < oldest) || oldest == 0 {
+			oldest = obs.StartTime
 		}
 	}
-
-	observation, _ := me.Status.Observations[me.Name]
-	me.Status.Barrio = observation.ClusterName
+	return oldest
 }
