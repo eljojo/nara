@@ -1,7 +1,7 @@
 git push
 
 # deployMachines=(dietpi@desk-pi.eljojo.dev lisa.eljojo.casa bloo.eljojo.dev dietpi@music-station.eljojo.dev dietpi@cayumanqui.eljojo.dev ned.eljojo.net  dietpi@music-pi.eljojo.dev  pi@inky.eljojo.dev)
-deployMachines=(dietpi@desk-pi.eljojo.dev lisa.eljojo.casa bloo.eljojo.dev dietpi@music-station.eljojo.dev dietpi@cayumanqui.eljojo.dev ned.eljojo.dev  dietpi@music-pi.eljojo.dev)
+deployMachines=(dietpi@desk-pi.eljojo.dev lisa.eljojo.casa bloo.eljojo.dev dietpi@music-station.eljojo.dev dietpi@cayumanqui.eljojo.dev ned.eljojo.dev scl.eljojo.dev calle.eljojo.dev dietpi@music-pi.eljojo.dev)
 
 echo "deploying nara..."
 

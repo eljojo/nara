@@ -1,6 +1,6 @@
 git push
 
-deployMachines=(lisa.eljojo.casa bloo.eljojo.dev ned.eljojo.dev)
+deployMachines=(lisa.eljojo.casa bloo.eljojo.dev ned.eljojo.dev calle.eljojo.dev scl.eljojo.dev)
 
 echo "deploying nara-web..."
 
