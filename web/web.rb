@@ -25,7 +25,7 @@ class NaraWeb
       @db[name]["LastSeen"] = Time.now.to_i
 
       calculate_verdict!
-      @db = @db.to_a.sort_by { |name, data| data.dig("Verdict", "ClusterName") || name }.to_h
+      @db = @db.to_a.sort_by { |name, data| [data.dig("Verdict", "ClusterName"), name].compact }.to_h
     end
   end
 
