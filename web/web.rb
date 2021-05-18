@@ -5,6 +5,10 @@ require 'sinatra'
 require "sinatra/json"
 
 class NaraWeb
+  def self.production?
+    return @prod if defined?(@prod)
+    @prod = (ENV['RACK_ENV'] == "production")
+  end
   attr_reader :db
 
   def initialize
@@ -86,7 +90,8 @@ end
 MQTT_CONN = { username: ENV.fetch('MQTT_USER'), password: ENV.fetch('MQTT_PASS'), host: ENV.fetch('MQTT_HOST', 'hass.eljojo.casa'), ssl: true }
 MQTT_TOPIC = 'nara/newspaper/#'
 
-$log = Logger.new(STDOUT, Logger::DEBUG)
+$log = Logger.new(STDOUT)
+$log.level = if NaraWeb.production? then Logger::INFO else Logger::DEBUG end
 naraweb = NaraWeb.new
 
 Thread.new { naraweb.start! }
