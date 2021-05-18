@@ -20,18 +20,13 @@ function NaraRow(props) {
 
 function NaraList() {
   const { useState, useEffect } = React;
-  const [data, setData] = useState([]);
+  const [data, setData] = useState({naras: [], server: 'unknown' });
 
   useEffect(() => {
     const refresh = () => {
       window.fetch("/api.json")
         .then(response => response.json())
-        .then(root => {
-          const data = Object.entries(root).map(item => (Object.assign(item[1], {
-            Name: item[0],
-          })));
-          setData(data);
-        });
+        .then(setData);
     };
     refresh();
     const interval = setInterval(refresh, 1000);
@@ -39,25 +34,28 @@ function NaraList() {
   }, []);
 
   return (
-    <table id="naras">
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Neighbourhood</th>
-          <th>Nara</th>
-          <th>Last Ping</th>
-          <th>Nara Uptime</th>
-          <th>Nara Lifetime</th>
-          <th>Restarts</th>
-          <th>Host Uptime</th>
-        </tr>
-      </thead>
-      <tbody>{
-        data.map((nara) =>
-        <NaraRow nara={nara} key={nara.Name} />
-      )
-      }</tbody>
-    </table>
+    <div>
+      <table id="naras">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Neighbourhood</th>
+            <th>Nara</th>
+            <th>Last Ping</th>
+            <th>Nara Uptime</th>
+            <th>Nara Lifetime</th>
+            <th>Restarts</th>
+            <th>Host Uptime</th>
+          </tr>
+        </thead>
+        <tbody>{
+          data.naras.map((nara) =>
+          <NaraRow nara={nara} key={nara.Name} />
+        )
+        }</tbody>
+      </table>
+    <span>rendered by { data.server }</span>
+    </div>
   );
 }
 

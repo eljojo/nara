@@ -27,6 +27,7 @@ class NaraWeb
       next unless name
 
       @db[name] = status
+      @db[name]["Name"] = name
       @db[name]["LastSeen"] = Time.now.to_i
 
       calculate_verdict!
@@ -106,5 +107,5 @@ get '/' do
 end
 
 get '/api.json' do
-  json naraweb.db
+  json({ naras: naraweb.db.values, server: NaraWeb.hostname })
 end
