@@ -6,7 +6,7 @@ Wants=ifup@eth0.service
 [Service]
 Type=simple
 ExecStart=/home/dietpi/nara/nara -mqtt-user='' -mqtt-pass='' -nara-id=''
-User=root
+User=jojo
 EnvironmentFile=/etc/environment
 Restart=always
 RestartSec=3

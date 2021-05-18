@@ -48,7 +48,7 @@ func measurePing(name string, dest string) (float64, error) {
 	}
 	pinger.Count = 5
 	pinger.Timeout = time.Second * 10
-	pinger.SetPrivileged(true)
+	// pinger.SetPrivileged(true)
 	err = pinger.Run() // blocks until finished
 	if err != nil {
 		return 0, err
