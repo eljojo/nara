@@ -5,6 +5,8 @@ require 'sinatra'
 require "sinatra/json"
 require 'socket'
 
+Thread.abort_on_exception = true
+
 class NaraWeb
   def self.hostname
     @hostname ||= Socket.gethostname
