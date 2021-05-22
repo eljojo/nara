@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/bugsnag/bugsnag-go"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/shirou/gopsutil/host"
 	"github.com/sirupsen/logrus"
@@ -53,6 +54,11 @@ var forceChattiness int
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
+
+	bugsnag.Configure(bugsnag.Configuration{
+		APIKey:          "0bd8e595fccf5f1befe9151c3a32ea61",
+		ProjectPackages: []string{"main"},
+	})
 
 	mqttHostPtr := flag.String("mqtt-host", "tcp://hass.eljojo.casa:1883", "mqtt server hostname")
 	mqttUserPtr := flag.String("mqtt-user", "my_username", "mqtt server username")
