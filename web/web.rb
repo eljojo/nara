@@ -48,7 +48,9 @@ class NaraWeb
       @db.each do |n, entry|
         observations = entry["Observations"]
         time_last_seen = Time.now.to_i - entry["LastSeen"]
-        observations[n]["Online"] = "MISSING" if time_last_seen > 60
+        if time_last_seen > 60 && observations[n]["Online"] == "ONLINE"
+          observations[n]["Online"] = "MISSING"
+        end
       end
 
       @db = @db.to_a.sort_by { |name, data| [data.fetch("Barrio", name), name] }.to_h
@@ -58,10 +60,17 @@ end
 
 class MqttClient
   def fetch
-    topic, message = client.get
-    name = topic.split("/").last
-    $log.debug("new update from #{name}")
-    [name, JSON.parse(message)]
+    topic, message_json = client.get
+    message = JSON.parse(message_json)
+    if topic =~ /nara\/plaza/
+      name = message["Name"]
+      status = message.fetch("Status")
+      puts status
+    else
+      name = topic.split("/").last
+      status = message
+    end
+    [name, status]
   rescue MQTT::ProtocolException, SocketError, Errno::ECONNREFUSED
     disconnect
     sleep 1
@@ -79,13 +88,13 @@ class MqttClient
     return @client if @client
     @client = MQTT::Client.connect(MQTT_CONN)
     $log.info("connected to MQTT server")
-    @client.subscribe(MQTT_TOPIC)
+    @client.subscribe('nara/newspaper/#')
+    @client.subscribe('nara/plaza/#')
     @client
   end
 end
 
 MQTT_CONN = { username: ENV.fetch('MQTT_USER'), password: ENV.fetch('MQTT_PASS'), host: ENV.fetch('MQTT_HOST', 'hass.eljojo.casa'), ssl: true }
-MQTT_TOPIC = 'nara/newspaper/#'
 
 $log = Logger.new(STDOUT)
 $log.level = if NaraWeb.production? then Logger::INFO else Logger::DEBUG end
