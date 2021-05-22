@@ -65,7 +65,6 @@ class MqttClient
     if topic =~ /nara\/plaza/
       name = message["Name"]
       status = message.fetch("Status")
-      puts status
     else
       name = topic.split("/").last
       status = message
