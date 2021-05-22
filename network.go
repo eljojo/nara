@@ -179,6 +179,11 @@ func chau(client mqtt.Client) {
 	topic := "nara/plaza/chau"
 	logrus.Printf("posting to %s", topic)
 
+	observation, _ := me.Status.Observations[me.Name]
+	observation.Online = "OFFLINE"
+	observation.LastSeen = time.Now().Unix()
+	me.Status.Observations[me.Name] = observation
+
 	payload, err := json.Marshal(me)
 	if err != nil {
 		fmt.Println(err)
