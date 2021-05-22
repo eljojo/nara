@@ -2,18 +2,22 @@
 
 function NaraRow(props) {
   const nara = props.nara;
-  const ver = nara.Verdict
+  const ver = nara.Observations[nara.Name]
+
+  function timeAgo(a) {
+    return moment().to((moment().unix() - a) * 1000, true)
+  }
 
   return (
     <tr>
       <td>{ nara.Name }</td>
       <td>{ nara.Barrio }</td>
-      <td>{ nara.Verdict.Online }</td>
+      <td>{ ver.Online }</td>
       <td>{ moment(ver.LastSeen * 1000).fromNow() }</td>
-      <td>{ moment(ver.LastRestart * 1000).fromNow(true) }</td>
-      <td>{ moment(ver.StartTime * 1000).fromNow(true) }</td>
+      <td>{ timeAgo(ver.LastSeen - ver.LastRestart) }</td>
+      <td>{ timeAgo(ver.LastSeen - ver.StartTime) }</td>
       <td>{ ver.Restarts }</td>
-      <td>{ moment().to((moment().unix() - nara.HostStats.Uptime) * 1000, true)  }</td>
+      <td>{ timeAgo(nara.HostStats.Uptime)  }</td>
     </tr>
   );
 }
