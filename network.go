@@ -316,7 +316,9 @@ func calculateClusters() {
 
 	distanceMap := prepareClusteringDistanceMap()
 	clusters := clustering.NewDistanceMapClusterSet(distanceMap)
-	clustering.Cluster(clusters, clustering.Threshold(10), clustering.CompleteLinkage())
+
+	// the Threshold defines how mini ms between nodes to consider as one cluster
+	clustering.Cluster(clusters, clustering.Threshold(50), clustering.CompleteLinkage())
 	sortedClusters := sortClusters(clusters)
 
 	for clusterIndex, cluster := range sortedClusters {
