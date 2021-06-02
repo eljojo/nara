@@ -12,8 +12,8 @@ for m in ${deployMachines[@]}; do
   echo "\n\n$m:"
   ssh $m "cd ~/nara && git checkout -f $NARA_VERSION"
   ssh $m '~/nara/build.sh'
-  echo "sleeping for 40 seconds to stabilize narae memory"
-  sleep 40
+  echo "sleeping for 20 seconds to stabilize narae memory"
+  sleep 20
 done
 
 echo "deploy finished, congrats :-)"
