@@ -11,7 +11,7 @@ echo "deploying to" $machines
 
 naraSsh () {
   local m="$1.eljojo.dev"
-  if [[ "$1" == "music-station" ||  "$1" == "music-pi" ||  "$1" == "cayumanqui" ||  $1 == "desk-pi" ]]; then
+  if [[ "$1" == "music-station" ||  "$1" == "music-pi" ||  "$1" == "cayumanqui" ||  "$1" == "desk-pi" ]]; then
     m="dietpi@$m"
   else
     m="jojo@$m"
