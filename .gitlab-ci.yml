@@ -6,6 +6,7 @@ variables:
   LANGUAGE: en_US.UTF-8
 
 stages:
+  - build
   - deploy
 
 default:
@@ -19,6 +20,11 @@ default:
     - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | base64 -d | ssh-add -
     - git config --global user.email "deploy@gitlab.eljojo.casa"
     - git config --global user.name "GitLab Deploy"
+
+build:
+  stage: build
+  script:
+    - go build
 
 deploy:
   stage: deploy
