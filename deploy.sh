@@ -1,3 +1,5 @@
+set -e
+
 NARA_VERSION=$(git rev-parse --short HEAD)
 echo "~  deploying nara version $NARA_VERSION ~"
 
