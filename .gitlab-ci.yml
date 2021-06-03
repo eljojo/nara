@@ -1,0 +1,29 @@
+image: git.eljojo.casa:5005/eljojo/docker-nara
+
+variables:
+  LC_ALL: C.UTF-8
+  LANG: en_US.UTF-8
+  LANGUAGE: en_US.UTF-8
+
+stages:
+  - deploy
+
+default:
+  before_script:
+    ## https://docs.gitlab.com/ee/ci/ssh_keys/
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
+    - eval $(ssh-agent -s)
+    ## https://gitlab.com/gitlab-examples/ssh-private-key/issues/1#note_48526556
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | base64 -d | ssh-add -
+    - git config --global user.email "deploy@gitlab.eljojo.casa"
+    - git config --global user.name "GitLab Deploy"
+
+deploy:
+  stage: deploy
+  only:
+    - deploy
+  script:
+    - cat deploy.sh | /bin/bash
+
