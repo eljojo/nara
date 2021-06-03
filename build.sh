@@ -2,12 +2,8 @@
 export PATH=$PATH:/usr/local/go/bin
 cd "$(dirname "$(realpath "$0")")";
 
-echo ""
-echo "=> deploying nara on $(hostname)"
-echo "[$(hostname)] building"
+echo "-> local build on $(hostname)"
 go build
-echo "[$(hostname)] restarting service"
+echo "-> restarting service"
 sudo systemctl restart nara
 echo "=> succesfully deployed nara on $(hostname)"
-echo ""
-echo ""
