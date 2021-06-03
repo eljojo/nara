@@ -50,8 +50,6 @@ var me = &Nara{}
 
 var forceChattiness int
 
-// var inbox = make(chan [2]string)
-
 func main() {
 	rand.Seed(time.Now().UnixNano())
 
@@ -108,7 +106,6 @@ func main() {
 	for {
 		time.Sleep(10 * time.Millisecond)
 		runtime.Gosched() // https://blog.container-solutions.com/surprise-golang-thread-scheduling
-		// <-inbox
 	}
 }
 
