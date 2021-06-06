@@ -70,6 +70,7 @@ class MqttClient
     end
 
     status["Name"] = name
+    status["LastSeen"] = Time.now.to_i
     # when naras boot they're observations are weak
     status["Observations"][name] ||= {}
     status["Observations"][name]["LastSeen"] = Time.now.to_i

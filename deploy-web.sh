@@ -1,4 +1,4 @@
-set -x # temporary, ideally we'd do set -e
+set -x
 
 NARA_VERSION=$(git rev-parse --short HEAD)
 echo "~  deploying nara version $NARA_VERSION ~"
@@ -38,17 +38,11 @@ for name in ${machines[@]}; do
 
   nslookup "$name.eljojo.dev" || (echo "skipping $name" && continue)
 
-  echo "=> deploying nara on $name"
-  ssh -q $m "cd ~/nara && git checkout -f $NARA_VERSION -q"
-  ssh -q $m '~/nara/build.sh'
-
   if [[ "$name" != "music-station" &&  "$name" != "music-pi" &&  "$name" != "cayumanqui" &&  "$name" != "desk-pi" ]]; then
     echo "=> deploying nara-web on $name"
+    ssh -q $m "cd ~/nara && git checkout -f $NARA_VERSION -q"
     ssh -q $m "sudo systemctl restart nara-web"
   fi
-
-  echo "sleeping for 30 seconds to stabilize narae memory"
-  sleep 30
 done
 
 echo "nara deployed 🎉 congrats :-)"
