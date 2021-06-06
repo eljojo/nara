@@ -5,7 +5,12 @@ function NaraRow(props) {
   const ver = nara.Observations[nara.Name]
 
   function timeAgo(a) {
-    return moment().to((moment().unix() - a) * 1000, true)
+    const difference_in_seconds = a;
+    if (difference_in_seconds < 60) {
+      return ("" + difference_in_seconds + "s");
+    }
+    const olderTime = (moment().unix() - a);
+    return moment().to(olderTime * 1000, true)
   }
 
   return (
@@ -13,7 +18,7 @@ function NaraRow(props) {
       <td>{ nara.Name }</td>
       <td>{ nara.Barrio }</td>
       <td>{ ver.Online }</td>
-      <td>{ moment(ver.LastSeen * 1000).fromNow() }</td>
+      <td>{ timeAgo(moment().unix() - ver.LastSeen) } ago</td>
       <td>{ timeAgo(ver.LastSeen - ver.LastRestart) }</td>
       <td>{ timeAgo(ver.LastSeen - ver.StartTime) }</td>
       <td>{ ver.Restarts }</td>

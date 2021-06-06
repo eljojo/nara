@@ -29,19 +29,18 @@ class NaraWeb
       next unless name
 
       @db[name] = status
-      @db[name]["Name"] = name
-      @db[name]["LastSeen"] = Time.now.to_i
 
+      # backfill information for naras basd on neighbours in case there's something
       @db.dup.each do |n, entry|
         observations = entry["Observations"]
         observations.each do |nn, o|
-          next if @db.key?(nn)
-          @db[nn] = {}
-          @db[nn]["Name"] = nn
-          @db[nn]["Barrio"] = o["ClusterName"]
-          @db[nn]["LastSeen"] = o["LastSeen"]
-          @db[nn]["Observations"] = { nn => o.dup }
-          @db[nn]["HostStats"] = { "Uptime" => 0 }
+          @db[nn] ||= {}
+          @db[nn]["Name"] ||= nn
+          @db[nn]["Barrio"] ||= o["ClusterName"]
+          @db[nn]["LastSeen"] ||= o["LastSeen"]
+          @db[nn]["Observations"] ||= {}
+          @db[nn]["Observations"][nn] = o.dup.merge((@db[nn]["Observations"][nn] || {}).compact)
+          @db[nn]["HostStats"] ||= { "Uptime" => 0 }
         end
       end
 
@@ -68,6 +67,17 @@ class MqttClient
     else
       name = topic.split("/").last
       status = message
+    end
+
+    status["Name"] = name
+    # when naras boot they're observations are weak
+    status["Observations"][name] ||= {}
+    status["Observations"][name]["LastSeen"] = Time.now.to_i
+    status["Observations"][name]["LastRestart"] ||= Time.now.to_i
+    if topic =~ /chau/
+      status["Observations"][name]["Online"] = "OFFLINE"
+    else
+      status["Observations"][name]["Online"] = "ONLINE"
     end
     [name, status]
   rescue MQTT::ProtocolException, SocketError, Errno::ECONNREFUSED
