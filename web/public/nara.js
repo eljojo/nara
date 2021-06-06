@@ -32,13 +32,22 @@ function NaraList() {
   const [data, setData] = useState({naras: [], server: 'unknown' });
 
   useEffect(() => {
+    var lastDate = 0;
+
     const refresh = () => {
+      const fetchDate = new Date;
+
       window.fetch("/api.json")
         .then(response => response.json())
-        .then(setData);
+        .then(function(data) {
+          if(fetchDate > lastDate) {
+            setData(data);
+            lastDate = fetchDate;
+          }
+        });
     };
     refresh();
-    const interval = setInterval(refresh, 1000);
+    const interval = setInterval(refresh, 500);
     return () => clearInterval(interval);
   }, []);
 
