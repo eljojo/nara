@@ -24,12 +24,12 @@ default:
 build:
   stage: build
   script:
-    - go build
+    - scripts/build.sh
 
 deploy:
   stage: deploy
   only:
     - deploy
   script:
-    - cat deploy.sh | /bin/bash
+    - cat scripts/deploy.sh | /bin/bash
 
