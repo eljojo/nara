@@ -1,4 +1,4 @@
-set -x # temporary, ideally we'd do set -e
+set -e
 
 NARA_VERSION=$(git rev-parse --short HEAD)
 echo "~  deploying nara version $NARA_VERSION ~"
@@ -25,8 +25,11 @@ fi
 for name in ${machines[@]}; do
   m=$(naraSsh $name)
   if ! grep -Eq "pushurl.+$name" .git/config; then # naive check to see if in deploy upstream
-    nslookup "$name.eljojo.dev" || ((echo "# skip pushurl $name") >> .git/config && continue)
-    git remote set-url --add --push deploy $m:nara
+    if nslookup "$name.eljojo.dev" > /dev/null; then
+      git remote set-url --add --push deploy $m:nara
+    else
+      echo "# skip pushurl $name" >> .git/config
+    fi
   fi
 done
 
@@ -36,7 +39,9 @@ git push deploy -f "HEAD:deploy" -q
 for name in ${machines[@]}; do
   m=$(naraSsh $name)
 
-  nslookup "$name.eljojo.dev" || (echo "skipping $name" && continue)
+  if ! nslookup "$name.eljojo.dev" > /dev/null; then
+    echo "skipping $name" && continue
+  fi
 
   echo "=> deploying nara on $name"
   ssh -q $m "cd ~/nara && git checkout -f $NARA_VERSION -q"
