@@ -1,4 +1,4 @@
-package main
+package nara
 
 import (
 	"encoding/json"
@@ -183,7 +183,7 @@ func (ln *LocalNara) chauHandler(client mqtt.Client, msg mqtt.Message) {
 	logrus.Printf("%s: chau!", nara.Name)
 }
 
-func (ln *LocalNara) chau() {
+func (ln *LocalNara) Chau() {
 	topic := "nara/plaza/chau"
 	logrus.Printf("posting to %s", topic)
 

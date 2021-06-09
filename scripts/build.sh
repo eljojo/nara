@@ -8,4 +8,4 @@ if [ "$arch" == 'aarch64' ]; then
   echo "applying panicwrap linux hotfix lmao"
   sudo rm $HOME/go/pkg/mod/github.com/bugsnag/panicwrap@v1.3.2/dup2.go || true
 fi
-go build -o ../build/nara ..
+go build -o ../build/nara ../cmd/nara/main.go

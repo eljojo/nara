@@ -1,4 +1,4 @@
-package main
+package nara
 
 import (
 	"fmt"
@@ -22,7 +22,7 @@ type neighbour struct {
 	Chattiness int64   `header:"chat"`
 }
 
-func (ln *LocalNara) printNeigbourhoodForever(refreshRate int) {
+func (ln *LocalNara) PrintNeigbourhoodForever(refreshRate int) {
 	for {
 		ln.printNeigbourhood()
 		time.Sleep(time.Duration(refreshRate) * time.Second)
