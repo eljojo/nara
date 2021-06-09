@@ -22,26 +22,26 @@ type neighbour struct {
 	Chattiness int64   `header:"chat"`
 }
 
-func printNeigbourhoodForever(refreshRate int) {
+func (ln *LocalNara) printNeigbourhoodForever(refreshRate int) {
 	for {
-		printNeigbourhood()
+		ln.printNeigbourhood()
 		time.Sleep(time.Duration(refreshRate) * time.Second)
 	}
 }
 
-func printNeigbourhood() {
-	if len(neighbourhood) == 0 {
+func (ln *LocalNara) printNeigbourhood() {
+	if len(ln.Network.Neighbourhood) == 0 {
 		return
 	}
 
 	printer := tableprinter.New(os.Stdout)
-	naras := make([]neighbour, 0, len(neighbourhood)+1)
+	naras := make([]neighbour, 0, len(ln.Network.Neighbourhood)+1)
 
-	nei := generateScreenRow(*me)
+	nei := ln.generateScreenRow(*ln.Me)
 	naras = append(naras, nei)
 
-	for _, nara := range neighbourhood {
-		nei := generateScreenRow(nara)
+	for _, nara := range ln.Network.Neighbourhood {
+		nei := ln.generateScreenRow(nara)
 		naras = append(naras, nei)
 	}
 
@@ -61,13 +61,13 @@ func printNeigbourhood() {
 	printer.Print(naras)
 }
 
-func generateScreenRow(nara Nara) neighbour {
+func (ln *LocalNara) generateScreenRow(nara Nara) neighbour {
 	now := time.Now().Unix()
 	ping := ""
-	if nara.Name != me.Name {
-		ping = pingBetweenMs(*me, nara)
+	if nara.Name != ln.Me.Name {
+		ping = pingBetweenMs(*ln.Me, nara)
 	}
-	observation, _ := me.Status.Observations[nara.Name]
+	observation, _ := ln.Me.Status.Observations[nara.Name]
 	lastSeen := timeAgoFriendly(now - observation.LastSeen)
 	first_seen := timeAgoFriendly(now - observation.StartTime)
 	if observation.StartTime == 0 {

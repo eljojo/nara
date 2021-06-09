@@ -13,30 +13,30 @@ import (
 	"time"
 )
 
-func measurePingForever() {
+func (ln *LocalNara) measurePingForever() {
 	for {
-		measureAndStorePing("google", "8.8.8.8")
+		ln.measureAndStorePing("google", "8.8.8.8")
 
-		for name, nara := range neighbourhood {
-			if me.Status.Observations[nara.Name].Online != "ONLINE" {
-				delete(me.Status.PingStats, name)
+		for name, nara := range ln.Network.Neighbourhood {
+			if ln.Me.Status.Observations[nara.Name].Online != "ONLINE" {
+				delete(ln.Me.Status.PingStats, name)
 				continue
 			}
 
-			measureAndStorePing(name, nara.Ip)
+			ln.measureAndStorePing(name, nara.Ip)
 		}
-		ts := chattinessRate(*me, 30, 120)
+		ts := chattinessRate(*ln.Me, 30, 120)
 		time.Sleep(time.Duration(ts) * time.Second)
 	}
 }
 
-func measureAndStorePing(name string, dest string) {
+func (ln *LocalNara) measureAndStorePing(name string, dest string) {
 	ping, err := measurePing(name, dest)
 	if err == nil && ping > 0 {
-		me.Status.PingStats[name] = ping
+		ln.Me.Status.PingStats[name] = ping
 	} else {
 		// logrus.Println("problem when pinging", dest, err)
-		delete(me.Status.PingStats, name)
+		delete(ln.Me.Status.PingStats, name)
 	}
 }
 
@@ -57,28 +57,28 @@ func measurePing(name string, dest string) (float64, error) {
 	return float64(stats.AvgRtt/time.Microsecond) / 1000, nil
 }
 
-func updateHostStatsForever() {
+func (ln *LocalNara) updateHostStatsForever() {
 	for {
-		updateHostStats()
+		ln.updateHostStats()
 		time.Sleep(5 * time.Second)
 	}
 }
 
-func updateHostStats() {
+func (ln *LocalNara) updateHostStats() {
 	uptime, _ := host.Uptime()
-	me.Status.HostStats.Uptime = uptime
+	ln.Me.Status.HostStats.Uptime = uptime
 
 	load, _ := load.Avg()
 	loadavg := load.Load1 / float64(runtime.NumCPU())
-	me.Status.HostStats.LoadAvg = loadavg
+	ln.Me.Status.HostStats.LoadAvg = loadavg
 
-	if forceChattiness >= 0 && forceChattiness <= 100 {
-		me.Status.Chattiness = int64(forceChattiness)
+	if ln.forceChattiness >= 0 && ln.forceChattiness <= 100 {
+		ln.Me.Status.Chattiness = int64(ln.forceChattiness)
 	} else {
 		if loadavg < 1 {
-			me.Status.Chattiness = int64((1 - loadavg) * 100)
+			ln.Me.Status.Chattiness = int64((1 - loadavg) * 100)
 		} else {
-			me.Status.Chattiness = 0
+			ln.Me.Status.Chattiness = 0
 		}
 	}
 }

@@ -17,6 +17,13 @@ import (
 	"syscall"
 )
 
+type LocalNara struct {
+	Me              *Nara
+	Network         *Network
+	Mqtt            mqtt.Client
+	forceChattiness int
+}
+
 type Nara struct {
 	Name     string
 	Hostname string
@@ -46,10 +53,6 @@ type NaraObservation struct {
 	ClusterName string
 }
 
-var me = &Nara{}
-
-var forceChattiness int
-
 func main() {
 	rand.Seed(time.Now().UnixNano())
 
@@ -68,54 +71,73 @@ func main() {
 	verbosePtr := flag.Bool("verbose", false, "log debug stuff")
 
 	flag.Parse()
-	forceChattiness = *forceChattinessPtr
+	localNara := NewLocalNara(*naraIdPtr, *mqttHostPtr, *mqttUserPtr, *mqttPassPtr, *forceChattinessPtr)
 
-	me.Name = *naraIdPtr
-	me.Status.PingStats = make(map[string]float64)
-	me.Status.Observations = make(map[string]NaraObservation)
-	updateHostStats()
-
-	ip, err := externalIP()
-	if err == nil {
-		me.Ip = ip
-		logrus.Println("local ip", ip)
-	} else {
-		logrus.Panic(err)
-	}
-
-	hostinfo, _ := host.Info()
-	me.Hostname = hostinfo.Hostname
-
-	client := connectMQTT(*mqttHostPtr, *mqttUserPtr, *mqttPassPtr, *naraIdPtr)
-	go announceForever(client)
-	go measurePingForever()
-	go updateHostStatsForever()
-	go formOpinion()
-	go observationMaintenance()
+	go localNara.announceForever()
+	go localNara.measurePingForever()
+	go localNara.updateHostStatsForever()
+	go localNara.formOpinion()
+	go localNara.observationMaintenance()
 	if *showNeighboursPtr {
-		go printNeigbourhoodForever(*showNeighboursSpeedPtr)
+		go localNara.printNeigbourhoodForever(*showNeighboursSpeedPtr)
 	}
 
 	if *verbosePtr {
 		logrus.SetLevel(logrus.DebugLevel)
 	}
 
-	SetupCloseHandler(client)
-	defer chau(client)
+	localNara.SetupCloseHandler()
+	defer localNara.chau()
 
+	// sleep forever while goroutines do their thing
 	for {
 		time.Sleep(10 * time.Millisecond)
 		runtime.Gosched() // https://blog.container-solutions.com/surprise-golang-thread-scheduling
 	}
 }
 
-func SetupCloseHandler(client mqtt.Client) {
+func NewLocalNara(name string, mqtt_host string, mqtt_user string, mqtt_pass string, forceChattiness int) *LocalNara {
+	ln := &LocalNara{
+		Me:              NewNara(name),
+		Network:         NewNetwork(),
+		forceChattiness: forceChattiness,
+	}
+
+	ln.Mqtt = ln.initializeMQTT(mqtt_host, mqtt_user, mqtt_pass)
+
+	ln.updateHostStats()
+
+	ip, err := externalIP()
+	if err == nil {
+		ln.Me.Ip = ip
+		logrus.Println("local ip", ip)
+	} else {
+		logrus.Panic(err)
+	}
+
+	hostinfo, _ := host.Info()
+	ln.Me.Hostname = hostinfo.Hostname
+
+	if token := ln.Mqtt.Connect(); token.Wait() && token.Error() != nil {
+		panic(token.Error())
+	}
+	return ln
+}
+
+func NewNara(name string) *Nara {
+	nara := &Nara{Name: name}
+	nara.Status.PingStats = make(map[string]float64)
+	nara.Status.Observations = make(map[string]NaraObservation)
+	return nara
+}
+
+func (ln *LocalNara) SetupCloseHandler() {
 	c := make(chan os.Signal)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-c
 		fmt.Println("babaayyy")
-		chau(client)
+		ln.chau()
 		os.Exit(0)
 	}()
 }
