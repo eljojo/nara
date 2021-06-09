@@ -13,13 +13,15 @@ import (
 )
 
 type Network struct {
-	Neighbourhood map[string]Nara
-	LastHeyThere  int64
+	Neighbourhood  map[string]Nara
+	LastHeyThere   int64
+	skippingEvents bool
 }
 
 func NewNetwork() *Network {
 	network := &Network{}
 	network.Neighbourhood = make(map[string]Nara)
+	network.skippingEvents = false
 	return network
 }
 
@@ -52,17 +54,15 @@ func chattinessRate(nara Nara, min int64, max int64) int64 {
 	return min + ((max - min) * (100 - nara.Status.Chattiness) / 100)
 }
 
-var skippingEvents = false
-
 func (ln *LocalNara) newspaperHandler(client mqtt.Client, msg mqtt.Message) {
-	if ln.Me.Status.Chattiness <= 10 && skippingEvents == false {
+	if ln.Me.Status.Chattiness <= 10 && ln.Network.skippingEvents == false {
 		logrus.Println("[warning] low chattiness, newspaper events may be dropped")
-		skippingEvents = true
-	} else if ln.Me.Status.Chattiness > 10 && skippingEvents == true {
+		ln.Network.skippingEvents = true
+	} else if ln.Me.Status.Chattiness > 10 && ln.Network.skippingEvents == true {
 		logrus.Println("[recovered] chattiness is healthy again, not dropping events anymore")
-		skippingEvents = false
+		ln.Network.skippingEvents = false
 	}
-	if skippingEvents == true && rand.Intn(2) == 0 {
+	if ln.Network.skippingEvents == true && rand.Intn(2) == 0 {
 		return
 	}
 	if !strings.Contains(msg.Topic(), "nara/newspaper/") {
@@ -305,7 +305,7 @@ func (ln *LocalNara) observationMaintenance() {
 			}
 
 			// mark missing after 100 seconds of no updates
-			if (now-observation.LastSeen) > 100 && !skippingEvents {
+			if (now-observation.LastSeen) > 100 && !ln.Network.skippingEvents {
 				observation.Online = "MISSING"
 				ln.Me.Status.Observations[name] = observation
 				logrus.Printf("observation: %s has disappeared", name)
