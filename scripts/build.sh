@@ -6,6 +6,6 @@ echo "-> local build on $(hostname)"
 arch=$(uname -m)
 if [ "$arch" == 'aarch64' ]; then
   echo "applying panicwrap linux hotfix lmao"
-  sudo rm $HOME/go/pkg/mod/github.com/bugsnag/panicwrap@v1.3.2/dup2.go || true
+  sudo rm $HOME/go/pkg/mod/github.com/bugsnag/panicwrap@v1.3.2/dup2.go 2>/dev/null
 fi
 go build -o ../build/nara ../cmd/nara/main.go
