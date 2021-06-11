@@ -40,7 +40,7 @@ for name in ${machines[@]}; do
   m=$(naraSsh $name)
 
   if ! nslookup "$name.eljojo.dev" > /dev/null; then
-    echo "skipping $name" && continue
+    continue
   fi
 
   echo "=> deploying nara on $name"
