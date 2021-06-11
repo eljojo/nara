@@ -203,23 +203,26 @@ func (ln *LocalNara) Chau() {
 
 func (ln *LocalNara) formOpinion() {
 	time.Sleep(40 * time.Second)
-	logrus.Printf("forming opinions")
+	logrus.Printf("🕵️  forming opinions...")
 	for name, _ := range ln.Network.Neighbourhood {
 		observation, _ := ln.Me.Status.Observations[name]
 		startTime := ln.findStartingTimeFromNeighbourhoodForNara(name)
 		if startTime > 0 {
 			observation.StartTime = startTime
-			logrus.Printf("adjusting start time for %s based on neighbours opinion", name)
+		} else {
+			logrus.Printf("couldn't adjust startTime for %s based on neighbour disagreement", name)
 		}
 		restarts := ln.findRestartCountFromNeighbourhoodForNara(name)
 		if restarts > 0 {
-			logrus.Printf("adjusting restart count to %d for %s based on neighbours opinion", restarts, name)
 			observation.Restarts = restarts
+		} else {
+			logrus.Printf("couldn't adjust restart count for %s based on neighbour disagreement", name)
 		}
 		lastRestart := ln.findLastRestartFromNeighbourhoodForNara(name)
 		if lastRestart > 0 {
-			logrus.Printf("adjusting last restart date for %s based on neighbours opinion", name)
 			observation.LastRestart = lastRestart
+		} else {
+			logrus.Printf("couldn't adjust last restart date for %s based on neighbour disagreement", name)
 		}
 		ln.Me.Status.Observations[name] = observation
 	}
@@ -259,10 +262,9 @@ func (ln *LocalNara) findRestartCountFromNeighbourhoodForNara(name string) int64
 
 	var result int64
 	maxSeen := 0
-	one_third := len(values) / 3
 
 	for restarts, count := range values {
-		if count > maxSeen && count > one_third {
+		if count > maxSeen && restarts > 0 {
 			maxSeen = count
 			result = restarts
 		}
@@ -270,6 +272,7 @@ func (ln *LocalNara) findRestartCountFromNeighbourhoodForNara(name string) int64
 
 	return result
 }
+
 func (ln *LocalNara) findLastRestartFromNeighbourhoodForNara(name string) int64 {
 	values := make(map[int64]int)
 
