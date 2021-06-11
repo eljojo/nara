@@ -46,7 +46,7 @@ for name in ${machines[@]}; do
   echo "=> deploying nara on $name"
   ssh -q $m "cd ~/nara && git checkout -f $NARA_VERSION -q"
   ssh -q $m '~/nara/scripts/build.sh'
-  ssh -q $m "sudo systemctl restart nara-*"
+  ssh -q $m 'sudo ~/nara/scripts/restart-local.sh'
 
   echo "=> succesfully deployed $name"
 
