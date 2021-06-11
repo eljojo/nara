@@ -46,12 +46,7 @@ for name in ${machines[@]}; do
   echo "=> deploying nara on $name"
   ssh -q $m "cd ~/nara && git checkout -f $NARA_VERSION -q"
   ssh -q $m '~/nara/scripts/build.sh'
-  ssh -q $m "sudo systemctl restart nara-$name"
-
-  if [[ "$name" != "music-station" &&  "$name" != "music-pi" &&  "$name" != "cayumanqui" &&  "$name" != "desk-pi" ]]; then
-    echo "-> deploying nara-web"
-    ssh -q $m "sudo systemctl restart nara-web"
-  fi
+  ssh -q $m "sudo systemctl restart nara-*"
 
   echo "=> succesfully deployed $name"
 
