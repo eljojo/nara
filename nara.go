@@ -92,3 +92,16 @@ func (ln *LocalNara) SetupCloseHandler() {
 		os.Exit(0)
 	}()
 }
+
+func (nara *Nara) getObservation(name string) NaraObservation {
+	observation, _ := nara.Status.Observations[name]
+	return observation
+}
+
+func (nara *Nara) setObservation(name string, observation NaraObservation) {
+	nara.Status.Observations[name] = observation
+}
+
+func (nara *Nara) chattinessRate(min int64, max int64) int64 {
+	return min + ((max - min) * (100 - nara.Status.Chattiness) / 100)
+}

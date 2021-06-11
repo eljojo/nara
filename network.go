@@ -60,15 +60,11 @@ func (network *Network) announce() {
 
 func (network *Network) announceForever() {
 	for {
-		ts := chattinessRate(*network.local.Me, 20, 30)
+		ts := network.local.Me.chattinessRate(20, 30)
 		time.Sleep(time.Duration(ts) * time.Second)
 
 		network.announce()
 	}
-}
-
-func chattinessRate(nara Nara, min int64, max int64) int64 {
-	return min + ((max - min) * (100 - nara.Status.Chattiness) / 100)
 }
 
 func (network *Network) newspaperHandler(client mqtt.Client, msg mqtt.Message) {
@@ -127,7 +123,7 @@ func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 }
 
 func (network *Network) recordObservationOnlineNara(name string) {
-	observation, _ := network.local.Me.Status.Observations[name]
+	observation := network.local.Me.getObservation(name)
 
 	if observation.StartTime == 0 || name == network.meName() {
 		if name != network.meName() {
@@ -155,11 +151,11 @@ func (network *Network) recordObservationOnlineNara(name string) {
 
 	observation.Online = "ONLINE"
 	observation.LastSeen = time.Now().Unix()
-	network.local.Me.Status.Observations[name] = observation
+	network.local.Me.setObservation(name, observation)
 }
 
 func (network *Network) heyThere() {
-	ts := chattinessRate(*network.local.Me, 10, 20)
+	ts := network.local.Me.chattinessRate(10, 20)
 	if (time.Now().Unix() - network.LastHeyThere) <= ts {
 		return
 	}
@@ -186,10 +182,10 @@ func (network *Network) chauHandler(client mqtt.Client, msg mqtt.Message) {
 		return
 	}
 
-	observation, _ := network.local.Me.Status.Observations[nara.Name]
+	observation := network.local.Me.getObservation(nara.Name)
 	observation.Online = "OFFLINE"
 	observation.LastSeen = time.Now().Unix()
-	network.local.Me.Status.Observations[nara.Name] = observation
+	network.local.Me.setObservation(nara.Name, observation)
 	network.Neighbourhood[nara.Name] = nara
 
 	_, present := network.local.Me.Status.PingStats[nara.Name]
@@ -204,10 +200,10 @@ func (network *Network) Chau() {
 	topic := "nara/plaza/chau"
 	logrus.Printf("posting to %s", topic)
 
-	observation, _ := network.local.Me.Status.Observations[network.meName()]
+	observation := network.local.Me.getObservation(network.local.Me.Name)
 	observation.Online = "OFFLINE"
 	observation.LastSeen = time.Now().Unix()
-	network.local.Me.Status.Observations[network.meName()] = observation
+	network.local.Me.setObservation(network.local.Me.Name, observation)
 
 	payload, err := json.Marshal(network.local.Me)
 	if err != nil {
@@ -222,7 +218,7 @@ func (network *Network) formOpinion() {
 	time.Sleep(40 * time.Second)
 	logrus.Printf("🕵️  forming opinions...")
 	for name, _ := range network.Neighbourhood {
-		observation, _ := network.local.Me.Status.Observations[name]
+		observation := network.local.Me.getObservation(name)
 		startTime := network.findStartingTimeFromNeighbourhoodForNara(name)
 		if startTime > 0 {
 			observation.StartTime = startTime
@@ -241,7 +237,7 @@ func (network *Network) formOpinion() {
 		} else {
 			logrus.Printf("couldn't adjust last restart date for %s based on neighbour disagreement", name)
 		}
-		network.local.Me.Status.Observations[name] = observation
+		network.local.Me.setObservation(name, observation)
 	}
 }
 
@@ -249,7 +245,7 @@ func (network *Network) findStartingTimeFromNeighbourhoodForNara(name string) in
 	times := make(map[int64]int)
 
 	for _, nara := range network.Neighbourhood {
-		observed_start_time := nara.Status.Observations[name].StartTime
+		observed_start_time := nara.getObservation(name).StartTime
 		if observed_start_time > 0 {
 			times[observed_start_time] += 1
 		}
@@ -273,7 +269,7 @@ func (network *Network) findRestartCountFromNeighbourhoodForNara(name string) in
 	values := make(map[int64]int)
 
 	for _, nara := range network.Neighbourhood {
-		restarts := nara.Status.Observations[name].Restarts
+		restarts := nara.getObservation(name).Restarts
 		values[restarts] += 1
 	}
 
@@ -294,7 +290,7 @@ func (network *Network) findLastRestartFromNeighbourhoodForNara(name string) int
 	values := make(map[int64]int)
 
 	for _, nara := range network.Neighbourhood {
-		last_restart := nara.Status.Observations[name].LastRestart
+		last_restart := nara.getObservation(name).LastRestart
 		if last_restart > 0 {
 			values[last_restart] += 1
 		}
@@ -327,7 +323,7 @@ func (network *Network) observationMaintenance() {
 			// mark missing after 100 seconds of no updates
 			if (now-observation.LastSeen) > 100 && !network.skippingEvents {
 				observation.Online = "MISSING"
-				network.local.Me.Status.Observations[name] = observation
+				network.local.Me.setObservation(name, observation)
 				logrus.Printf("observation: %s has disappeared", name)
 			}
 		}
@@ -351,13 +347,13 @@ func (network *Network) calculateClusters() {
 
 	for clusterIndex, cluster := range sortedClusters {
 		for _, name := range cluster {
-			observation, _ := network.local.Me.Status.Observations[name]
+			observation := network.local.Me.getObservation(name)
 			observation.ClusterName = clusterNames[clusterIndex]
-			network.local.Me.Status.Observations[name] = observation
+			network.local.Me.setObservation(name, observation)
 		}
 	}
 
-	observation, _ := network.local.Me.Status.Observations[network.local.Me.Name]
+	observation := network.local.Me.getObservation(network.local.Me.Name)
 	network.local.Me.Status.Barrio = observation.ClusterName
 }
 
@@ -375,9 +371,9 @@ func (network *Network) prepareClusteringDistanceMap() clustering.DistanceMap {
 		}
 
 		// reset observations for offline naras
-		observation, _ := network.local.Me.Status.Observations[nara.Name]
+		observation := network.local.Me.getObservation(nara.Name)
 		observation.ClusterName = ""
-		network.local.Me.Status.Observations[nara.Name] = observation
+		network.local.Me.setObservation(nara.Name, observation)
 	}
 
 	// add own ping stats
@@ -422,7 +418,7 @@ func (network *Network) sortClusters(clusters clustering.ClusterSet) [][]string 
 func (network *Network) oldestStarTimeForCluster(cluster []string) int64 {
 	oldest := int64(0)
 	for _, name := range cluster {
-		obs, _ := network.local.Me.Status.Observations[name]
+		obs := network.local.Me.getObservation(name)
 		if (obs.StartTime > 0 && obs.StartTime < oldest) || oldest == 0 {
 			oldest = obs.StartTime
 		}
