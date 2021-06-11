@@ -66,8 +66,6 @@ func NewLocalNara(name string, mqtt_host string, mqtt_user string, mqtt_pass str
 	hostinfo, _ := host.Info()
 	ln.Me.Hostname = hostinfo.Hostname
 
-	ln.Network.Connect()
-
 	return ln
 }
 
@@ -79,9 +77,9 @@ func NewNara(name string) *Nara {
 }
 
 func (ln *LocalNara) Start() {
-	go ln.measurePingForever()
 	go ln.updateHostStatsForever()
 	ln.Network.Start()
+	go ln.measurePingForever()
 }
 
 func (ln *LocalNara) SetupCloseHandler() {

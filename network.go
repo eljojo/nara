@@ -29,6 +29,10 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 }
 
 func (network *Network) Start() {
+	if token := network.Mqtt.Connect(); token.Wait() && token.Error() != nil {
+		panic(token.Error())
+	}
+
 	go network.formOpinion()
 	go network.observationMaintenance()
 	go network.announceForever()
@@ -36,12 +40,6 @@ func (network *Network) Start() {
 
 func (network *Network) meName() string {
 	return network.local.Me.Name
-}
-
-func (network *Network) Connect() {
-	if token := network.Mqtt.Connect(); token.Wait() && token.Error() != nil {
-		panic(token.Error())
-	}
 }
 
 func (network *Network) announce() {
