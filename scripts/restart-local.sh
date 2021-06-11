@@ -1,9 +1,7 @@
 set -e
 echo "~  restarting nara on $(hostname) ~"
 
-machines=$(curl --silent https://nara.eljojo.net/api.json|jq -r '.naras | map(.Name) | .[]')
-
-for name in ${machines[@]}; do
+for name in "$@"; do
   if systemctl is-enabled --quiet nara-$name; then
     systemctl restart nara-$name
     echo "restarted $name"
