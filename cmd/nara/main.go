@@ -41,7 +41,7 @@ func main() {
 	}
 
 	localNara.SetupCloseHandler()
-	defer localNara.Chau()
+	defer localNara.Network.Chau()
 
 	// sleep forever while goroutines do their thing
 	for {

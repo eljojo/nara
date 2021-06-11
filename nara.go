@@ -2,7 +2,7 @@ package nara
 
 import (
 	"fmt"
-	mqtt "github.com/eclipse/paho.mqtt.golang"
+	//	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/shirou/gopsutil/host"
 	"github.com/sirupsen/logrus"
 
@@ -14,7 +14,6 @@ import (
 type LocalNara struct {
 	Me              *Nara
 	Network         *Network
-	Mqtt            mqtt.Client
 	forceChattiness int
 }
 
@@ -50,11 +49,9 @@ type NaraObservation struct {
 func NewLocalNara(name string, mqtt_host string, mqtt_user string, mqtt_pass string, forceChattiness int) *LocalNara {
 	ln := &LocalNara{
 		Me:              NewNara(name),
-		Network:         NewNetwork(),
 		forceChattiness: forceChattiness,
 	}
-
-	ln.Mqtt = ln.initializeMQTT(mqtt_host, mqtt_user, mqtt_pass)
+	ln.Network = NewNetwork(ln, mqtt_host, mqtt_user, mqtt_pass)
 
 	ln.updateHostStats()
 
@@ -69,9 +66,8 @@ func NewLocalNara(name string, mqtt_host string, mqtt_user string, mqtt_pass str
 	hostinfo, _ := host.Info()
 	ln.Me.Hostname = hostinfo.Hostname
 
-	if token := ln.Mqtt.Connect(); token.Wait() && token.Error() != nil {
-		panic(token.Error())
-	}
+	ln.Network.Connect()
+
 	return ln
 }
 
@@ -83,11 +79,9 @@ func NewNara(name string) *Nara {
 }
 
 func (ln *LocalNara) Start() {
-	go ln.announceForever()
 	go ln.measurePingForever()
 	go ln.updateHostStatsForever()
-	go ln.formOpinion()
-	go ln.observationMaintenance()
+	ln.Network.Start()
 }
 
 func (ln *LocalNara) SetupCloseHandler() {
@@ -96,7 +90,7 @@ func (ln *LocalNara) SetupCloseHandler() {
 	go func() {
 		<-c
 		fmt.Println("babaayyy")
-		ln.Chau()
+		ln.Network.Chau()
 		os.Exit(0)
 	}()
 }

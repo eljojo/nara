@@ -5,34 +5,34 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func (ln *LocalNara) mqttOnConnectHandler() mqtt.OnConnectHandler {
+func (network *Network) mqttOnConnectHandler() mqtt.OnConnectHandler {
 	var connectHandler mqtt.OnConnectHandler = func(client mqtt.Client) {
 		logrus.Println("Connected to MQTT")
 
-		if token := client.Subscribe("nara/newspaper/#", 0, ln.newspaperHandler); token.Wait() && token.Error() != nil {
+		if token := client.Subscribe("nara/newspaper/#", 0, network.newspaperHandler); token.Wait() && token.Error() != nil {
 			panic(token.Error())
 		}
 
-		if token := client.Subscribe("nara/plaza/hey_there", 0, ln.heyThereHandler); token.Wait() && token.Error() != nil {
+		if token := client.Subscribe("nara/plaza/hey_there", 0, network.heyThereHandler); token.Wait() && token.Error() != nil {
 			panic(token.Error())
 		}
 
-		if token := client.Subscribe("nara/plaza/chau", 0, ln.chauHandler); token.Wait() && token.Error() != nil {
+		if token := client.Subscribe("nara/plaza/chau", 0, network.chauHandler); token.Wait() && token.Error() != nil {
 			panic(token.Error())
 		}
 
-		ln.heyThere()
+		network.heyThere()
 	}
 	return connectHandler
 }
 
-func (ln *LocalNara) initializeMQTT(host string, user string, pass string) mqtt.Client {
+func initializeMQTT(onConnect mqtt.OnConnectHandler, name string, host string, user string, pass string) mqtt.Client {
 	opts := mqtt.NewClientOptions()
 	opts.AddBroker(host)
-	opts.SetClientID(ln.Me.Name)
+	opts.SetClientID(name)
 	opts.SetUsername(user)
 	opts.SetPassword(pass)
-	opts.OnConnect = ln.mqttOnConnectHandler()
+	opts.OnConnect = onConnect
 	opts.OnConnectionLost = connectLostHandler
 	client := mqtt.NewClient(opts)
 	return client
