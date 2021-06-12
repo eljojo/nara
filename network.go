@@ -188,10 +188,7 @@ func (network *Network) chauHandler(client mqtt.Client, msg mqtt.Message) {
 	network.local.Me.setObservation(nara.Name, observation)
 	network.Neighbourhood[nara.Name] = nara
 
-	_, present := network.local.Me.Status.PingStats[nara.Name]
-	if present {
-		delete(network.local.Me.Status.PingStats, nara.Name)
-	}
+	network.local.Me.forgetPing(nara.Name)
 
 	logrus.Printf("%s: chau!", nara.Name)
 }
@@ -317,6 +314,12 @@ func (network *Network) observationMaintenance() {
 		for name, observation := range network.local.Me.Status.Observations {
 			// only do maintenance on naras that are online
 			if observation.Online != "ONLINE" {
+				if observation.ClusterName != "" {
+					// reset cluster for offline naras
+					observation.ClusterName = ""
+					network.local.Me.setObservation(name, observation)
+				}
+
 				continue
 			}
 
@@ -337,7 +340,6 @@ func (network *Network) observationMaintenance() {
 var clusterNames = []string{"olive", "peach", "sand", "ocean", "basil", "papaya", "brunch", "sorbet", "margarita", "bohemian", "terracotta"}
 
 func (network *Network) calculateClusters() {
-
 	distanceMap := network.prepareClusteringDistanceMap()
 	clusters := clustering.NewDistanceMapClusterSet(distanceMap)
 
@@ -360,30 +362,12 @@ func (network *Network) calculateClusters() {
 func (network *Network) prepareClusteringDistanceMap() clustering.DistanceMap {
 	distanceMap := make(clustering.DistanceMap)
 
-	// first create distance map with all pings from the perspective of each neighbour
 	for _, nara := range network.Neighbourhood {
-		distanceMap[nara.Name] = make(map[clustering.ClusterItem]float64)
-		for otherNara, ping := range nara.Status.PingStats {
-			if otherNara == "google" {
-				continue
-			}
-			distanceMap[nara.Name][otherNara] = ping
-		}
-
-		// reset observations for offline naras
-		observation := network.local.Me.getObservation(nara.Name)
-		observation.ClusterName = ""
-		network.local.Me.setObservation(nara.Name, observation)
+		// first create distance map with all pings from the perspective of each neighbour
+		distanceMap[nara.Name] = nara.pingMap()
 	}
 
-	// add own ping stats
-	distanceMap[network.meName()] = make(map[clustering.ClusterItem]float64)
-	for otherNara, ping := range network.local.Me.Status.PingStats {
-		if otherNara == "google" {
-			continue
-		}
-		distanceMap[network.meName()][otherNara] = ping
-	}
+	distanceMap[network.meName()] = network.local.Me.pingMap()
 
 	return distanceMap
 }
