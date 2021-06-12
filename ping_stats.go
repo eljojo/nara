@@ -87,7 +87,7 @@ func (ln *LocalNara) measureAndStorePing(name string, dest string) {
 }
 
 func measurePing(name string, dest string) (float64, error) {
-	logrus.Debug("pinging", name, dest)
+	logrus.Debugf("pinging %s (%s)", name, dest)
 	pinger, err := ping.NewPinger(dest)
 	if err != nil {
 		return 0, err

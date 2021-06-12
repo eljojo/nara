@@ -44,18 +44,11 @@ func (network *Network) meName() string {
 
 func (network *Network) announce() {
 	topic := fmt.Sprintf("%s/%s", "nara/newspaper", network.meName())
-	logrus.Debug("posting on", topic)
 
 	// update neighbour's opinion on us
 	network.recordObservationOnlineNara(network.meName())
 
-	payload, err := json.Marshal(network.local.Me.Status)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	token := network.Mqtt.Publish(topic, 0, false, string(payload))
-	token.Wait()
+	network.postEvent(topic, network.local.Me.Status)
 }
 
 func (network *Network) announceForever() {
@@ -155,23 +148,15 @@ func (network *Network) recordObservationOnlineNara(name string) {
 }
 
 func (network *Network) heyThere() {
+	topic := "nara/plaza/hey_there"
+
 	ts := network.local.Me.chattinessRate(10, 20)
 	if (time.Now().Unix() - network.LastHeyThere) <= ts {
 		return
 	}
 
 	network.LastHeyThere = time.Now().Unix()
-
-	topic := "nara/plaza/hey_there"
-	logrus.Printf("posting to %s", topic)
-
-	payload, err := json.Marshal(network.local.Me)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	token := network.Mqtt.Publish(topic, 0, false, string(payload))
-	token.Wait()
+	network.postEvent(topic, network.local.Me)
 }
 
 func (network *Network) chauHandler(client mqtt.Client, msg mqtt.Message) {
@@ -202,13 +187,7 @@ func (network *Network) Chau() {
 	observation.LastSeen = time.Now().Unix()
 	network.local.setMeObservation(observation)
 
-	payload, err := json.Marshal(network.local.Me)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	token := network.Mqtt.Publish(topic, 0, false, string(payload))
-	token.Wait()
+	network.postEvent(topic, network.local.Me)
 }
 
 func (network *Network) formOpinion() {
@@ -415,14 +394,18 @@ func (network *Network) pingHandler(client mqtt.Client, msg mqtt.Message) {
 	var pingEvent PingEvent
 	json.Unmarshal(msg.Payload(), &pingEvent)
 	network.storePingEvent(pingEvent)
-	logrus.Debug("ping from %s to %s is %.2fms", pingEvent.From, pingEvent.To, pingEvent.TimeMs)
+	logrus.Debugf("ping from %s to %s is %.2fms", pingEvent.From, pingEvent.To, pingEvent.TimeMs)
 }
 
 func (network *Network) postPing(ping PingEvent) {
 	topic := fmt.Sprintf("%s/%s/%s", "nara/ping", ping.From, ping.To)
-	logrus.Debug("posting on", topic)
+	network.postEvent(topic, ping)
+}
 
-	payload, err := json.Marshal(ping)
+func (network *Network) postEvent(topic string, event interface{}) {
+	logrus.Debugf("posting on %s", topic)
+
+	payload, err := json.Marshal(event)
 	if err != nil {
 		fmt.Println(err)
 		return
