@@ -30,6 +30,7 @@ type NaraStatus struct {
 	HostStats    HostStats
 	Chattiness   int64
 	Observations map[string]NaraObservation
+	PingStats    map[string]float64 // temporary to avoid crashing existing Narae
 }
 
 type NaraObservation struct {
@@ -68,6 +69,7 @@ func NewNara(name string) *Nara {
 	nara := &Nara{Name: name}
 	nara.PingStats = make(map[string]float64)
 	nara.Status.Observations = make(map[string]NaraObservation)
+	nara.Status.PingStats = make(map[string]float64) // temporary to avoid crashing existing Narae
 	return nara
 }
 
