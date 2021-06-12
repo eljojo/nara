@@ -21,6 +21,10 @@ func (network *Network) mqttOnConnectHandler() mqtt.OnConnectHandler {
 			panic(token.Error())
 		}
 
+		if token := client.Subscribe("nara/ping/#", 0, network.pingHandler); token.Wait() && token.Error() != nil {
+			panic(token.Error())
+		}
+
 		network.heyThere()
 	}
 	return connectHandler

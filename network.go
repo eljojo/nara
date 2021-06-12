@@ -409,3 +409,23 @@ func (network *Network) oldestStarTimeForCluster(cluster []string) int64 {
 	}
 	return oldest
 }
+
+func (network *Network) pingHandler(client mqtt.Client, msg mqtt.Message) {
+	var pingEvent PingEvent
+	json.Unmarshal(msg.Payload(), &pingEvent)
+	network.storePingEvent(pingEvent)
+	logrus.Printf("ping from %s to %s is %.2fms", pingEvent.From, pingEvent.To, pingEvent.TimeMs)
+}
+
+func (network *Network) postPing(ping PingEvent) {
+	topic := fmt.Sprintf("%s/%s/%s", "nara/ping", ping.From, ping.To)
+	logrus.Debug("posting on", topic)
+
+	payload, err := json.Marshal(ping)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	token := network.Mqtt.Publish(topic, 0, false, string(payload))
+	token.Wait()
+}

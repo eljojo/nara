@@ -13,14 +13,35 @@ func (nara *Nara) getPing(name string) float64 {
 	return ping
 }
 
+type PingEvent struct {
+	From   string
+	To     string
+	TimeMs float64
+}
+
 func (nara *Nara) setPing(name string, ping float64) {
-	nara.Status.PingStats[name] = ping
+	if ping > 0 {
+		nara.Status.PingStats[name] = ping
+	} else {
+		nara.forgetPing(name)
+	}
 }
 
 func (nara *Nara) forgetPing(name string) {
 	_, present := nara.Status.PingStats[name]
 	if present {
 		delete(nara.Status.PingStats, name)
+	}
+}
+
+func (network *Network) storePingEvent(pingEvent PingEvent) {
+	if pingEvent.From == network.meName() {
+		network.local.Me.setPing(pingEvent.To, pingEvent.TimeMs)
+	} else {
+		neighbour, present := network.Neighbourhood[pingEvent.From]
+		if present {
+			neighbour.setPing(pingEvent.To, pingEvent.TimeMs)
+		}
 	}
 }
 
@@ -54,11 +75,14 @@ func (ln *LocalNara) measurePingForever() {
 
 func (ln *LocalNara) measureAndStorePing(name string, dest string) {
 	ping, err := measurePing(name, dest)
+	pingEvent := PingEvent{From: ln.Me.Name, To: name, TimeMs: ping}
+	ln.Network.postPing(pingEvent)
 	if err == nil && ping > 0 {
-		ln.Me.setPing(name, ping)
+		// ln.Me.setPing(name, ping)
+		// testing: pingHandler should receive the event sent above
 	} else {
 		// logrus.Println("problem when pinging", dest, err)
-		ln.Me.forgetPing(name)
+		ln.Me.forgetPing(name) // likely not necessary
 	}
 }
 
