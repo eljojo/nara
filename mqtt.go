@@ -20,7 +20,7 @@ func (network *Network) mqttOnConnectHandler() mqtt.OnConnectHandler {
 func (network *Network) subscribeHandlers(client mqtt.Client) {
 	subscribeMqtt(client, "nara/newspaper/#", network.newspaperHandler)
 	subscribeMqtt(client, "nara/plaza/hey_there", network.heyThereHandler)
-	subscribeMqtt(client, "nara/plaza/chau", network.pingHandler)
+	subscribeMqtt(client, "nara/plaza/chau", network.chauHandler)
 	subscribeMqtt(client, "nara/ping/#", network.pingHandler)
 }
 
@@ -28,6 +28,20 @@ func (network *Network) pingHandler(client mqtt.Client, msg mqtt.Message) {
 	var pingEvent PingEvent
 	json.Unmarshal(msg.Payload(), &pingEvent)
 	network.pingInbox <- pingEvent
+}
+
+func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
+	nara := NewNara("")
+	json.Unmarshal(msg.Payload(), nara)
+
+	network.heyThereInbox <- *nara
+}
+
+func (network *Network) chauHandler(client mqtt.Client, msg mqtt.Message) {
+	nara := NewNara("")
+	json.Unmarshal(msg.Payload(), nara)
+
+	network.chauInbox <- *nara
 }
 
 func subscribeMqtt(client mqtt.Client, topic string, handler func(client mqtt.Client, msg mqtt.Message)) {

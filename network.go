@@ -19,12 +19,16 @@ type Network struct {
 	local          *LocalNara
 	Mqtt           mqtt.Client
 	pingInbox      chan PingEvent
+	heyThereInbox  chan Nara
+	chauInbox      chan Nara
 }
 
 func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Network {
 	network := &Network{local: localNara}
 	network.Neighbourhood = make(map[string]*Nara)
 	network.pingInbox = make(chan PingEvent)
+	network.heyThereInbox = make(chan Nara)
+	network.chauInbox = make(chan Nara)
 	network.skippingEvents = false
 	network.Mqtt = initializeMQTT(network.mqttOnConnectHandler(), network.meName(), host, user, pass)
 	return network
@@ -39,6 +43,8 @@ func (network *Network) Start() {
 	go network.observationMaintenance()
 	go network.announceForever()
 	go network.processPingEvents()
+	go network.processHeyThereEvents()
+	go network.processChauEvents()
 }
 
 func (network *Network) meName() string {
@@ -95,51 +101,20 @@ func (network *Network) newspaperHandler(client mqtt.Client, msg mqtt.Message) {
 	network.recordObservationOnlineNara(from)
 }
 
-func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
-	nara := NewNara("")
-	json.Unmarshal(msg.Payload(), nara)
+func (network *Network) processHeyThereEvents() {
+	for {
+		nara := <-network.heyThereInbox
 
-	if nara.Name == network.meName() || nara.Name == "" {
-		return
-	}
-
-	network.Neighbourhood[nara.Name] = nara
-	logrus.Printf("%s says: hey there!", nara.Name)
-	network.recordObservationOnlineNara(nara.Name)
-
-	network.heyThere()
-}
-
-func (network *Network) recordObservationOnlineNara(name string) {
-	observation := network.local.getObservation(name)
-
-	if observation.StartTime == 0 || name == network.meName() {
-		if name != network.meName() {
-			logrus.Printf("observation: seen %s for the first time", name)
+		if nara.Name == network.meName() || nara.Name == "" {
+			continue
 		}
 
-		observation.Restarts = network.findRestartCountFromNeighbourhoodForNara(name)
-		observation.StartTime = network.findStartingTimeFromNeighbourhoodForNara(name)
-		observation.LastRestart = network.findLastRestartFromNeighbourhoodForNara(name)
+		network.Neighbourhood[nara.Name] = &nara
+		logrus.Printf("%s says: hey there!", nara.Name)
+		network.recordObservationOnlineNara(nara.Name)
 
-		if observation.StartTime == 0 && name == network.meName() {
-			observation.StartTime = time.Now().Unix()
-		}
-
-		if observation.LastRestart == 0 && name == network.meName() {
-			observation.LastRestart = time.Now().Unix()
-		}
+		network.heyThere()
 	}
-
-	if observation.Online != "ONLINE" && observation.Online != "" {
-		observation.Restarts += 1
-		observation.LastRestart = time.Now().Unix()
-		logrus.Printf("observation: %s came back online", name)
-	}
-
-	observation.Online = "ONLINE"
-	observation.LastSeen = time.Now().Unix()
-	network.local.setObservation(name, observation)
 }
 
 func (network *Network) heyThere() {
@@ -154,23 +129,24 @@ func (network *Network) heyThere() {
 	network.postEvent(topic, network.local.Me)
 }
 
-func (network *Network) chauHandler(client mqtt.Client, msg mqtt.Message) {
-	nara := NewNara("")
-	json.Unmarshal(msg.Payload(), nara)
+func (network *Network) processChauEvents() {
+	for {
+		nara := <-network.chauInbox
 
-	if nara.Name == network.meName() || nara.Name == "" {
-		return
+		if nara.Name == network.meName() || nara.Name == "" {
+			continue
+		}
+
+		observation := network.local.getObservation(nara.Name)
+		observation.Online = "OFFLINE"
+		observation.LastSeen = time.Now().Unix()
+		network.local.setObservation(nara.Name, observation)
+		network.Neighbourhood[nara.Name] = &nara
+
+		network.local.Me.forgetPing(nara.Name)
+
+		logrus.Printf("%s: chau!", nara.Name)
 	}
-
-	observation := network.local.getObservation(nara.Name)
-	observation.Online = "OFFLINE"
-	observation.LastSeen = time.Now().Unix()
-	network.local.setObservation(nara.Name, observation)
-	network.Neighbourhood[nara.Name] = nara
-
-	network.local.Me.forgetPing(nara.Name)
-
-	logrus.Printf("%s: chau!", nara.Name)
 }
 
 func (network *Network) Chau() {
@@ -234,6 +210,38 @@ func (network *Network) findStartingTimeFromNeighbourhoodForNara(name string) in
 	}
 
 	return startTime
+}
+
+func (network *Network) recordObservationOnlineNara(name string) {
+	observation := network.local.getObservation(name)
+
+	if observation.StartTime == 0 || name == network.meName() {
+		if name != network.meName() {
+			logrus.Printf("observation: seen %s for the first time", name)
+		}
+
+		observation.Restarts = network.findRestartCountFromNeighbourhoodForNara(name)
+		observation.StartTime = network.findStartingTimeFromNeighbourhoodForNara(name)
+		observation.LastRestart = network.findLastRestartFromNeighbourhoodForNara(name)
+
+		if observation.StartTime == 0 && name == network.meName() {
+			observation.StartTime = time.Now().Unix()
+		}
+
+		if observation.LastRestart == 0 && name == network.meName() {
+			observation.LastRestart = time.Now().Unix()
+		}
+	}
+
+	if observation.Online != "ONLINE" && observation.Online != "" {
+		observation.Restarts += 1
+		observation.LastRestart = time.Now().Unix()
+		logrus.Printf("observation: %s came back online", name)
+	}
+
+	observation.Online = "ONLINE"
+	observation.LastSeen = time.Now().Unix()
+	network.local.setObservation(name, observation)
 }
 
 func (network *Network) findRestartCountFromNeighbourhoodForNara(name string) int64 {
