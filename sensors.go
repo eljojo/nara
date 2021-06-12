@@ -28,7 +28,7 @@ func (ln *LocalNara) updateHostStats() {
 
 	load, _ := load.Avg()
 	loadavg := load.Load1 / float64(runtime.NumCPU())
-	ln.Me.Status.HostStats.LoadAvg = loadavg
+	ln.Me.Status.HostStats.LoadAvg = float64(int64(loadavg*100)) / 100
 
 	if ln.forceChattiness >= 0 && ln.forceChattiness <= 100 {
 		ln.Me.Status.Chattiness = int64(ln.forceChattiness)
