@@ -14,20 +14,29 @@ func (localNara *LocalNara) setMeObservation(observation NaraObservation) {
 }
 
 func (localNara *LocalNara) getObservation(name string) NaraObservation {
-	return localNara.Me.getObservation(name)
+	localNara.mu.Lock()
+	observation := localNara.Me.getObservation(name)
+	localNara.mu.Unlock()
+	return observation
 }
 
 func (localNara *LocalNara) setObservation(name string, observation NaraObservation) {
+	localNara.mu.Lock()
 	localNara.Me.setObservation(name, observation)
+	localNara.mu.Unlock()
 }
 
 func (nara *Nara) getObservation(name string) NaraObservation {
+	nara.mu.Lock()
 	observation, _ := nara.Status.Observations[name]
+	nara.mu.Unlock()
 	return observation
 }
 
 func (nara *Nara) setObservation(name string, observation NaraObservation) {
+	nara.mu.Lock()
 	nara.Status.Observations[name] = observation
+	nara.mu.Unlock()
 }
 
 func (network *Network) formOpinion() {
