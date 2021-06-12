@@ -82,7 +82,9 @@ func (network *Network) processNewspaperEvents() {
 		network.local.mu.Unlock()
 		if present {
 			other.Status = newspaperEvent.Status
+			network.local.mu.Lock()
 			network.Neighbourhood[newspaperEvent.From] = other
+			network.local.mu.Unlock()
 		} else {
 			logrus.Printf("%s posted a newspaper story (whodis?)", newspaperEvent.From)
 			if network.local.Me.Status.Chattiness > 0 {
