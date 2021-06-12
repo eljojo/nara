@@ -8,16 +8,15 @@ import (
 )
 
 type Network struct {
-	Neighbourhood       map[string]*Nara
-	LastHeyThere        int64
-	skippingEvents      bool
-	local               *LocalNara
-	Mqtt                mqtt.Client
-	pingInbox           chan PingEvent
-	heyThereInbox       chan Nara
-	newspaperInbox      chan NewspaperEvent
-	chauInbox           chan Nara
-	newObservationInbox chan NaraObservation
+	Neighbourhood  map[string]*Nara
+	LastHeyThere   int64
+	skippingEvents bool
+	local          *LocalNara
+	Mqtt           mqtt.Client
+	pingInbox      chan PingEvent
+	heyThereInbox  chan Nara
+	newspaperInbox chan NewspaperEvent
+	chauInbox      chan Nara
 }
 
 type NewspaperEvent struct {
@@ -25,16 +24,13 @@ type NewspaperEvent struct {
 	Status NaraStatus
 }
 
-const channelSize = 10
-
 func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Network {
 	network := &Network{local: localNara}
-	network.Neighbourhood = make(map[string]*Nara, channelSize)
-	network.pingInbox = make(chan PingEvent, channelSize)
-	network.heyThereInbox = make(chan Nara, channelSize)
-	network.chauInbox = make(chan Nara, channelSize)
-	network.newspaperInbox = make(chan NewspaperEvent, channelSize)
-	network.newObservationInbox = make(chan NaraObservation, channelSize)
+	network.Neighbourhood = make(map[string]*Nara)
+	network.pingInbox = make(chan PingEvent)
+	network.heyThereInbox = make(chan Nara)
+	network.chauInbox = make(chan Nara)
+	network.newspaperInbox = make(chan NewspaperEvent)
 	network.skippingEvents = false
 	network.Mqtt = initializeMQTT(network.mqttOnConnectHandler(), network.meName(), host, user, pass)
 	return network
@@ -52,7 +48,6 @@ func (network *Network) Start() {
 	go network.processHeyThereEvents()
 	go network.processChauEvents()
 	go network.processNewspaperEvents()
-	go network.processNewObservations()
 }
 
 func (network *Network) meName() string {
@@ -80,7 +75,7 @@ func (network *Network) announceForever() {
 func (network *Network) processNewspaperEvents() {
 	for {
 		newspaperEvent := <-network.newspaperInbox
-		logrus.Debugf("newspaperHandler update from %s", newspaperEvent.From)
+		logrus.Debugf("newspaperHandler update from %s", from)
 
 		network.local.mu.Lock()
 		other, present := network.Neighbourhood[newspaperEvent.From]

@@ -35,7 +35,6 @@ type NaraStatus struct {
 }
 
 type NaraObservation struct {
-	name        string
 	Online      string
 	StartTime   int64
 	Restarts    int64
@@ -104,13 +103,11 @@ func (localNara *LocalNara) getObservation(name string) NaraObservation {
 }
 
 func (localNara *LocalNara) setObservation(name string, observation NaraObservation) {
-	observation.name = name
-	localNara.Network.newObservationInbox <- observation
+	localNara.Me.setObservation(name, observation)
 }
 
 func (nara *Nara) getObservation(name string) NaraObservation {
 	observation, _ := nara.Status.Observations[name]
-	observation.name = name
 	return observation
 }
 

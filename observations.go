@@ -5,13 +5,6 @@ import (
 	"time"
 )
 
-func (network *Network) processNewObservations() {
-	for {
-		observation := <-network.newObservationInbox
-		network.local.Me.setObservation(observation.name, observation)
-	}
-}
-
 func (network *Network) formOpinion() {
 	time.Sleep(40 * time.Second)
 	logrus.Printf("🕵️  forming opinions...")
