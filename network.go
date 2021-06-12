@@ -414,7 +414,7 @@ func (network *Network) pingHandler(client mqtt.Client, msg mqtt.Message) {
 	var pingEvent PingEvent
 	json.Unmarshal(msg.Payload(), &pingEvent)
 	network.storePingEvent(pingEvent)
-	logrus.Printf("ping from %s to %s is %.2fms", pingEvent.From, pingEvent.To, pingEvent.TimeMs)
+	logrus.Debug("ping from %s to %s is %.2fms", pingEvent.From, pingEvent.To, pingEvent.TimeMs)
 }
 
 func (network *Network) postPing(ping PingEvent) {
