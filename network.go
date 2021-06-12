@@ -108,14 +108,14 @@ func (network *Network) newspaperHandler(client mqtt.Client, msg mqtt.Message) {
 }
 
 func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
-	var nara Nara
-	json.Unmarshal(msg.Payload(), &nara)
+	nara := NewNara("")
+	json.Unmarshal(msg.Payload(), nara)
 
 	if nara.Name == network.meName() || nara.Name == "" {
 		return
 	}
 
-	network.Neighbourhood[nara.Name] = &nara
+	network.Neighbourhood[nara.Name] = nara
 	logrus.Printf("%s says: hey there!", nara.Name)
 	network.recordObservationOnlineNara(nara.Name)
 
@@ -175,8 +175,8 @@ func (network *Network) heyThere() {
 }
 
 func (network *Network) chauHandler(client mqtt.Client, msg mqtt.Message) {
-	var nara Nara
-	json.Unmarshal(msg.Payload(), &nara)
+	nara := NewNara("")
+	json.Unmarshal(msg.Payload(), nara)
 
 	if nara.Name == network.meName() || nara.Name == "" {
 		return
@@ -186,7 +186,7 @@ func (network *Network) chauHandler(client mqtt.Client, msg mqtt.Message) {
 	observation.Online = "OFFLINE"
 	observation.LastSeen = time.Now().Unix()
 	network.local.Me.setObservation(nara.Name, observation)
-	network.Neighbourhood[nara.Name] = &nara
+	network.Neighbourhood[nara.Name] = nara
 
 	network.local.Me.forgetPing(nara.Name)
 
