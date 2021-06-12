@@ -9,7 +9,9 @@ import (
 )
 
 func (nara *Nara) getPing(name string) float64 {
+	nara.mu.Lock()
 	ping, _ := nara.PingStats[name]
+	nara.mu.Unlock()
 	return ping
 }
 
@@ -21,17 +23,21 @@ type PingEvent struct {
 
 func (nara *Nara) setPing(name string, ping float64) {
 	if ping > 0 {
+		nara.mu.Lock()
 		nara.PingStats[name] = ping
+		nara.mu.Unlock()
 	} else {
 		nara.forgetPing(name)
 	}
 }
 
 func (nara *Nara) forgetPing(name string) {
+	nara.mu.Lock()
 	_, present := nara.PingStats[name]
 	if present {
 		delete(nara.PingStats, name)
 	}
+	nara.mu.Unlock()
 }
 
 func (network *Network) processPingEvents() {
@@ -56,6 +62,7 @@ func (network *Network) storePingEvent(pingEvent PingEvent) {
 }
 
 func (nara *Nara) pingMap() map[clustering.ClusterItem]float64 {
+	nara.mu.Lock()
 	pingMap := make(map[clustering.ClusterItem]float64)
 	for otherNara, ping := range nara.PingStats {
 		if otherNara == "google" {
@@ -63,6 +70,7 @@ func (nara *Nara) pingMap() map[clustering.ClusterItem]float64 {
 		}
 		pingMap[otherNara] = ping
 	}
+	nara.mu.Unlock()
 	return pingMap
 }
 
@@ -114,7 +122,9 @@ func measurePing(name string, dest string) (float64, error) {
 }
 
 func (nara *Nara) pingTo(other Nara) (float64, bool) {
+	nara.mu.Lock()
 	ping, present := nara.PingStats[other.Name]
+	nara.mu.Unlock()
 	return ping, present
 }
 

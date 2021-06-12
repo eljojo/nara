@@ -25,6 +25,7 @@ type Nara struct {
 	Ip        string
 	Status    NaraStatus
 	PingStats map[string]float64
+	mu        sync.Mutex
 }
 
 type NaraStatus struct {
