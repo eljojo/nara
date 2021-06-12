@@ -4,6 +4,7 @@ import (
 	"errors"
 	"github.com/shirou/gopsutil/host"
 	"github.com/shirou/gopsutil/load"
+	"github.com/sirupsen/logrus"
 	"net"
 	"runtime"
 	"strings"
@@ -38,6 +39,14 @@ func (ln *LocalNara) updateHostStats() {
 		} else {
 			ln.Me.Status.Chattiness = 0
 		}
+	}
+
+	if ln.Me.Status.Chattiness <= 10 && ln.Network.skippingEvents == false {
+		logrus.Println("[warning] low chattiness, newspaper events may be dropped")
+		ln.Network.skippingEvents = true
+	} else if ln.Me.Status.Chattiness > 10 && ln.Network.skippingEvents == true {
+		logrus.Println("[recovered] chattiness is healthy again, not dropping events anymore")
+		ln.Network.skippingEvents = false
 	}
 }
 

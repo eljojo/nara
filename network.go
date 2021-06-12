@@ -61,13 +61,6 @@ func (network *Network) announceForever() {
 }
 
 func (network *Network) newspaperHandler(client mqtt.Client, msg mqtt.Message) {
-	if network.local.Me.Status.Chattiness <= 10 && network.skippingEvents == false {
-		logrus.Println("[warning] low chattiness, newspaper events may be dropped")
-		network.skippingEvents = true
-	} else if network.local.Me.Status.Chattiness > 10 && network.skippingEvents == true {
-		logrus.Println("[recovered] chattiness is healthy again, not dropping events anymore")
-		network.skippingEvents = false
-	}
 	if network.skippingEvents == true && rand.Intn(2) == 0 {
 		return
 	}

@@ -9,25 +9,23 @@ func (network *Network) mqttOnConnectHandler() mqtt.OnConnectHandler {
 	var connectHandler mqtt.OnConnectHandler = func(client mqtt.Client) {
 		logrus.Println("Connected to MQTT")
 
-		if token := client.Subscribe("nara/newspaper/#", 0, network.newspaperHandler); token.Wait() && token.Error() != nil {
-			panic(token.Error())
-		}
-
-		if token := client.Subscribe("nara/plaza/hey_there", 0, network.heyThereHandler); token.Wait() && token.Error() != nil {
-			panic(token.Error())
-		}
-
-		if token := client.Subscribe("nara/plaza/chau", 0, network.chauHandler); token.Wait() && token.Error() != nil {
-			panic(token.Error())
-		}
-
-		if token := client.Subscribe("nara/ping/#", 0, network.pingHandler); token.Wait() && token.Error() != nil {
-			panic(token.Error())
-		}
-
+		network.subscribeHandlers(client)
 		network.heyThere()
 	}
 	return connectHandler
+}
+
+func (network *Network) subscribeHandlers(client mqtt.Client) {
+	subscribeMqtt(client, "nara/newspaper/#", network.newspaperHandler)
+	subscribeMqtt(client, "nara/plaza/hey_there", network.heyThereHandler)
+	subscribeMqtt(client, "nara/plaza/chau", network.pingHandler)
+	subscribeMqtt(client, "nara/ping/#", network.pingHandler)
+}
+
+func subscribeMqtt(client mqtt.Client, topic string, handler func(client mqtt.Client, msg mqtt.Message)) {
+	if token := client.Subscribe(topic, 0, handler); token.Wait() && token.Error() != nil {
+		panic(token.Error())
+	}
 }
 
 func initializeMQTT(onConnect mqtt.OnConnectHandler, name string, host string, user string, pass string) mqtt.Client {
