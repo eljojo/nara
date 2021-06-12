@@ -32,11 +32,6 @@ type NaraStatus struct {
 	Observations map[string]NaraObservation
 }
 
-type HostStats struct {
-	Uptime  uint64
-	LoadAvg float64
-}
-
 type NaraObservation struct {
 	Online      string
 	StartTime   int64
