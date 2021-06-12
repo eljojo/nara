@@ -5,6 +5,31 @@ import (
 	"time"
 )
 
+func (localNara *LocalNara) getMeObservation() NaraObservation {
+	return localNara.getObservation(localNara.Me.Name)
+}
+
+func (localNara *LocalNara) setMeObservation(observation NaraObservation) {
+	localNara.setObservation(localNara.Me.Name, observation)
+}
+
+func (localNara *LocalNara) getObservation(name string) NaraObservation {
+	return localNara.Me.getObservation(name)
+}
+
+func (localNara *LocalNara) setObservation(name string, observation NaraObservation) {
+	localNara.Me.setObservation(name, observation)
+}
+
+func (nara *Nara) getObservation(name string) NaraObservation {
+	observation, _ := nara.Status.Observations[name]
+	return observation
+}
+
+func (nara *Nara) setObservation(name string, observation NaraObservation) {
+	nara.Status.Observations[name] = observation
+}
+
 func (network *Network) formOpinion() {
 	time.Sleep(40 * time.Second)
 	logrus.Printf("🕵️  forming opinions...")
