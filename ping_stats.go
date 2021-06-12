@@ -61,7 +61,7 @@ func (ln *LocalNara) measurePingForever() {
 		ln.measureAndStorePing("google", "8.8.8.8")
 
 		for name, nara := range ln.Network.Neighbourhood {
-			if ln.Me.getObservation(nara.Name).Online != "ONLINE" {
+			if ln.getObservation(nara.Name).Online != "ONLINE" {
 				ln.Me.forgetPing(name)
 				continue
 			}

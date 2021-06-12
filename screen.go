@@ -67,7 +67,7 @@ func (ln *LocalNara) generateScreenRow(nara Nara) neighbour {
 	if nara.Name != ln.Me.Name {
 		ping = ln.Me.pingBetweenMs(nara)
 	}
-	observation, _ := ln.Me.Status.Observations[nara.Name]
+	observation := ln.getObservation(nara.Name)
 	lastSeen := timeAgoFriendly(now - observation.LastSeen)
 	first_seen := timeAgoFriendly(now - observation.StartTime)
 	if observation.StartTime == 0 {
