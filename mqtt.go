@@ -1,6 +1,8 @@
 package nara
 
 import (
+	"encoding/json"
+	"fmt"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/sirupsen/logrus"
 )
@@ -22,10 +24,33 @@ func (network *Network) subscribeHandlers(client mqtt.Client) {
 	subscribeMqtt(client, "nara/ping/#", network.pingHandler)
 }
 
+func (network *Network) pingHandler(client mqtt.Client, msg mqtt.Message) {
+	var pingEvent PingEvent
+	json.Unmarshal(msg.Payload(), &pingEvent)
+	network.pingInbox <- pingEvent
+}
+
 func subscribeMqtt(client mqtt.Client, topic string, handler func(client mqtt.Client, msg mqtt.Message)) {
 	if token := client.Subscribe(topic, 0, handler); token.Wait() && token.Error() != nil {
 		panic(token.Error())
 	}
+}
+
+func (network *Network) postPing(ping PingEvent) {
+	topic := fmt.Sprintf("%s/%s/%s", "nara/ping", ping.From, ping.To)
+	network.postEvent(topic, ping)
+}
+
+func (network *Network) postEvent(topic string, event interface{}) {
+	logrus.Debugf("posting on %s", topic)
+
+	payload, err := json.Marshal(event)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	token := network.Mqtt.Publish(topic, 0, false, string(payload))
+	token.Wait()
 }
 
 func initializeMQTT(onConnect mqtt.OnConnectHandler, name string, host string, user string, pass string) mqtt.Client {

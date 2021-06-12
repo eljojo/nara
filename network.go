@@ -18,11 +18,13 @@ type Network struct {
 	skippingEvents bool
 	local          *LocalNara
 	Mqtt           mqtt.Client
+	pingInbox      chan PingEvent
 }
 
 func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Network {
 	network := &Network{local: localNara}
 	network.Neighbourhood = make(map[string]*Nara)
+	network.pingInbox = make(chan PingEvent)
 	network.skippingEvents = false
 	network.Mqtt = initializeMQTT(network.mqttOnConnectHandler(), network.meName(), host, user, pass)
 	return network
@@ -36,6 +38,7 @@ func (network *Network) Start() {
 	go network.formOpinion()
 	go network.observationMaintenance()
 	go network.announceForever()
+	go network.processPingEvents()
 }
 
 func (network *Network) meName() string {
@@ -90,7 +93,6 @@ func (network *Network) newspaperHandler(client mqtt.Client, msg mqtt.Message) {
 	}
 
 	network.recordObservationOnlineNara(from)
-	// inbox <- [2]string{msg.Topic(), string(msg.Payload())}
 }
 
 func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
@@ -381,28 +383,4 @@ func (network *Network) oldestStarTimeForCluster(cluster []string) int64 {
 		}
 	}
 	return oldest
-}
-
-func (network *Network) pingHandler(client mqtt.Client, msg mqtt.Message) {
-	var pingEvent PingEvent
-	json.Unmarshal(msg.Payload(), &pingEvent)
-	network.storePingEvent(pingEvent)
-	logrus.Debugf("ping from %s to %s is %.2fms", pingEvent.From, pingEvent.To, pingEvent.TimeMs)
-}
-
-func (network *Network) postPing(ping PingEvent) {
-	topic := fmt.Sprintf("%s/%s/%s", "nara/ping", ping.From, ping.To)
-	network.postEvent(topic, ping)
-}
-
-func (network *Network) postEvent(topic string, event interface{}) {
-	logrus.Debugf("posting on %s", topic)
-
-	payload, err := json.Marshal(event)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	token := network.Mqtt.Publish(topic, 0, false, string(payload))
-	token.Wait()
 }

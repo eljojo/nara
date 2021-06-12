@@ -34,6 +34,14 @@ func (nara *Nara) forgetPing(name string) {
 	}
 }
 
+func (network *Network) processPingEvents() {
+	for {
+		pingEvent := <-network.pingInbox
+		logrus.Debugf("ping from %s to %s is %.2fms", pingEvent.From, pingEvent.To, pingEvent.TimeMs)
+		network.storePingEvent(pingEvent)
+	}
+}
+
 func (network *Network) storePingEvent(pingEvent PingEvent) {
 	if pingEvent.From == network.meName() {
 		network.local.Me.setPing(pingEvent.To, pingEvent.TimeMs)
