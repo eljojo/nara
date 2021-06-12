@@ -26,11 +26,11 @@ type NewspaperEvent struct {
 
 func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Network {
 	network := &Network{local: localNara}
-	network.Neighbourhood = make(map[string]*Nara)
-	network.pingInbox = make(chan PingEvent)
-	network.heyThereInbox = make(chan Nara)
-	network.chauInbox = make(chan Nara)
-	network.newspaperInbox = make(chan NewspaperEvent)
+	network.Neighbourhood = make(map[string]*Nara, 5)
+	network.pingInbox = make(chan PingEvent, 5)
+	network.heyThereInbox = make(chan Nara, 5)
+	network.chauInbox = make(chan Nara, 5)
+	network.newspaperInbox = make(chan NewspaperEvent, 5)
 	network.skippingEvents = false
 	network.Mqtt = initializeMQTT(network.mqttOnConnectHandler(), network.meName(), host, user, pass)
 	return network
@@ -75,7 +75,7 @@ func (network *Network) announceForever() {
 func (network *Network) processNewspaperEvents() {
 	for {
 		newspaperEvent := <-network.newspaperInbox
-		logrus.Debugf("newspaperHandler update from %s", from)
+		logrus.Debugf("newspaperHandler update from %s", newspaperEvent.From)
 
 		network.local.mu.Lock()
 		other, present := network.Neighbourhood[newspaperEvent.From]
