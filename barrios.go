@@ -31,10 +31,12 @@ func (network *Network) calculateClusters() {
 func (network *Network) prepareClusteringDistanceMap() clustering.DistanceMap {
 	distanceMap := make(clustering.DistanceMap)
 
+	network.local.mu.Lock()
 	for _, nara := range network.Neighbourhood {
 		// first create distance map with all pings from the perspective of each neighbour
 		distanceMap[nara.Name] = nara.pingMap()
 	}
+	network.local.mu.Unlock()
 
 	distanceMap[network.meName()] = network.local.Me.pingMap()
 

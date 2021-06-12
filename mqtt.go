@@ -83,11 +83,13 @@ func (network *Network) postPing(ping PingEvent) {
 func (network *Network) postEvent(topic string, event interface{}) {
 	logrus.Debugf("posting on %s", topic)
 
+	network.local.mu.Lock()
 	payload, err := json.Marshal(event)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
+	network.local.mu.Unlock()
 	token := network.Mqtt.Publish(topic, 0, false, string(payload))
 	token.Wait()
 }

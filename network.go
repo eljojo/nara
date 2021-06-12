@@ -82,7 +82,9 @@ func (network *Network) processNewspaperEvents() {
 		newspaperEvent := <-network.newspaperInbox
 		logrus.Debugf("newspaperHandler update from %s", newspaperEvent.From)
 
+		network.local.mu.Lock()
 		other, present := network.Neighbourhood[newspaperEvent.From]
+		network.local.mu.Unlock()
 		if present {
 			other.Status = newspaperEvent.Status
 			network.Neighbourhood[newspaperEvent.From] = other
@@ -101,7 +103,9 @@ func (network *Network) processHeyThereEvents() {
 	for {
 		nara := <-network.heyThereInbox
 
+		network.local.mu.Lock()
 		network.Neighbourhood[nara.Name] = &nara
+		network.local.mu.Unlock()
 		logrus.Printf("%s says: hey there!", nara.Name)
 		network.recordObservationOnlineNara(nara.Name)
 
@@ -133,7 +137,10 @@ func (network *Network) processChauEvents() {
 		observation.Online = "OFFLINE"
 		observation.LastSeen = time.Now().Unix()
 		network.local.setObservation(nara.Name, observation)
+
+		network.local.mu.Lock()
 		network.Neighbourhood[nara.Name] = &nara
+		network.local.mu.Unlock()
 
 		network.local.Me.forgetPing(nara.Name)
 

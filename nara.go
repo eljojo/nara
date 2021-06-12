@@ -8,6 +8,7 @@ import (
 
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 )
 
@@ -15,6 +16,7 @@ type LocalNara struct {
 	Me              *Nara
 	Network         *Network
 	forceChattiness int
+	mu              sync.Mutex
 }
 
 type Nara struct {
