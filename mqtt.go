@@ -5,6 +5,8 @@ import (
 	"fmt"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/sirupsen/logrus"
+	"math/rand"
+	"strings"
 )
 
 func (network *Network) mqttOnConnectHandler() mqtt.OnConnectHandler {
@@ -34,6 +36,10 @@ func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 	nara := NewNara("")
 	json.Unmarshal(msg.Payload(), nara)
 
+	if nara.Name == network.meName() || nara.Name == "" {
+		return
+	}
+
 	network.heyThereInbox <- *nara
 }
 
@@ -42,6 +48,25 @@ func (network *Network) chauHandler(client mqtt.Client, msg mqtt.Message) {
 	json.Unmarshal(msg.Payload(), nara)
 
 	network.chauInbox <- *nara
+}
+
+func (network *Network) newspaperHandler(client mqtt.Client, msg mqtt.Message) {
+	if network.skippingEvents == true && rand.Intn(2) == 0 {
+		return
+	}
+	if !strings.Contains(msg.Topic(), "nara/newspaper/") {
+		return
+	}
+
+	var from = strings.Split(msg.Topic(), "nara/newspaper/")[1]
+	if from == network.meName() {
+		return
+	}
+
+	var status NaraStatus
+	json.Unmarshal(msg.Payload(), &status)
+
+	network.newspaperInbox <- NewspaperEvent{From: from, Status: status}
 }
 
 func subscribeMqtt(client mqtt.Client, topic string, handler func(client mqtt.Client, msg mqtt.Message)) {

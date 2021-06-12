@@ -1,12 +1,9 @@
 package nara
 
 import (
-	"encoding/json"
 	"fmt"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/sirupsen/logrus"
-	"math/rand"
-	"strings"
 	"time"
 )
 
@@ -18,7 +15,13 @@ type Network struct {
 	Mqtt           mqtt.Client
 	pingInbox      chan PingEvent
 	heyThereInbox  chan Nara
+	newspaperInbox chan NewspaperEvent
 	chauInbox      chan Nara
+}
+
+type NewspaperEvent struct {
+	From   string
+	Status NaraStatus
 }
 
 func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Network {
@@ -27,6 +30,7 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	network.pingInbox = make(chan PingEvent)
 	network.heyThereInbox = make(chan Nara)
 	network.chauInbox = make(chan Nara)
+	network.newspaperInbox = make(chan NewspaperEvent)
 	network.skippingEvents = false
 	network.Mqtt = initializeMQTT(network.mqttOnConnectHandler(), network.meName(), host, user, pass)
 	return network
@@ -43,6 +47,7 @@ func (network *Network) Start() {
 	go network.processPingEvents()
 	go network.processHeyThereEvents()
 	go network.processChauEvents()
+	go network.processNewspaperEvents()
 }
 
 func (network *Network) meName() string {
@@ -67,45 +72,29 @@ func (network *Network) announceForever() {
 	}
 }
 
-func (network *Network) newspaperHandler(client mqtt.Client, msg mqtt.Message) {
-	if network.skippingEvents == true && rand.Intn(2) == 0 {
-		return
-	}
-	if !strings.Contains(msg.Topic(), "nara/newspaper/") {
-		return
-	}
-	var from = strings.Split(msg.Topic(), "nara/newspaper/")[1]
+func (network *Network) processNewspaperEvents() {
+	for {
+		newspaperEvent := <-network.newspaperInbox
+		logrus.Debugf("newspaperHandler update from %s", from)
 
-	if from == network.meName() {
-		return
-	}
-
-	var status NaraStatus
-	json.Unmarshal(msg.Payload(), &status)
-
-	// logrus.Printf("newspaperHandler update from %s: %+v", from, status)
-
-	other, present := network.Neighbourhood[from]
-	if present {
-		other.Status = status
-		network.Neighbourhood[from] = other
-	} else {
-		logrus.Printf("%s posted a newspaper story (whodis?)", from)
-		if network.local.Me.Status.Chattiness > 0 {
-			network.heyThere()
+		other, present := network.Neighbourhood[newspaperEvent.From]
+		if present {
+			other.Status = newspaperEvent.Status
+			network.Neighbourhood[newspaperEvent.From] = other
+		} else {
+			logrus.Printf("%s posted a newspaper story (whodis?)", newspaperEvent.From)
+			if network.local.Me.Status.Chattiness > 0 {
+				network.heyThere()
+			}
 		}
-	}
 
-	network.recordObservationOnlineNara(from)
+		network.recordObservationOnlineNara(newspaperEvent.From)
+	}
 }
 
 func (network *Network) processHeyThereEvents() {
 	for {
 		nara := <-network.heyThereInbox
-
-		if nara.Name == network.meName() || nara.Name == "" {
-			continue
-		}
 
 		network.Neighbourhood[nara.Name] = &nara
 		logrus.Printf("%s says: hey there!", nara.Name)
