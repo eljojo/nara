@@ -13,7 +13,7 @@ import (
 )
 
 type Network struct {
-	Neighbourhood  map[string]Nara
+	Neighbourhood  map[string]*Nara
 	LastHeyThere   int64
 	skippingEvents bool
 	local          *LocalNara
@@ -22,7 +22,7 @@ type Network struct {
 
 func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Network {
 	network := &Network{local: localNara}
-	network.Neighbourhood = make(map[string]Nara)
+	network.Neighbourhood = make(map[string]*Nara)
 	network.skippingEvents = false
 	network.Mqtt = initializeMQTT(network.mqttOnConnectHandler(), network.meName(), host, user, pass)
 	return network
@@ -115,7 +115,7 @@ func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 		return
 	}
 
-	network.Neighbourhood[nara.Name] = nara
+	network.Neighbourhood[nara.Name] = &nara
 	logrus.Printf("%s says: hey there!", nara.Name)
 	network.recordObservationOnlineNara(nara.Name)
 
@@ -186,7 +186,7 @@ func (network *Network) chauHandler(client mqtt.Client, msg mqtt.Message) {
 	observation.Online = "OFFLINE"
 	observation.LastSeen = time.Now().Unix()
 	network.local.Me.setObservation(nara.Name, observation)
-	network.Neighbourhood[nara.Name] = nara
+	network.Neighbourhood[nara.Name] = &nara
 
 	network.local.Me.forgetPing(nara.Name)
 

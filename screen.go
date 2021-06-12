@@ -41,7 +41,7 @@ func (ln *LocalNara) printNeigbourhood() {
 	naras = append(naras, nei)
 
 	for _, nara := range ln.Network.Neighbourhood {
-		nei := ln.generateScreenRow(nara)
+		nei := ln.generateScreenRow(*nara)
 		naras = append(naras, nei)
 	}
 
