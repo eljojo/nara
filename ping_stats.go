@@ -9,7 +9,7 @@ import (
 )
 
 func (nara *Nara) getPing(name string) float64 {
-	ping, _ := nara.Status.PingStats[name]
+	ping, _ := nara.PingStats[name]
 	return ping
 }
 
@@ -21,16 +21,16 @@ type PingEvent struct {
 
 func (nara *Nara) setPing(name string, ping float64) {
 	if ping > 0 {
-		nara.Status.PingStats[name] = ping
+		nara.PingStats[name] = ping
 	} else {
 		nara.forgetPing(name)
 	}
 }
 
 func (nara *Nara) forgetPing(name string) {
-	_, present := nara.Status.PingStats[name]
+	_, present := nara.PingStats[name]
 	if present {
-		delete(nara.Status.PingStats, name)
+		delete(nara.PingStats, name)
 	}
 }
 
@@ -47,7 +47,7 @@ func (network *Network) storePingEvent(pingEvent PingEvent) {
 
 func (nara *Nara) pingMap() map[clustering.ClusterItem]float64 {
 	pingMap := make(map[clustering.ClusterItem]float64)
-	for otherNara, ping := range nara.Status.PingStats {
+	for otherNara, ping := range nara.PingStats {
 		if otherNara == "google" {
 			continue
 		}
@@ -104,7 +104,7 @@ func measurePing(name string, dest string) (float64, error) {
 }
 
 func (nara *Nara) pingTo(other Nara) (float64, bool) {
-	ping, present := nara.Status.PingStats[other.Name]
+	ping, present := nara.PingStats[other.Name]
 	return ping, present
 }
 

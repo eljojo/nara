@@ -18,14 +18,14 @@ type LocalNara struct {
 }
 
 type Nara struct {
-	Name     string
-	Hostname string
-	Ip       string
-	Status   NaraStatus
+	Name      string
+	Hostname  string
+	Ip        string
+	Status    NaraStatus
+	PingStats map[string]float64
 }
 
 type NaraStatus struct {
-	PingStats    map[string]float64
 	Barrio       string
 	HostStats    HostStats
 	Chattiness   int64
@@ -66,7 +66,7 @@ func NewLocalNara(name string, mqtt_host string, mqtt_user string, mqtt_pass str
 
 func NewNara(name string) *Nara {
 	nara := &Nara{Name: name}
-	nara.Status.PingStats = make(map[string]float64)
+	nara.PingStats = make(map[string]float64)
 	nara.Status.Observations = make(map[string]NaraObservation)
 	return nara
 }
