@@ -114,6 +114,7 @@ func (network *Network) recordObservationOnlineNara(name string) {
 	if observation.StartTime == 0 || name == network.meName() {
 		if name != network.meName() {
 			logrus.Printf("observation: seen %s for the first time", name)
+			network.Buzz.increase(3)
 		}
 
 		observation.Restarts = network.findRestartCountFromNeighbourhoodForNara(name)
@@ -133,6 +134,7 @@ func (network *Network) recordObservationOnlineNara(name string) {
 		observation.Restarts += 1
 		observation.LastRestart = time.Now().Unix()
 		logrus.Printf("observation: %s came back online", name)
+		network.Buzz.increase(3)
 	}
 
 	observation.Online = "ONLINE"
@@ -210,13 +212,18 @@ func (network *Network) observationMaintenance() {
 				observation.Online = "MISSING"
 				network.local.setObservation(name, observation)
 				logrus.Printf("observation: %s has disappeared", name)
+				network.Buzz.increase(10)
 			}
 		}
 
 		network.neighbourhoodMaintenance()
 
 		// set own Flair
-		network.local.Me.Status.Flair = network.local.Flair()
+		newFlair := network.local.Flair()
+		if newFlair != network.local.Me.Status.Flair {
+			network.Buzz.increase(2)
+		}
+		network.local.Me.Status.Flair = newFlair
 
 		time.Sleep(1 * time.Second)
 	}

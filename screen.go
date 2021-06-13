@@ -11,15 +11,15 @@ import (
 )
 
 type neighbour struct {
-	Name       string  `header:"name"`
-	Flair      string  `header:"Flair"`
-	Ping       string  `header:"ping"`
-	LastSeen   string  `header:"last seen"`
-	Uptime     string  `header:"uptime"`
-	FirstSeen  string  `header:"first seen"`
-	Load       float64 `header:"load"`
-	Restarts   int64   `header:"restarts"`
-	Chattiness int64   `header:"chat"`
+	Name       string `header:"name"`
+	Flair      string `header:"Flair"`
+	Ping       string `header:"ping"`
+	LastSeen   string `header:"last seen"`
+	Uptime     string `header:"uptime"`
+	FirstSeen  string `header:"first seen"`
+	Restarts   int64  `header:"restarts"`
+	Buzz       int    `header:"buzz"`
+	Chattiness int64  `header:"chat"`
 }
 
 func (ln *LocalNara) PrintNeigbourhoodForever(refreshRate int) {
@@ -82,8 +82,7 @@ func (ln *LocalNara) generateScreenRow(nara Nara) neighbour {
 	if observation.Online != "ONLINE" {
 		ping = observation.Online
 	}
-	loadAvg := nara.Status.HostStats.LoadAvg
-	nei := neighbour{nara.Name, nara.Status.Flair, ping, lastSeen, uptime, first_seen, loadAvg, observation.Restarts, nara.Status.Chattiness}
+	nei := neighbour{nara.Name, nara.Status.Flair, ping, lastSeen, uptime, first_seen, observation.Restarts, nara.Status.Buzz, nara.Status.Chattiness}
 	return nei
 }
 

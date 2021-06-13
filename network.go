@@ -9,6 +9,7 @@ import (
 
 type Network struct {
 	Neighbourhood  map[string]*Nara
+	Buzz           *Buzz
 	LastHeyThere   int64
 	skippingEvents bool
 	local          *LocalNara
@@ -32,6 +33,7 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	network.chauInbox = make(chan Nara)
 	network.newspaperInbox = make(chan NewspaperEvent)
 	network.skippingEvents = false
+	network.Buzz = newBuzz()
 	network.Mqtt = initializeMQTT(network.mqttOnConnectHandler(), network.meName(), host, user, pass)
 	return network
 }
@@ -48,6 +50,7 @@ func (network *Network) Start() {
 	go network.processHeyThereEvents()
 	go network.processChauEvents()
 	go network.processNewspaperEvents()
+	go network.maintenanceBuzz()
 }
 
 func (network *Network) meName() string {
@@ -65,7 +68,8 @@ func (network *Network) announce() {
 
 func (network *Network) announceForever() {
 	for {
-		ts := network.local.Me.chattinessRate(20, 30)
+		ts := network.local.chattinessRate(10, 60)
+		logrus.Debugf("time between announces = %d", ts)
 		time.Sleep(time.Duration(ts) * time.Second)
 
 		network.announce()
@@ -75,7 +79,7 @@ func (network *Network) announceForever() {
 func (network *Network) processNewspaperEvents() {
 	for {
 		newspaperEvent := <-network.newspaperInbox
-		logrus.Debugf("newspaperHandler update from %s", newspaperEvent.From)
+		// logrus.Debugf("newspaperHandler update from %s", newspaperEvent.From)
 
 		network.local.mu.Lock()
 		other, present := network.Neighbourhood[newspaperEvent.From]
@@ -107,19 +111,22 @@ func (network *Network) processHeyThereEvents() {
 		network.recordObservationOnlineNara(nara.Name)
 
 		network.heyThere()
+		network.Buzz.increase(1)
 	}
 }
 
 func (network *Network) heyThere() {
 	topic := "nara/plaza/hey_there"
+	ts := network.local.chattinessRate(5, 20)
+	logrus.Debugf("time between hey there = %d", ts)
 
-	ts := network.local.Me.chattinessRate(10, 20)
 	if (time.Now().Unix() - network.LastHeyThere) <= ts {
 		return
 	}
 
 	network.LastHeyThere = time.Now().Unix()
 	network.postEvent(topic, network.local.Me)
+	network.Buzz.increase(2)
 }
 
 func (network *Network) processChauEvents() {
@@ -143,6 +150,7 @@ func (network *Network) processChauEvents() {
 
 		logrus.Printf("%s: chau!", nara.Name)
 	}
+	network.Buzz.increase(2)
 }
 
 func (network *Network) Chau() {

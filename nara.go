@@ -33,6 +33,7 @@ type NaraStatus struct {
 	Flair        string
 	HostStats    HostStats
 	Chattiness   int64
+	Buzz         int
 	Observations map[string]NaraObservation
 }
 
@@ -83,6 +84,6 @@ func (ln *LocalNara) SetupCloseHandler() {
 	}()
 }
 
-func (nara *Nara) chattinessRate(min int64, max int64) int64 {
-	return min + ((max - min) * (100 - nara.Status.Chattiness) / 100)
+func (ln *LocalNara) chattinessRate(min int64, max int64) int64 {
+	return min + ((max - min) * (100 - ln.Me.Status.Chattiness) / 100)
 }

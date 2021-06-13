@@ -43,7 +43,7 @@ func (nara *Nara) forgetPing(name string) {
 func (network *Network) processPingEvents() {
 	for {
 		pingEvent := <-network.pingInbox
-		logrus.Debugf("ping from %s to %s is %.2fms", pingEvent.From, pingEvent.To, pingEvent.TimeMs)
+		// logrus.Debugf("ping from %s to %s is %.2fms", pingEvent.From, pingEvent.To, pingEvent.TimeMs)
 		network.storePingEvent(pingEvent)
 	}
 }
@@ -76,7 +76,11 @@ func (nara *Nara) pingMap() map[clustering.ClusterItem]float64 {
 
 func (ln *LocalNara) measurePingForever() {
 	for {
+		ts := ln.chattinessRate(1, 60)
+		logrus.Debugf("time between pings = %d", ts)
+
 		ln.measureAndStorePing("google", "8.8.8.8")
+		time.Sleep(time.Duration(ts) * time.Second)
 
 		for name, nara := range ln.Network.Neighbourhood {
 			if ln.getObservation(nara.Name).Online != "ONLINE" {
@@ -85,9 +89,9 @@ func (ln *LocalNara) measurePingForever() {
 			}
 
 			ln.measureAndStorePing(name, nara.Ip)
+
+			time.Sleep(time.Duration(ts) * time.Second)
 		}
-		ts := ln.Me.chattinessRate(30, 120)
-		time.Sleep(time.Duration(ts) * time.Second)
 	}
 }
 

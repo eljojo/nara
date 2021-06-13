@@ -29,25 +29,33 @@ func (ln *LocalNara) updateHostStats() {
 
 	load, _ := load.Avg()
 	loadavg := load.Load1 / float64(runtime.NumCPU())
-	ln.Me.Status.HostStats.LoadAvg = float64(int64(loadavg*100)) / 100
+	ln.Me.Status.HostStats.LoadAvg = float64(int64(loadavg*100)) / 100 // truncate to 2 digits
+
+	chattiness := int64(ln.Network.weightedBuzz())
 
 	if ln.forceChattiness >= 0 && ln.forceChattiness <= 100 {
-		ln.Me.Status.Chattiness = int64(ln.forceChattiness)
+		chattiness = int64(ln.forceChattiness)
 	} else {
 		if loadavg < 1 {
-			ln.Me.Status.Chattiness = int64((1 - loadavg) * 100)
+			chattiness = chattiness + int64((1-loadavg)*20)
 		} else {
 			ln.Me.Status.Chattiness = 0
 		}
 	}
 
-	if ln.Me.Status.Chattiness <= 10 && ln.Network.skippingEvents == false {
+	if chattiness > 100 {
+		chattiness = 100
+	}
+
+	if chattiness <= 10 && ln.Network.skippingEvents == false {
 		logrus.Println("[warning] low chattiness, newspaper events may be dropped")
 		ln.Network.skippingEvents = true
-	} else if ln.Me.Status.Chattiness > 10 && ln.Network.skippingEvents == true {
+	} else if chattiness > 10 && ln.Network.skippingEvents == true {
 		logrus.Println("[recovered] chattiness is healthy again, not dropping events anymore")
 		ln.Network.skippingEvents = false
 	}
+
+	ln.Me.Status.Chattiness = chattiness
 }
 
 // https://stackoverflow.com/questions/23558425/how-do-i-get-the-local-ip-address-in-go

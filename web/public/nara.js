@@ -19,6 +19,7 @@ function NaraRow(props) {
     <tr>
       <td>{ nara.Name }</td>
       <td>{ nara.Flair }</td>
+      <td>{ nara.Buzz  }</td>
       <td>{ timeAgo(moment().unix() - ver.LastSeen) } ago</td>
       <td>{ uptime }</td>
       <td>{ timeAgo(ver.LastSeen - ver.StartTime) }</td>
@@ -59,6 +60,7 @@ function NaraList() {
           <tr>
             <th>Name</th>
             <th>Flair</th>
+            <th>Buzz</th>
             <th>Last Ping</th>
             <th>Nara Uptime</th>
             <th>Nara Lifetime</th>
