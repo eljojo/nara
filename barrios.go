@@ -5,7 +5,12 @@ import (
 	"sort"
 )
 
-var clusterNames = []string{"olive", "peach", "sand", "ocean", "basil", "papaya", "brunch", "sorbet", "margarita", "bohemian", "terracotta"}
+var clusterNames = []string{"olive", "peach", "sand", "ocean", "basil", "watermelon", "brunch", "sorbet", "margarita", "bohemian", "pizza"}
+var BarrioEmoji = []string{"🍸", "🍑", "🏖", "🌊", "🌿", "🍉", "🧇", "🍧", "🧙", "👽", "🍕"}
+
+func (ln *LocalNara) Flair() string {
+	return ln.Me.Status.Barrio
+}
 
 func (network *Network) calculateClusters() {
 	distanceMap := network.prepareClusteringDistanceMap()
@@ -19,13 +24,15 @@ func (network *Network) calculateClusters() {
 		for _, name := range cluster {
 			observation := network.local.getObservation(name)
 			observation.ClusterName = clusterNames[clusterIndex]
+			observation.ClusterEmoji = BarrioEmoji[clusterIndex]
 			network.local.setObservation(name, observation)
 		}
 	}
 
-	// set own neighbourhood
+	// set own neighbourhood and Flair
 	observation := network.local.getMeObservation()
-	network.local.Me.Status.Barrio = observation.ClusterName
+	network.local.Me.Status.Barrio = observation.ClusterEmoji
+	network.local.Me.Status.Flair = network.local.Flair()
 }
 
 func (network *Network) prepareClusteringDistanceMap() clustering.DistanceMap {

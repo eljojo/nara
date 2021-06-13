@@ -5,6 +5,16 @@ import (
 	"time"
 )
 
+type NaraObservation struct {
+	Online       string
+	StartTime    int64
+	Restarts     int64
+	LastSeen     int64
+	LastRestart  int64
+	ClusterName  string
+	ClusterEmoji string
+}
+
 func (localNara *LocalNara) getMeObservation() NaraObservation {
 	return localNara.getObservation(localNara.Me.Name)
 }

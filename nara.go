@@ -30,18 +30,10 @@ type Nara struct {
 
 type NaraStatus struct {
 	Barrio       string
+	Flair        string
 	HostStats    HostStats
 	Chattiness   int64
 	Observations map[string]NaraObservation
-}
-
-type NaraObservation struct {
-	Online      string
-	StartTime   int64
-	Restarts    int64
-	LastSeen    int64
-	LastRestart int64
-	ClusterName string
 }
 
 func NewLocalNara(name string, mqtt_host string, mqtt_user string, mqtt_pass string, forceChattiness int) *LocalNara {

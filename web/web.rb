@@ -36,7 +36,7 @@ class NaraWeb
         observations.each do |nn, o|
           @db[nn] ||= {}
           @db[nn]["Name"] ||= nn
-          @db[nn]["Barrio"] ||= o["ClusterName"]
+          # @db[nn]["Barrio"] ||= o["ClusterName"]
           @db[nn]["LastSeen"] ||= o["LastSeen"]
           @db[nn]["Observations"] ||= {}
           @db[nn]["Observations"][nn] = o.dup.merge((@db[nn]["Observations"][nn] || {}).compact)
