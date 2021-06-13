@@ -6,7 +6,7 @@ import (
 )
 
 var clusterNames = []string{"olive", "peach", "sand", "ocean", "basil", "watermelon", "brunch", "sorbet", "margarita", "bohemian", "pizza"}
-var BarrioEmoji = []string{"🍸", "🍑", "🏖", "🌊", "🌿", "🍉", "🧇", "🍧", "🧙", "👽", "🍕"}
+var BarrioEmoji = []string{"🍸", "🍑", "🏖", "🌊", "🌿", "🍉", "🥪", "🍧", "🧙", "👽", "🍕"}
 
 func (ln *LocalNara) Flair() string {
 	barrio := ln.getMeObservation().ClusterEmoji
