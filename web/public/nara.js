@@ -13,13 +13,14 @@ function NaraRow(props) {
     return moment().to(olderTime * 1000, true)
   }
 
+  const uptime = ver.Online == "ONLINE" ? timeAgo(ver.LastSeen - ver.LastRestart) : ver.Online;
+
   return (
     <tr>
       <td>{ nara.Name }</td>
-      <td>{ nara.Barrio }</td>
-      <td>{ ver.Online }</td>
+      <td>{ nara.Flair }</td>
       <td>{ timeAgo(moment().unix() - ver.LastSeen) } ago</td>
-      <td>{ timeAgo(ver.LastSeen - ver.LastRestart) }</td>
+      <td>{ uptime }</td>
       <td>{ timeAgo(ver.LastSeen - ver.StartTime) }</td>
       <td>{ ver.Restarts }</td>
       <td>{ timeAgo(nara.HostStats.Uptime)  }</td>
@@ -57,8 +58,7 @@ function NaraList() {
         <thead>
           <tr>
             <th>Name</th>
-            <th>Neighbourhood</th>
-            <th>Nara</th>
+            <th>Flair</th>
             <th>Last Ping</th>
             <th>Nara Uptime</th>
             <th>Nara Lifetime</th>

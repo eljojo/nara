@@ -9,10 +9,33 @@ var clusterNames = []string{"olive", "peach", "sand", "ocean", "basil", "waterme
 var BarrioEmoji = []string{"🍸", "🍑", "🏖", "🌊", "🌿", "🍉", "🧇", "🍧", "🧙", "👽", "🍕"}
 
 func (ln *LocalNara) Flair() string {
-	return ln.Me.Status.Barrio
+	barrio := ln.getMeObservation().ClusterEmoji
+
+	ln.mu.Lock()
+	networkSize := len(ln.Network.Neighbourhood)
+	ln.mu.Unlock()
+	awards := ""
+	if networkSize > 2 {
+		if ln.Me.Name == ln.Network.oldestNara().Name {
+			awards = awards + "🏆"
+		}
+		if ln.Me.Name == ln.Network.oldestNaraBarrio().Name {
+			awards = awards + "👑"
+		}
+		if ln.Me.Name == ln.Network.youngestNara().Name {
+			awards = awards + "🐤"
+		}
+		if ln.Me.Name == ln.Network.youngestNaraBarrio().Name {
+			awards = awards + "🐦"
+		}
+		if ln.Me.Name == ln.Network.mostRestarts().Name {
+			awards = awards + "🔁"
+		}
+	}
+	return barrio + awards
 }
 
-func (network *Network) calculateClusters() {
+func (network *Network) neighbourhoodMaintenance() {
 	distanceMap := network.prepareClusteringDistanceMap()
 	clusters := clustering.NewDistanceMapClusterSet(distanceMap)
 
@@ -28,11 +51,6 @@ func (network *Network) calculateClusters() {
 			network.local.setObservation(name, observation)
 		}
 	}
-
-	// set own neighbourhood and Flair
-	observation := network.local.getMeObservation()
-	network.local.Me.Status.Barrio = observation.ClusterEmoji
-	network.local.Me.Status.Flair = network.local.Flair()
 }
 
 func (network *Network) prepareClusteringDistanceMap() clustering.DistanceMap {

@@ -156,3 +156,102 @@ func (network *Network) Chau() {
 
 	network.postEvent(topic, network.local.Me)
 }
+
+func (network *Network) oldestNaraBarrio() Nara {
+	result := *network.local.Me
+	oldest := int64(network.local.getMeObservation().StartTime)
+	myClusterName := network.local.getMeObservation().ClusterName
+	network.local.mu.Lock()
+	for name, nara := range network.Neighbourhood {
+		// question: do we follow our opinion of their neighbourhood or their opinion?
+		obs := network.local.getObservationLocked(name)
+		if obs.ClusterName != myClusterName {
+			continue
+		}
+		if oldest <= obs.StartTime && name > result.Name {
+			continue
+		}
+		if obs.StartTime > 0 && obs.StartTime <= oldest {
+			oldest = obs.StartTime
+			result = *nara
+		}
+	}
+	network.local.mu.Unlock()
+	return result
+}
+
+func (network *Network) oldestNara() Nara {
+	result := *network.local.Me
+	oldest := int64(network.local.getMeObservation().StartTime)
+	network.local.mu.Lock()
+	for name, nara := range network.Neighbourhood {
+		obs := network.local.getObservationLocked(name)
+		if oldest <= obs.StartTime && name > result.Name {
+			continue
+		}
+		if obs.StartTime > 0 && obs.StartTime <= oldest {
+			oldest = obs.StartTime
+			result = *nara
+		}
+	}
+	network.local.mu.Unlock()
+	return result
+}
+
+func (network *Network) youngestNaraBarrio() Nara {
+	result := *network.local.Me
+	youngest := int64(network.local.getMeObservation().StartTime)
+	myClusterName := network.local.getMeObservation().ClusterName
+	network.local.mu.Lock()
+	for name, nara := range network.Neighbourhood {
+		obs := network.local.getObservationLocked(name)
+		if obs.ClusterName != myClusterName {
+			continue
+		}
+		if youngest >= obs.StartTime && name < result.Name {
+			continue
+		}
+		if obs.StartTime > 0 && obs.StartTime >= youngest {
+			youngest = obs.StartTime
+			result = *nara
+		}
+	}
+	network.local.mu.Unlock()
+	return result
+}
+
+func (network *Network) youngestNara() Nara {
+	result := *network.local.Me
+	youngest := int64(network.local.getMeObservation().StartTime)
+	network.local.mu.Lock()
+	for name, nara := range network.Neighbourhood {
+		obs := network.local.getObservationLocked(name)
+		if youngest >= obs.StartTime && name < result.Name {
+			continue
+		}
+		if obs.StartTime > 0 && obs.StartTime >= youngest {
+			youngest = obs.StartTime
+			result = *nara
+		}
+	}
+	network.local.mu.Unlock()
+	return result
+}
+
+func (network *Network) mostRestarts() Nara {
+	result := *network.local.Me
+	most_restarts := network.local.getMeObservation().Restarts
+	network.local.mu.Lock()
+	for name, nara := range network.Neighbourhood {
+		obs := network.local.getObservationLocked(name)
+		if most_restarts >= obs.Restarts && name > result.Name {
+			continue
+		}
+		if obs.Restarts > 0 && obs.Restarts >= most_restarts {
+			most_restarts = obs.Restarts
+			result = *nara
+		}
+	}
+	network.local.mu.Unlock()
+	return result
+}

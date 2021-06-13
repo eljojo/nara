@@ -30,6 +30,11 @@ func (localNara *LocalNara) getObservation(name string) NaraObservation {
 	return observation
 }
 
+func (localNara *LocalNara) getObservationLocked(name string) NaraObservation {
+	observation := localNara.Me.getObservation(name)
+	return observation
+}
+
 func (localNara *LocalNara) setObservation(name string, observation NaraObservation) {
 	localNara.mu.Lock()
 	localNara.Me.setObservation(name, observation)
@@ -208,7 +213,10 @@ func (network *Network) observationMaintenance() {
 			}
 		}
 
-		network.calculateClusters()
+		network.neighbourhoodMaintenance()
+
+		// set own Flair
+		network.local.Me.Status.Flair = network.local.Flair()
 
 		time.Sleep(1 * time.Second)
 	}

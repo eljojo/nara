@@ -36,7 +36,7 @@ class NaraWeb
         observations.each do |nn, o|
           @db[nn] ||= {}
           @db[nn]["Name"] ||= nn
-          # @db[nn]["Barrio"] ||= o["ClusterName"]
+          #@db[nn]["Barrio"] ||= o["ClusterName"]
           @db[nn]["LastSeen"] ||= o["LastSeen"]
           @db[nn]["Observations"] ||= {}
           @db[nn]["Observations"][nn] = o.dup.merge((@db[nn]["Observations"][nn] || {}).compact)
@@ -52,7 +52,7 @@ class NaraWeb
         end
       end
 
-      @db = @db.to_a.sort_by { |name, data| [data.fetch("Barrio", name), name] }.to_h
+      @db = @db.to_a.sort_by { |name, data| [data.dig("Observations", name, "ClusterName") || name, name] }.to_h
     end
   end
 end

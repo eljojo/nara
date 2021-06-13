@@ -46,7 +46,9 @@ func (ln *LocalNara) printNeigbourhood() {
 	}
 
 	sort.Slice(naras, func(i, j int) bool {
-		return naras[j].Name > naras[i].Name
+		a := naras[j].Flair + naras[j].Name
+		b := naras[i].Flair + naras[i].Name
+		return a > b
 	})
 
 	// Optionally, customize the table, import of the underline 'tablewriter' package is required for that.
