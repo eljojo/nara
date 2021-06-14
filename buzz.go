@@ -63,7 +63,7 @@ func (network *Network) getNetworkAverageBuzz() int {
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
 	for name, nara := range network.Neighbourhood {
-		if network.local.getObservationLocked(name).Online == "ONLINE" && nara.Name != network.meName() {
+		if network.local.getObservationLocked(name).isOnline() && nara.Name != network.meName() {
 			sum = sum + nara.Status.Buzz
 			count = count + 1
 		}
@@ -79,7 +79,7 @@ func (network *Network) getHighestBuzz() int {
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
 	for name, nara := range network.Neighbourhood {
-		if network.local.getObservationLocked(name).Online != "ONLINE" {
+		if !network.local.getObservationLocked(name).isOnline() {
 			continue
 		}
 		if nara.Status.Buzz > highest {

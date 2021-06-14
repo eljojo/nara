@@ -66,7 +66,7 @@ func (nara *Nara) pingMap() map[clustering.ClusterItem]float64 {
 	nara.mu.Lock()
 	pingMap := make(map[clustering.ClusterItem]float64)
 	for otherNara, ping := range nara.PingStats {
-		if otherNara == "google" {
+		if otherNara == "google" || ping == 0 {
 			continue
 		}
 		pingMap[otherNara] = ping
@@ -84,7 +84,7 @@ func (ln *LocalNara) measurePingForever() {
 		time.Sleep(time.Duration(ts) * time.Second)
 
 		for name, nara := range ln.Network.Neighbourhood {
-			if ln.getObservation(nara.Name).Online != "ONLINE" {
+			if !ln.getObservation(nara.Name).isOnline() {
 				ln.Me.forgetPing(name)
 				continue
 			}

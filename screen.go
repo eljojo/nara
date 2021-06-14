@@ -78,7 +78,7 @@ func (ln *LocalNara) generateScreenRow(nara Nara) neighbour {
 	if observation.LastRestart == 0 {
 		uptime = "?"
 	}
-	if observation.Online != "ONLINE" {
+	if !observation.isOnline() {
 		ping = observation.Online
 	}
 	nei := neighbour{nara.Name, nara.Status.Flair, ping, lastSeen, uptime, first_seen, nara.Status.Buzz, nara.Status.Chattiness}
