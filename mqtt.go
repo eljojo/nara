@@ -20,9 +20,9 @@ func (network *Network) mqttOnConnectHandler() mqtt.OnConnectHandler {
 }
 
 func (network *Network) subscribeHandlers(client mqtt.Client) {
-	subscribeMqtt(client, "nara/newspaper/#", network.newspaperHandler)
 	subscribeMqtt(client, "nara/plaza/hey_there", network.heyThereHandler)
 	subscribeMqtt(client, "nara/plaza/chau", network.chauHandler)
+	subscribeMqtt(client, "nara/newspaper/#", network.newspaperHandler)
 	subscribeMqtt(client, "nara/ping/#", network.pingHandler)
 }
 
