@@ -100,13 +100,17 @@ func (network *Network) processNewspaperEvents() {
 	}
 }
 
+func (network *Network) importNara(nara *Nara) {
+	network.local.mu.Lock()
+	network.Neighbourhood[nara.Name] = nara
+	network.local.mu.Unlock()
+}
+
 func (network *Network) processHeyThereEvents() {
 	for {
 		nara := <-network.heyThereInbox
 
-		network.local.mu.Lock()
-		network.Neighbourhood[nara.Name] = &nara
-		network.local.mu.Unlock()
+		network.importNara(&nara)
 		logrus.Printf("%s says: hey there!", nara.Name)
 		network.recordObservationOnlineNara(nara.Name)
 
@@ -145,8 +149,6 @@ func (network *Network) processChauEvents() {
 		network.local.mu.Lock()
 		network.Neighbourhood[nara.Name] = &nara
 		network.local.mu.Unlock()
-
-		network.local.Me.forgetPing(nara.Name)
 
 		logrus.Printf("%s: chau!", nara.Name)
 	}

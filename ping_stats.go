@@ -8,10 +8,8 @@ import (
 	"time"
 )
 
-func (nara *Nara) getPing(name string) float64 {
-	nara.mu.Lock()
+func (nara Nara) getPing(name string) float64 {
 	ping, _ := nara.PingStats[name]
-	nara.mu.Unlock()
 	return ping
 }
 
@@ -26,18 +24,7 @@ func (nara *Nara) setPing(name string, ping float64) {
 		nara.mu.Lock()
 		nara.PingStats[name] = ping
 		nara.mu.Unlock()
-	} else {
-		nara.forgetPing(name)
 	}
-}
-
-func (nara *Nara) forgetPing(name string) {
-	nara.mu.Lock()
-	_, present := nara.PingStats[name]
-	if present {
-		delete(nara.PingStats, name)
-	}
-	nara.mu.Unlock()
 }
 
 func (network *Network) processPingEvents() {
@@ -62,8 +49,7 @@ func (network *Network) storePingEvent(pingEvent PingEvent) {
 	}
 }
 
-func (nara *Nara) pingMap() map[clustering.ClusterItem]float64 {
-	nara.mu.Lock()
+func (nara Nara) pingMap() map[clustering.ClusterItem]float64 {
 	pingMap := make(map[clustering.ClusterItem]float64)
 	for otherNara, ping := range nara.PingStats {
 		if otherNara == "google" || ping == 0 {
@@ -71,7 +57,6 @@ func (nara *Nara) pingMap() map[clustering.ClusterItem]float64 {
 		}
 		pingMap[otherNara] = ping
 	}
-	nara.mu.Unlock()
 	return pingMap
 }
 
@@ -85,7 +70,6 @@ func (ln *LocalNara) measurePingForever() {
 
 		for name, nara := range ln.Network.Neighbourhood {
 			if !ln.getObservation(nara.Name).isOnline() {
-				ln.Me.forgetPing(name)
 				continue
 			}
 
@@ -99,14 +83,9 @@ func (ln *LocalNara) measurePingForever() {
 
 func (ln *LocalNara) measureAndStorePing(name string, dest string) {
 	ping, err := measurePing(name, dest)
-	pingEvent := PingEvent{From: ln.Me.Name, To: name, TimeMs: ping}
-	ln.Network.postPing(pingEvent)
-	if err == nil && ping > 0 {
-		// ln.Me.setPing(name, ping)
-		// testing: pingHandler should receive the event sent above
-	} else {
-		// logrus.Println("problem when pinging", dest, err)
-		ln.Me.forgetPing(name) // likely not necessary
+	if err == nil {
+		pingEvent := PingEvent{From: ln.Me.Name, To: name, TimeMs: ping}
+		ln.Network.postPing(pingEvent)
 	}
 }
 
@@ -127,16 +106,14 @@ func measurePing(name string, dest string) (float64, error) {
 	return float64(stats.AvgRtt/time.Microsecond) / 1000, nil
 }
 
-func (nara *Nara) pingTo(other Nara) (float64, bool) {
-	nara.mu.Lock()
+func (nara Nara) pingTo(other Nara) (float64, bool) {
 	ping, present := nara.PingStats[other.Name]
-	nara.mu.Unlock()
 	return ping, present
 }
 
-func (nara *Nara) pingBetween(other Nara) float64 {
+func (nara Nara) pingBetween(other Nara) float64 {
 	our_ping, has_our_ping := nara.pingTo(other)
-	other_ping, has_other_ping := other.pingTo(*nara)
+	other_ping, has_other_ping := other.pingTo(nara)
 
 	if has_our_ping && has_other_ping {
 		return (our_ping + other_ping) / 2
@@ -146,7 +123,7 @@ func (nara *Nara) pingBetween(other Nara) float64 {
 	return other_ping
 }
 
-func (nara *Nara) pingBetweenMs(other Nara) string {
+func (nara Nara) pingBetweenMs(other Nara) string {
 	ping := nara.pingBetween(other)
 	if ping == 0 {
 		return ""
