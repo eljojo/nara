@@ -15,7 +15,7 @@ func (ln LocalNara) Flair() string {
 	awards := ""
 	if networkSize > 2 {
 		if ln.Me.Name == ln.Network.oldestNara().Name {
-			awards = awards + "🏆"
+			awards = awards + "🧓"
 		}
 		if ln.Me.Name == ln.Network.oldestNaraBarrio().Name {
 			awards = awards + "👑"
@@ -28,6 +28,20 @@ func (ln LocalNara) Flair() string {
 		}
 		if ln.Me.Name == ln.Network.mostRestarts().Name {
 			awards = awards + "🔁"
+		}
+		if ln.Me.Status.Chattiness >= 80 {
+			awards = awards + "💬"
+		}
+		if ln.Me.Status.HostStats.LoadAvg >= 0.8 {
+			awards = awards + "📈"
+		} else if ln.Me.Status.HostStats.LoadAvg <= 0.1 {
+			awards = awards + "🆒"
+		}
+		if ln.uptime() < (3600 * 6) {
+			awards = awards + "👶"
+		}
+		if ln.isBooting() {
+			awards = awards + "📡"
 		}
 	}
 	return barrio + awards
