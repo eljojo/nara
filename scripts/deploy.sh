@@ -51,8 +51,8 @@ for name in ${machines[@]}; do
 
   echo "=> succesfully deployed $name"
 
-  echo "sleeping for 15 seconds to stabilize narae memory"
-  sleep 15
+  echo "sleeping for 10 seconds to stabilize narae memory"
+  sleep 10
 done
 
 echo "nara deployed 🎉 congrats :-)"

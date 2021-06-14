@@ -68,7 +68,7 @@ func (network *Network) announce() {
 
 func (network *Network) announceForever() {
 	for {
-		ts := network.local.chattinessRate(10, 60)
+		ts := network.local.chattinessRate(5, 60)
 		logrus.Debugf("time between announces = %d", ts)
 		time.Sleep(time.Duration(ts) * time.Second)
 
@@ -117,7 +117,7 @@ func (network *Network) processHeyThereEvents() {
 
 func (network *Network) heyThere() {
 	topic := "nara/plaza/hey_there"
-	ts := network.local.chattinessRate(5, 20)
+	ts := network.local.chattinessRate(3, 20)
 	logrus.Debugf("time between hey there = %d", ts)
 
 	if (time.Now().Unix() - network.LastHeyThere) <= ts {
