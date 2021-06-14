@@ -79,7 +79,7 @@ func (network *Network) announceForever() {
 func (network *Network) processNewspaperEvents() {
 	for {
 		newspaperEvent := <-network.newspaperInbox
-		// logrus.Debugf("newspaperHandler update from %s", newspaperEvent.From)
+		logrus.Debugf("newspaperHandler update from %s", newspaperEvent.From)
 
 		network.local.mu.Lock()
 		other, present := network.Neighbourhood[newspaperEvent.From]
@@ -118,11 +118,11 @@ func (network *Network) processHeyThereEvents() {
 func (network *Network) heyThere() {
 	topic := "nara/plaza/hey_there"
 	ts := network.local.chattinessRate(3, 20)
-	logrus.Debugf("time between hey there = %d", ts)
 	network.recordObservationOnlineNara(network.meName())
 	if (time.Now().Unix() - network.LastHeyThere) <= ts {
 		return
 	}
+	logrus.Debugf("time between hey there = %d", ts)
 
 	network.LastHeyThere = time.Now().Unix()
 	network.postEvent(topic, network.local.Me)
