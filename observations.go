@@ -221,3 +221,7 @@ func (network *Network) observationMaintenance() {
 		time.Sleep(1 * time.Second)
 	}
 }
+
+func (obs *NaraObservation) isOnline() bool {
+	return obs.Online == "ONLINE"
+}

@@ -165,6 +165,9 @@ func (network *Network) oldestNaraBarrio() Nara {
 	for name, nara := range network.Neighbourhood {
 		// question: do we follow our opinion of their neighbourhood or their opinion?
 		obs := network.local.getObservationLocked(name)
+		if !obs.isOnline() {
+			continue
+		}
 		if obs.ClusterName != myClusterName {
 			continue
 		}
@@ -186,6 +189,9 @@ func (network *Network) oldestNara() Nara {
 	network.local.mu.Lock()
 	for name, nara := range network.Neighbourhood {
 		obs := network.local.getObservationLocked(name)
+		if !obs.isOnline() {
+			continue
+		}
 		if oldest <= obs.StartTime && name > result.Name {
 			continue
 		}
@@ -205,6 +211,9 @@ func (network *Network) youngestNaraBarrio() Nara {
 	network.local.mu.Lock()
 	for name, nara := range network.Neighbourhood {
 		obs := network.local.getObservationLocked(name)
+		if !obs.isOnline() {
+			continue
+		}
 		if obs.ClusterName != myClusterName {
 			continue
 		}
@@ -226,6 +235,9 @@ func (network *Network) youngestNara() Nara {
 	network.local.mu.Lock()
 	for name, nara := range network.Neighbourhood {
 		obs := network.local.getObservationLocked(name)
+		if !obs.isOnline() {
+			continue
+		}
 		if youngest >= obs.StartTime && name < result.Name {
 			continue
 		}
@@ -244,6 +256,9 @@ func (network *Network) mostRestarts() Nara {
 	network.local.mu.Lock()
 	for name, nara := range network.Neighbourhood {
 		obs := network.local.getObservationLocked(name)
+		if !obs.isOnline() {
+			continue
+		}
 		if most_restarts >= obs.Restarts && name > result.Name {
 			continue
 		}
