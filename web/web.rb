@@ -52,7 +52,7 @@ class NaraWeb
         end
       end
 
-      @db = @db.to_a.sort_by { |name, data| [data.dig("Observations", name, "ClusterName") || name, name] }.to_h
+      @db = @db.to_a.sort_by { |name, data| [data.fetch("Flair", ""), name] }.to_h
     end
   end
 end
