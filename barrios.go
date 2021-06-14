@@ -8,12 +8,10 @@ import (
 var clusterNames = []string{"olive", "peach", "sand", "ocean", "basil", "watermelon", "brunch", "sorbet", "margarita", "bohemian", "pizza"}
 var BarrioEmoji = []string{"🍸", "🍑", "🏖", "🌊", "🌿", "🍉", "🥪", "🍧", "🧙", "👽", "🍕"}
 
-func (ln *LocalNara) Flair() string {
+func (ln LocalNara) Flair() string {
 	barrio := ln.getMeObservation().ClusterEmoji
 
-	ln.mu.Lock()
 	networkSize := len(ln.Network.Neighbourhood)
-	ln.mu.Unlock()
 	awards := ""
 	if networkSize > 2 {
 		if ln.Me.Name == ln.Network.oldestNara().Name {
@@ -53,22 +51,20 @@ func (network *Network) neighbourhoodMaintenance() {
 	}
 }
 
-func (network *Network) prepareClusteringDistanceMap() clustering.DistanceMap {
+func (network Network) prepareClusteringDistanceMap() clustering.DistanceMap {
 	distanceMap := make(clustering.DistanceMap)
 
-	network.local.mu.Lock()
 	for _, nara := range network.Neighbourhood {
 		// first create distance map with all pings from the perspective of each neighbour
 		distanceMap[nara.Name] = nara.pingMap()
 	}
-	network.local.mu.Unlock()
 
 	distanceMap[network.meName()] = network.local.Me.pingMap()
 
 	return distanceMap
 }
 
-func (network *Network) sortClusters(clusters clustering.ClusterSet) [][]string {
+func (network Network) sortClusters(clusters clustering.ClusterSet) [][]string {
 	res := make([][]string, 0)
 
 	clusters.EachCluster(-1, func(clusterIndex int) {
@@ -95,7 +91,7 @@ func (network *Network) sortClusters(clusters clustering.ClusterSet) [][]string 
 	return res
 }
 
-func (network *Network) oldestStarTimeForCluster(cluster []string) int64 {
+func (network Network) oldestStarTimeForCluster(cluster []string) int64 {
 	oldest := int64(0)
 	for _, name := range cluster {
 		obs := network.local.getObservation(name)

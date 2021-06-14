@@ -15,7 +15,7 @@ type NaraObservation struct {
 	ClusterEmoji string
 }
 
-func (localNara *LocalNara) getMeObservation() NaraObservation {
+func (localNara LocalNara) getMeObservation() NaraObservation {
 	return localNara.getObservation(localNara.Me.Name)
 }
 
@@ -23,14 +23,12 @@ func (localNara *LocalNara) setMeObservation(observation NaraObservation) {
 	localNara.setObservation(localNara.Me.Name, observation)
 }
 
-func (localNara *LocalNara) getObservation(name string) NaraObservation {
-	localNara.mu.Lock()
+func (localNara LocalNara) getObservation(name string) NaraObservation {
 	observation := localNara.Me.getObservation(name)
-	localNara.mu.Unlock()
 	return observation
 }
 
-func (localNara *LocalNara) getObservationLocked(name string) NaraObservation {
+func (localNara LocalNara) getObservationLocked(name string) NaraObservation {
 	observation := localNara.Me.getObservation(name)
 	return observation
 }
@@ -41,10 +39,8 @@ func (localNara *LocalNara) setObservation(name string, observation NaraObservat
 	localNara.mu.Unlock()
 }
 
-func (nara *Nara) getObservation(name string) NaraObservation {
-	nara.mu.Lock()
+func (nara Nara) getObservation(name string) NaraObservation {
 	observation, _ := nara.Status.Observations[name]
-	nara.mu.Unlock()
 	return observation
 }
 
@@ -82,17 +78,15 @@ func (network *Network) formOpinion() {
 	logrus.Printf("👀  opinions formed")
 }
 
-func (network *Network) findStartingTimeFromNeighbourhoodForNara(name string) int64 {
+func (network Network) findStartingTimeFromNeighbourhoodForNara(name string) int64 {
 	times := make(map[int64]int)
 
-	network.local.mu.Lock()
 	for _, nara := range network.Neighbourhood {
 		observed_start_time := nara.getObservation(name).StartTime
 		if observed_start_time > 0 {
 			times[observed_start_time] += 1
 		}
 	}
-	network.local.mu.Unlock()
 
 	var startTime int64
 	maxSeen := 0
@@ -142,15 +136,13 @@ func (network *Network) recordObservationOnlineNara(name string) {
 	network.local.setObservation(name, observation)
 }
 
-func (network *Network) findRestartCountFromNeighbourhoodForNara(name string) int64 {
+func (network Network) findRestartCountFromNeighbourhoodForNara(name string) int64 {
 	values := make(map[int64]int)
 
-	network.local.mu.Lock()
 	for _, nara := range network.Neighbourhood {
 		restarts := nara.getObservation(name).Restarts
 		values[restarts] += 1
 	}
-	network.local.mu.Unlock()
 
 	var result int64
 	maxSeen := 0
@@ -165,17 +157,15 @@ func (network *Network) findRestartCountFromNeighbourhoodForNara(name string) in
 	return result
 }
 
-func (network *Network) findLastRestartFromNeighbourhoodForNara(name string) int64 {
+func (network Network) findLastRestartFromNeighbourhoodForNara(name string) int64 {
 	values := make(map[int64]int)
 
-	network.local.mu.Lock()
 	for _, nara := range network.Neighbourhood {
 		last_restart := nara.getObservation(name).LastRestart
 		if last_restart > 0 {
 			values[last_restart] += 1
 		}
 	}
-	network.local.mu.Unlock()
 
 	var result int64
 	maxSeen := 0

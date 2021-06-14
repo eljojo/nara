@@ -84,15 +84,15 @@ func (ln *LocalNara) SetupCloseHandler() {
 	}()
 }
 
-func (ln *LocalNara) chattinessRate(min int64, max int64) int64 {
+func (ln LocalNara) chattinessRate(min int64, max int64) int64 {
 	return min + ((max - min) * (100 - ln.Me.Status.Chattiness) / 100)
 }
 
-func (ln *LocalNara) uptime() int64 {
+func (ln LocalNara) uptime() int64 {
 	me := ln.getMeObservation()
 	return me.LastSeen - me.LastRestart
 }
 
-func (ln *LocalNara) isBooting() bool {
+func (ln LocalNara) isBooting() bool {
 	return ln.uptime() < 120
 }

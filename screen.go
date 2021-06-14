@@ -21,14 +21,14 @@ type neighbour struct {
 	Chattiness int64  `header:"chat"`
 }
 
-func (ln *LocalNara) PrintNeigbourhoodForever(refreshRate int) {
+func (ln LocalNara) PrintNeigbourhoodForever(refreshRate int) {
 	for {
 		ln.printNeigbourhood()
 		time.Sleep(time.Duration(refreshRate) * time.Second)
 	}
 }
 
-func (ln *LocalNara) printNeigbourhood() {
+func (ln LocalNara) printNeigbourhood() {
 	if len(ln.Network.Neighbourhood) == 0 {
 		return
 	}
@@ -62,7 +62,7 @@ func (ln *LocalNara) printNeigbourhood() {
 	printer.Print(naras)
 }
 
-func (ln *LocalNara) generateScreenRow(nara Nara) neighbour {
+func (ln LocalNara) generateScreenRow(nara Nara) neighbour {
 	now := time.Now().Unix()
 	ping := ""
 	if nara.Name != ln.Me.Name {
