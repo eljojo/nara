@@ -53,6 +53,7 @@ func (nara *Nara) setObservation(name string, observation NaraObservation) {
 func (network *Network) formOpinion() {
 	time.Sleep(15 * time.Second)
 	logrus.Printf("🕵️  forming opinions...")
+
 	for name, _ := range network.Neighbourhood {
 		observation := network.local.getObservation(name)
 		startTime := network.findStartingTimeFromNeighbourhoodForNara(name)
@@ -81,6 +82,8 @@ func (network *Network) formOpinion() {
 func (network Network) findStartingTimeFromNeighbourhoodForNara(name string) int64 {
 	times := make(map[int64]int)
 
+	network.local.mu.Lock()
+	defer network.local.mu.Unlock()
 	for _, nara := range network.Neighbourhood {
 		observed_start_time := nara.getObservation(name).StartTime
 		if observed_start_time > 0 {
@@ -139,6 +142,8 @@ func (network *Network) recordObservationOnlineNara(name string) {
 func (network Network) findRestartCountFromNeighbourhoodForNara(name string) int64 {
 	values := make(map[int64]int)
 
+	network.local.mu.Lock()
+	defer network.local.mu.Unlock()
 	for _, nara := range network.Neighbourhood {
 		restarts := nara.getObservation(name).Restarts
 		values[restarts] += 1
@@ -160,6 +165,8 @@ func (network Network) findRestartCountFromNeighbourhoodForNara(name string) int
 func (network Network) findLastRestartFromNeighbourhoodForNara(name string) int64 {
 	values := make(map[int64]int)
 
+	network.local.mu.Lock()
+	defer network.local.mu.Unlock()
 	for _, nara := range network.Neighbourhood {
 		last_restart := nara.getObservation(name).LastRestart
 		if last_restart > 0 {

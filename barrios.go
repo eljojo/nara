@@ -54,6 +54,8 @@ func (network *Network) neighbourhoodMaintenance() {
 func (network Network) prepareClusteringDistanceMap() clustering.DistanceMap {
 	distanceMap := make(clustering.DistanceMap)
 
+	network.local.mu.Lock()
+	defer network.local.mu.Unlock()
 	for _, nara := range network.Neighbourhood {
 		// first create distance map with all pings from the perspective of each neighbour
 		distanceMap[nara.Name] = nara.pingMap()
