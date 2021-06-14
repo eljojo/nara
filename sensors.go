@@ -47,11 +47,11 @@ func (ln *LocalNara) updateHostStats() {
 		chattiness = 100
 	}
 
-	if chattiness <= 10 && ln.Network.skippingEvents == false {
-		logrus.Println("[warning] low chattiness, newspaper events may be dropped")
+	if ln.Me.Status.HostStats.LoadAvg > 0.8 && ln.Network.skippingEvents == false {
+		logrus.Println("[warning] busy cpu, newspaper events may be dropped")
 		ln.Network.skippingEvents = true
-	} else if chattiness > 10 && ln.Network.skippingEvents == true {
-		logrus.Println("[recovered] chattiness is healthy again, not dropping events anymore")
+	} else if ln.Me.Status.HostStats.LoadAvg < 0.8 && ln.Network.skippingEvents == true {
+		logrus.Println("[recovered] cpu is healthy again, not dropping events anymore")
 		ln.Network.skippingEvents = false
 	}
 
