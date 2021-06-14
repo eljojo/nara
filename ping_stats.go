@@ -53,10 +53,11 @@ func (network *Network) storePingEvent(pingEvent PingEvent) {
 		network.local.Me.setPing(pingEvent.To, pingEvent.TimeMs)
 	} else {
 		network.local.mu.Lock()
-		neighbour, present := network.Neighbourhood[pingEvent.From]
+		nara, present := network.Neighbourhood[pingEvent.From]
 		network.local.mu.Unlock()
 		if present {
-			neighbour.setPing(pingEvent.To, pingEvent.TimeMs)
+			nara.setPing(pingEvent.To, pingEvent.TimeMs)
+			network.recordObservationOnlineNara(pingEvent.From)
 		}
 	}
 }
