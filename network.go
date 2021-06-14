@@ -43,6 +43,9 @@ func (network *Network) Start() {
 		panic(token.Error())
 	}
 
+	network.heyThere()
+	network.announce()
+
 	go network.formOpinion()
 	go network.observationMaintenance()
 	go network.announceForever()
@@ -59,10 +62,7 @@ func (network *Network) meName() string {
 
 func (network *Network) announce() {
 	topic := fmt.Sprintf("%s/%s", "nara/newspaper", network.meName())
-
-	// update neighbour's opinion on us
 	network.recordObservationOnlineNara(network.meName())
-
 	network.postEvent(topic, network.local.Me.Status)
 }
 
@@ -119,7 +119,7 @@ func (network *Network) heyThere() {
 	topic := "nara/plaza/hey_there"
 	ts := network.local.chattinessRate(3, 20)
 	logrus.Debugf("time between hey there = %d", ts)
-
+	network.recordObservationOnlineNara(network.meName())
 	if (time.Now().Unix() - network.LastHeyThere) <= ts {
 		return
 	}

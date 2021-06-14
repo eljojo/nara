@@ -47,11 +47,16 @@ func (ln *LocalNara) updateHostStats() {
 		chattiness = 100
 	}
 
-	if ln.Me.Status.HostStats.LoadAvg > 0.8 && ln.Network.skippingEvents == false {
+	if ln.Me.Status.HostStats.LoadAvg > 0.8 && ln.Network.skippingEvents == false && !ln.isBooting() {
 		logrus.Println("[warning] busy cpu, newspaper events may be dropped")
 		ln.Network.skippingEvents = true
 	} else if ln.Me.Status.HostStats.LoadAvg < 0.8 && ln.Network.skippingEvents == true {
 		logrus.Println("[recovered] cpu is healthy again, not dropping events anymore")
+		ln.Network.skippingEvents = false
+	}
+
+	if ln.isBooting() {
+		chattiness = 100
 		ln.Network.skippingEvents = false
 	}
 
