@@ -24,8 +24,8 @@ function NaraRow(props) {
       <td>{ timeAgo(moment().unix() - ver.LastSeen) } ago</td>
       <td>{ uptime }</td>
       <td>{ timeAgo(ver.LastSeen - ver.StartTime) }</td>
-      <td>{ ver.Restarts }</td>
       <td>{ timeAgo(nara.HostStats.Uptime)  }</td>
+      <td>{ ver.Restarts }</td>
     </tr>
   );
 }
@@ -66,8 +66,8 @@ function NaraList() {
             <th>Last Ping</th>
             <th>Nara Uptime</th>
             <th>Nara Lifetime</th>
-            <th>Restarts</th>
             <th>Host Uptime</th>
+            <th>Restarts</th>
           </tr>
         </thead>
         <tbody>{
