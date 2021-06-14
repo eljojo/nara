@@ -55,7 +55,7 @@ func (nara *Nara) setObservation(name string, observation NaraObservation) {
 }
 
 func (network *Network) formOpinion() {
-	time.Sleep(40 * time.Second)
+	time.Sleep(15 * time.Second)
 	logrus.Printf("🕵️  forming opinions...")
 	for name, _ := range network.Neighbourhood {
 		observation := network.local.getObservation(name)
