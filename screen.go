@@ -17,7 +17,6 @@ type neighbour struct {
 	LastSeen   string `header:"last seen"`
 	Uptime     string `header:"uptime"`
 	FirstSeen  string `header:"first seen"`
-	Restarts   int64  `header:"restarts"`
 	Buzz       int    `header:"buzz"`
 	Chattiness int64  `header:"chat"`
 }
@@ -82,7 +81,7 @@ func (ln *LocalNara) generateScreenRow(nara Nara) neighbour {
 	if observation.Online != "ONLINE" {
 		ping = observation.Online
 	}
-	nei := neighbour{nara.Name, nara.Status.Flair, ping, lastSeen, uptime, first_seen, observation.Restarts, nara.Status.Buzz, nara.Status.Chattiness}
+	nei := neighbour{nara.Name, nara.Status.Flair, ping, lastSeen, uptime, first_seen, nara.Status.Buzz, nara.Status.Chattiness}
 	return nei
 }
 
