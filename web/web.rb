@@ -20,10 +20,10 @@ class Nara
 
   def to_h
     last_restart = self_opinion.fetch("LastRestart", 0)
-    last_restart = @first_seen_internally if last_restart == 0
+    last_restart = (last_seen&.to_i || @first_seen_internally) if last_restart == 0
 
     start_time = self_opinion.fetch("StartTime", 0)
-    start_time = @first_seen_internally if start_time == 0
+    start_time = (last_seen&.to_i || @first_seen_internally) if start_time == 0
     {
       Name: name,
       Flair: status.fetch("Flair", ""),
