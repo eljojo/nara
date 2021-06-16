@@ -83,9 +83,11 @@ func (ln *LocalNara) measurePingForever() {
 
 func (ln *LocalNara) measureAndStorePing(name string, dest string) {
 	ping, err := measurePing(name, dest)
-	if err == nil {
+	if err == nil && ping > 0 {
 		pingEvent := PingEvent{From: ln.Me.Name, To: name, TimeMs: ping}
 		ln.Network.postPing(pingEvent)
+	} else {
+		time.Sleep(1 * time.Second)
 	}
 }
 
