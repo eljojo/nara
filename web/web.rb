@@ -15,14 +15,15 @@ class Nara
     @name = name
     @status = {}
     @last_seen = nil
+    @first_seen_internally = Time.now.to_i
   end
 
   def to_h
     last_restart = self_opinion.fetch("LastRestart", 0)
-    last_restart = Time.now.to_i if last_restart == 0
+    last_restart = @first_seen_internally if last_restart == 0
 
     start_time = self_opinion.fetch("StartTime", 0)
-    start_time = Time.now if start_time == 0
+    start_time = @first_seen_internally if start_time == 0
     {
       Name: name,
       Flair: status.fetch("Flair", ""),
@@ -39,6 +40,11 @@ class Nara
 
   def mark_as_seen
     @last_seen = Time.now
+    self_opinion["Online"] = "ONLINE"
+  end
+
+  def mark_offline
+    self_opinion["Online"] = "OFFLINE"
   end
 
   def status=(new_status)
@@ -84,6 +90,9 @@ class Nara
 
   def speculate(observation)
     @last_seen ||= observation["LastSeen"]
+    if @status.fetch("Flair", "").strip == "" && observation["ClusterEmoji"] != ""
+      @status["Flair"] = observation["ClusterEmoji"]
+    end
     observations[name] = observation.merge(self_opinion)
   end
 end
@@ -106,19 +115,30 @@ class NaraWeb
 
   def start!
     loop do
-      name, status = @client.fetch
+      topic, name, status = @client.fetch
       next unless name
 
       nara = (@db[name] ||= Nara.new(name))
-      nara.status = status
-      nara.mark_as_seen
 
-      @db.values.each(&:mark_if_missing)
+      case topic
+      when /nara\/plaza/, /nara\/newspaper/
+        nara.status = status
+      end
 
-      speculate(@db.values)
+      if topic =~ /chau/
+        nara.mark_offline
+      else
+        nara.mark_as_seen
+      end
 
-      @db = @db.to_a.sort_by { |_, nara| nara.sorting_key }.to_h
+      db_maintenance
     end
+  end
+
+  def db_maintenance
+    @db.values.each(&:mark_if_missing)
+    speculate(@db.values)
+    @db = @db.to_a.sort_by { |_, nara| nara.sorting_key }.to_h
   end
 
   def speculate(narae)
@@ -136,26 +156,27 @@ class MqttClient
   def fetch
     topic, message_json = client.get
     message = JSON.parse(message_json)
-    if topic =~ /nara\/plaza/
+
+    case topic
+    when /nara\/plaza/
       name = message["Name"]
       status = message.fetch("Status")
-    else
-      name = topic.split("/").last
+    when /nara\/newspaper/
+      name = topic.split("/").last # TODO: replace for regex
       status = message
+    when /nara\/ping/
+      name = message["From"]
+      status = message
+    else
+      raise "unknown topic #{topic}"
     end
 
-    # when naras boot they're observations are weak
-    status["Observations"][name] ||= {}
-    if topic =~ /chau/
-      status["Observations"][name]["Online"] = "OFFLINE"
-    else
-      status["Observations"][name]["Online"] = "ONLINE"
-    end
-    [name, status]
+
+    [topic, name, status]
   rescue MQTT::ProtocolException, SocketError, Errno::ECONNREFUSED
     disconnect
     sleep 1
-    [nil, nil]
+    [nil, nil, nil]
   end
 
   def disconnect
@@ -169,8 +190,9 @@ class MqttClient
     return @client if @client
     @client = MQTT::Client.connect(MQTT_CONN)
     $log.info("connected to MQTT server")
-    @client.subscribe('nara/newspaper/#')
     @client.subscribe('nara/plaza/#')
+    @client.subscribe('nara/newspaper/#')
+    @client.subscribe('nara/ping/#')
     @client
   end
 end
