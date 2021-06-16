@@ -4,8 +4,89 @@ require 'logger'
 require 'sinatra'
 require "sinatra/json"
 require 'socket'
+require 'time'
 
 Thread.abort_on_exception = true
+
+class Nara
+  attr_reader :name, :status
+
+  def initialize(name)
+    @name = name
+    @status = {}
+    @last_seen = nil
+  end
+
+  def to_h
+    last_restart = self_opinion.fetch("LastRestart", 0)
+    last_restart = Time.now.to_i if last_restart == 0
+
+    start_time = self_opinion.fetch("StartTime", 0)
+    start_time = Time.now if start_time == 0
+    {
+      Name: name,
+      Flair: status.fetch("Flair", ""),
+      Buzz: status.fetch("Buzz", 0),
+      Chattiness: status.fetch("Chattiness", 0),
+      LastSeen: last_seen.to_i,
+      LastRestart: last_restart,
+      Online: self_opinion.fetch("Online", "?"),
+      StartTime: Time.at(start_time).to_i,
+      Restarts: self_opinion.fetch("Restarts", 0),
+      Uptime: status.dig("HostStats", "Uptime") || 0
+    }
+  end
+
+  def mark_as_seen
+    @last_seen = Time.now
+  end
+
+  def status=(new_status)
+    @status = new_status
+  end
+
+  def last_seen
+    return @last_seen if @last_seen
+    opinion = self_opinion.fetch("LastSeen", 0)
+    return if opinion == 0
+    Time.at(opinion)
+  end
+
+  def mark_if_missing
+    time_last_seen = Time.now.to_i - last_seen.to_i
+    if time_last_seen > 60 && online?
+      observations[name]["Online"] = "MISSING"
+    end
+  end
+
+  def online?
+    self_opinion["Online"] == "ONLINE"
+  end
+
+  def self_opinion
+    observations[name] ||= {}
+  end
+
+  def observations
+    legacy_to_h["Observations"] ||= {}
+  end
+
+  def legacy_to_h
+    @status.merge("Name" =>  name)
+  end
+
+  FALLBACK_SORTING = "😶😶😶"
+  def sorting_key
+    team = status.fetch("Flair", "").strip
+    team = team == "" ? FALLBACK_SORTING : team[0]
+    "#{team}#{name}"
+  end
+
+  def speculate(observation)
+    @last_seen ||= observation["LastSeen"]
+    observations[name] = observation.merge(self_opinion)
+  end
+end
 
 class NaraWeb
   def self.hostname
@@ -28,31 +109,25 @@ class NaraWeb
       name, status = @client.fetch
       next unless name
 
-      @db[name] = status
+      nara = (@db[name] ||= Nara.new(name))
+      nara.status = status
+      nara.mark_as_seen
 
-      # backfill information for naras basd on neighbours in case there's something
-      @db.dup.each do |n, entry|
-        observations = entry["Observations"]
-        observations.each do |nn, o|
-          @db[nn] ||= {}
-          @db[nn]["Name"] ||= nn
-          #@db[nn]["Barrio"] ||= o["ClusterName"]
-          @db[nn]["LastSeen"] ||= o["LastSeen"]
-          @db[nn]["Observations"] ||= {}
-          @db[nn]["Observations"][nn] = o.dup.merge((@db[nn]["Observations"][nn] || {}).compact)
-          @db[nn]["HostStats"] ||= { "Uptime" => 0 }
-        end
+      @db.values.each(&:mark_if_missing)
+
+      speculate(@db.values)
+
+      @db = @db.to_a.sort_by { |_, nara| nara.sorting_key }.to_h
+    end
+  end
+
+  def speculate(narae)
+    # backfill information for naras basd on neighbours in case there's something
+    narae.each do |nara|
+      nara.observations.each do |other_nara_name, observation|
+        other_nara = (@db[other_nara_name] ||= Nara.new(other_nara_name))
+        other_nara.speculate(observation)
       end
-
-      @db.each do |n, entry|
-        observations = entry["Observations"]
-        time_last_seen = Time.now.to_i - entry["LastSeen"]
-        if time_last_seen > 60 && observations[n]["Online"] == "ONLINE"
-          observations[n]["Online"] = "MISSING"
-        end
-      end
-
-      @db = @db.to_a.sort_by { |name, data| [data.fetch("Flair", ""), name] }.to_h
     end
   end
 end
@@ -69,12 +144,8 @@ class MqttClient
       status = message
     end
 
-    status["Name"] = name
-    status["LastSeen"] = Time.now.to_i
     # when naras boot they're observations are weak
     status["Observations"][name] ||= {}
-    status["Observations"][name]["LastSeen"] = Time.now.to_i
-    status["Observations"][name]["LastRestart"] ||= Time.now.to_i
     if topic =~ /chau/
       status["Observations"][name]["Online"] = "OFFLINE"
     else
@@ -117,5 +188,9 @@ get '/' do
 end
 
 get '/api.json' do
-  json({ naras: naraweb.db.values, server: NaraWeb.hostname })
+  json({ naras: naraweb.db.values.map(&:legacy_to_h), server: NaraWeb.hostname })
+end
+
+get '/narae.json' do
+  json({ naras: naraweb.db.values.map(&:to_h), server: NaraWeb.hostname })
 end

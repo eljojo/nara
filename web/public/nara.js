@@ -2,7 +2,6 @@
 
 function NaraRow(props) {
   const nara = props.nara;
-  const ver = nara.Observations[nara.Name]
 
   function timeAgo(a) {
     const difference_in_seconds = a;
@@ -13,7 +12,7 @@ function NaraRow(props) {
     return moment().to(olderTime * 1000, true)
   }
 
-  const uptime = ver.Online == "ONLINE" ? timeAgo(ver.LastSeen - ver.LastRestart) : ver.Online;
+  const uptime = nara.Online == "ONLINE" ? timeAgo(nara.LastSeen - nara.LastRestart) : nara.Online;
 
   return (
     <tr>
@@ -21,11 +20,11 @@ function NaraRow(props) {
       <td>{ nara.Flair }</td>
       <td>{ nara.Buzz  }</td>
       <td>{ nara.Chattiness  }</td>
-      <td>{ timeAgo(moment().unix() - ver.LastSeen) } ago</td>
+      <td>{ timeAgo(moment().unix() - nara.LastSeen) } ago</td>
       <td>{ uptime }</td>
-      <td>{ timeAgo(ver.LastSeen - ver.StartTime) }</td>
-      <td>{ timeAgo(nara.HostStats.Uptime)  }</td>
-      <td>{ ver.Restarts }</td>
+      <td>{ timeAgo(nara.LastSeen - nara.StartTime) }</td>
+      <td>{ timeAgo(nara.Uptime)  }</td>
+      <td>{ nara.Restarts }</td>
     </tr>
   );
 }
@@ -40,7 +39,7 @@ function NaraList() {
     const refresh = () => {
       const fetchDate = new Date;
 
-      window.fetch("/api.json")
+      window.fetch("/narae.json")
         .then(response => response.json())
         .then(function(data) {
           if(fetchDate > lastDate) {
