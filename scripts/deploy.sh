@@ -4,7 +4,7 @@ NARA_VERSION=$(git rev-parse --short HEAD)
 echo "~  deploying nara version $NARA_VERSION ~"
 
 echo "-> querying nara api..."
-machines=$(curl --silent https://nara.eljojo.net/api.json|jq -r '.naras | map(.Name) | .[]')
+machines=$(curl --silent https://nara.eljojo.net/narae.json|jq -r '.naras | map(.Name) | .[]')
 echo "deploying to" $machines
 
 naraSsh () {
