@@ -8,6 +8,7 @@ require (
 	github.com/bugsnag/panicwrap v1.3.2 // indirect
 	github.com/dustin/go-humanize v1.0.0 // indirect
 	github.com/eclipse/paho.mqtt.golang v1.3.2
+	github.com/enescakir/emoji v1.0.0
 	github.com/go-ole/go-ole v1.2.5 // indirect
 	github.com/go-ping/ping v0.0.0-20210207230027-ab39f29b51f8
 	github.com/gofrs/uuid v4.0.0+incompatible // indirect

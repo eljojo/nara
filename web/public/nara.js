@@ -16,7 +16,7 @@ function NaraRow(props) {
 
   return (
     <tr>
-      <td>{ nara.Name }</td>
+      <td>{ nara.LicensePlate } { nara.Name }</td>
       <td>{ nara.Flair }</td>
       <td>{ nara.Buzz  }</td>
       <td>{ nara.Chattiness  }</td>

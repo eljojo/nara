@@ -81,7 +81,8 @@ func (ln LocalNara) generateScreenRow(nara Nara) neighbour {
 	if !observation.isOnline() {
 		ping = observation.Online
 	}
-	nei := neighbour{nara.Name, nara.Status.Flair, ping, lastSeen, uptime, first_seen, nara.Status.Buzz, nara.Status.Chattiness}
+	name := nara.Status.LicensePlate + " " + nara.Name
+	nei := neighbour{name, nara.Status.Flair, ping, lastSeen, uptime, first_seen, nara.Status.Buzz, nara.Status.Chattiness}
 	return nei
 }
 

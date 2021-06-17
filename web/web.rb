@@ -27,6 +27,7 @@ class Nara
     {
       Name: name,
       Flair: status.fetch("Flair", ""),
+      LicensePlate: status.fetch("LicensePlate", ""),
       Buzz: status.fetch("Buzz", 0),
       Chattiness: status.fetch("Chattiness", 0),
       LastSeen: last_seen.to_i,
@@ -83,7 +84,8 @@ class Nara
 
   FALLBACK_SORTING = "😶😶😶"
   def sorting_key
-    team = status.fetch("Flair", "").strip
+    team = status.fetch("LicensePlate", "").strip
+    team += status.fetch("Flair", "").strip
     team = team == "" ? FALLBACK_SORTING : team[0]
     "#{team}#{name}"
   end

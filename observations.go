@@ -221,6 +221,7 @@ func (network *Network) observationMaintenance() {
 			network.Buzz.increase(2)
 		}
 		network.local.Me.Status.Flair = newFlair
+		network.local.Me.Status.LicensePlate = network.local.LicensePlate()
 
 		time.Sleep(1 * time.Second)
 	}

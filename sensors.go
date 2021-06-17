@@ -1,11 +1,14 @@
 package nara
 
 import (
+	"encoding/json"
 	"errors"
 	"github.com/shirou/gopsutil/host"
 	"github.com/shirou/gopsutil/load"
 	"github.com/sirupsen/logrus"
+	"io/ioutil"
 	"net"
+	"net/http"
 	"runtime"
 	"strings"
 	"time"
@@ -14,6 +17,14 @@ import (
 type HostStats struct {
 	Uptime  uint64
 	LoadAvg float64
+}
+
+type IRL struct {
+	CountryName string `json:"country"`
+	CountryCode string `json:"countryCode"`
+	City        string `json:"city"`
+	ISP         string `json:"isp"`
+	PublicIp    string `json:"query"`
 }
 
 func (ln *LocalNara) updateHostStatsForever() {
@@ -105,4 +116,29 @@ func externalIP() (string, error) {
 		}
 	}
 	return "", errors.New("are you connected to the network?")
+}
+
+func fetchIRL() (IRL, error) {
+	irl := IRL{}
+
+	logrus.Debug("fetching ip data...")
+	resp, err := http.Get("http://ip-api.com/json/")
+
+	if err != nil {
+		return irl, err
+	}
+
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+
+	if err != nil {
+		return irl, err
+	}
+
+	err = json.Unmarshal(body, &irl)
+	if err != nil {
+		return irl, err
+	}
+
+	return irl, nil
 }

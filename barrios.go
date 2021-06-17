@@ -1,7 +1,9 @@
 package nara
 
 import (
+	"github.com/enescakir/emoji"
 	"github.com/pbnjay/clustering"
+	"github.com/sirupsen/logrus"
 	"sort"
 )
 
@@ -9,8 +11,6 @@ var clusterNames = []string{"olive", "peach", "sand", "ocean", "basil", "waterme
 var BarrioEmoji = []string{"🍸", "🍑", "🏖", "🌊", "🌿", "🍉", "🥪", "🍧", "🧙", "👽", "🍕"}
 
 func (ln LocalNara) Flair() string {
-	barrio := ln.getMeObservation().ClusterEmoji
-
 	networkSize := len(ln.Network.Neighbourhood)
 	awards := ""
 	if networkSize > 2 {
@@ -44,7 +44,16 @@ func (ln LocalNara) Flair() string {
 			awards = awards + "📡"
 		}
 	}
-	return barrio + awards
+	return awards
+}
+
+func (ln LocalNara) LicensePlate() string {
+	barrio := ln.getMeObservation().ClusterEmoji
+	country, err := emoji.CountryFlag(ln.Me.IRL.CountryCode)
+	if err != nil {
+		logrus.Panic("lol failed to get country emoji lmao", ln.Me.IRL.CountryCode, err)
+	}
+	return country.String() + " " + barrio
 }
 
 func (network *Network) neighbourhoodMaintenance() {

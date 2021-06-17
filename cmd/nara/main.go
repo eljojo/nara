@@ -29,11 +29,12 @@ func main() {
 	verbosePtr := flag.Bool("verbose", false, "log debug stuff")
 
 	flag.Parse()
-	localNara := nara.NewLocalNara(*naraIdPtr, *mqttHostPtr, *mqttUserPtr, *mqttPassPtr, *forceChattinessPtr)
 
 	if *verbosePtr {
 		logrus.SetLevel(logrus.DebugLevel)
 	}
+
+	localNara := nara.NewLocalNara(*naraIdPtr, *mqttHostPtr, *mqttUserPtr, *mqttPassPtr, *forceChattinessPtr)
 
 	localNara.Start()
 	if *showNeighboursPtr {

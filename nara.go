@@ -23,13 +23,14 @@ type Nara struct {
 	Name      string
 	Hostname  string
 	Ip        string
+	IRL       IRL
 	Status    NaraStatus
 	PingStats map[string]float64
 	mu        sync.Mutex
 }
 
 type NaraStatus struct {
-	Barrio       string
+	LicensePlate string
 	Flair        string
 	HostStats    HostStats
 	Chattiness   int64
@@ -38,6 +39,8 @@ type NaraStatus struct {
 }
 
 func NewLocalNara(name string, mqtt_host string, mqtt_user string, mqtt_pass string, forceChattiness int) *LocalNara {
+	logrus.Printf("booting nara %s", name)
+
 	ln := &LocalNara{
 		Me:              NewNara(name),
 		forceChattiness: forceChattiness,
@@ -46,12 +49,20 @@ func NewLocalNara(name string, mqtt_host string, mqtt_user string, mqtt_pass str
 
 	ln.updateHostStats()
 
+	irl, err := fetchIRL()
+	if (err == nil && irl != IRL{}) {
+		ln.Me.IRL = irl
+		logrus.Printf("hello from %s, %s", irl.City, irl.CountryName)
+	} else {
+		logrus.Panic("couldn't find IRL data", err)
+	}
+
 	ip, err := externalIP()
 	if err == nil {
 		ln.Me.Ip = ip
-		logrus.Println("local ip", ip)
+		logrus.Println("internal ip", ip)
 	} else {
-		logrus.Panic(err)
+		logrus.Panic("couldn't find internal IP", err)
 	}
 
 	hostinfo, _ := host.Info()

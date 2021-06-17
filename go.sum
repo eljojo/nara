@@ -11,6 +11,8 @@ github.com/eclipse/paho.mqtt.golang v1.3.1 h1:6F5FYb1hxVSZS+p0ji5xBQamc5ltOolTYR
 github.com/eclipse/paho.mqtt.golang v1.3.1/go.mod h1:eTzb4gxwwyWpqBUHGQZ4ABAV7+Jgm1PklsYT/eo8Hcc=
 github.com/eclipse/paho.mqtt.golang v1.3.2 h1:ICzfxSyrR8bOsh9l8JBBOwO1tc2C26oEyody0ml0L6E=
 github.com/eclipse/paho.mqtt.golang v1.3.2/go.mod h1:eTzb4gxwwyWpqBUHGQZ4ABAV7+Jgm1PklsYT/eo8Hcc=
+github.com/enescakir/emoji v1.0.0 h1:W+HsNql8swfCQFtioDGDHCHri8nudlK1n5p2rHCJoog=
+github.com/enescakir/emoji v1.0.0/go.mod h1:Bt1EKuLnKDTYpLALApstIkAjdDrS/8IAgTkKp+WKFD0=
 github.com/go-ole/go-ole v1.2.5 h1:t4MGB5xEDZvXI+0rMjjsfBsD7yAgp/s9ZDkL1JndXwY=
 github.com/go-ole/go-ole v1.2.5/go.mod h1:pprOEPIfldk/42T2oK7lQ4v4JSDwmV0As9GaiUsvbm0=
 github.com/go-ping/ping v0.0.0-20210201192233-b6486c6f1f2d h1:FKFb1WUcDITAXa5bq97UETgMf0DHeNlPzuTZ6uozlMw=
