@@ -128,15 +128,12 @@ func (network *Network) heyThere() {
 	logrus.Debugf("time between hey there = %d", ts)
 	network.LastHeyThere = time.Now().Unix()
 
-	network.local.Me.mu.Lock()
-
 	topic := "nara/plaza/hey_there"
 	network.postEvent(topic, network.local.Me)
 
 	topic = "nara/archive/" + network.meName()
 	network.postEvent(topic, network.local.Me)
 
-	network.local.Me.mu.Unlock()
 	network.Buzz.increase(2)
 }
 
