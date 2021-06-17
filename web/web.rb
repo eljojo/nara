@@ -85,8 +85,7 @@ class Nara
   FALLBACK_SORTING = "😶😶😶"
   def sorting_key
     team = status.fetch("LicensePlate", "").strip
-    team += status.fetch("Flair", "").strip
-    team = team == "" ? FALLBACK_SORTING : team[0]
+    team = FALLBACK_SORTING if team == ""
     "#{team}#{name}"
   end
 
