@@ -131,7 +131,7 @@ func (network *Network) heyThere() {
 	topic := "nara/plaza/hey_there"
 	network.postEvent(topic, network.local.Me)
 
-	topic = "nara/archive/" + network.meName()
+	topic = "nara/selfies/" + network.meName()
 	network.postEvent(topic, network.local.Me)
 
 	network.Buzz.increase(2)
