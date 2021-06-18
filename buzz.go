@@ -8,7 +8,7 @@ import (
 
 const BuzzMax = 182
 const BuzzMin = 0
-const BuzzDecrease = 3     // per second
+const BuzzDecrease = 5     // per second
 const BuzzUpdateEvery = 10 // seconds
 
 type Buzz struct {
@@ -89,9 +89,9 @@ func (network Network) getHighestBuzz() int {
 
 func (n Network) weightedBuzz() int {
 	sum := 0
-	sum = sum + int(float64(n.Buzz.getLocal())*0.4)
+	sum = sum + int(float64(n.Buzz.getLocal())*0.5)
 	sum = sum + int(float64(n.getNetworkAverageBuzz())*0.2)
-	sum = sum + int(float64(n.getHighestBuzz())*0.4)
+	sum = sum + int(float64(n.getHighestBuzz())*0.3)
 	if sum > BuzzMax {
 		return BuzzMax
 	}

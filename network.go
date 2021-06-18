@@ -120,7 +120,7 @@ func (network *Network) processHeyThereEvents() {
 }
 
 func (network *Network) heyThere() {
-	ts := network.local.chattinessRate(3, 20)
+	ts := network.local.chattinessRate(5, 20)
 	network.recordObservationOnlineNara(network.meName())
 	if (time.Now().Unix() - network.LastHeyThere) <= ts {
 		return
