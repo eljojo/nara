@@ -91,8 +91,8 @@ class Nara
 
   def speculate(observation)
     @last_seen ||= observation["LastSeen"]
-    if @status.fetch("Flair", "").strip == "" && observation["ClusterEmoji"] != ""
-      @status["Flair"] = observation["ClusterEmoji"]
+    if @status.fetch("LicensePlate", "").strip == "" && observation["ClusterEmoji"] != ""
+      @status["LicensePlate"] = "🏳️ #{observation["ClusterEmoji"]}"
     end
     observations[name] = observation.merge(self_opinion)
   end
