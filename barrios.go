@@ -7,8 +7,8 @@ import (
 	"sort"
 )
 
-var clusterNames = []string{"olive", "peach", "sand", "ocean", "basil", "watermelon", "brunch", "sorbet", "margarita", "bohemian", "pizza"}
-var BarrioEmoji = []string{"🍸", "🍑", "🏖", "🌊", "🌿", "🍉", "🥪", "🍧", "🧙", "👽", "🍕"}
+var clusterNames = []string{"martini", "sand", "ocean", "basil", "watermelon", "sorbet", "wizard", "bohemian", "pizza", "moai", "ufo", "gem", "fish", "surf", "peach", "sandwich"}
+var BarrioEmoji = []string{"🍸", "🏖", "🌊", "🌿", "🍉", "🍧", "🧙", "👽", "🍕", "🗿", "🛸", "💎", "🐠", "🏄", "🍑", "🥪"}
 
 func (ln LocalNara) Flair() string {
 	networkSize := len(ln.Network.Neighbourhood)
