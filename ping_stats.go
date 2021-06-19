@@ -69,6 +69,10 @@ func (ln *LocalNara) measurePingForever() {
 		time.Sleep(time.Duration(ts) * time.Second)
 
 		for name, nara := range ln.Network.Neighbourhood {
+			if nara.Ip == "" {
+				continue
+			}
+
 			if !ln.getObservation(nara.Name).isOnline() {
 				continue
 			}
