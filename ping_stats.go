@@ -153,3 +153,28 @@ func (network *Network) pingEvents() []PingEvent {
 
 	return result
 }
+
+func (network *Network) fetchPingEventsFromNeighbouringNara() error {
+	var events []PingEvent
+
+	naraApi, err := network.anyNaraApiUrl()
+	if err != nil {
+		return fmt.Errorf("failed to get ping events from nara api: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/ping_events", naraApi)
+	logrus.Debugf("fetching ping events from %s", url)
+
+	err = httpFetchJson(url, &events)
+	if err != nil {
+		return fmt.Errorf("failed to get ping events from nara api: %w", err)
+	}
+
+	logrus.Debugf("found %d ping events from API", len(events))
+
+	for _, pingEvent := range events {
+		network.pingInbox <- pingEvent
+	}
+
+	return nil
+}

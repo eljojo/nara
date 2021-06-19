@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/sirupsen/logrus"
+	"io/ioutil"
 	"net"
 	"net/http"
 )
@@ -17,7 +18,7 @@ func (network *Network) startHttpServer() error {
 
 	port := listener.Addr().(*net.TCPAddr).Port
 	url := fmt.Sprintf("http://%s:%d", network.local.Me.Ip, port)
-	logrus.Printf("Listening for API HTTP server on %s", url)
+	logrus.Printf("Listening on %s", url)
 	network.local.Me.ApiUrl = url
 
 	http.HandleFunc("/ping_events", network.httpPingDbHandler)
@@ -35,4 +36,26 @@ func (network *Network) httpPingDbHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 	fmt.Fprint(w, string(payload))
+}
+
+func httpFetchJson(url string, result interface{}) error {
+	resp, err := http.Get(url)
+
+	if err != nil {
+		return fmt.Errorf("failed to get from url %s: %w", url, err)
+	}
+
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+
+	if err != nil {
+		return fmt.Errorf("failed to get from url %s: %w", url, err)
+	}
+
+	err = json.Unmarshal(body, result)
+	if err != nil {
+		return fmt.Errorf("failed to decode response: %w\n%s", err, body)
+	}
+
+	return nil
 }

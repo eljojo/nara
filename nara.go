@@ -1,7 +1,6 @@
 package nara
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/shirou/gopsutil/host"
 	"github.com/sirupsen/logrus"
@@ -10,9 +9,6 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
-
-	"io/ioutil"
-	"net/http"
 )
 
 type LocalNara struct {
@@ -43,7 +39,7 @@ type NaraStatus struct {
 }
 
 func NewLocalNara(name string, mqtt_host string, mqtt_user string, mqtt_pass string, forceChattiness int) *LocalNara {
-	logrus.Printf("booting nara %s", name)
+	logrus.Printf("📟 Booting nara: %s", name)
 
 	ln := &LocalNara{
 		Me:              NewNara(name),
@@ -56,7 +52,7 @@ func NewLocalNara(name string, mqtt_host string, mqtt_user string, mqtt_pass str
 	irl, err := fetchIRL()
 	if (err == nil && irl != IRL{}) {
 		ln.Me.IRL = irl
-		logrus.Printf("hello from %s, %s", irl.City, irl.CountryName)
+		logrus.Printf("🪐 Hello from %s, %s", irl.City, irl.CountryName)
 	} else {
 		logrus.Panic("couldn't find IRL data", err)
 	}
@@ -64,7 +60,6 @@ func NewLocalNara(name string, mqtt_host string, mqtt_user string, mqtt_pass str
 	ip, err := externalIP()
 	if err == nil {
 		ln.Me.Ip = ip
-		logrus.Println("internal ip", ip)
 	} else {
 		logrus.Panic("couldn't find internal IP", err)
 	}
@@ -77,7 +72,7 @@ func NewLocalNara(name string, mqtt_host string, mqtt_user string, mqtt_pass str
 		logrus.Debugf("failed to fetch status from API: %v", err)
 	} else {
 		logrus.Print("fetched last status from nara-web API")
-		logrus.Debugf("%v", previousStatus)
+		// logrus.Debugf("%v", previousStatus)
 		ln.Me.Status = previousStatus
 	}
 
@@ -126,22 +121,9 @@ func fetchStatusFromApi(name string) (NaraStatus, error) {
 
 	logrus.Debugf("fetching status from API for %s", name)
 	url := fmt.Sprintf("https://nara.eljojo.net/status/%s.json", name)
-	resp, err := http.Get(url)
-
+	err := httpFetchJson(url, status)
 	if err != nil {
-		return *status, err
-	}
-
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-
-	if err != nil {
-		return *status, err
-	}
-
-	err = json.Unmarshal(body, status)
-	if err != nil {
-		return *status, err
+		return *status, fmt.Errorf("failed to get status from api: %w", err)
 	}
 
 	return *status, nil
