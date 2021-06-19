@@ -71,7 +71,7 @@ func (network Network) meName() string {
 func (network *Network) announce() {
 	topic := fmt.Sprintf("%s/%s", "nara/newspaper", network.meName())
 	network.recordObservationOnlineNara(network.meName())
-	network.postEvent(topic, network.local.Me.Status)
+	network.postEvent(topic, network.local.Me.Status, 0)
 }
 
 func (network *Network) announceForever() {
@@ -147,7 +147,7 @@ func (network *Network) heyThere() {
 
 	topic := "nara/plaza/hey_there"
 	heyThere := &HeyThereEvent{From: network.meName()}
-	network.postEvent(topic, heyThere)
+	network.postEvent(topic, heyThere, 1)
 	network.selfie()
 
 	network.Buzz.increase(2)
@@ -162,7 +162,7 @@ func (network *Network) selfie() {
 	network.LastSelfie = time.Now().Unix()
 
 	topic := "nara/selfies/" + network.meName()
-	network.postEvent(topic, network.local.Me)
+	network.postEvent(topic, network.local.Me, 1)
 }
 
 func (network *Network) processChauEvents() {
@@ -196,7 +196,7 @@ func (network *Network) Chau() {
 	observation.LastSeen = time.Now().Unix()
 	network.local.setMeObservation(observation)
 
-	network.postEvent(topic, network.local.Me)
+	network.postEvent(topic, network.local.Me, 1)
 }
 
 func (network Network) oldestNaraBarrio() Nara {

@@ -20,11 +20,11 @@ func (network *Network) mqttOnConnectHandler() mqtt.OnConnectHandler {
 }
 
 func (network *Network) subscribeHandlers(client mqtt.Client) {
-	subscribeMqtt(client, "nara/plaza/hey_there", network.heyThereHandler)
-	subscribeMqtt(client, "nara/plaza/chau", network.chauHandler)
-	subscribeMqtt(client, "nara/newspaper/#", network.newspaperHandler)
-	subscribeMqtt(client, "nara/selfies/#", network.selfieHandler)
-	subscribeMqtt(client, "nara/ping/#", network.pingHandler)
+	subscribeMqtt(client, "nara/plaza/hey_there", 1, network.heyThereHandler)
+	subscribeMqtt(client, "nara/plaza/chau", 1, network.chauHandler)
+	subscribeMqtt(client, "nara/newspaper/#", 0, network.newspaperHandler)
+	subscribeMqtt(client, "nara/selfies/#", 1, network.selfieHandler)
+	subscribeMqtt(client, "nara/ping/#", 0, network.pingHandler)
 }
 
 func (network *Network) pingHandler(client mqtt.Client, msg mqtt.Message) {
@@ -81,18 +81,18 @@ func (network *Network) newspaperHandler(client mqtt.Client, msg mqtt.Message) {
 	network.newspaperInbox <- NewspaperEvent{From: from, Status: status}
 }
 
-func subscribeMqtt(client mqtt.Client, topic string, handler func(client mqtt.Client, msg mqtt.Message)) {
-	if token := client.Subscribe(topic, 0, handler); token.Wait() && token.Error() != nil {
+func subscribeMqtt(client mqtt.Client, topic string, qos byte, handler func(client mqtt.Client, msg mqtt.Message)) {
+	if token := client.Subscribe(topic, qos, handler); token.Wait() && token.Error() != nil {
 		panic(token.Error())
 	}
 }
 
 func (network *Network) postPing(ping PingEvent) {
 	topic := fmt.Sprintf("%s/%s/%s", "nara/ping", ping.From, ping.To)
-	network.postEvent(topic, ping)
+	network.postEvent(topic, ping, 0)
 }
 
-func (network *Network) postEvent(topic string, event interface{}) {
+func (network *Network) postEvent(topic string, event interface{}, qos byte) {
 	logrus.Debugf("posting on %s", topic)
 
 	network.local.mu.Lock()
@@ -102,7 +102,7 @@ func (network *Network) postEvent(topic string, event interface{}) {
 		return
 	}
 	network.local.mu.Unlock()
-	token := network.Mqtt.Publish(topic, 0, false, string(payload))
+	token := network.Mqtt.Publish(topic, qos, false, string(payload))
 	token.Wait()
 }
 
