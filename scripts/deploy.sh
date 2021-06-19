@@ -50,9 +50,6 @@ for name in ${machines[@]}; do
   ssh -q $m "sudo ~/nara/scripts/restart-local.sh $machines_in_one_line"
 
   echo "=> succesfully deployed $name"
-
-  echo "sleeping for 5 seconds to stabilize narae memory"
-  sleep 5
 done
 
 echo "nara deployed 🎉 congrats :-)"
