@@ -5,7 +5,7 @@ echo "~  deploying nara version $NARA_VERSION ~"
 
 echo "-> querying nara api..."
 machines=$(curl --silent https://nara.eljojo.net/narae.json|jq -r '.naras | map(.Name) | .[]')
-echo "deploying to" $machines
+machines_in_one_line=$(echo "$machines"|tr '\n' ' ')
 
 naraSsh () {
   local m="$1.eljojo.dev"
@@ -37,6 +37,17 @@ echo "pushing code to all machines"
 git push deploy -f "HEAD:deploy" -q
 
 for name in ${machines[@]}; do
+  if [[ "$1" != "" ]]; then
+    if [[ $(echo "$name" | grep -E "$1") == "" ]]; then
+      echo "skipping $name"
+      delete=$name
+      machines=( "${machines[@]/$delete}" )
+    fi
+  fi
+done
+
+echo "deploying to" $machines
+for name in ${machines[@]}; do
   m=$(naraSsh $name)
 
   if ! nslookup "$name.eljojo.dev" > /dev/null; then
@@ -46,7 +57,6 @@ for name in ${machines[@]}; do
   echo "=> deploying nara on $name"
   ssh -q $m "cd ~/nara && git checkout -f $NARA_VERSION -q"
   ssh -q $m '~/nara/scripts/build.sh'
-  machines_in_one_line=$(echo "$machines"|tr '\n' ' ')
   ssh -q $m "sudo ~/nara/scripts/restart-local.sh $machines_in_one_line"
 
   echo "=> succesfully deployed $name"
