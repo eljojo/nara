@@ -149,6 +149,7 @@ func (network *Network) heyThere() {
 	heyThere := &HeyThereEvent{From: network.meName()}
 	network.postEvent(topic, heyThere)
 	network.selfie()
+	logrus.Printf("%s: 👋", heyThere.From)
 
 	network.Buzz.increase(2)
 }
