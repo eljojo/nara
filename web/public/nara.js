@@ -4,8 +4,9 @@ function NaraRow(props) {
   const nara = props.nara;
 
   function timeAgo(a) {
-    const difference_in_seconds = a;
+    var difference_in_seconds = a;
     if (difference_in_seconds < 60) {
+      difference_in_seconds = Math.round(difference_in_seconds/5) * 5
       return ("" + difference_in_seconds + "s");
     }
     const olderTime = (moment().unix() - a);
@@ -49,7 +50,7 @@ function NaraList() {
         });
     };
     refresh();
-    const interval = setInterval(refresh, 500);
+    const interval = setInterval(refresh, 2000);
     return () => clearInterval(interval);
   }, []);
 
