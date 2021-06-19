@@ -223,3 +223,10 @@ end
 get '/narae.json' do
   json({ naras: naraweb.db.values.map(&:to_h), server: NaraWeb.hostname })
 end
+
+get '/status/:name.json' do
+  name = params['name']
+  nara = naraweb.db[name]
+  pass unless nara
+  json(nara.legacy_to_h)
+end
