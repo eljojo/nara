@@ -162,7 +162,7 @@ func (network *Network) heyThere() {
 }
 
 func (network *Network) selfie() {
-	ts := int64(2) // seconds
+	ts := int64(5) // seconds
 	network.recordObservationOnlineNara(network.meName())
 	if (time.Now().Unix() - network.LastSelfie) <= ts {
 		return
