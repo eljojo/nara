@@ -1,8 +1,8 @@
 package nara
 
 import (
+	"encoding/json"
 	"fmt"
-	//	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/shirou/gopsutil/host"
 	"github.com/sirupsen/logrus"
 
@@ -10,6 +10,9 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+
+	"io/ioutil"
+	"net/http"
 )
 
 type LocalNara struct {
@@ -68,6 +71,15 @@ func NewLocalNara(name string, mqtt_host string, mqtt_user string, mqtt_pass str
 	hostinfo, _ := host.Info()
 	ln.Me.Hostname = hostinfo.Hostname
 
+	previousStatus, err := fetchStatusFromApi(name)
+	if err != nil {
+		logrus.Debugf("failed to fetch status from API: %v", err)
+	} else {
+		logrus.Print("fetched last status from API")
+		logrus.Debugf("%v", previousStatus)
+		ln.Me.Status = previousStatus
+	}
+
 	return ln
 }
 
@@ -106,4 +118,30 @@ func (ln LocalNara) uptime() int64 {
 
 func (ln LocalNara) isBooting() bool {
 	return ln.uptime() < 120
+}
+
+func fetchStatusFromApi(name string) (NaraStatus, error) {
+	status := &NaraStatus{}
+
+	logrus.Debugf("fetching status from API for %s", name)
+	url := fmt.Sprintf("https://nara.eljojo.net/status/%s.json", name)
+	resp, err := http.Get(url)
+
+	if err != nil {
+		return *status, err
+	}
+
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+
+	if err != nil {
+		return *status, err
+	}
+
+	err = json.Unmarshal(body, status)
+	if err != nil {
+		return *status, err
+	}
+
+	return *status, nil
 }
