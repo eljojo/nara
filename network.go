@@ -58,6 +58,8 @@ func (network *Network) Start() {
 	network.heyThere()
 	network.announce()
 
+	time.Sleep(1 * time.Second)
+
 	go network.formOpinion()
 	go network.observationMaintenance()
 	go network.announceForever()
