@@ -29,7 +29,6 @@ type NewspaperEvent struct {
 
 type HeyThereEvent struct {
 	From string
-	Name string // compatibility
 }
 
 func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Network {

@@ -37,11 +37,6 @@ func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 	heyThere := &HeyThereEvent{}
 	json.Unmarshal(msg.Payload(), heyThere)
 
-	// compatibility
-	if heyThere.From == "" {
-		heyThere.From = heyThere.Name
-	}
-
 	if heyThere.From == network.meName() || heyThere.From == "" {
 		return
 	}
