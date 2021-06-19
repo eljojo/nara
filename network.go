@@ -140,6 +140,9 @@ func (network *Network) processHeyThereEvents() {
 		logrus.Printf("%s says: hey there!", heyThere.From)
 		network.recordObservationOnlineNara(heyThere.From)
 
+		// artificially slow down so if two naras boot at the same time they both get the message
+		time.Sleep(1 * time.Second)
+
 		network.selfie()
 		network.Buzz.increase(1)
 	}
