@@ -124,7 +124,7 @@ func (network *Network) processSelfieEvents() {
 		nara := <-network.selfieInbox
 
 		network.importNara(&nara)
-		logrus.Printf("%s just took a selfie", nara.Name)
+		logrus.Debugf("%s just took a selfie", nara.Name)
 		network.recordObservationOnlineNara(nara.Name)
 
 		network.Buzz.increase(1)
