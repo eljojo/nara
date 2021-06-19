@@ -30,6 +30,8 @@ func (network *Network) startHttpServer() error {
 func (network *Network) httpPingDbHandler(w http.ResponseWriter, r *http.Request) {
 	pingEvents := network.pingEvents()
 
+	logrus.Printf("Serving Ping DB to %s", r.RemoteAddr)
+
 	payload, err := json.Marshal(pingEvents)
 	if err != nil {
 		fmt.Println(err)

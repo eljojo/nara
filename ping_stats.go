@@ -141,7 +141,13 @@ func (network *Network) pingEvents() []PingEvent {
 	var result []PingEvent
 
 	network.local.mu.Lock()
+	defer network.local.mu.Unlock()
+
 	for name, nara := range network.Neighbourhood {
+		obs := network.local.getObservationLocked(name)
+		if !obs.isOnline() {
+			continue
+		}
 		nara.mu.Lock()
 		for other, timeMs := range nara.PingStats {
 			pingEvent := PingEvent{From: name, To: other, TimeMs: timeMs}
@@ -149,7 +155,6 @@ func (network *Network) pingEvents() []PingEvent {
 		}
 		nara.mu.Unlock()
 	}
-	network.local.mu.Unlock()
 
 	return result
 }
