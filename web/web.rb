@@ -204,7 +204,7 @@ class MqttClient
   end
 end
 
-MQTT_CONN = { username: ENV.fetch('MQTT_USER'), password: ENV.fetch('MQTT_PASS'), host: ENV.fetch('MQTT_HOST', 'hass.eljojo.casa'), ssl: true }
+MQTT_CONN = { username: ENV.fetch('MQTT_USER'), password: ENV.fetch('MQTT_PASS'), host: ENV.fetch('MQTT_HOST', 'hass.eljojo.casa'), ssl: true, client_id: "nara-web-#{NaraWeb.hostname}" }
 
 $log = Logger.new(STDOUT)
 $log.level = if NaraWeb.production? then Logger::INFO else Logger::DEBUG end
