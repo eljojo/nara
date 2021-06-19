@@ -61,7 +61,7 @@ func (network *Network) formOpinion() {
 	time.Sleep(10 * time.Second)
 	logrus.Printf("🕵️  forming opinions...")
 
-	for name, _ := range network.Neighbourhood {
+	for _, name := range network.NeighbourhoodNames() {
 		observation := network.local.getObservation(name)
 		startTime := network.findStartingTimeFromNeighbourhoodForNara(name)
 		if startTime > 0 {
@@ -84,6 +84,16 @@ func (network *Network) formOpinion() {
 		network.local.setObservation(name, observation)
 	}
 	logrus.Printf("👀  opinions formed")
+}
+
+func (network Network) NeighbourhoodNames() []string {
+	var result []string
+	network.local.mu.Lock()
+	defer network.local.mu.Unlock()
+	for _, nara := range network.Neighbourhood {
+		result = append(result, nara.Name)
+	}
+	return result
 }
 
 func (network Network) findStartingTimeFromNeighbourhoodForNara(name string) int64 {

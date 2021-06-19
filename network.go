@@ -211,6 +211,10 @@ func (network Network) oldestNaraBarrio() Nara {
 	result := *network.local.Me
 	oldest := int64(network.local.getMeObservation().StartTime)
 	myClusterName := network.local.getMeObservation().ClusterName
+
+	network.local.mu.Lock()
+	defer network.local.mu.Unlock()
+
 	for name, nara := range network.Neighbourhood {
 		// question: do we follow our opinion of their neighbourhood or their opinion?
 		obs := network.local.getObservationLocked(name)
@@ -234,6 +238,10 @@ func (network Network) oldestNaraBarrio() Nara {
 func (network Network) oldestNara() Nara {
 	result := *network.local.Me
 	oldest := int64(network.local.getMeObservation().StartTime)
+
+	network.local.mu.Lock()
+	defer network.local.mu.Unlock()
+
 	for name, nara := range network.Neighbourhood {
 		obs := network.local.getObservationLocked(name)
 		if !obs.isOnline() {
@@ -254,6 +262,10 @@ func (network Network) youngestNaraBarrio() Nara {
 	result := *network.local.Me
 	youngest := int64(network.local.getMeObservation().StartTime)
 	myClusterName := network.local.getMeObservation().ClusterName
+
+	network.local.mu.Lock()
+	defer network.local.mu.Unlock()
+
 	for name, nara := range network.Neighbourhood {
 		obs := network.local.getObservationLocked(name)
 		if !obs.isOnline() {
@@ -276,6 +288,10 @@ func (network Network) youngestNaraBarrio() Nara {
 func (network Network) youngestNara() Nara {
 	result := *network.local.Me
 	youngest := int64(network.local.getMeObservation().StartTime)
+
+	network.local.mu.Lock()
+	defer network.local.mu.Unlock()
+
 	for name, nara := range network.Neighbourhood {
 		obs := network.local.getObservationLocked(name)
 		if !obs.isOnline() {
