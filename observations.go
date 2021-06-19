@@ -108,27 +108,39 @@ func (network Network) findStartingTimeFromNeighbourhoodForNara(name string) int
 func (network *Network) recordObservationOnlineNara(name string) {
 	observation := network.local.getObservation(name)
 
+	// "our" observation is mostly a mirror of what others think of us
 	if observation.StartTime == 0 || name == network.meName() {
 		if name != network.meName() {
 			logrus.Printf("observation: seen %s for the first time", name)
 			network.Buzz.increase(3)
 		}
 
-		observation.Restarts = network.findRestartCountFromNeighbourhoodForNara(name)
-		observation.StartTime = network.findStartingTimeFromNeighbourhoodForNara(name)
-		observation.LastRestart = network.findLastRestartFromNeighbourhoodForNara(name)
+		restarts := network.findRestartCountFromNeighbourhoodForNara(name)
+		startTime := network.findStartingTimeFromNeighbourhoodForNara(name)
+		lastRestart := network.findLastRestartFromNeighbourhoodForNara(name)
+
+		if restarts > 0 {
+			observation.Restarts = restarts
+		}
+		if startTime > 0 {
+			observation.StartTime = startTime
+		}
+		if lastRestart > 0 {
+			observation.LastRestart = lastRestart
+		}
 
 		if observation.StartTime == 0 && name == network.meName() {
 			observation.StartTime = time.Now().Unix()
+			logrus.Printf("⚠️ set StartTime to 0")
 		}
 
 		if observation.LastRestart == 0 && name == network.meName() {
 			observation.LastRestart = time.Now().Unix()
+			logrus.Printf("⚠️ set LastRestart to 0")
 		}
 	}
 
 	if !observation.isOnline() && observation.Online != "" {
-		observation.Restarts += 1
 		observation.LastRestart = time.Now().Unix()
 		logrus.Printf("observation: %s came back online", name)
 		network.Buzz.increase(3)
@@ -205,7 +217,7 @@ func (network *Network) observationMaintenance() {
 			}
 
 			// mark missing after 100 seconds of no updates
-			if (now-observation.LastSeen) > 100 && !network.skippingEvents {
+			if (now-observation.LastSeen) > 100 && !network.skippingEvents && !network.local.isBooting() {
 				observation.Online = "MISSING"
 				network.local.setObservation(name, observation)
 				logrus.Printf("observation: %s has disappeared", name)
