@@ -106,8 +106,10 @@ func (network *Network) processNewspaperEvents() {
 				network.heyThere()
 			}
 		}
+		nara.mu.Lock()
 		nara.Status = newspaperEvent.Status
 		network.importNara(nara)
+		nara.mu.Unlock()
 
 		network.recordObservationOnlineNara(newspaperEvent.From)
 	}
@@ -311,6 +313,10 @@ func (network Network) youngestNara() Nara {
 func (network Network) mostRestarts() Nara {
 	result := *network.local.Me
 	most_restarts := network.local.getMeObservation().Restarts
+
+	network.local.mu.Lock()
+	defer network.local.mu.Unlock()
+
 	for name, nara := range network.Neighbourhood {
 		obs := network.local.getObservationLocked(name)
 		if !obs.isOnline() {
