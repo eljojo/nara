@@ -196,10 +196,10 @@ class MqttClient
     return @client if @client
     @client = MQTT::Client.connect(MQTT_CONN)
     $log.info("connected to MQTT server")
-    @client.subscribe('nara/plaza/#', 1)
-    @client.subscribe('nara/selfies/#', 1)
-    @client.subscribe('nara/newspaper/#', 0)
-    @client.subscribe('nara/ping/#', 0)
+    @client.subscribe('nara/plaza/#')
+    @client.subscribe('nara/selfies/#')
+    @client.subscribe('nara/newspaper/#')
+    @client.subscribe('nara/ping/#')
     @client
   end
 end
