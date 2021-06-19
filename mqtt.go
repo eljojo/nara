@@ -23,7 +23,7 @@ func (network *Network) subscribeHandlers(client mqtt.Client) {
 	subscribeMqtt(client, "nara/plaza/hey_there", network.heyThereHandler)
 	subscribeMqtt(client, "nara/plaza/chau", network.chauHandler)
 	subscribeMqtt(client, "nara/newspaper/#", network.newspaperHandler)
-	subscribeMqtt(client, "nara/selfies/#", network.heyThereHandler)
+	subscribeMqtt(client, "nara/selfies/#", network.selfieHandler)
 	subscribeMqtt(client, "nara/ping/#", network.pingHandler)
 }
 
@@ -34,6 +34,22 @@ func (network *Network) pingHandler(client mqtt.Client, msg mqtt.Message) {
 }
 
 func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
+	heyThere := &HeyThereEvent{}
+	json.Unmarshal(msg.Payload(), heyThere)
+
+	// compatibility
+	if heyThere.From == "" {
+		heyThere.From = heyThere.Name
+	}
+
+	if heyThere.From == network.meName() || heyThere.From == "" {
+		return
+	}
+
+	network.heyThereInbox <- *heyThere
+}
+
+func (network *Network) selfieHandler(client mqtt.Client, msg mqtt.Message) {
 	nara := NewNara("")
 	json.Unmarshal(msg.Payload(), nara)
 
@@ -41,7 +57,7 @@ func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 		return
 	}
 
-	network.heyThereInbox <- *nara
+	network.selfieInbox <- *nara
 }
 
 func (network *Network) chauHandler(client mqtt.Client, msg mqtt.Message) {

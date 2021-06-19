@@ -11,13 +11,15 @@ type Network struct {
 	Neighbourhood  map[string]*Nara
 	Buzz           *Buzz
 	LastHeyThere   int64
+	LastSelfie     int64
 	skippingEvents bool
 	local          *LocalNara
 	Mqtt           mqtt.Client
 	pingInbox      chan PingEvent
-	heyThereInbox  chan Nara
+	heyThereInbox  chan HeyThereEvent
 	newspaperInbox chan NewspaperEvent
 	chauInbox      chan Nara
+	selfieInbox    chan Nara
 }
 
 type NewspaperEvent struct {
@@ -25,12 +27,18 @@ type NewspaperEvent struct {
 	Status NaraStatus
 }
 
+type HeyThereEvent struct {
+	From string
+	Name string // compatibility
+}
+
 func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Network {
 	network := &Network{local: localNara}
 	network.Neighbourhood = make(map[string]*Nara)
 	network.pingInbox = make(chan PingEvent)
-	network.heyThereInbox = make(chan Nara)
+	network.heyThereInbox = make(chan HeyThereEvent)
 	network.chauInbox = make(chan Nara)
+	network.selfieInbox = make(chan Nara)
 	network.newspaperInbox = make(chan NewspaperEvent)
 	network.skippingEvents = false
 	network.Buzz = newBuzz()
@@ -51,6 +59,7 @@ func (network *Network) Start() {
 	go network.announceForever()
 	go network.processPingEvents()
 	go network.processHeyThereEvents()
+	go network.processSelfieEvents()
 	go network.processChauEvents()
 	go network.processNewspaperEvents()
 	go network.maintenanceBuzz()
@@ -82,19 +91,17 @@ func (network *Network) processNewspaperEvents() {
 		logrus.Debugf("newspaperHandler update from %s", newspaperEvent.From)
 
 		network.local.mu.Lock()
-		other, present := network.Neighbourhood[newspaperEvent.From]
+		nara, present := network.Neighbourhood[newspaperEvent.From]
 		network.local.mu.Unlock()
-		if present {
-			other.Status = newspaperEvent.Status
-			network.local.mu.Lock()
-			network.Neighbourhood[newspaperEvent.From] = other
-			network.local.mu.Unlock()
-		} else {
+		if !present {
 			logrus.Printf("%s posted a newspaper story (whodis?)", newspaperEvent.From)
+			nara = NewNara(newspaperEvent.From)
 			if network.local.Me.Status.Chattiness > 0 {
 				network.heyThere()
 			}
 		}
+		nara.Status = newspaperEvent.Status
+		network.importNara(nara)
 
 		network.recordObservationOnlineNara(newspaperEvent.From)
 	}
@@ -106,21 +113,32 @@ func (network *Network) importNara(nara *Nara) {
 	network.local.mu.Unlock()
 }
 
-func (network *Network) processHeyThereEvents() {
+func (network *Network) processSelfieEvents() {
 	for {
-		nara := <-network.heyThereInbox
+		nara := <-network.selfieInbox
 
 		network.importNara(&nara)
-		logrus.Printf("%s says: hey there!", nara.Name)
+		logrus.Printf("%s just took a selfie", nara.Name)
 		network.recordObservationOnlineNara(nara.Name)
 
-		network.heyThere()
+		network.Buzz.increase(1)
+	}
+}
+
+func (network *Network) processHeyThereEvents() {
+	for {
+		heyThere := <-network.heyThereInbox
+
+		logrus.Printf("%s says: hey there!", heyThere.From)
+		network.recordObservationOnlineNara(heyThere.From)
+
+		network.selfie()
 		network.Buzz.increase(1)
 	}
 }
 
 func (network *Network) heyThere() {
-	ts := network.local.chattinessRate(5, 20)
+	ts := int64(5) // seconds
 	network.recordObservationOnlineNara(network.meName())
 	if (time.Now().Unix() - network.LastHeyThere) <= ts {
 		return
@@ -129,12 +147,23 @@ func (network *Network) heyThere() {
 	network.LastHeyThere = time.Now().Unix()
 
 	topic := "nara/plaza/hey_there"
-	network.postEvent(topic, network.local.Me)
-
-	topic = "nara/selfies/" + network.meName()
-	network.postEvent(topic, network.local.Me)
+	heyThere := &HeyThereEvent{From: network.meName()}
+	network.postEvent(topic, heyThere)
+	network.selfie()
 
 	network.Buzz.increase(2)
+}
+
+func (network *Network) selfie() {
+	ts := int64(2) // seconds
+	network.recordObservationOnlineNara(network.meName())
+	if (time.Now().Unix() - network.LastSelfie) <= ts {
+		return
+	}
+	network.LastSelfie = time.Now().Unix()
+
+	topic := "nara/selfies/" + network.meName()
+	network.postEvent(topic, network.local.Me)
 }
 
 func (network *Network) processChauEvents() {

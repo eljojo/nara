@@ -122,7 +122,7 @@ class NaraWeb
       nara = (@db[name] ||= Nara.new(name))
 
       case topic
-      when /nara\/plaza/, /nara\/newspaper/
+      when /nara\/plaza\/chau/, /nara\/newspaper/, /nara\/selfie/
         nara.status = status
       end
 
@@ -159,8 +159,14 @@ class MqttClient
     message = JSON.parse(message_json)
 
     case topic
-    when /nara\/plaza/
+    when /nara\/plaza\/hey_there/
       name = message["Name"]
+      status = message
+    when /nara\/plaza\/chau/
+      name = message["Name"]
+      status = message.fetch("Status")
+    when /nara\/selfie/
+      name = topic.split("/").last # TODO: replace for regex
       status = message.fetch("Status")
     when /nara\/newspaper/
       name = topic.split("/").last # TODO: replace for regex
@@ -171,7 +177,6 @@ class MqttClient
     else
       raise "unknown topic #{topic}"
     end
-
 
     [topic, name, status]
   rescue MQTT::ProtocolException, SocketError, Errno::ECONNREFUSED
@@ -192,6 +197,7 @@ class MqttClient
     @client = MQTT::Client.connect(MQTT_CONN)
     $log.info("connected to MQTT server")
     @client.subscribe('nara/plaza/#')
+    @client.subscribe('nara/selfies/#')
     @client.subscribe('nara/newspaper/#')
     @client.subscribe('nara/ping/#')
     @client

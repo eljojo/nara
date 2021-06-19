@@ -8,7 +8,7 @@ import (
 
 const BuzzMax = 182
 const BuzzMin = 0
-const BuzzDecrease = 5     // per second
+const BuzzDecrease = 3     // per second
 const BuzzUpdateEvery = 10 // seconds
 
 type Buzz struct {
