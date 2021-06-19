@@ -26,6 +26,7 @@ type Nara struct {
 	Name      string
 	Hostname  string
 	Ip        string
+	ApiUrl    string
 	IRL       IRL
 	Status    NaraStatus
 	PingStats map[string]float64
@@ -75,7 +76,7 @@ func NewLocalNara(name string, mqtt_host string, mqtt_user string, mqtt_pass str
 	if err != nil {
 		logrus.Debugf("failed to fetch status from API: %v", err)
 	} else {
-		logrus.Print("fetched last status from API")
+		logrus.Print("fetched last status from nara-web API")
 		logrus.Debugf("%v", previousStatus)
 		ln.Me.Status = previousStatus
 	}

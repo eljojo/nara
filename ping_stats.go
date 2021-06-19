@@ -136,3 +136,20 @@ func (nara Nara) pingBetweenMs(other Nara) string {
 	}
 	return fmt.Sprintf("%.2fms", ping)
 }
+
+func (network *Network) pingEvents() []PingEvent {
+	var result []PingEvent
+
+	network.local.mu.Lock()
+	for name, nara := range network.Neighbourhood {
+		nara.mu.Lock()
+		for other, timeMs := range nara.PingStats {
+			pingEvent := PingEvent{From: name, To: other, TimeMs: timeMs}
+			result = append(result, pingEvent)
+		}
+		nara.mu.Unlock()
+	}
+	network.local.mu.Unlock()
+
+	return result
+}

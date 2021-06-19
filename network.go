@@ -46,6 +46,11 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 }
 
 func (network *Network) Start() {
+	err := network.startHttpServer()
+	if err != nil {
+		logrus.Panic(err)
+	}
+
 	if token := network.Mqtt.Connect(); token.Wait() && token.Error() != nil {
 		panic(token.Error())
 	}
