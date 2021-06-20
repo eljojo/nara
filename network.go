@@ -345,26 +345,17 @@ func (network Network) mostRestarts() Nara {
 }
 
 func (network *Network) anyNaraApiUrl() (string, error) {
-	apiUrl := ""
-	startTime := int64(0)
-
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
 
 	for name, nara := range network.Neighbourhood {
-		if nara.ApiUrl == "" {
+		observation := network.local.getObservationLocked(name)
+		if !observation.isOnline() {
 			continue
 		}
-		observation := network.local.getObservationLocked(name)
-		if startTime == 0 || observation.LastRestart < startTime {
-			startTime = observation.LastRestart
-			apiUrl = nara.ApiUrl
-		}
+
+		return nara.ApiGatewayUrl(), nil
 	}
 
-	if apiUrl == "" {
-		return "", fmt.Errorf("no neighbour nara with api available")
-	}
-
-	return apiUrl, nil
+	return "", fmt.Errorf("no neighbour nara with api available")
 }

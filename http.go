@@ -18,8 +18,8 @@ func (network *Network) startHttpServer() error {
 
 	port := listener.Addr().(*net.TCPAddr).Port
 	url := fmt.Sprintf("http://%s:%d", network.local.Me.Ip, port)
-	logrus.Printf("Listening on %s", url)
 	network.local.Me.ApiUrl = url
+	logrus.Printf("Listening on %s or %s", url, network.local.Me.ApiGatewayUrl())
 
 	http.HandleFunc("/ping_events", network.httpPingDbHandler)
 
