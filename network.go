@@ -99,26 +99,35 @@ func (network *Network) processNewspaperEvents() {
 		network.local.mu.Lock()
 		nara, present := network.Neighbourhood[newspaperEvent.From]
 		network.local.mu.Unlock()
-		if !present {
+		if present {
+			nara.mu.Lock()
+			nara.Status.setValuesFrom(newspaperEvent.Status)
+			nara.mu.Unlock()
+		} else {
 			logrus.Printf("%s posted a newspaper story (whodis?)", newspaperEvent.From)
 			nara = NewNara(newspaperEvent.From)
 			if network.local.Me.Status.Chattiness > 0 {
 				network.heyThere()
 			}
+			network.importNara(nara)
 		}
-		nara.mu.Lock()
-		nara.Status = newspaperEvent.Status
-		network.importNara(nara)
-		nara.mu.Unlock()
 
 		network.recordObservationOnlineNara(newspaperEvent.From)
 	}
 }
 
 func (network *Network) importNara(nara *Nara) {
+	nara.mu.Lock()
+	defer nara.mu.Unlock()
 	network.local.mu.Lock()
-	network.Neighbourhood[nara.Name] = nara
-	network.local.mu.Unlock()
+	defer network.local.mu.Unlock()
+
+	n, present := network.Neighbourhood[nara.Name]
+	if present {
+		n.setValuesFrom(*nara)
+	} else {
+		network.Neighbourhood[nara.Name] = nara
+	}
 }
 
 func (network *Network) processSelfieEvents() {

@@ -27,6 +27,7 @@ type Nara struct {
 	Status    NaraStatus
 	PingStats map[string]float64
 	mu        sync.Mutex
+	// remember to sync with setValuesFrom
 }
 
 type NaraStatus struct {
@@ -36,6 +37,7 @@ type NaraStatus struct {
 	Chattiness   int64
 	Buzz         int
 	Observations map[string]NaraObservation
+	// remember to sync with setValuesFrom
 }
 
 func NewLocalNara(name string, mqtt_host string, mqtt_user string, mqtt_pass string, forceChattiness int) *LocalNara {
@@ -73,7 +75,7 @@ func NewLocalNara(name string, mqtt_host string, mqtt_user string, mqtt_pass str
 	} else {
 		logrus.Print("fetched last status from nara-web API")
 		// logrus.Debugf("%v", previousStatus)
-		ln.Me.Status = previousStatus
+		ln.Me.Status.setValuesFrom(previousStatus)
 	}
 
 	return ln
@@ -127,4 +129,52 @@ func fetchStatusFromApi(name string) (NaraStatus, error) {
 	}
 
 	return *status, nil
+}
+
+func (nara *Nara) setValuesFrom(other Nara) {
+	nara.mu.Lock()
+	defer nara.mu.Unlock()
+
+	if other.Name == "" || other.Name != nara.Name {
+		logrus.Printf("warning: fed incorrect Nara to setValuesFrom: %v", other)
+		return
+	}
+
+	if other.Hostname != "" {
+		nara.Hostname = other.Hostname
+	}
+	if other.Ip != "" {
+		nara.Ip = other.Ip
+	}
+	if other.ApiUrl != "" {
+		nara.ApiUrl = other.ApiUrl
+	}
+	if (other.IRL != IRL{}) {
+		nara.IRL = other.IRL
+	}
+	if other.PingStats != nil {
+		for name, timeMs := range other.PingStats {
+			nara.PingStats[name] = timeMs
+		}
+	}
+	nara.Status.setValuesFrom(other.Status)
+}
+
+func (ns *NaraStatus) setValuesFrom(other NaraStatus) {
+	if other.LicensePlate != "" {
+		ns.LicensePlate = other.LicensePlate
+	}
+	if other.Flair != "" {
+		ns.Flair = other.Flair
+	}
+	if (other.HostStats != HostStats{}) {
+		ns.HostStats = other.HostStats
+	}
+	ns.Chattiness = other.Chattiness
+	ns.Buzz = other.Buzz
+	if other.Observations != nil {
+		for name, nara := range other.Observations {
+			ns.Observations[name] = nara
+		}
+	}
 }
