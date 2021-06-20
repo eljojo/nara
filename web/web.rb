@@ -91,7 +91,7 @@ class Nara
     {
       "#{service_name}" => {
         "entryPoints": [ "public" ],
-        "middlewares": [  ],
+        "middlewares": [ "forceHttps" ],
         "rule": "Host(`#{domain}`)",
         "service": service_name
       },
@@ -195,8 +195,32 @@ class NaraWeb
     {
       "http": {
         "routers": nara.map(&:traefik_routers).inject(&:merge),
-        "services": nara.map(&:traefik_services).inject(&:merge)
+        "services": nara.map(&:traefik_services).inject(&:merge),
+        "middlewares": {
+          "fixWebsockets": {
+            "headers": {
+              "customRequestHeaders": {
+                "X-Forwarded-Proto": "https"
+              }
+            }
+          },
+          "forceHttps": {
+            "redirectScheme": {
+              "permanent": true,
+              "scheme": "https"
+            }
+          }
+        }
+      },
+      "tls": {
+        "certificates": [
+          {
+            "certFile": "/var/lib/traefik/certs/nara.network/fullchain.pem",
+            "keyFile": "/var/lib/traefik/certs/nara.network/key.pem"
+          }
+        ]
       }
+
     }
   end
 end
