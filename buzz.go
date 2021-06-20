@@ -33,7 +33,7 @@ func (b *Buzz) increase(howMuch int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.count = b.count + howMuch
-	logrus.Debugf("increasing buzz to %d", b.count)
+	// logrus.Debugf("increasing buzz to %d", b.count)
 	if b.count > BuzzMax {
 		b.count = BuzzMax
 		logrus.Debugf("reached max buzz %d", b.count)
@@ -44,7 +44,7 @@ func (b *Buzz) decrease(howMuch int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.count = b.count - howMuch
-	logrus.Debugf("decreasing buzz to %d", b.count)
+	// logrus.Debugf("decreasing buzz to %d", b.count)
 	if b.count < BuzzMin {
 		b.count = BuzzMin
 		logrus.Debugf("reached min buzz %d", b.count)

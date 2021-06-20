@@ -30,7 +30,7 @@ func (nara *Nara) setPing(name string, ping float64) {
 func (network *Network) processPingEvents() {
 	for {
 		pingEvent := <-network.pingInbox
-		logrus.Debugf("ping from %s to %s is %.2fms", pingEvent.From, pingEvent.To, pingEvent.TimeMs)
+		// logrus.Debugf("ping from %s to %s is %.2fms", pingEvent.From, pingEvent.To, pingEvent.TimeMs)
 		network.storePingEvent(pingEvent)
 	}
 }
@@ -63,7 +63,7 @@ func (nara Nara) pingMap() map[clustering.ClusterItem]float64 {
 func (ln *LocalNara) measurePingForever() {
 	for {
 		ts := int64(0)
-		logrus.Debugf("time between pings = %d", ts)
+		// logrus.Debugf("time between pings = %d", ts)
 
 		ln.measureAndStorePing("google", "8.8.8.8")
 		time.Sleep(time.Duration(ts) * time.Second)
