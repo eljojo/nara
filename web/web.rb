@@ -10,12 +10,14 @@ Thread.abort_on_exception = true
 
 class Nara
   attr_reader :name, :status
+  attr_accessor :api_url
 
   def initialize(name)
     @name = name
     @status = {}
     @last_seen = nil
     @first_seen_internally = Time.now.to_i
+    @api_url = ""
   end
 
   def to_h
@@ -82,6 +84,38 @@ class Nara
     @status.merge("Name" =>  name)
   end
 
+  def traefik_routers
+    return {} if api_url.empty?
+    service_name = "#{name}-api"
+    domain = "#{service_name}.nara.network"
+    {
+      "#{service_name}" => {
+        "entryPoints": [ "public" ],
+        "middlewares": [  ],
+        "rule": "Host(`#{domain}`)",
+        "service": service_name
+      },
+      "#{service_name}-secure" => {
+        "entryPoints": [ "public-secure" ],
+        "middlewares": [ ],
+        "rule": "Host(`#{domain}`)",
+        "service": service_name,
+        "tls": {}
+      }
+    }
+  end
+
+  def traefik_services
+    return {} if api_url.empty?
+    {
+      "#{name}-api": {
+        "loadBalancer": {
+          "servers": [ { "url": api_url } ]
+        }
+      }
+    }
+  end
+
   FALLBACK_SORTING = "😶😶😶"
   def sorting_key
     team = status.fetch("LicensePlate", "").strip
@@ -122,8 +156,12 @@ class NaraWeb
       nara = (@db[name] ||= Nara.new(name))
 
       case topic
-      when /nara\/plaza\/chau/, /nara\/newspaper/, /nara\/selfie/
+      when /nara\/plaza\/chau/, /nara\/newspaper/
         nara.status = status
+      when /nara\/selfie/
+        nara.status = status.fetch("Status")
+        api_url = status.fetch("ApiUrl", "")
+        nara.api_url = api_url unless api_url.empty?
       end
 
       if topic =~ /chau/
@@ -151,6 +189,16 @@ class NaraWeb
       end
     end
   end
+
+  def traefik_db
+    nara = @db.values.select(&:online?)
+    {
+      "http": {
+        "routers": nara.map(&:traefik_routers).inject(&:merge),
+        "services": nara.map(&:traefik_services).inject(&:merge)
+      }
+    }
+  end
 end
 
 class MqttClient
@@ -167,7 +215,7 @@ class MqttClient
       status = message.fetch("Status")
     when /nara\/selfie/
       name = topic.split("/").last # TODO: replace for regex
-      status = message.fetch("Status")
+      status = message
     when /nara\/newspaper/
       name = topic.split("/").last # TODO: replace for regex
       status = message
@@ -222,6 +270,10 @@ end
 
 get '/narae.json' do
   json({ naras: naraweb.db.values.map(&:to_h), server: NaraWeb.hostname })
+end
+
+get '/traefik.json' do
+  json(naraweb.traefik_db)
 end
 
 get '/status/:name.json' do
