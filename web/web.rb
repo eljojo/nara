@@ -100,7 +100,9 @@ class Nara
         "middlewares": [ ],
         "rule": "Host(`#{domain}`)",
         "service": service_name,
-        "tls": {}
+        "tls": {
+          certResolver: "letsencrypt-prod"
+        }
       }
     }
   end
