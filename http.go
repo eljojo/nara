@@ -22,6 +22,7 @@ func (network *Network) startHttpServer() error {
 	logrus.Printf("Listening on %s or %s", url, network.local.Me.ApiGatewayUrl())
 
 	http.HandleFunc("/ping_events", network.httpPingDbHandler)
+	http.HandleFunc("/", network.httpHomepageHandler)
 
 	go http.Serve(listener, nil)
 	return nil
@@ -31,8 +32,24 @@ func (network *Network) httpPingDbHandler(w http.ResponseWriter, r *http.Request
 	pingEvents := network.pingEvents()
 
 	logrus.Printf("Serving Ping DB to %s", r.RemoteAddr)
+	w.Header().Set("Content-Type", "application/json")
 
 	payload, err := json.Marshal(pingEvents)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Fprint(w, string(payload))
+}
+
+func (network *Network) httpHomepageHandler(w http.ResponseWriter, r *http.Request) {
+	logrus.Printf("Serving Status to %s", r.RemoteAddr)
+	w.Header().Set("Content-Type", "application/json")
+
+	nara := network.local.Me
+	nara.mu.Lock()
+	payload, err := json.Marshal(nara)
+	nara.mu.Unlock()
 	if err != nil {
 		fmt.Println(err)
 		return
