@@ -15,9 +15,12 @@ function NaraRow(props) {
 
   const uptime = nara.Online == "ONLINE" ? timeAgo(nara.LastSeen - nara.LastRestart) : nara.Online;
 
+  const url = `http://${nara.Name}-api.nara.network`;
+  const nameOrLink =  nara.Online == "ONLINE" ? (<a href={url} target="_blank">{ nara.Name }</a>) : nara.Name;
+
   return (
     <tr>
-      <td>{ nara.LicensePlate } { nara.Name }</td>
+      <td>{ nara.LicensePlate } { nameOrLink }</td>
       <td>{ nara.Flair }</td>
       <td>{ nara.Buzz  }</td>
       <td>{ nara.Chattiness  }</td>
