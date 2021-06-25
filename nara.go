@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 )
 
 type LocalNara struct {
@@ -105,6 +106,8 @@ func (ln *LocalNara) SetupCloseHandler() {
 		<-c
 		fmt.Println("babaayyy")
 		ln.Network.Chau()
+
+		time.Sleep(1 * time.Second) // sleep 1 second to ensure message is sent
 		os.Exit(0)
 	}()
 }
