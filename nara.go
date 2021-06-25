@@ -15,6 +15,8 @@ type LocalNara struct {
 	Me              *Nara
 	Network         *Network
 	forceChattiness int
+	isRaspberryPi   bool
+	isNixOs         bool
 	mu              sync.Mutex
 }
 
@@ -46,6 +48,8 @@ func NewLocalNara(name string, mqtt_host string, mqtt_user string, mqtt_pass str
 	ln := &LocalNara{
 		Me:              NewNara(name),
 		forceChattiness: forceChattiness,
+		isRaspberryPi:   isRaspberryPi(),
+		isNixOs:         isNixOs(),
 	}
 	ln.Network = NewNetwork(ln, mqtt_host, mqtt_user, mqtt_pass)
 
