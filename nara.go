@@ -180,5 +180,5 @@ func (ns *NaraStatus) setValuesFrom(other NaraStatus) {
 }
 
 func (nara Nara) ApiGatewayUrl() string {
-	return fmt.Sprintf("http://%s-api.nara.network", nara.Name)
+	return fmt.Sprintf("https://%s.nara.network", nara.Name)
 }
