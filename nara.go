@@ -107,7 +107,9 @@ func (ln *LocalNara) SetupCloseHandler() {
 		fmt.Println("babaayyy")
 		ln.Network.Chau()
 
-		time.Sleep(1 * time.Second) // sleep 1 second to ensure message is sent
+		ln.Network.disconnectMQTT()
+
+		time.Sleep(50 * time.Millisecond) // sleep a bit to ensure message is sent
 		os.Exit(0)
 	}()
 }

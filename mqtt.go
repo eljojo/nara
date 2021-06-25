@@ -106,12 +106,18 @@ func (network *Network) postEvent(topic string, event interface{}) {
 	token.Wait()
 }
 
+func (network *Network) disconnectMQTT() {
+	network.Mqtt.Disconnect(100)
+	logrus.Printf("Disconnected from MQTT")
+}
+
 func initializeMQTT(onConnect mqtt.OnConnectHandler, name string, host string, user string, pass string) mqtt.Client {
 	opts := mqtt.NewClientOptions()
 	opts.AddBroker(host)
 	opts.SetClientID(name)
 	opts.SetUsername(user)
 	opts.SetPassword(pass)
+	opts.SetOrderMatters(false)
 	opts.OnConnect = onConnect
 	opts.OnConnectionLost = connectLostHandler
 	client := mqtt.NewClient(opts)
