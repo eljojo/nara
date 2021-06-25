@@ -9,6 +9,8 @@ import (
 )
 
 func (nara Nara) getPing(name string) float64 {
+	nara.mu.Lock()
+	defer nara.mu.Unlock()
 	ping, _ := nara.PingStats[name]
 	return ping
 }
@@ -61,26 +63,35 @@ func (nara Nara) pingMap() map[clustering.ClusterItem]float64 {
 }
 
 func (ln *LocalNara) measurePingForever() {
+	ts := int64(0)
 	for {
-		ts := int64(0)
 		// logrus.Debugf("time between pings = %d", ts)
 
 		ln.measureAndStorePing("google", "8.8.8.8")
 		time.Sleep(time.Duration(ts) * time.Second)
 
-		for name, nara := range ln.Network.Neighbourhood {
+		naraToPing := make([]Nara, 0)
+
+		ln.mu.Lock()
+		for _, nara := range ln.Network.Neighbourhood {
 			if nara.Ip == "" {
 				continue
 			}
-
 			if !ln.getObservation(nara.Name).isOnline() {
 				continue
 			}
+			naraToPing = append(naraToPing, *nara)
+		}
+		ln.mu.Unlock()
 
-			ln.measureAndStorePing(name, nara.Ip)
+		for _, nara := range naraToPing {
+			existingPing := ln.Me.getPing(nara.Name)
+			if existingPing > 0 && existingPing < 500 {
+				ts := ln.chattinessRate(0, 60)
+				time.Sleep(time.Duration(ts) * time.Second)
+			}
 
-			ts = ln.chattinessRate(0, 60)
-			time.Sleep(time.Duration(ts) * time.Second)
+			ln.measureAndStorePing(nara.Name, nara.Ip)
 		}
 	}
 }
