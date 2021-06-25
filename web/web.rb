@@ -87,18 +87,19 @@ class Nara
   def traefik_routers
     return {} if api_url.empty?
     service_name = "#{name}-api"
-    domain = "#{service_name}.nara.network"
+    old_domain = "#{service_name}.nara.network"
+    domain = "#{name}.nara.network"
     {
       "#{service_name}" => {
         "entryPoints": [ "public" ],
         "middlewares": [  ],
-        "rule": "Host(`#{domain}`)",
+        "rule": "Host(`#{domain}`) || Host(`#{old_domain}`)",
         "service": service_name
       },
       "#{service_name}-secure" => {
         "entryPoints": [ "public-secure" ],
         "middlewares": [ ],
-        "rule": "Host(`#{domain}`)",
+        "rule": "Host(`#{domain}`) || Host(`#{old_domain}`)",
         "service": service_name,
         "tls": {}
       }
