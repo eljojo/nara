@@ -68,7 +68,7 @@ func (ln LocalNara) LicensePlate() string {
 	if err != nil {
 		logrus.Panic("lol failed to get country emoji lmao", ln.Me.IRL.CountryCode, err)
 	}
-	return country.String() + " " + barrio
+	return barrio + " " + country.String()
 }
 
 func (network *Network) neighbourhoodMaintenance() {
