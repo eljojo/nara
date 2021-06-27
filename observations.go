@@ -35,19 +35,21 @@ func (localNara LocalNara) getObservationLocked(name string) NaraObservation {
 
 func (localNara *LocalNara) setObservation(name string, observation NaraObservation) {
 	localNara.mu.Lock()
+	defer localNara.mu.Unlock()
 	localNara.Me.setObservation(name, observation)
-	localNara.mu.Unlock()
 }
 
 func (nara Nara) getObservation(name string) NaraObservation {
+	nara.mu.Lock()
+	defer nara.mu.Unlock()
 	observation, _ := nara.Status.Observations[name]
 	return observation
 }
 
 func (nara *Nara) setObservation(name string, observation NaraObservation) {
 	nara.mu.Lock()
+	defer nara.mu.Unlock()
 	nara.Status.Observations[name] = observation
-	nara.mu.Unlock()
 }
 
 func (network *Network) formOpinion() {
