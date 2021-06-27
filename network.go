@@ -8,18 +8,19 @@ import (
 )
 
 type Network struct {
-	Neighbourhood  map[string]*Nara
-	Buzz           *Buzz
-	LastHeyThere   int64
-	LastSelfie     int64
-	skippingEvents bool
-	local          *LocalNara
-	Mqtt           mqtt.Client
-	pingInbox      chan PingEvent
-	heyThereInbox  chan HeyThereEvent
-	newspaperInbox chan NewspaperEvent
-	chauInbox      chan Nara
-	selfieInbox    chan Nara
+	Neighbourhood    map[string]*Nara
+	Buzz             *Buzz
+	LastHeyThere     int64
+	LastSelfie       int64
+	skippingEvents   bool
+	local            *LocalNara
+	Mqtt             mqtt.Client
+	pingInbox        chan PingEvent
+	heyThereInbox    chan HeyThereEvent
+	newspaperInbox   chan NewspaperEvent
+	chauInbox        chan Nara
+	selfieInbox      chan Nara
+	waveMessageInbox chan WaveMessage
 }
 
 type NewspaperEvent struct {
@@ -39,6 +40,7 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	network.chauInbox = make(chan Nara)
 	network.selfieInbox = make(chan Nara)
 	network.newspaperInbox = make(chan NewspaperEvent)
+	network.waveMessageInbox = make(chan WaveMessage)
 	network.skippingEvents = false
 	network.Buzz = newBuzz()
 	network.Mqtt = initializeMQTT(network.mqttOnConnectHandler(), network.meName(), host, user, pass)
@@ -68,6 +70,7 @@ func (network *Network) Start() {
 	go network.processSelfieEvents()
 	go network.processChauEvents()
 	go network.processNewspaperEvents()
+	go network.processWaveMessageEvents()
 	go network.maintenanceBuzz()
 }
 
@@ -358,4 +361,35 @@ func (network *Network) anyNaraApiUrl() (string, error) {
 	}
 
 	return "", fmt.Errorf("no neighbour nara with api available")
+}
+
+func (network Network) NeighbourhoodNames() []string {
+	var result []string
+	network.local.mu.Lock()
+	defer network.local.mu.Unlock()
+	for _, nara := range network.Neighbourhood {
+		result = append(result, nara.Name)
+	}
+	return result
+}
+
+func (network Network) NeighbourhoodOnlineNames() []string {
+	var result []string
+	network.local.mu.Lock()
+	defer network.local.mu.Unlock()
+	for _, nara := range network.Neighbourhood {
+		obs := network.local.getObservationLocked(nara.Name)
+		if !obs.isOnline() {
+			continue
+		}
+		result = append(result, nara.Name)
+	}
+	return result
+}
+
+func (network Network) getNara(name string) Nara {
+	network.local.mu.Lock()
+	nara, _ := network.Neighbourhood[name]
+	network.local.mu.Unlock()
+	return *nara
 }

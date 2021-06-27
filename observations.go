@@ -86,16 +86,6 @@ func (network *Network) formOpinion() {
 	logrus.Printf("👀  opinions formed")
 }
 
-func (network Network) NeighbourhoodNames() []string {
-	var result []string
-	network.local.mu.Lock()
-	defer network.local.mu.Unlock()
-	for _, nara := range network.Neighbourhood {
-		result = append(result, nara.Name)
-	}
-	return result
-}
-
 func (network Network) findStartingTimeFromNeighbourhoodForNara(name string) int64 {
 	times := make(map[int64]int)
 

@@ -1,8 +1,10 @@
 package nara
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/bugsnag/bugsnag-go"
 	"github.com/sirupsen/logrus"
 	"io/ioutil"
 	"net"
@@ -22,6 +24,8 @@ func (network *Network) startHttpServer() error {
 	logrus.Printf("Listening on %s or %s", url, network.local.Me.ApiGatewayUrl())
 
 	http.HandleFunc("/ping_events", network.httpPingDbHandler)
+	http.HandleFunc("/wave_message", network.httpWaveMessageHandler)
+	http.HandleFunc("/message", network.httpNewWaveMessageHandler)
 	http.HandleFunc("/", network.httpHomepageHandler)
 
 	go http.Serve(listener, nil)
@@ -55,6 +59,56 @@ func (network *Network) httpHomepageHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	fmt.Fprint(w, string(payload))
+}
+
+func (network *Network) httpWaveMessageHandler(w http.ResponseWriter, r *http.Request) {
+	logrus.Printf("Receiving WaveMessage from %s", r.RemoteAddr)
+	decoder := json.NewDecoder(r.Body)
+	var wm WaveMessage
+	err := decoder.Decode(&wm)
+	if err != nil {
+		bugsnag.Notify(err)
+		logrus.Error(err)
+		return
+	}
+
+	if wm.Valid() {
+		fmt.Printf("%+v", wm)
+		network.waveMessageInbox <- wm
+	} else {
+		logrus.Printf("discarding invalid WaveMessage")
+	}
+}
+
+func (network *Network) httpNewWaveMessageHandler(w http.ResponseWriter, r *http.Request) {
+	logrus.Printf("Creating new WaveMessage at request from %s", r.RemoteAddr)
+
+	err := r.ParseForm()
+	if err != nil {
+		bugsnag.Notify(err)
+		logrus.Error(err)
+		return
+	}
+
+	wm := newWaveMessage(network.meName(), r.FormValue("body"))
+
+	if wm.Valid() {
+		fmt.Printf("%+v", wm)
+		network.waveMessageInbox <- wm
+	} else {
+		logrus.Printf("discarding invalid WaveMessage")
+	}
+}
+
+func (network *Network) httpPostWaveMessage(name string, wm WaveMessage) error {
+	jsonValue, _ := json.Marshal(wm)
+	nara := network.getNara(name)
+	url := fmt.Sprintf("%s/wave_message", nara.ApiGatewayUrl())
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonValue))
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("failed to post waveMessage to %s, response code: %d", name, resp.StatusCode)
+	}
+	return err
 }
 
 func httpFetchJson(url string, result interface{}) error {
