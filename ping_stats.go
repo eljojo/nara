@@ -62,6 +62,24 @@ func (nara Nara) pingMap() map[clustering.ClusterItem]float64 {
 	return pingMap
 }
 
+func (network Network) naraToPing() []Nara {
+	naraToPing := make([]Nara, 0)
+
+	network.local.mu.Lock()
+	for _, nara := range network.Neighbourhood {
+		if nara.Ip == "" {
+			continue
+		}
+		if !network.local.getObservation(nara.Name).isOnline() {
+			continue
+		}
+		naraToPing = append(naraToPing, *nara)
+	}
+	network.local.mu.Unlock()
+
+	return naraToPing
+}
+
 func (ln *LocalNara) measurePingForever() {
 	for {
 		ln.measureAndStorePing("google", "8.8.8.8")
@@ -69,21 +87,7 @@ func (ln *LocalNara) measurePingForever() {
 		ts := ln.chattinessRate(0, 60)
 		time.Sleep(time.Duration(ts) * time.Second)
 
-		naraToPing := make([]Nara, 0)
-
-		ln.mu.Lock()
-		for _, nara := range ln.Network.Neighbourhood {
-			if nara.Ip == "" {
-				continue
-			}
-			if !ln.getObservation(nara.Name).isOnline() {
-				continue
-			}
-			naraToPing = append(naraToPing, *nara)
-		}
-		ln.mu.Unlock()
-
-		for _, nara := range naraToPing {
+		for _, nara := range ln.Network.naraToPing() {
 			existingPing := ln.Me.getPing(nara.Name)
 			if existingPing > 0 && existingPing < 500 {
 				time.Sleep(time.Duration(ts) * time.Second)
