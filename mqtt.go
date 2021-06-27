@@ -33,7 +33,7 @@ func (network *Network) pingHandler(client mqtt.Client, msg mqtt.Message) {
 	json.Unmarshal(msg.Payload(), &pingEvent)
 	network.pingInbox <- pingEvent
 
-	network.recordObservationOnlineNara(pingEvent.From) // dubious
+	// network.recordObservationOnlineNara(pingEvent.From) // dubious
 }
 
 func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {

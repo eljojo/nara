@@ -86,7 +86,7 @@ func (network *Network) announce() {
 
 func (network *Network) announceForever() {
 	for {
-		ts := network.local.chattinessRate(5, 60)
+		ts := network.local.chattinessRate(5, 55)
 		// logrus.Debugf("time between announces = %d", ts)
 		time.Sleep(time.Duration(ts) * time.Second)
 
