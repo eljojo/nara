@@ -28,7 +28,7 @@ type Nara struct {
 	ApiUrl    string
 	IRL       IRL
 	Status    NaraStatus
-	PingStats map[string]float64
+	pingStats map[string]float64
 	mu        sync.Mutex
 	// remember to sync with setValuesFrom
 }
@@ -88,7 +88,7 @@ func NewLocalNara(name string, mqtt_host string, mqtt_user string, mqtt_pass str
 
 func NewNara(name string) *Nara {
 	nara := &Nara{Name: name}
-	nara.PingStats = make(map[string]float64)
+	nara.pingStats = make(map[string]float64)
 	nara.Status.Observations = make(map[string]NaraObservation)
 	return nara
 }
@@ -160,11 +160,6 @@ func (nara *Nara) setValuesFrom(other Nara) {
 	}
 	if (other.IRL != IRL{}) {
 		nara.IRL = other.IRL
-	}
-	if other.PingStats != nil {
-		for name, timeMs := range other.PingStats {
-			nara.PingStats[name] = timeMs
-		}
 	}
 	nara.Status.setValuesFrom(other.Status)
 }

@@ -11,7 +11,7 @@ import (
 func (nara Nara) getPing(name string) float64 {
 	nara.mu.Lock()
 	defer nara.mu.Unlock()
-	ping, _ := nara.PingStats[name]
+	ping, _ := nara.pingStats[name]
 	return ping
 }
 
@@ -24,7 +24,7 @@ type PingEvent struct {
 func (nara *Nara) setPing(name string, ping float64) {
 	if ping > 0 {
 		nara.mu.Lock()
-		nara.PingStats[name] = ping
+		nara.pingStats[name] = ping
 		nara.mu.Unlock()
 	}
 }
@@ -53,7 +53,7 @@ func (network *Network) storePingEvent(pingEvent PingEvent) {
 
 func (nara Nara) pingMap() map[clustering.ClusterItem]float64 {
 	pingMap := make(map[clustering.ClusterItem]float64)
-	for otherNara, ping := range nara.PingStats {
+	for otherNara, ping := range nara.pingStats {
 		if otherNara == "google" || ping == 0 {
 			continue
 		}
@@ -126,7 +126,7 @@ func measurePing(name string, dest string) (float64, error) {
 }
 
 func (nara Nara) pingTo(other Nara) (float64, bool) {
-	ping, present := nara.PingStats[other.Name]
+	ping, present := nara.pingStats[other.Name]
 	return ping, present
 }
 
@@ -162,7 +162,7 @@ func (network *Network) pingEvents() []PingEvent {
 			continue
 		}
 		nara.mu.Lock()
-		for other, timeMs := range nara.PingStats {
+		for other, timeMs := range nara.pingStats {
 			pingEvent := PingEvent{From: name, To: other, TimeMs: timeMs}
 			result = append(result, pingEvent)
 		}
@@ -188,7 +188,7 @@ func (network *Network) fetchPingEventsFromNeighbouringNara() error {
 		return fmt.Errorf("failed to get ping events from nara api: %w", err)
 	}
 
-	logrus.Debugf("found %d ping events from API", len(events))
+	logrus.Printf("fetched %d ping events from %s", len(events), url)
 
 	for _, pingEvent := range events {
 		network.pingInbox <- pingEvent
