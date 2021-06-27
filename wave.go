@@ -22,7 +22,7 @@ func newWaveMessage(from string, body string) WaveMessage {
 }
 
 func (wm WaveMessage) markAsSeen(name string) WaveMessage {
-	seenToken := WaveSeenToken{Nara: name, Time: time.Now().Unix()}
+	seenToken := WaveSeenToken{Nara: name, Time: timeNowMs()}
 	return WaveMessage{
 		StartNara: wm.StartNara,
 		Body:      wm.Body,
@@ -56,11 +56,20 @@ func (wm WaveMessage) Valid() bool {
 func (network *Network) processWaveMessageEvents() {
 	for {
 		waveMessage := <-network.waveMessageInbox
-		logrus.Printf("📯 handling WaveMessage from %s: %s", waveMessage.StartNara, waveMessage.Body)
+		logrus.Printf("📯 WaveMessage from %s: %s", waveMessage.StartNara, waveMessage.Body)
 
-		logrus.Println("the message has been seen by:")
-		for _, token := range waveMessage.SeenBy {
-			logrus.Printf("- %s", token.Nara)
+		if len(waveMessage.SeenBy) > 0 {
+			seenAt := waveMessage.CreatedAt
+			logrus.Println("seen by:")
+			for i, token := range waveMessage.SeenBy {
+				diff := token.Time - seenAt
+				seenAt = token.Time
+				if i == 0 {
+					logrus.Printf("- %s", token.Nara)
+				} else {
+					logrus.Printf("- %s (%dms later)", token.Nara, diff)
+				}
+			}
 		}
 
 		if waveMessage.hasSeen(network.meName()) {

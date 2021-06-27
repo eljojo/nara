@@ -69,6 +69,7 @@ func (network *Network) httpWaveMessageHandler(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		bugsnag.Notify(err)
 		logrus.Error(err)
+		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
@@ -76,6 +77,7 @@ func (network *Network) httpWaveMessageHandler(w http.ResponseWriter, r *http.Re
 		network.waveMessageInbox <- wm
 	} else {
 		logrus.Printf("discarding invalid WaveMessage")
+		w.WriteHeader(http.StatusBadRequest)
 	}
 }
 
@@ -86,6 +88,7 @@ func (network *Network) httpNewWaveMessageHandler(w http.ResponseWriter, r *http
 	if err != nil {
 		bugsnag.Notify(err)
 		logrus.Error(err)
+		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
@@ -95,6 +98,7 @@ func (network *Network) httpNewWaveMessageHandler(w http.ResponseWriter, r *http
 		network.waveMessageInbox <- wm
 	} else {
 		logrus.Printf("discarding invalid WaveMessage")
+		w.WriteHeader(http.StatusBadRequest)
 	}
 }
 
