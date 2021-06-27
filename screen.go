@@ -45,8 +45,8 @@ func (ln LocalNara) printNeigbourhood() {
 	}
 
 	sort.Slice(naras, func(i, j int) bool {
-		a := naras[j].Flair + naras[j].Name
-		b := naras[i].Flair + naras[i].Name
+		a := naras[j].Name
+		b := naras[i].Name
 		return a > b
 	})
 
