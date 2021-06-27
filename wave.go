@@ -57,6 +57,7 @@ func (wm WaveMessage) Valid() bool {
 func (network *Network) processWaveMessageEvents() {
 	for {
 		waveMessage := <-network.waveMessageInbox
+
 		logrus.Printf("📯 WaveMessage from %s: %s", waveMessage.StartNara, waveMessage.Body)
 
 		if len(waveMessage.SeenBy) > 0 {
@@ -76,7 +77,12 @@ func (network *Network) processWaveMessageEvents() {
 		if waveMessage.hasSeen(network.meName()) {
 			seconds := float64(timeNowMs()-waveMessage.CreatedAt) / 1000
 			count := len(waveMessage.SeenBy)
-			logrus.Printf("🙌 message came back home, took %.2f seconds and was seen by %d narae", seconds, count)
+			logrus.Printf("🙌 message came back, took %.2f seconds and was seen by %d narae", seconds, count)
+
+			if waveMessage.StartNara == network.meName() {
+				topic := "nara/wave"
+				network.postEvent(topic, waveMessage)
+			}
 			continue
 		}
 

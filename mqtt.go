@@ -25,6 +25,7 @@ func (network *Network) subscribeHandlers(client mqtt.Client) {
 	subscribeMqtt(client, "nara/newspaper/#", network.newspaperHandler)
 	subscribeMqtt(client, "nara/selfies/#", network.selfieHandler)
 	subscribeMqtt(client, "nara/ping/#", network.pingHandler)
+	subscribeMqtt(client, "nara/wave", network.waveMqttHandler)
 }
 
 func (network *Network) pingHandler(client mqtt.Client, msg mqtt.Message) {
@@ -79,6 +80,22 @@ func (network *Network) newspaperHandler(client mqtt.Client, msg mqtt.Message) {
 	json.Unmarshal(msg.Payload(), &status)
 
 	network.newspaperInbox <- NewspaperEvent{From: from, Status: status}
+}
+
+func (network *Network) waveMqttHandler(client mqtt.Client, msg mqtt.Message) {
+	var wm WaveMessage
+	json.Unmarshal(msg.Payload(), &wm)
+
+	// IMPORTANT - avoids endless loops
+	if wm.StartNara == network.meName() {
+		return
+	}
+
+	if wm.Valid() {
+		network.waveMessageInbox <- wm
+	} else {
+		logrus.Printf("discarding invalid WaveMessage")
+	}
 }
 
 func subscribeMqtt(client mqtt.Client, topic string, handler func(client mqtt.Client, msg mqtt.Message)) {
