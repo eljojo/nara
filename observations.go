@@ -226,6 +226,7 @@ func (network *Network) observationMaintenance() {
 				if observation.ClusterName != "" {
 					// reset cluster for offline naras
 					observation.ClusterName = ""
+					observation.ClusterEmoji = ""
 					network.local.setObservation(name, observation)
 				}
 
