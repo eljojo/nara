@@ -96,6 +96,9 @@ func (network *Network) processWaveMessageEvents() {
 		} else {
 			logrus.Errorf("failed to post WaveMessage to %s: %w", nextNara, err)
 		}
+
+		topic := "nara/debug/wave_message"
+		network.postEvent(topic, waveMessage)
 	}
 }
 
