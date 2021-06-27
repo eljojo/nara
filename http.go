@@ -73,7 +73,6 @@ func (network *Network) httpWaveMessageHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	if wm.Valid() {
-		fmt.Printf("%+v", wm)
 		network.waveMessageInbox <- wm
 	} else {
 		logrus.Printf("discarding invalid WaveMessage")
@@ -93,7 +92,6 @@ func (network *Network) httpNewWaveMessageHandler(w http.ResponseWriter, r *http
 	wm := newWaveMessage(network.meName(), r.FormValue("body"))
 
 	if wm.Valid() {
-		fmt.Printf("%+v", wm)
 		network.waveMessageInbox <- wm
 	} else {
 		logrus.Printf("discarding invalid WaveMessage")

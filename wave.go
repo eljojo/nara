@@ -18,12 +18,17 @@ type WaveSeenToken struct {
 }
 
 func newWaveMessage(from string, body string) WaveMessage {
-	return WaveMessage{StartNara: from, Body: body, CreatedAt: time.Now().Unix()}
+	return WaveMessage{StartNara: from, Body: body, CreatedAt: timeNowMs()}
 }
 
 func (wm WaveMessage) markAsSeen(name string) WaveMessage {
 	seenToken := WaveSeenToken{Nara: name, Time: time.Now().Unix()}
-	return WaveMessage{StartNara: wm.StartNara, Body: wm.Body, SeenBy: append(wm.SeenBy, seenToken)}
+	return WaveMessage{
+		StartNara: wm.StartNara,
+		Body:      wm.Body,
+		CreatedAt: wm.CreatedAt,
+		SeenBy:    append(wm.SeenBy, seenToken),
+	}
 }
 
 func (wm WaveMessage) hasSeen(name string) bool {
@@ -51,12 +56,17 @@ func (wm WaveMessage) Valid() bool {
 func (network *Network) processWaveMessageEvents() {
 	for {
 		waveMessage := <-network.waveMessageInbox
-		logrus.Printf("handling WaveMessage %+v", waveMessage)
+		logrus.Printf("📯 handling WaveMessage from %s: %s", waveMessage.StartNara, waveMessage.Body)
+
+		logrus.Println("the message has been seen by:")
+		for _, token := range waveMessage.SeenBy {
+			logrus.Printf("- %s", token.Nara)
+		}
 
 		if waveMessage.hasSeen(network.meName()) {
-			seconds := time.Now().Unix() - waveMessage.CreatedAt
+			seconds := float64(timeNowMs()-waveMessage.CreatedAt) / 1000
 			count := len(waveMessage.SeenBy)
-			logrus.Printf("message came back home, took %d seconds and was seen by %d narae", seconds, count)
+			logrus.Printf("🙌 message came back home, took %.2f seconds and was seen by %d narae", seconds, count)
 			continue
 		}
 
@@ -70,4 +80,8 @@ func (network *Network) processWaveMessageEvents() {
 			logrus.Errorf("failed to post WaveMessage to %s: %w", nextNara, err)
 		}
 	}
+}
+
+func timeNowMs() int64 {
+	return time.Now().UnixNano() / (int64(time.Millisecond) / int64(time.Nanosecond))
 }
