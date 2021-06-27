@@ -107,10 +107,15 @@ func (network *Network) httpPostWaveMessage(name string, wm WaveMessage) error {
 	nara := network.getNara(name)
 	url := fmt.Sprintf("%s/wave_message", nara.BestApiUrl())
 	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonValue))
+	if err != nil {
+		return err
+	}
+
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("failed to post waveMessage to %s, response code: %d", name, resp.StatusCode)
 	}
-	return err
+
+	return nil
 }
 
 func httpFetchJson(url string, result interface{}) error {
