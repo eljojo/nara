@@ -2,6 +2,7 @@ package nara
 
 import (
 	"github.com/sirupsen/logrus"
+	"sort"
 	"time"
 )
 
@@ -80,7 +81,14 @@ func (network *Network) processWaveMessageEvents() {
 		}
 
 		waveMessage = waveMessage.markAsSeen(network.meName())
-		nextNara := waveMessage.nextNara(network.NeighbourhoodOnlineNames())
+
+		naraByPing := network.NeighbourhoodOnlineNames()
+		sort.Slice(naraByPing, func(i, j int) bool {
+			a := naraByPing[i]
+			b := naraByPing[j]
+			return network.local.Me.getPing(a) < network.local.Me.getPing(b)
+		})
+		nextNara := waveMessage.nextNara(naraByPing)
 
 		err := network.httpPostWaveMessage(nextNara, waveMessage)
 		if err == nil {
