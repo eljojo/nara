@@ -11,6 +11,8 @@ naraSsh () {
   local m="$1.eljojo.dev"
   if [[ "$1" == "music-station" ||  "$1" == "music-pi" ||  "$1" == "cayumanqui" ||  "$1" == "desk-pi" ]]; then
     m="dietpi@$m"
+  elif [[ "$1" == "burrito" ]]; then
+    m="eljojo@$m"
   else
     m="jojo@$m"
   fi
