@@ -105,7 +105,7 @@ func (network *Network) httpNewWaveMessageHandler(w http.ResponseWriter, r *http
 func (network *Network) httpPostWaveMessage(name string, wm WaveMessage) error {
 	jsonValue, _ := json.Marshal(wm)
 	nara := network.getNara(name)
-	url := fmt.Sprintf("%s/wave_message", nara.ApiGatewayUrl())
+	url := fmt.Sprintf("%s/wave_message", nara.BestApiUrl())
 	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonValue))
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("failed to post waveMessage to %s, response code: %d", name, resp.StatusCode)

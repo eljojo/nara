@@ -191,3 +191,10 @@ func (ns *NaraStatus) setValuesFrom(other NaraStatus) {
 func (nara Nara) ApiGatewayUrl() string {
 	return fmt.Sprintf("http://%s.nara.network", nara.Name)
 }
+
+func (nara Nara) BestApiUrl() string {
+	if nara.ApiUrl != "" {
+		return nara.ApiUrl
+	}
+	return nara.ApiGatewayUrl()
+}

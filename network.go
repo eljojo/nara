@@ -357,7 +357,7 @@ func (network *Network) anyNaraApiUrl() (string, error) {
 			continue
 		}
 
-		return nara.ApiGatewayUrl(), nil
+		return nara.BestApiUrl(), nil
 	}
 
 	return "", fmt.Errorf("no neighbour nara with api available")
