@@ -197,14 +197,17 @@ func (network *Network) processChauEvents() {
 			continue
 		}
 
+		network.local.mu.Lock()
+		existingNara, present := network.Neighbourhood[nara.Name]
+		network.local.mu.Unlock()
+		if present {
+			existingNara.setValuesFrom(nara)
+		}
+
 		observation := network.local.getObservation(nara.Name)
 		observation.Online = "OFFLINE"
 		observation.LastSeen = time.Now().Unix()
 		network.local.setObservation(nara.Name, observation)
-
-		network.local.mu.Lock()
-		network.Neighbourhood[nara.Name] = &nara
-		network.local.mu.Unlock()
 
 		logrus.Printf("%s: chau!", nara.Name)
 	}
