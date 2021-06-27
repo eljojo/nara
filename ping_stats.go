@@ -46,7 +46,6 @@ func (network *Network) storePingEvent(pingEvent PingEvent) {
 		network.local.mu.Unlock()
 		if present {
 			nara.setPing(pingEvent.To, pingEvent.TimeMs)
-			network.recordObservationOnlineNara(pingEvent.From)
 		}
 	}
 }
@@ -54,7 +53,7 @@ func (network *Network) storePingEvent(pingEvent PingEvent) {
 func (nara Nara) pingMap() map[clustering.ClusterItem]float64 {
 	pingMap := make(map[clustering.ClusterItem]float64)
 	for otherNara, ping := range nara.pingStats {
-		if otherNara == "google" || ping == 0 {
+		if ping == 0 {
 			continue
 		}
 		pingMap[otherNara] = ping
@@ -82,10 +81,7 @@ func (network Network) naraToPing() []Nara {
 
 func (ln *LocalNara) measurePingForever() {
 	for {
-		ln.measureAndStorePing("google", "8.8.8.8")
-
 		ts := ln.chattinessRate(0, 60)
-		time.Sleep(time.Duration(ts) * time.Second)
 
 		for _, nara := range ln.Network.naraToPing() {
 			existingPing := ln.Me.getPing(nara.Name)
@@ -100,11 +96,27 @@ func (ln *LocalNara) measurePingForever() {
 
 func (ln *LocalNara) measureAndStorePing(name string, dest string) {
 	ping, err := measurePing(name, dest)
-	if err == nil && ping > 0 {
-		pingEvent := PingEvent{From: ln.Me.Name, To: name, TimeMs: ping}
-		ln.Network.postPing(pingEvent)
-	} else {
+
+	if err != nil || ping == 0 {
 		time.Sleep(1 * time.Second)
+		return
+	}
+
+	// post a ping event for every narae that we know that has the same IP
+	// a bit wasteful but hopefully a good hack to help consistency
+	var pingEvents []PingEvent
+
+	ln.mu.Lock()
+	for _, nara := range ln.Network.Neighbourhood {
+		if nara.Ip != dest {
+			continue
+		}
+		pingEvents = append(pingEvents, PingEvent{From: ln.Me.Name, To: nara.Name, TimeMs: ping})
+	}
+	ln.mu.Unlock()
+
+	for _, pingEvent := range pingEvents {
+		ln.Network.postPing(pingEvent)
 	}
 }
 

@@ -32,6 +32,8 @@ func (network *Network) pingHandler(client mqtt.Client, msg mqtt.Message) {
 	var pingEvent PingEvent
 	json.Unmarshal(msg.Payload(), &pingEvent)
 	network.pingInbox <- pingEvent
+
+	network.recordObservationOnlineNara(pingEvent.From) // dubious
 }
 
 func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
@@ -112,7 +114,7 @@ func (network *Network) postPing(ping PingEvent) {
 func (network *Network) postEvent(topic string, event interface{}) {
 	logrus.Debugf("posting on %s", topic)
 
-	network.local.mu.Lock()
+	network.local.mu.Lock() // TODO: this sucks, remove ASAP
 	payload, err := json.Marshal(event)
 	if err != nil {
 		fmt.Println(err)
