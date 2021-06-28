@@ -53,27 +53,21 @@ func (network Network) sortClusters(clusters clustering.ClusterSet) [][]string {
 		res = append(res, cl)
 	})
 
-	sort.Slice(res, func(i, j int) bool {
-		oldestI := network.oldestStarTimeForCluster(res[i])
-		oldestJ := network.oldestStarTimeForCluster(res[j])
+	sort.SliceStable(res, func(i, j int) bool {
+		a := network.sortingKeyForCluster(res[i])
+		b := network.sortingKeyForCluster(res[j])
 
-		// tie-break by oldest start time when clusters are same size otherwise sort by size
-		if len(res[i]) == len(res[j]) {
-			return oldestI < oldestJ
-		} else {
-			return len(res[i]) > len(res[j])
-		}
+		return a < b
 	})
 
 	return res
 }
 
-func (network Network) oldestStarTimeForCluster(cluster []string) int64 {
-	oldest := int64(0)
+func (network Network) sortingKeyForCluster(cluster []string) string {
+	oldest := cluster[0]
 	for _, name := range cluster {
-		obs := network.local.getObservation(name)
-		if (obs.StartTime > 0 && obs.StartTime < oldest) || oldest == 0 {
-			oldest = obs.StartTime
+		if name < oldest {
+			oldest = name
 		}
 	}
 	return oldest
