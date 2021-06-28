@@ -75,6 +75,12 @@ func NewLocalNara(name string, mqtt_host string, mqtt_user string, mqtt_pass str
 	ln.Me.Hostname = hostinfo.Hostname
 
 	previousStatus, err := fetchStatusFromApi(name)
+	if err != nil { // lol
+		previousStatus, err = fetchStatusFromApi(name)
+	}
+	if err != nil { // lol
+		previousStatus, err = fetchStatusFromApi(name)
+	}
 	if err != nil {
 		logrus.Debugf("failed to fetch status from API: %v", err)
 	} else {
