@@ -94,20 +94,25 @@ class Nara
 
   def traefik_routers
     return {} if api_url.empty?
-    service_name = "#{name}-api"
-    old_domain = "#{service_name}.nara.network"
-    domain = "#{name}.nara.network"
+    routers = traefik_router("#{name}-api", "#{name}.nara.network")
+    if name == NaraWeb.hostname
+      routers = routers.merge(traefik_router("#{name}-api", "closest.nara.network", "-closest"))
+    end
+    routers
+  end
+
+  def traefik_router(service_name, domain, router_name = "")
     {
-      "#{service_name}" => {
+      "#{service_name}#{router_name}" => {
         "entryPoints": [ "public" ],
         "middlewares": [  ],
-        "rule": "Host(`#{domain}`) || Host(`#{old_domain}`)",
+        "rule": "Host(`#{domain}`)",
         "service": service_name
       },
-      "#{service_name}-secure" => {
+      "#{service_name}#{router_name}-secure" => {
         "entryPoints": [ "public-secure" ],
         "middlewares": [ ],
-        "rule": "Host(`#{domain}`) || Host(`#{old_domain}`)",
+        "rule": "Host(`#{domain}`)",
         "service": service_name,
         "tls": {}
       }
@@ -143,7 +148,7 @@ end
 
 class NaraWeb
   def self.hostname
-    @hostname ||= Socket.gethostname
+    @hostname ||= Socket.gethostname.split(".").first
   end
 
   def self.production?
@@ -215,7 +220,7 @@ class NaraWeb
 
   def last_wave
     wave = @last_wave.dup
-    wave['SeenBy'] = wave['SeenBy'].map do |sb|
+    wave['SeenBy'] = wave.fetch('SeenBy', []).map do |sb|
       name = sb['Nara']
       nara = (@db[name] ||= Nara.new(name))
       sb.merge('CountryFlag' => nara.country_flag)
