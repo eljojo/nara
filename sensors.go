@@ -23,8 +23,8 @@ type IRL struct {
 	CountryName string `json:"country"`
 	CountryCode string `json:"countryCode"`
 	City        string `json:"city"`
-	ISP         string `json:"isp"`
-	PublicIp    string `json:"query"`
+	//ISP         string `json:"isp"`
+	//PublicIp    string `json:"query"`
 }
 
 func (ln *LocalNara) updateHostStatsForever() {
