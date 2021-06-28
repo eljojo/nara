@@ -48,6 +48,8 @@ class Nara
 
   def mark_offline
     self_opinion["Online"] = "OFFLINE"
+    status["LicensePlate"] = ""
+    status["Flair"] = ""
   end
 
   def status=(new_status)
@@ -64,7 +66,9 @@ class Nara
   def mark_if_missing
     time_last_seen = Time.now.to_i - last_seen.to_i
     if time_last_seen > 60 && online?
-      observations[name]["Online"] = "MISSING"
+      self_opinion["Online"] = "MISSING"
+      status["LicensePlate"] = ""
+      status["Flair"] = ""
     end
   end
 
@@ -127,7 +131,7 @@ class Nara
   def speculate(observation)
     @last_seen ||= observation["LastSeen"]
     if @status.fetch("LicensePlate", "").strip == "" && observation["ClusterEmoji"] != ""
-      @status["LicensePlate"] = "🏳️ #{observation["ClusterEmoji"]}"
+      @status["LicensePlate"] = "#{observation["ClusterEmoji"]} 🏳️"
     end
     observations[name] = observation.merge(self_opinion)
   end
