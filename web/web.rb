@@ -72,6 +72,10 @@ class Nara
     end
   end
 
+  def country_flag
+    status.fetch("LicensePlate", "").split(" ").last
+  end
+
   def online?
     self_opinion["Online"] == "ONLINE"
   end
@@ -151,6 +155,7 @@ class NaraWeb
   def initialize
     @client = MqttClient.new
     @db = {}
+    @last_wave = {}
   end
 
   def start!
@@ -167,6 +172,9 @@ class NaraWeb
         nara.status = status.fetch("Status")
         api_url = status.fetch("ApiUrl", "")
         nara.api_url = api_url unless api_url.empty?
+      when /nara\/wave/
+        @last_wave = status
+        next
       end
 
       if topic =~ /chau/
@@ -204,6 +212,16 @@ class NaraWeb
       }
     }
   end
+
+  def last_wave
+    wave = @last_wave.dup
+    wave['SeenBy'] = wave['SeenBy'].map do |sb|
+      name = sb['Nara']
+      nara = (@db[name] ||= Nara.new(name))
+      sb.merge('CountryFlag' => nara.country_flag)
+    end
+    wave
+  end
 end
 
 class MqttClient
@@ -226,6 +244,9 @@ class MqttClient
       status = message
     when /nara\/ping/
       name = message["From"]
+      status = message
+    when /nara\/wave/
+      name = message["StartNara"]
       status = message
     else
       raise "unknown topic #{topic}"
@@ -253,6 +274,7 @@ class MqttClient
     @client.subscribe('nara/selfies/#')
     @client.subscribe('nara/newspaper/#')
     @client.subscribe('nara/ping/#')
+    @client.subscribe('nara/wave')
     @client
   end
 end
@@ -286,4 +308,8 @@ get '/status/:name.json' do
   nara = naraweb.db[name]
   pass unless nara
   json(nara.legacy_to_h)
+end
+
+get '/last_wave.json' do
+  json({ wave: naraweb.last_wave, server: NaraWeb.hostname })
 end
