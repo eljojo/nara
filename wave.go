@@ -51,7 +51,7 @@ func (wm WaveMessage) nextNara(narae []string) string {
 }
 
 func (wm WaveMessage) Valid() bool {
-	return (wm.StartNara != "" && wm.Body != "")
+	return (wm.StartNara != "" && wm.Body != "" && len(wm.Body) <= 512)
 }
 
 func (network *Network) processWaveMessageEvents() {
