@@ -43,7 +43,7 @@ for name in ${machines[@]}; do
     echo "skipping $name" && continue
   fi
 
-  if [[ "$name" != "music-station" &&  "$name" != "music-pi" &&  "$name" != "cayumanqui" &&  "$name" != "desk-pi" ]]; then
+  if [[ "$name" != "music-station" &&  "$name" != "music-pi" &&  "$name" != "cayumanqui" &&  "$name" != "desk-pi" &&  "$name" != "burrito" ]]; then
     echo "=> deploying nara-web on $name"
     ssh -q $m "cd ~/nara && git checkout -f $NARA_VERSION -q"
     ssh -q $m "sudo systemctl restart nara-web"
