@@ -212,3 +212,9 @@ func (network *Network) fetchPingEventsFromNeighbouringNara() error {
 
 	return nil
 }
+
+func (nara *Nara) clearPing() {
+	nara.mu.Lock()
+	nara.pingStats = make(map[string]float64)
+	nara.mu.Unlock()
+}

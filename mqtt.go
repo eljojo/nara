@@ -26,6 +26,7 @@ func (network *Network) subscribeHandlers(client mqtt.Client) {
 	subscribeMqtt(client, "nara/selfies/#", network.selfieHandler)
 	subscribeMqtt(client, "nara/ping/#", network.pingHandler)
 	subscribeMqtt(client, "nara/wave", network.waveMqttHandler)
+	subscribeMqtt(client, "nara/debug/clear_ping", network.mqttClearPingHandler)
 }
 
 func (network *Network) pingHandler(client mqtt.Client, msg mqtt.Message) {
@@ -145,4 +146,14 @@ func initializeMQTT(onConnect mqtt.OnConnectHandler, name string, host string, u
 
 var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err error) {
 	logrus.Printf("MQTT Connection lost: %v", err)
+}
+
+func (network *Network) mqttClearPingHandler(client mqtt.Client, msg mqtt.Message) {
+	logrus.Printf("🏓 MQTT: /nara/debug/clear_ping: Clearing ping stats and increasing Buzz")
+	network.local.mu.Lock()
+	for _, nara := range network.Neighbourhood {
+		nara.clearPing()
+	}
+	network.Buzz.increase(200)
+	network.local.mu.Unlock()
 }
