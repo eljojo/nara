@@ -147,7 +147,7 @@ func (network *Network) recordObservationOnlineNara(name string) {
 			observation.LastRestart = lastRestart
 		}
 
-		if observation.StartTime == 0 && name == network.meName() {
+		if observation.StartTime == 0 && name == network.meName() && !network.local.isBooting() {
 			observation.StartTime = time.Now().Unix()
 			logrus.Printf("⚠️ set StartTime to now")
 		}
