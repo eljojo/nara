@@ -83,6 +83,10 @@ func NewLocalNara(name string, mqtt_host string, mqtt_user string, mqtt_pass str
 		ln.Me.Status.setValuesFrom(previousStatus)
 	}
 
+	observation := ln.getMeObservation()
+	observation.LastRestart = time.Now().Unix()
+	ln.setMeObservation(observation)
+
 	return ln
 }
 

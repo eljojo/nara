@@ -84,11 +84,13 @@ func (network *Network) formOpinion() {
 		} else {
 			logrus.Printf("couldn't adjust restart count for %s based on neighbour disagreement", name)
 		}
-		lastRestart := network.findLastRestartFromNeighbourhoodForNara(name)
-		if lastRestart > 0 {
-			observation.LastRestart = lastRestart
-		} else {
-			logrus.Printf("couldn't adjust last restart date for %s based on neighbour disagreement", name)
+		if name != network.meName() {
+			lastRestart := network.findLastRestartFromNeighbourhoodForNara(name)
+			if lastRestart > 0 {
+				observation.LastRestart = lastRestart
+			} else {
+				logrus.Printf("couldn't adjust last restart date for %s based on neighbour disagreement", name)
+			}
 		}
 		network.local.setObservation(name, observation)
 	}
@@ -141,18 +143,13 @@ func (network *Network) recordObservationOnlineNara(name string) {
 		if startTime > 0 {
 			observation.StartTime = startTime
 		}
-		if lastRestart > 0 {
+		if lastRestart > 0 && name != network.meName() {
 			observation.LastRestart = lastRestart
 		}
 
 		if observation.StartTime == 0 && name == network.meName() {
 			observation.StartTime = time.Now().Unix()
-			logrus.Printf("⚠️ set StartTime to 0")
-		}
-
-		if observation.LastRestart == 0 && name == network.meName() {
-			observation.LastRestart = time.Now().Unix()
-			logrus.Printf("⚠️ set LastRestart to 0")
+			logrus.Printf("⚠️ set StartTime to now")
 		}
 	}
 
