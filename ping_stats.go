@@ -34,6 +34,10 @@ func (network *Network) processPingEvents() {
 		pingEvent := <-network.pingInbox
 		// logrus.Debugf("ping from %s to %s is %.2fms", pingEvent.From, pingEvent.To, pingEvent.TimeMs)
 		network.storePingEvent(pingEvent)
+
+		// hack to avoid refactoring code
+		flippedEvent := PingEvent{From: pingEvent.To, To: pingEvent.From, TimeMs: pingEvent.TimeMs}
+		network.storePingEvent(flippedEvent)
 	}
 }
 
