@@ -1,35 +1,22 @@
-image: git.eljojo.casa:5005/eljojo/docker-nara
-
-variables:
-  LC_ALL: C.UTF-8
-  LANG: en_US.UTF-8
-  LANGUAGE: en_US.UTF-8
-
 stages:
   - build
-  - deploy
 
-default:
-  before_script:
-    ## https://docs.gitlab.com/ee/ci/ssh_keys/
-    - mkdir -p ~/.ssh
-    - chmod 700 ~/.ssh
-    - echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
-    - eval $(ssh-agent -s)
-    ## https://gitlab.com/gitlab-examples/ssh-private-key/issues/1#note_48526556
-    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | base64 -d | ssh-add -
-    - git config --global user.email "deploy@gitlab.eljojo.casa"
-    - git config --global user.name "GitLab Deploy"
+variables:
+  IMAGE: eljojo/nara/nara-app
+  DOCKER_CLI_EXPERIMENTAL: enabled
+
+before_script:
+  - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
 
 build:
+  tags:
+    - docker-images
   stage: build
   script:
-    - scripts/build.sh
-
-deploy:
-  stage: deploy
-  only:
-    - deploy
-  script:
-    - cat scripts/deploy.sh | /bin/bash
-
+    - docker build --build-arg opts="CGO_ENABLED=0 GOARCH=amd64" --pull -t $CI_REGISTRY/$IMAGE:amd64 .
+    - docker push $CI_REGISTRY/$IMAGE:amd64
+    - docker build --build-arg opts="GOARCH=arm64" --pull -t $CI_REGISTRY/$IMAGE:arm64 .
+    - docker push $CI_REGISTRY/$IMAGE:arm64
+    - docker manifest create $CI_REGISTRY/$IMAGE $CI_REGISTRY/$IMAGE:amd64 $CI_REGISTRY/$IMAGE:arm64
+    - docker manifest annotate $CI_REGISTRY/$IMAGE $CI_REGISTRY/$IMAGE:arm64 --os linux --arch arm64
+    - docker manifest push $CI_REGISTRY/$IMAGE
