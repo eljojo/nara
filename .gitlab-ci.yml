@@ -7,17 +7,17 @@ build:
     - docker-images
   stage: build
   variables:
-    IMAGE: eljojo/nara/nara-app
+    IMAGE: eljojo/nara
     DOCKER_CLI_EXPERIMENTAL: enabled
   script:
-    - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
-    - docker build --build-arg opts="CGO_ENABLED=0 GOARCH=amd64" --pull -t $CI_REGISTRY/$IMAGE:amd64 .
-    - docker push $CI_REGISTRY/$IMAGE:amd64
-    - docker build --build-arg opts="GOARCH=arm64" --pull -t $CI_REGISTRY/$IMAGE:arm64 .
-    - docker push $CI_REGISTRY/$IMAGE:arm64
-    - docker manifest create $CI_REGISTRY/$IMAGE $CI_REGISTRY/$IMAGE:amd64 $CI_REGISTRY/$IMAGE:arm64
-    - docker manifest annotate $CI_REGISTRY/$IMAGE $CI_REGISTRY/$IMAGE:arm64 --os linux --arch arm64
-    - docker manifest push $CI_REGISTRY/$IMAGE
+    - docker login -u eljojo -p $DOCKERHUB_ELJOJO_TOKEN
+    - docker build --build-arg opts="CGO_ENABLED=0 GOARCH=amd64" --pull -t $IMAGE:amd64 .
+    - docker push $IMAGE:amd64
+    - docker build --build-arg opts="GOARCH=arm64" --pull -t $IMAGE:arm64 .
+    - docker push $IMAGE:arm64
+    - docker manifest create $IMAGE $IMAGE:amd64 $IMAGE:arm64
+    - docker manifest annotate $IMAGE $IMAGE:arm64 --os linux --arch arm64
+    - docker manifest push $IMAGE
 
 deploy:
   stage: deploy
