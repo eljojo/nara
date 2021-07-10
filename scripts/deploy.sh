@@ -20,9 +20,10 @@ naraSsh () {
   echo "$m"
 }
 
-if ! grep -Fq 'remote "deploy"' .git/config; then # naive check to see there's a deploy upstream
-  git remote add deploy jojo@lisa.eljojo.casa:nara
+if grep -Fq 'remote "deploy"' .git/config; then # naive check to see there's a deploy upstream
+  git remote remove deploy
 fi
+git remote add deploy jojo@lisa.eljojo.casa:nara
 
 for name in ${machines[@]}; do
   m=$(naraSsh $name)
