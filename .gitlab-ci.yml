@@ -23,7 +23,7 @@ deploy:
   stage: deploy
   only:
     - deploy
-  image: git.eljojo.casa:5005/eljojo/docker-nara
+  image: eljojo/docker-nara:latest
   script: ## https://docs.gitlab.com/ee/ci/ssh_keys/
     - mkdir -p ~/.ssh
     - chmod 700 ~/.ssh
