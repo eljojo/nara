@@ -20,6 +20,9 @@ func (ln LocalNara) Flair() string {
 	if ln.isNixOs {
 		awards = awards + "❄️"
 	}
+	if ln.isKubernetes {
+		awards = awards + "🐳"
+	}
 	if networkSize > 2 {
 		if ln.Me.Name == ln.Network.oldestNara().Name {
 			awards = awards + "🧓"
@@ -75,4 +78,8 @@ func isNixOs() bool {
 	_, err := os.Stat("/etc/nixos")
 	nix_does_not_exist := os.IsNotExist(err)
 	return !nix_does_not_exist
+}
+
+func isKubernetes() bool {
+	return (os.Getenv("KUBERNETES_SERVICE_HOST") != "")
 }
