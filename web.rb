@@ -95,9 +95,6 @@ class Nara
   def traefik_routers
     return {} if api_url.empty?
     routers = traefik_router("#{name}-api", "#{name}.nara.network")
-    if name == NaraWeb.hostname
-      routers = routers.merge(traefik_router("#{name}-api", "closest.nara.network", "-closest"))
-    end
     routers
   end
 
