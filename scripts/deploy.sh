@@ -26,7 +26,17 @@ for name in ${machines[@]}; do
   m=$(naraSsh $name)
   if ! grep -Eq "pushurl.+$name" .git/config; then # naive check to see if in deploy upstream
     if nslookup "$name.eljojo.dev" > /dev/null; then
-      git remote set-url --add --push deploy $m:nara-web
+
+      if ssh $m "test -d ~/nara-web"; then # only add remote if it actually has nara-web folder
+        git remote set-url --add --push deploy $m:nara-web
+      else
+        echo "# skip pushurl $name" >> .git/config
+      fi
+
+      if ! grep -Eq "$name.eljojo.dev" ~/.ssh/known_hosts; then # naive check to see if in known hosts
+        echo "scanning keys for $name.eljojo.dev"
+        ssh-keyscan -H $name.eljojo.dev >> ~/.ssh/known_hosts
+      fi
     else
       echo "# skip pushurl $name" >> .git/config
     fi
