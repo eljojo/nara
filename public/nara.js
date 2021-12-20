@@ -36,6 +36,7 @@ function NaraRow(props) {
 function NaraList() {
   const { useState, useEffect } = React;
   const [data, setData] = useState({filteredNaras: [], server: 'unknown' });
+  const yesterday = moment().subtract(1, 'days').unix()
 
   useEffect(() => {
     var lastDate = 0;
@@ -47,7 +48,7 @@ function NaraList() {
         .then(response => response.json())
         .then(function(data) {
           if(fetchDate > lastDate) {
-            const filteredNaras = data.naras.filter(nara => nara.LastSeen > 0);
+            const filteredNaras = data.naras.filter(nara => nara.LastSeen > yesterday);
             const newData = Object.assign(data, { filteredNaras: filteredNaras });
             setData(newData);
             lastDate = fetchDate;
