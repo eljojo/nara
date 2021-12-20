@@ -154,8 +154,8 @@ class NaraWeb
   end
   attr_reader :db
 
-  def initialize
-    @client = MqttClient.new
+  def initialize(mqtt)
+    @client = mqtt
     @db = {}
     @last_wave = {}
   end
@@ -266,10 +266,15 @@ class MqttClient
     @client = nil
   end
 
+  def connect
+    client
+  end
+
   private
 
   def client
     return @client if @client
+    $log.info("connecting to MQTT server")
     @client = MQTT::Client.connect(MQTT_CONN)
     $log.info("connected to MQTT server")
     @client.subscribe('nara/plaza/#')
@@ -286,7 +291,9 @@ MQTT_CONN = { username: ENV.fetch('MQTT_USER'), password: ENV.fetch('MQTT_PASS')
 
 $log = Logger.new(STDOUT)
 $log.level = if NaraWeb.production? then Logger::INFO else Logger::DEBUG end
-naraweb = NaraWeb.new
+mqtt = MqttClient.new
+mqtt.connect
+naraweb = NaraWeb.new(mqtt)
 
 Thread.new { naraweb.start! }
 
