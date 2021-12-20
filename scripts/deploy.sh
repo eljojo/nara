@@ -9,7 +9,7 @@ echo "deploying to" $machines
 
 naraSsh () {
   local m="$1.eljojo.dev"
-  if [[ "$1" == "music-station" ||  "$1" == "music-pi" ||  "$1" == "cayumanqui" ||  "$1" == "desk-pi" ]]; then
+  if [[ "$1" == "music-pi" ||  "$1" == "cayumanqui" ]]; then
     m="dietpi@$m"
   else
     m="jojo@$m"
@@ -19,14 +19,14 @@ naraSsh () {
 }
 
 if ! grep -Fq 'remote "deploy"' .git/config; then # naive check to see there's a deploy upstream
-  git remote add deploy jojo@lisa.eljojo.casa:nara
+  git remote add deploy jojo@lisa.eljojo.casa:nara-web
 fi
 
 for name in ${machines[@]}; do
   m=$(naraSsh $name)
   if ! grep -Eq "pushurl.+$name" .git/config; then # naive check to see if in deploy upstream
     if nslookup "$name.eljojo.dev" > /dev/null; then
-      git remote set-url --add --push deploy $m:nara
+      git remote set-url --add --push deploy $m:nara-web
     else
       echo "# skip pushurl $name" >> .git/config
     fi
@@ -43,9 +43,9 @@ for name in ${machines[@]}; do
     echo "skipping $name" && continue
   fi
 
-  if [[ "$name" != "music-station" &&  "$name" != "music-pi" &&  "$name" != "cayumanqui" &&  "$name" != "desk-pi" &&  "$name" != "burrito" ]]; then
+  if [[ "$name" != "music-pi" &&  "$name" != "cayumanqui" ]]; then
     echo "=> deploying nara-web on $name"
-    ssh -q $m "cd ~/nara && git checkout -f $NARA_VERSION -q"
+    ssh -q $m "cd ~/nara-web && git checkout -f $NARA_VERSION -q"
     ssh -q $m "sudo systemctl restart nara-web"
   fi
 done
