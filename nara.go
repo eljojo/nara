@@ -2,6 +2,7 @@ package nara
 
 import (
 	"fmt"
+
 	"github.com/shirou/gopsutil/host"
 	"github.com/sirupsen/logrus"
 
@@ -196,7 +197,7 @@ func (ns *NaraStatus) setValuesFrom(other NaraStatus) {
 }
 
 func (nara Nara) ApiGatewayUrl() string {
-	return fmt.Sprintf("http://%s.nara.network", nara.Name)
+	return fmt.Sprintf("https://%s.nara.network", nara.Name)
 }
 
 func (nara Nara) BestApiUrl() string {
