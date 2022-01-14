@@ -1,8 +1,9 @@
 package nara
 
 import (
-	"github.com/sirupsen/logrus"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 type NaraObservation struct {
@@ -56,9 +57,11 @@ func (network *Network) formOpinion() {
 
 	// try again lol - need to learn how to do this more elegantly
 	if err != nil {
+		time.Sleep(5 * time.Second)
 		err = network.fetchPingEventsFromNeighbouringNara()
 	}
 	if err != nil {
+		time.Sleep(5 * time.Second)
 		err = network.fetchPingEventsFromNeighbouringNara()
 	}
 
