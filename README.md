@@ -2,7 +2,7 @@
 
 nara is an exploration on decentralized systems: it's an experimental network, a project without clear purpose, and a creative escape.
 
-you can [see it live](https://nara.eljojo.net) ([backup/debug site](https://global-nara.eljojo.net))
+you can [see it live](https://nara.network) ([backup/debug site](https://global-nara.eljojo.net))
 
 ### what's a nara?
 

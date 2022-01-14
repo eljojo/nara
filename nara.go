@@ -144,7 +144,7 @@ func fetchStatusFromApi(name string) (NaraStatus, error) {
 	status := &NaraStatus{}
 
 	logrus.Debugf("fetching status from API for %s", name)
-	url := fmt.Sprintf("https://nara.eljojo.net/status/%s.json", name)
+	url := fmt.Sprintf("https://nara.network/status/%s.json", name)
 	err := httpFetchJson(url, status)
 	if err != nil {
 		return *status, fmt.Errorf("failed to get status from api: %w", err)
