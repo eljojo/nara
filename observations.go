@@ -158,6 +158,7 @@ func (network *Network) recordObservationOnlineNara(name string) {
 
 	if !observation.isOnline() && observation.Online != "" {
 		observation.LastRestart = time.Now().Unix()
+		observation.Restarts = observation.Restarts + 1
 		logrus.Printf("observation: %s came back online", name)
 		network.Buzz.increase(3)
 	}
