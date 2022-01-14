@@ -200,7 +200,7 @@ func (network Network) findLastRestartFromNeighbourhoodForNara(name string) int6
 	one_third := len(values) / 3
 
 	for last_restart, count := range values {
-		if count > maxSeen && count > one_third {
+		if count > maxSeen && count >= one_third {
 			maxSeen = count
 			result = last_restart
 		}
