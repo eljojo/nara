@@ -168,26 +168,19 @@ func (network *Network) recordObservationOnlineNara(name string) {
 }
 
 func (network Network) findRestartCountFromNeighbourhoodForNara(name string) int64 {
-	values := make(map[int64]int)
-
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
+
+	var maxSeen int64 = 0
+
 	for _, nara := range network.Neighbourhood {
 		restarts := nara.getObservation(name).Restarts
-		values[restarts] += 1
-	}
-
-	var result int64
-	maxSeen := 0
-
-	for restarts, count := range values {
-		if count > maxSeen && restarts > 0 {
-			maxSeen = count
-			result = restarts
+		if restarts > maxSeen {
+			maxSeen = restarts
 		}
 	}
 
-	return result
+	return maxSeen
 }
 
 func (network Network) findLastRestartFromNeighbourhoodForNara(name string) int64 {
