@@ -114,10 +114,10 @@ func (network Network) findStartingTimeFromNeighbourhoodForNara(name string) int
 
 	var startTime int64
 	maxSeen := 0
-	one_third := len(times) / 3
+	one_fourth := len(times) / 4
 
 	for time, count := range times {
-		if count > maxSeen && count > one_third {
+		if count > maxSeen && count > one_fourth {
 			maxSeen = count
 			startTime = time
 		}
@@ -197,10 +197,10 @@ func (network Network) findLastRestartFromNeighbourhoodForNara(name string) int6
 
 	var result int64
 	maxSeen := 0
-	one_third := len(values) / 3
+	one_fourth := len(values) / 4
 
 	for last_restart, count := range values {
-		if count > maxSeen && count >= one_third {
+		if count > maxSeen && count >= one_fourth {
 			maxSeen = count
 			result = last_restart
 		}
