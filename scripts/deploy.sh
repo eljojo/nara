@@ -9,10 +9,8 @@ machines_in_one_line=$(echo "$machines"|tr '\n' ' ')
 
 naraSsh () {
   local m="$1.eljojo.dev"
-  if [[ "$1" == "music-station" ||  "$1" == "music-pi" ||  "$1" == "cayumanqui" ||  "$1" == "desk-pi" ]]; then
+  if [[ "$1" == "cayumanqui" ]]; then
     m="dietpi@$m"
-  elif [[ "$1" == "burrito" ]]; then
-    m="eljojo@$m"
   else
     m="jojo@$m"
   fi
