@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/bugsnag/bugsnag-go"
-	"github.com/sirupsen/logrus"
 	"io/ioutil"
 	"net"
 	"net/http"
+
+	"github.com/bugsnag/bugsnag-go"
+	"github.com/sirupsen/logrus"
 )
 
 func (network *Network) startHttpServer() error {
@@ -21,6 +22,7 @@ func (network *Network) startHttpServer() error {
 	port := listener.Addr().(*net.TCPAddr).Port
 	url := fmt.Sprintf("http://%s:%d", network.local.Me.Ip, port)
 	network.local.Me.ApiUrl = url
+	network.local.Me.HttpPort = port
 	logrus.Printf("Listening on %s or %s", url, network.local.Me.ApiGatewayUrl())
 
 	http.HandleFunc("/ping_events", network.httpPingDbHandler)

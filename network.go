@@ -2,9 +2,10 @@ package nara
 
 import (
 	"fmt"
+	"time"
+
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/sirupsen/logrus"
-	"time"
 )
 
 type Network struct {
@@ -51,6 +52,11 @@ func (network *Network) Start() {
 	err := network.startHttpServer()
 	if err != nil {
 		logrus.Panic(err)
+	}
+
+	err = network.startMeshServer()
+	if err != nil {
+		logrus.Printf("error starting mesh: %v", err)
 	}
 
 	if token := network.Mqtt.Connect(); token.Wait() && token.Error() != nil {

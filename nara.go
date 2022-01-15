@@ -28,6 +28,8 @@ type Nara struct {
 	Hostname  string
 	Ip        string
 	ApiUrl    string
+	HttpPort  int
+	MeshPort  int
 	IRL       IRL
 	Status    NaraStatus
 	pingStats map[string]float64
