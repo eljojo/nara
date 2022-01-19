@@ -20,6 +20,6 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/shirou/gopsutil v3.21.1+incompatible
 	github.com/sirupsen/logrus v1.7.0
-	github.com/weaveworks/mesh v0.0.0-20191105120815-58dbcc3e8e63 // indirect
+	github.com/weaveworks/mesh v0.0.0-20191105120815-58dbcc3e8e63
 	golang.org/x/sys v0.0.0-20210124154548-22da62e12c0c // indirect
 )
