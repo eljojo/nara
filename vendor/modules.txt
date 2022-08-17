@@ -1,6 +1,10 @@
 # github.com/StackExchange/wmi v0.0.0-20190523213315-cbe66965904d
 ## explicit
 github.com/StackExchange/wmi
+# github.com/bitly/go-simplejson v0.5.0
+## explicit
+# github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869
+## explicit
 # github.com/bugsnag/bugsnag-go v2.1.1+incompatible
 ## explicit
 github.com/bugsnag/bugsnag-go
@@ -39,6 +43,8 @@ github.com/kardianos/osext
 # github.com/kataras/tablewriter v0.0.0-20180708051242-e063d29b7c23
 ## explicit
 github.com/kataras/tablewriter
+# github.com/kr/pretty v0.3.0
+## explicit
 # github.com/lensesio/tableprinter v0.0.0-20201125135848-89e81fc956e7
 ## explicit
 github.com/lensesio/tableprinter

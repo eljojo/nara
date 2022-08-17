@@ -4,6 +4,8 @@ go 1.15
 
 require (
 	github.com/StackExchange/wmi v0.0.0-20190523213315-cbe66965904d // indirect
+	github.com/bitly/go-simplejson v0.5.0 // indirect
+	github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869 // indirect
 	github.com/bugsnag/bugsnag-go v2.1.1+incompatible
 	github.com/bugsnag/panicwrap v1.3.2 // indirect
 	github.com/dustin/go-humanize v1.0.0 // indirect
@@ -14,6 +16,7 @@ require (
 	github.com/gofrs/uuid v4.0.0+incompatible // indirect
 	github.com/kardianos/osext v0.0.0-20190222173326-2bc1f35cddc0 // indirect
 	github.com/kataras/tablewriter v0.0.0-20180708051242-e063d29b7c23
+	github.com/kr/pretty v0.3.0 // indirect
 	github.com/lensesio/tableprinter v0.0.0-20201125135848-89e81fc956e7
 	github.com/mattn/go-runewidth v0.0.10 // indirect
 	github.com/pbnjay/clustering v0.0.0-20180426023255-34a8f36cd397
