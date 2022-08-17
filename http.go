@@ -23,7 +23,7 @@ func (network *Network) startHttpServer() error {
 	url := fmt.Sprintf("http://%s:%d", network.local.Me.Ip, port)
 	network.local.Me.ApiUrl = url
 	network.local.Me.HttpPort = port
-	logrus.Printf("Listening on %s or %s", url, network.local.Me.ApiGatewayUrl())
+	logrus.Printf("Listening on %s", url)
 
 	http.HandleFunc("/ping_events", network.httpPingDbHandler)
 	http.HandleFunc("/wave_message", network.httpWaveMessageHandler)
