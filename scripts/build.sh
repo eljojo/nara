@@ -18,5 +18,5 @@ if [ "$GOARCH" = "arm64" ]; then
     rm $BUGFILE
   fi
 fi
-go build -o ../build/nara ../cmd/nara/main.go
+go build -mod=mod -o ../build/nara ../cmd/nara/main.go
 echo "-> built nara on $(hostname)"
