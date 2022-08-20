@@ -2,10 +2,11 @@ package nara
 
 import (
 	"fmt"
+	"time"
+
 	"github.com/go-ping/ping"
 	"github.com/pbnjay/clustering"
 	"github.com/sirupsen/logrus"
-	"time"
 )
 
 func (nara Nara) getPing(name string) float64 {
@@ -93,7 +94,7 @@ func (ln *LocalNara) measurePingForever() {
 				time.Sleep(time.Duration(ts) * time.Second)
 			}
 
-			ln.measureAndStorePing(nara.Name, nara.Ip)
+			ln.measureAndStorePing(nara.Name, nara.BestPingIp())
 		}
 	}
 }

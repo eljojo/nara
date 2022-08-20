@@ -69,7 +69,7 @@ func NewLocalNara(name string, mqtt_host string, mqtt_user string, mqtt_pass str
 		logrus.Panic("couldn't find IRL data", err)
 	}
 
-	ip, err := externalIP()
+	ip, err := internalIP()
 	if err == nil {
 		ln.Me.Ip = ip
 	} else {
@@ -200,4 +200,12 @@ func (ns *NaraStatus) setValuesFrom(other NaraStatus) {
 
 func (nara Nara) BestApiUrl() string {
 	return nara.ApiUrl
+}
+
+func (nara Nara) BestPingIp() string {
+	if nara.IRL.PublicIp != "" {
+		return nara.IRL.PublicIp
+	}
+	logrus.Debugf("pinging tailscale IP :( %s %s", nara.Ip, nara.Name)
+	return nara.Ip
 }

@@ -3,15 +3,16 @@ package nara
 import (
 	"encoding/json"
 	"errors"
-	"github.com/shirou/gopsutil/host"
-	"github.com/shirou/gopsutil/load"
-	"github.com/sirupsen/logrus"
 	"io/ioutil"
 	"net"
 	"net/http"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/shirou/gopsutil/host"
+	"github.com/shirou/gopsutil/load"
+	"github.com/sirupsen/logrus"
 )
 
 type HostStats struct {
@@ -24,7 +25,10 @@ type IRL struct {
 	CountryCode string `json:"countryCode"`
 	City        string `json:"city"`
 	//ISP         string `json:"isp"`
-	//PublicIp    string `json:"query"`
+	PublicIp string `json:"publicIp"`
+}
+type IpContainer struct {
+	Ip string `json:"ip"`
 }
 
 func (ln *LocalNara) updateHostStatsForever() {
@@ -75,7 +79,7 @@ func (ln *LocalNara) updateHostStats() {
 }
 
 // https://stackoverflow.com/questions/23558425/how-do-i-get-the-local-ip-address-in-go
-func externalIP() (string, error) {
+func internalIP() (string, error) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
 		return "", err
@@ -140,5 +144,38 @@ func fetchIRL() (IRL, error) {
 		return irl, err
 	}
 
+	publicIp, err := fetchPublicIp()
+
+	if err != nil {
+		return irl, err
+	}
+	irl.PublicIp = publicIp.Ip
+
+	logrus.Debugf("public IP is %s", irl.PublicIp)
+
 	return irl, nil
+}
+
+func fetchPublicIp() (IpContainer, error) {
+	container := IpContainer{}
+	logrus.Debug("fetching public ip...")
+	resp, err := http.Get("https://api.ipify.org?format=json")
+
+	if err != nil {
+		return container, err
+	}
+
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+
+	if err != nil {
+		return container, err
+	}
+
+	err = json.Unmarshal(body, &container)
+	if err != nil {
+		return container, err
+	}
+
+	return container, nil
 }
