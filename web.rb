@@ -16,7 +16,7 @@ class Nara
     @name = name
     @status = {}
     @last_seen = nil
-    @first_seen_internally = Time.now.to_i
+    #@first_seen_internally = Time.now.to_i
     @api_url = ""
   end
 
@@ -65,7 +65,7 @@ class Nara
 
   def mark_if_missing
     time_last_seen = Time.now.to_i - last_seen.to_i
-    if time_last_seen > 60 && online?
+    if time_last_seen > 60 && (online? || time_last_seen > 3600)
       self_opinion["Online"] = "MISSING"
       status["LicensePlate"] = ""
       status["Flair"] = ""
@@ -324,7 +324,6 @@ get '/last_wave.json' do
   json({ wave: naraweb.last_wave, server: NaraWeb.hostname })
 end
 
-# Add at the bottom of your file (after other routes):
 get '/metrics' do
   content_type 'text/plain'
   lines = []
