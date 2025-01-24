@@ -323,3 +323,68 @@ end
 get '/last_wave.json' do
   json({ wave: naraweb.last_wave, server: NaraWeb.hostname })
 end
+
+# Add at the bottom of your file (after other routes):
+get '/metrics' do
+  content_type 'text/plain'
+  lines = []
+
+  # Optional: a "meta" metric to track Flair/LicensePlate as labels
+  lines << "# HELP nara_info Basic string data from each Nara"
+  lines << "# TYPE nara_info gauge"
+
+  # Numeric metrics
+  lines << "# HELP nara_online 1 if the Nara is ONLINE, else 0"
+  lines << "# TYPE nara_online gauge"
+
+  lines << "# HELP nara_buzz Buzz level reported by the Nara"
+  lines << "# TYPE nara_buzz gauge"
+
+  lines << "# HELP nara_chattiness Chattiness level reported by the Nara"
+  lines << "# TYPE nara_chattiness gauge"
+
+  lines << "# HELP nara_last_seen Unix timestamp when the Nara was last seen"
+  lines << "# TYPE nara_last_seen gauge"
+
+  lines << "# HELP nara_last_restart Unix timestamp when the Nara last restarted"
+  lines << "# TYPE nara_last_restart gauge"
+
+  lines << "# HELP nara_start_time Unix timestamp when the Nara started"
+  lines << "# TYPE nara_start_time gauge"
+
+  lines << "# HELP nara_uptime_seconds Uptime reported by the host"
+  lines << "# TYPE nara_uptime_seconds gauge"
+
+  lines << "# HELP nara_restarts_total Restart count from the Nara"
+  lines << "# TYPE nara_restarts_total counter"
+
+  # Loop through your Nara data as shown in /narae.json
+  naraweb.db.values.each do |obj|
+    data = obj.to_h
+    name = data[:Name]
+
+    # Add an info metric with strings as labels
+    # caution: big or frequently changing strings can create label sprawl
+    flair         = data[:Flair] || ""
+    license_plate = data[:LicensePlate] || ""
+    lines << "nara_info{name=\"#{name}\",flair=\"#{flair}\",license_plate=\"#{license_plate}\"} 1"
+
+    # Convert "ONLINE" => 1, everything else => 0
+    online_value = (data[:Online] == "ONLINE") ? 1 : 0
+    lines << "nara_online{name=\"#{name}\"} #{online_value}"
+
+    lines << "nara_buzz{name=\"#{name}\"} #{data[:Buzz]}"
+    lines << "nara_chattiness{name=\"#{name}\"} #{data[:Chattiness]}"
+
+    # Avoid writing nil; only emit metrics if we have real values
+    lines << "nara_last_seen{name=\"#{name}\"} #{data[:LastSeen]}" if data[:LastSeen]
+    lines << "nara_last_restart{name=\"#{name}\"} #{data[:LastRestart]}" if data[:LastRestart]
+    lines << "nara_start_time{name=\"#{name}\"} #{data[:StartTime]}" if data[:StartTime]
+    lines << "nara_uptime_seconds{name=\"#{name}\"} #{data[:Uptime]}" if data[:Uptime]
+
+    # 'Restarts' is a running count, so we use a counter metric
+    lines << "nara_restarts_total{name=\"#{name}\"} #{data[:Restarts]}"
+  end
+
+  lines.join("\n") + "\n"
+end
