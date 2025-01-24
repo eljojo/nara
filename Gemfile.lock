@@ -1,6 +1,7 @@
 GEM
   remote: https://rubygems.org/
   specs:
+    base64 (0.2.0)
     mqtt (0.6.0)
     multi_json (1.15.0)
     mustermann (3.0.0)
@@ -9,19 +10,20 @@ GEM
     puma (6.4.3)
       nio4r (~> 2.0)
     rack (2.2.9)
-    rack-protection (3.0.5)
-      rack
+    rack-protection (3.2.0)
+      base64 (>= 0.1.0)
+      rack (~> 2.2, >= 2.2.4)
     ruby2_keywords (0.0.5)
-    sinatra (3.0.5)
+    sinatra (3.2.0)
       mustermann (~> 3.0)
       rack (~> 2.2, >= 2.2.4)
-      rack-protection (= 3.0.5)
+      rack-protection (= 3.2.0)
       tilt (~> 2.0)
-    sinatra-contrib (3.0.5)
-      multi_json
+    sinatra-contrib (3.2.0)
+      multi_json (>= 0.0.2)
       mustermann (~> 3.0)
-      rack-protection (= 3.0.5)
-      sinatra (= 3.0.5)
+      rack-protection (= 3.2.0)
+      sinatra (= 3.2.0)
       tilt (~> 2.0)
     tilt (2.1.0)
 
@@ -32,7 +34,7 @@ DEPENDENCIES
   mqtt
   puma
   sinatra
-  sinatra-contrib
+  sinatra-contrib (> 3.0.5)
 
 BUNDLED WITH
-   2.4.3
+   2.5.22
