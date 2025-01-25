@@ -1,6 +1,6 @@
 with (import <nixpkgs> {});
 let
-  ruby = ruby_3_1;
+  ruby = ruby_3_3;
   env = bundlerEnv {
     name = "nara-web-bundler-env";
     inherit ruby;
