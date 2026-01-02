@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"os"
 	"github.com/bugsnag/bugsnag-go"
 	"github.com/eljojo/nara"
 	"github.com/sirupsen/logrus"
@@ -19,10 +20,10 @@ func main() {
 		ProjectPackages: []string{"main"},
 	})
 
-	mqttHostPtr := flag.String("mqtt-host", "tcp://hass.eljojo.casa:1883", "mqtt server hostname")
-	mqttUserPtr := flag.String("mqtt-user", "my_username", "mqtt server username")
-	mqttPassPtr := flag.String("mqtt-pass", "my_password", "mqtt server password")
-	naraIdPtr := flag.String("nara-id", "raspberry", "nara id")
+	mqttHostPtr := flag.String("mqtt-host", getEnv("MQTT_HOST", "tcp://hass.eljojo.casa:1883"), "mqtt server hostname")
+	mqttUserPtr := flag.String("mqtt-user", getEnv("MQTT_USER", "my_username"), "mqtt server username")
+	mqttPassPtr := flag.String("mqtt-pass", getEnv("MQTT_PASS", "my_password"), "mqtt server password")
+	naraIdPtr := flag.String("nara-id", getEnv("NARA_ID", "raspberry"), "nara id")
 	showNeighboursPtr := flag.Bool("show-neighbours", true, "show table with neighbourhood")
 	showNeighboursSpeedPtr := flag.Int("refresh-rate", 60, "refresh rate in seconds for neighbourhood table")
 	forceChattinessPtr := flag.Int("force-chattiness", -1, "specific chattiness to force, -1 for auto (default)")
@@ -49,4 +50,11 @@ func main() {
 		time.Sleep(10 * time.Millisecond)
 		runtime.Gosched() // https://blog.container-solutions.com/surprise-golang-thread-scheduling
 	}
+}
+
+func getEnv(key, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
+	}
+	return fallback
 }

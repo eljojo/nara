@@ -3,7 +3,7 @@ package nara
 import (
 	"fmt"
 
-	"github.com/shirou/gopsutil/host"
+	"github.com/shirou/gopsutil/v3/host"
 	"github.com/sirupsen/logrus"
 
 	"os"
