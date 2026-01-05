@@ -98,3 +98,26 @@ func TestNeighbourhoodMaintenance(t *testing.T) {
 		t.Errorf("Expected ClusterName %s, got %s", clusterNames[expectedIndex], observation.ClusterName)
 	}
 }
+
+func TestNeighbourhoodMaintenance_IncludesMe(t *testing.T) {
+	localNara := &LocalNara{
+		Me: NewNara("me"),
+	}
+	network := &Network{
+		local:         localNara,
+		Neighbourhood: make(map[string]*Nara),
+	}
+
+	// Ensure "me" has an observation
+	network.local.setMeObservation(NaraObservation{})
+
+	network.neighbourhoodMaintenance()
+
+	observation := network.local.getMeObservation()
+	if observation.ClusterName == "" {
+		t.Error("ClusterName for 'me' should be set after neighbourhoodMaintenance")
+	}
+	if observation.ClusterEmoji == "" {
+		t.Error("ClusterEmoji for 'me' should be set after neighbourhoodMaintenance")
+	}
+}

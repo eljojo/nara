@@ -11,7 +11,7 @@ import (
 func TestHttpApiJsonHandler(t *testing.T) {
 	ln := NewLocalNara("test-nara", "host", "user", "pass", -1)
 	network := ln.Network
-	
+
 	// Add a neighbour
 	otherNara := NewNara("other")
 	otherNara.Status.Flair = "🌟"
@@ -80,7 +80,7 @@ func TestReadOnlyLogic(t *testing.T) {
 func TestHttpMetricsHandler(t *testing.T) {
 	ln := NewLocalNara("test-nara", "host", "user", "pass", -1)
 	network := ln.Network
-	
+
 	otherNara := NewNara("other")
 	otherNara.Status.Flair = "🌟"
 	otherNara.Status.Observations["other"] = NaraObservation{Online: "ONLINE", Restarts: 5}
@@ -110,35 +110,5 @@ func TestHttpMetricsHandler(t *testing.T) {
 		if !strings.Contains(body, s) {
 			t.Errorf("expected metrics to contain %s", s)
 		}
-	}
-}
-
-func TestWaveMessageValidation(t *testing.T) {
-	wm := newWaveMessage("test", "hello")
-	if !wm.Valid() {
-		t.Error("expected wave message to be valid")
-	}
-
-	wm2 := WaveMessage{StartNara: "", Body: "hello"}
-	if wm2.Valid() {
-		t.Error("expected wave message with no StartNara to be invalid")
-	}
-
-	wm3 := WaveMessage{StartNara: "test", Body: ""}
-	if wm3.Valid() {
-		t.Error("expected wave message with no Body to be invalid")
-	}
-}
-
-func TestWaveMessageMarkAsSeen(t *testing.T) {
-	wm := newWaveMessage("test", "hello")
-	wm = wm.markAsSeen("nara1")
-
-	if !wm.hasSeen("nara1") {
-		t.Error("expected wm to be marked as seen by nara1")
-	}
-
-	if len(wm.SeenBy) != 1 {
-		t.Errorf("expected 1 seen token, got %d", len(wm.SeenBy))
 	}
 }

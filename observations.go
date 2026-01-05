@@ -62,7 +62,6 @@ func (nara *Nara) setObservation(name string, observation NaraObservation) {
 }
 
 func (network *Network) formOpinion() {
-	time.Sleep(5 * time.Second)
 	logrus.Printf("🕵️  forming opinions...")
 
 	if network.meName() != "blue-jay" {
@@ -170,6 +169,13 @@ func (network *Network) findStartingTimeFromNeighbourhoodForNara(name string) in
 }
 
 func (network *Network) recordObservationOnlineNara(name string) {
+	network.local.mu.Lock()
+	_, present := network.Neighbourhood[name]
+	network.local.mu.Unlock()
+	if !present && name != network.meName() {
+		network.importNara(NewNara(name))
+	}
+
 	observation := network.local.getObservation(name)
 
 	// "our" observation is mostly a mirror of what others think of us

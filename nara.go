@@ -24,10 +24,10 @@ type LocalNara struct {
 }
 
 type Nara struct {
-	Name      string
-	Hostname  string
-	Status    NaraStatus
-	mu        sync.Mutex
+	Name     string
+	Hostname string
+	Status   NaraStatus
+	mu       sync.Mutex
 	// remember to sync with setValuesFrom
 }
 

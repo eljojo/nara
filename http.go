@@ -4,10 +4,10 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"github.com/sirupsen/logrus"
 	"io/fs"
 	"net"
 	"net/http"
-	"github.com/sirupsen/logrus"
 )
 
 //go:embed nara-web/public/*
@@ -29,7 +29,6 @@ func (network *Network) startHttpServer(httpAddr string) error {
 
 	http.HandleFunc("/api.json", network.httpApiJsonHandler)
 	http.HandleFunc("/narae.json", network.httpNaraeJsonHandler)
-	http.HandleFunc("/last_wave.json", network.httpLastWaveJsonHandler)
 	http.HandleFunc("/metrics", network.httpMetricsHandler)
 	http.HandleFunc("/status/", network.httpStatusJsonHandler)
 	publicFS, _ := fs.Sub(staticContent, "nara-web/public")
@@ -94,19 +93,6 @@ func (network *Network) httpNaraeJsonHandler(w http.ResponseWriter, r *http.Requ
 
 	response := map[string]interface{}{
 		"naras":  naras,
-		"server": network.local.Me.Name,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
-}
-
-func (network *Network) httpLastWaveJsonHandler(w http.ResponseWriter, r *http.Request) {
-	network.local.mu.Lock()
-	defer network.local.mu.Unlock()
-
-	response := map[string]interface{}{
-		"wave":   network.LastWave,
 		"server": network.local.Me.Name,
 	}
 

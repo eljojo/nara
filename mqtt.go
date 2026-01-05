@@ -26,7 +26,6 @@ func (network *Network) subscribeHandlers(client mqtt.Client) {
 	subscribeMqtt(client, "nara/plaza/chau", network.chauHandler)
 	subscribeMqtt(client, "nara/newspaper/#", network.newspaperHandler)
 	subscribeMqtt(client, "nara/selfies/#", network.selfieHandler)
-	subscribeMqtt(client, "nara/wave", network.waveMqttHandler)
 }
 
 func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
@@ -75,35 +74,6 @@ func (network *Network) newspaperHandler(client mqtt.Client, msg mqtt.Message) {
 	json.Unmarshal(msg.Payload(), &status)
 
 	network.newspaperInbox <- NewspaperEvent{From: from, Status: status}
-}
-
-func (network *Network) waveMqttHandler(client mqtt.Client, msg mqtt.Message) {
-	var wm WaveMessage
-	json.Unmarshal(msg.Payload(), &wm)
-
-	network.local.mu.Lock()
-	network.LastWave = wm
-	network.local.mu.Unlock()
-
-	if wm.StartNara == network.meName() {
-		// if we started the wave, we don't need to process it again
-		// but we might want to log that it came back if it's the first time we see it back
-		if len(wm.SeenBy) > 1 && wm.hasSeen(network.meName()) {
-			seconds := float64(timeNowMs()-wm.CreatedAt) / 1000
-			logrus.Printf("🙌 message came back via MQTT, took %.2f seconds and was seen by %d narae", seconds, len(wm.SeenBy))
-		}
-		return
-	}
-
-	// IMPORTANT - avoids endless loops by not re-processing our own broadcasts
-	// this check is now redundant because of the one above, but kept for clarity
-	// if wm.StartNara == network.meName() { return }
-
-	if wm.Valid() {
-		network.waveMessageInbox <- wm
-	} else {
-		logrus.Printf("discarding invalid WaveMessage")
-	}
 }
 
 func subscribeMqtt(client mqtt.Client, topic string, handler func(client mqtt.Client, msg mqtt.Message)) {

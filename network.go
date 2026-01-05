@@ -20,8 +20,6 @@ type Network struct {
 	newspaperInbox   chan NewspaperEvent
 	chauInbox        chan Nara
 	selfieInbox      chan Nara
-	waveMessageInbox chan WaveMessage
-	LastWave         WaveMessage
 	ReadOnly         bool
 }
 
@@ -41,7 +39,6 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	network.chauInbox = make(chan Nara)
 	network.selfieInbox = make(chan Nara)
 	network.newspaperInbox = make(chan NewspaperEvent)
-	network.waveMessageInbox = make(chan WaveMessage)
 	network.skippingEvents = false
 	network.Buzz = newBuzz()
 	network.Mqtt = initializeMQTT(network.mqttOnConnectHandler(), network.meName(), host, user, pass)
@@ -67,6 +64,7 @@ func (network *Network) Start(serveUI bool, httpAddr string) {
 
 	time.Sleep(1 * time.Second)
 
+	time.Sleep(4 * time.Second) // wait for others to announce
 	go network.formOpinion()
 	go network.observationMaintenance()
 	if !network.ReadOnly {
@@ -76,7 +74,6 @@ func (network *Network) Start(serveUI bool, httpAddr string) {
 	go network.processSelfieEvents()
 	go network.processChauEvents()
 	go network.processNewspaperEvents()
-	go network.processWaveMessageEvents()
 	go network.maintenanceBuzz()
 }
 
@@ -105,72 +102,63 @@ func (network *Network) announceForever() {
 
 func (network *Network) processNewspaperEvents() {
 	for {
-		newspaperEvent := <-network.newspaperInbox
-		logrus.Debugf("newspaperHandler update from %s", newspaperEvent.From)
-
-		network.local.mu.Lock()
-		nara, present := network.Neighbourhood[newspaperEvent.From]
-		network.local.mu.Unlock()
-		if present {
-			nara.mu.Lock()
-			nara.Status.setValuesFrom(newspaperEvent.Status)
-			nara.mu.Unlock()
-		} else {
-			logrus.Printf("%s posted a newspaper story (whodis?)", newspaperEvent.From)
-			nara = NewNara(newspaperEvent.From)
-			if network.local.Me.Status.Chattiness > 0 && !network.ReadOnly {
-				network.heyThere()
-			}
-			network.importNara(nara)
-		}
-
-		network.recordObservationOnlineNara(newspaperEvent.From)
+		network.handleNewspaperEvent(<-network.newspaperInbox)
 	}
 }
 
-func (network *Network) importNara(nara *Nara) {
-	nara.mu.Lock()
-	defer nara.mu.Unlock()
+func (network *Network) handleNewspaperEvent(event NewspaperEvent) {
+	logrus.Debugf("newspaperHandler update from %s", event.From)
 
-	// deadlock prevention: ensure we always lock in the same order
 	network.local.mu.Lock()
-	defer network.local.mu.Unlock()
-
-	n, present := network.Neighbourhood[nara.Name]
+	nara, present := network.Neighbourhood[event.From]
+	network.local.mu.Unlock()
 	if present {
-		n.setValuesFrom(*nara)
+		nara.mu.Lock()
+		nara.Status.setValuesFrom(event.Status)
+		nara.mu.Unlock()
 	} else {
-		network.Neighbourhood[nara.Name] = nara
+		logrus.Printf("%s posted a newspaper story (whodis?)", event.From)
+		nara = NewNara(event.From)
+		nara.Status.setValuesFrom(event.Status)
+		if network.local.Me.Status.Chattiness > 0 && !network.ReadOnly {
+			network.heyThere()
+		}
+		network.importNara(nara)
 	}
+
+	network.recordObservationOnlineNara(event.From)
 }
 
 func (network *Network) processSelfieEvents() {
 	for {
-		nara := <-network.selfieInbox
-
-		network.importNara(&nara)
-		logrus.Debugf("%s just took a selfie", nara.Name)
-		network.recordObservationOnlineNara(nara.Name)
-
-		network.Buzz.increase(1)
+		network.handleSelfieEvent(<-network.selfieInbox)
 	}
+}
+
+func (network *Network) handleSelfieEvent(nara Nara) {
+	network.importNara(&nara)
+	logrus.Debugf("%s just took a selfie", nara.Name)
+	network.recordObservationOnlineNara(nara.Name)
+
+	network.Buzz.increase(1)
 }
 
 func (network *Network) processHeyThereEvents() {
 	for {
-		heyThere := <-network.heyThereInbox
-
-		logrus.Printf("%s says: hey there!", heyThere.From)
-		network.recordObservationOnlineNara(heyThere.From)
-
-		// artificially slow down so if two naras boot at the same time they both get the message
-		time.Sleep(1 * time.Second)
-
-		if !network.ReadOnly {
-			network.selfie()
-		}
-		network.Buzz.increase(1)
+		network.handleHeyThereEvent(<-network.heyThereInbox)
 	}
+}
+
+func (network *Network) handleHeyThereEvent(heyThere HeyThereEvent) {
+	logrus.Printf("%s says: hey there!", heyThere.From)
+	network.recordObservationOnlineNara(heyThere.From)
+
+	// artificially slow down so if two naras boot at the same time they both get the message
+	if !network.ReadOnly {
+		time.Sleep(1 * time.Second)
+		network.selfie()
+	}
+	network.Buzz.increase(1)
 }
 
 func (network *Network) heyThere() {
@@ -210,26 +198,28 @@ func (network *Network) selfie() {
 
 func (network *Network) processChauEvents() {
 	for {
-		nara := <-network.chauInbox
-
-		if nara.Name == network.meName() || nara.Name == "" {
-			continue
-		}
-
-		network.local.mu.Lock()
-		existingNara, present := network.Neighbourhood[nara.Name]
-		network.local.mu.Unlock()
-		if present {
-			existingNara.setValuesFrom(nara)
-		}
-
-		observation := network.local.getObservation(nara.Name)
-		observation.Online = "OFFLINE"
-		observation.LastSeen = time.Now().Unix()
-		network.local.setObservation(nara.Name, observation)
-
-		logrus.Printf("%s: chau!", nara.Name)
+		network.handleChauEvent(<-network.chauInbox)
 	}
+}
+
+func (network *Network) handleChauEvent(nara Nara) {
+	if nara.Name == network.meName() || nara.Name == "" {
+		return
+	}
+
+	network.local.mu.Lock()
+	existingNara, present := network.Neighbourhood[nara.Name]
+	network.local.mu.Unlock()
+	if present {
+		existingNara.setValuesFrom(nara)
+	}
+
+	observation := network.local.getObservation(nara.Name)
+	observation.Online = "OFFLINE"
+	observation.LastSeen = time.Now().Unix()
+	network.local.setObservation(nara.Name, observation)
+
+	logrus.Printf("%s: chau!", nara.Name)
 	network.Buzz.increase(2)
 }
 
@@ -246,7 +236,6 @@ func (network *Network) Chau() {
 	network.local.setMeObservation(observation)
 
 	network.postEvent(topic, network.local.Me)
-	network.local.mu.Unlock()
 }
 
 func (network *Network) oldestNaraBarrio() Nara {
@@ -404,4 +393,20 @@ func (network *Network) getNara(name string) Nara {
 		return *nara
 	}
 	return Nara{}
+}
+
+func (network *Network) importNara(nara *Nara) {
+	nara.mu.Lock()
+	defer nara.mu.Unlock()
+
+	// deadlock prevention: ensure we always lock in the same order
+	network.local.mu.Lock()
+	defer network.local.mu.Unlock()
+
+	n, present := network.Neighbourhood[nara.Name]
+	if present {
+		n.setValuesFrom(*nara)
+	} else {
+		network.Neighbourhood[nara.Name] = nara
+	}
 }

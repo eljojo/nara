@@ -10,7 +10,10 @@ var clusterNames = []string{"martini", "sand", "ocean", "basil", "watermelon", "
 var BarrioEmoji = []string{"🍸", "🏖", "🌊", "🌿", "🍉", "🍧", "🧙", "👽", "🍕", "🗿", "🛸", "💎", "🐠", "🏄", "🍑", "🥪"}
 
 func (network *Network) neighbourhoodMaintenance() {
-	for _, name := range network.NeighbourhoodNames() {
+	names := network.NeighbourhoodNames()
+	names = append(names, network.meName())
+
+	for _, name := range names {
 		observation := network.local.getObservation(name)
 		vibe := calculateVibe(name, time.Now())
 
