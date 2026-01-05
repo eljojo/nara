@@ -1,6 +1,6 @@
 module github.com/eljojo/nara
 
-go 1.21
+go 1.24.0
 
 require (
 	github.com/bugsnag/bugsnag-go v2.6.2+incompatible
