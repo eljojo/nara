@@ -1,6 +1,7 @@
 package nara
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -138,6 +139,12 @@ func initializeMQTT(onConnect mqtt.OnConnectHandler, name string, host string, u
 	opts.SetPassword(pass)
 	opts.SetOrderMatters(false)
 	opts.SetAutoReconnect(false)
+
+	if strings.HasPrefix(host, "ssl://") || strings.HasPrefix(host, "tls://") {
+		tlsConfig := &tls.Config{InsecureSkipVerify: true}
+		opts.SetTLSConfig(tlsConfig)
+	}
+
 	opts.OnConnect = onConnect
 	opts.OnConnectionLost = func(client mqtt.Client, err error) {
 		logrus.Printf("MQTT Connection lost: %v", err)
