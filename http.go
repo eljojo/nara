@@ -1,21 +1,19 @@
 package nara
 
 import (
-	"encoding/json"
 	"embed"
-	"io/fs"
+	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
-
-	"github.com/bugsnag/bugsnag-go"
 	"github.com/sirupsen/logrus"
 )
 
 //go:embed nara-web/public/*
 var staticContent embed.FS
 
-func (network *Network) startHttpServer(serveUI bool, httpAddr string) error {
+func (network *Network) startHttpServer(httpAddr string) error {
 	listen_interface := httpAddr
 	if listen_interface == "" {
 		listen_interface = ":0"
@@ -27,94 +25,24 @@ func (network *Network) startHttpServer(serveUI bool, httpAddr string) error {
 	}
 
 	port := listener.Addr().(*net.TCPAddr).Port
-	network.local.Me.HttpPort = port
-	logrus.Printf("Listening on port %d", port)
+	logrus.Printf("Listening for HTTP on port %d", port)
 
-	http.HandleFunc("/wave_message", network.httpWaveMessageHandler)
-	http.HandleFunc("/message", network.httpNewWaveMessageHandler)
-
-	if serveUI {
-		http.HandleFunc("/api.json", network.httpApiJsonHandler)
-		http.HandleFunc("/narae.json", network.httpNaraeJsonHandler)
-		http.HandleFunc("/last_wave.json", network.httpLastWaveJsonHandler)
-		http.HandleFunc("/metrics", network.httpMetricsHandler)
-		http.HandleFunc("/status/", network.httpStatusJsonHandler)
-		publicFS, _ := fs.Sub(staticContent, "nara-web/public")
-		http.Handle("/", http.FileServer(http.FS(publicFS)))
-	} else {
-		// also when not serving UI it's useful to have these endpoints
-		// TODO: maybe we should just serve them all the time?
-		// http.HandleFunc("/api.json", network.httpApiJsonHandler)
-		// http.HandleFunc("/narae.json", network.httpNaraeJsonHandler)
-		// http.HandleFunc("/last_wave.json", network.httpLastWaveJsonHandler)
-		// http.HandleFunc("/status/", network.httpStatusJsonHandler)
-		http.HandleFunc("/", network.httpHomepageHandler)
-	}
+	http.HandleFunc("/api.json", network.httpApiJsonHandler)
+	http.HandleFunc("/narae.json", network.httpNaraeJsonHandler)
+	http.HandleFunc("/last_wave.json", network.httpLastWaveJsonHandler)
+	http.HandleFunc("/metrics", network.httpMetricsHandler)
+	http.HandleFunc("/status/", network.httpStatusJsonHandler)
+	publicFS, _ := fs.Sub(staticContent, "nara-web/public")
+	http.Handle("/", http.FileServer(http.FS(publicFS)))
 
 	go http.Serve(listener, nil)
 	return nil
 }
 
-func (network *Network) httpHomepageHandler(w http.ResponseWriter, r *http.Request) {
-	logrus.Printf("Serving Status to %s", r.RemoteAddr)
-	w.Header().Set("Content-Type", "application/json")
-
-	nara := network.local.Me
-	nara.mu.Lock()
-	payload, err := json.Marshal(nara)
-	nara.mu.Unlock()
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	fmt.Fprint(w, string(payload))
-}
-
-func (network *Network) httpWaveMessageHandler(w http.ResponseWriter, r *http.Request) {
-	logrus.Printf("Receiving WaveMessage from %s", r.RemoteAddr)
-	decoder := json.NewDecoder(r.Body)
-	var wm WaveMessage
-	err := decoder.Decode(&wm)
-	if err != nil {
-		bugsnag.Notify(err)
-		logrus.Error(err)
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	if wm.Valid() {
-		network.waveMessageInbox <- wm
-	} else {
-		logrus.Printf("discarding invalid WaveMessage")
-		w.WriteHeader(http.StatusBadRequest)
-	}
-}
-
-func (network *Network) httpNewWaveMessageHandler(w http.ResponseWriter, r *http.Request) {
-	logrus.Printf("Creating new WaveMessage at request from %s", r.RemoteAddr)
-
-	err := r.ParseForm()
-	if err != nil {
-		bugsnag.Notify(err)
-		logrus.Error(err)
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	wm := newWaveMessage(network.meName(), r.FormValue("body"))
-
-	if wm.Valid() {
-		network.waveMessageInbox <- wm
-	} else {
-		logrus.Printf("discarding invalid WaveMessage")
-		w.WriteHeader(http.StatusBadRequest)
-	}
-}
-
 func (network *Network) httpApiJsonHandler(w http.ResponseWriter, r *http.Request) {
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
-	
+
 	allNarae := network.getNarae()
 
 	var naras []map[string]interface{}

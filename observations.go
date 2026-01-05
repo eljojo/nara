@@ -1,10 +1,14 @@
 package nara
 
 import (
+	"encoding/json"
+	"net/http"
 	"time"
 
 	"github.com/sirupsen/logrus"
 )
+
+const BlueJayURL = "https://nara.network/narae.json"
 
 type NaraObservation struct {
 	Online       string
@@ -61,6 +65,10 @@ func (network *Network) formOpinion() {
 	time.Sleep(5 * time.Second)
 	logrus.Printf("🕵️  forming opinions...")
 
+	if network.meName() != "blue-jay" {
+		network.fetchOpinionsFromBlueJay()
+	}
+
 	names := network.NeighbourhoodNames()
 
 	for _, name := range names {
@@ -88,6 +96,52 @@ func (network *Network) formOpinion() {
 		network.local.setObservation(name, observation)
 	}
 	logrus.Printf("👀  opinions formed")
+}
+
+func (network *Network) fetchOpinionsFromBlueJay() {
+	client := http.Client{
+		Timeout: 5 * time.Second,
+	}
+	resp, err := client.Get(BlueJayURL)
+	if err != nil {
+		logrus.Warnf("failed to fetch opinions from blue-jay: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		logrus.Warnf("blue-jay returned non-OK status: %d", resp.StatusCode)
+		return
+	}
+
+	var data struct {
+		Naras []struct {
+			Name        string
+			StartTime   int64
+			Restarts    int64
+			LastRestart int64
+		}
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		logrus.Warnf("failed to decode blue-jay response: %v", err)
+		return
+	}
+
+	logrus.Printf("📋 fetched %d opinions from blue-jay", len(data.Naras))
+
+	for _, n := range data.Naras {
+		if n.Name == "" {
+			continue
+		}
+		observation := network.local.getObservation(n.Name)
+		if n.StartTime > 0 {
+			observation.StartTime = n.StartTime
+		}
+		observation.Restarts = n.Restarts
+		observation.LastRestart = n.LastRestart
+		network.local.setObservation(n.Name, observation)
+	}
 }
 
 func (network *Network) findStartingTimeFromNeighbourhoodForNara(name string) int64 {

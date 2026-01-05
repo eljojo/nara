@@ -26,8 +26,6 @@ type LocalNara struct {
 type Nara struct {
 	Name      string
 	Hostname  string
-	HttpPort  int
-	MeshPort  int
 	Status    NaraStatus
 	mu        sync.Mutex
 	// remember to sync with setValuesFrom
