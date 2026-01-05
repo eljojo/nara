@@ -25,10 +25,10 @@ func TestScenario_Interaction(t *testing.T) {
 
 	// 4. Simulate Nara B sending a Newspaper with status
 	statusB := NaraStatus{
-		Flair: "🌊",
+		Flair:      "🌊",
 		Chattiness: 50,
 		Observations: map[string]NaraObservation{
-			"B": {StartTime: 2000, Online: "ONLINE"},
+			"B":        {StartTime: 2000, Online: "ONLINE"},
 			"blue-jay": {StartTime: 1000, Online: "ONLINE"},
 		},
 	}

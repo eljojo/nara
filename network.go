@@ -9,18 +9,18 @@ import (
 )
 
 type Network struct {
-	Neighbourhood    map[string]*Nara
-	Buzz             *Buzz
-	LastHeyThere     int64
-	LastSelfie       int64
-	skippingEvents   bool
-	local            *LocalNara
-	Mqtt             mqtt.Client
-	heyThereInbox    chan HeyThereEvent
-	newspaperInbox   chan NewspaperEvent
-	chauInbox        chan Nara
-	selfieInbox      chan Nara
-	ReadOnly         bool
+	Neighbourhood  map[string]*Nara
+	Buzz           *Buzz
+	LastHeyThere   int64
+	LastSelfie     int64
+	skippingEvents bool
+	local          *LocalNara
+	Mqtt           mqtt.Client
+	heyThereInbox  chan HeyThereEvent
+	newspaperInbox chan NewspaperEvent
+	chauInbox      chan Nara
+	selfieInbox    chan Nara
+	ReadOnly       bool
 }
 
 type NewspaperEvent struct {
@@ -64,7 +64,6 @@ func (network *Network) Start(serveUI bool, httpAddr string) {
 
 	time.Sleep(1 * time.Second)
 
-	time.Sleep(4 * time.Second) // wait for others to announce
 	go network.formOpinion()
 	go network.observationMaintenance()
 	if !network.ReadOnly {

@@ -62,10 +62,18 @@ func (nara *Nara) setObservation(name string, observation NaraObservation) {
 }
 
 func (network *Network) formOpinion() {
-	logrus.Printf("🕵️  forming opinions...")
-
+	wait := 1 * time.Minute
 	if network.meName() != "blue-jay" {
 		network.fetchOpinionsFromBlueJay()
+	} else {
+		wait = 10 * time.Minute
+	}
+
+	logrus.Printf("🕵️  forming opinions in %v...", wait)
+	time.Sleep(wait)
+
+	if network.meName() != "blue-jay" {
+		network.fetchOpinionsFromBlueJay() // fetch again just in case
 	}
 
 	names := network.NeighbourhoodNames()
