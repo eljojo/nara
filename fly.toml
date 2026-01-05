@@ -1,0 +1,27 @@
+app = "nara-web"
+
+kill_signal = "SIGINT"
+kill_timeout = "5s"
+
+[env]
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 20
+    hard_limit = 25
+
+  [[http_service.checks]]
+    interval = "15s"
+    timeout = "2s"
+    grace_period = "5s"
+    method = "GET"
+    path = "/"
