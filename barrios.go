@@ -12,7 +12,7 @@ var BarrioEmoji = []string{"🍸", "🏖", "🌊", "🌿", "🍉", "🍧", "🧙
 func (network *Network) neighbourhoodMaintenance() {
 	for _, name := range network.NeighbourhoodNames() {
 		observation := network.local.getObservation(name)
-		vibe := network.calculateVibe(name)
+		vibe := calculateVibe(name, time.Now())
 
 		clusterIndex := vibe % uint64(len(clusterNames))
 		observation.ClusterName = clusterNames[clusterIndex]
@@ -22,12 +22,16 @@ func (network *Network) neighbourhoodMaintenance() {
 }
 
 func (network *Network) calculateVibe(name string) uint64 {
+	return calculateVibe(name, time.Now())
+}
+
+func calculateVibe(name string, t time.Time) uint64 {
 	// vibe is based on the name and the current month
 	// so neighbourhoods shift over time but stay consistent across the network
 	hasher := sha256.New()
 	hasher.Write([]byte(name))
 
-	year, month, _ := time.Now().Date()
+	year, month, _ := t.Date()
 	hasher.Write([]byte(string(rune(year))))
 	hasher.Write([]byte(string(rune(month))))
 
