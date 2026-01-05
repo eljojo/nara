@@ -10,6 +10,8 @@ import (
 
 const BlueJayURL = "https://nara.network/narae.json"
 
+var OpinionDelayOverride time.Duration = 0
+
 type NaraObservation struct {
 	Online       string
 	StartTime    int64
@@ -62,18 +64,21 @@ func (nara *Nara) setObservation(name string, observation NaraObservation) {
 }
 
 func (network *Network) formOpinion() {
-	wait := 1 * time.Minute
-	if network.meName() != "blue-jay" {
-		network.fetchOpinionsFromBlueJay()
+	if OpinionDelayOverride > 0 {
+		logrus.Printf("🕵️  forming opinions (overridden) in %v...", OpinionDelayOverride)
+		time.Sleep(OpinionDelayOverride)
 	} else {
-		wait = 10 * time.Minute
+		wait := 1 * time.Minute
+		if network.meName() == "blue-jay" {
+			wait = 10 * time.Minute
+		}
+
+		logrus.Printf("🕵️  forming opinions in %v...", wait)
+		time.Sleep(wait)
 	}
 
-	logrus.Printf("🕵️  forming opinions in %v...", wait)
-	time.Sleep(wait)
-
 	if network.meName() != "blue-jay" {
-		network.fetchOpinionsFromBlueJay() // fetch again just in case
+		network.fetchOpinionsFromBlueJay()
 	}
 
 	names := network.NeighbourhoodNames()

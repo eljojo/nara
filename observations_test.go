@@ -65,6 +65,9 @@ func TestObservation_OpinionFormation(t *testing.T) {
 	n3.setObservation(target, NaraObservation{StartTime: 100})
 	network.importNara(n3)
 
+	OpinionDelayOverride = 1 * time.Millisecond
+	defer func() { OpinionDelayOverride = 0 }()
+
 	// findStartingTimeFromNeighbourhoodForNara uses simple majority/plurality
 	// 100 appears twice, 200 appears once.
 	startTime := network.findStartingTimeFromNeighbourhoodForNara(target)

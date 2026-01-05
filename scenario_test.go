@@ -1,6 +1,7 @@
 package nara
 
 import (
+	"time"
 	"testing"
 )
 
@@ -48,6 +49,9 @@ func TestScenario_Interaction(t *testing.T) {
 		},
 	}
 	network.handleNewspaperEvent(NewspaperEvent{From: "C", Status: statusC})
+
+	OpinionDelayOverride = 1 * time.Millisecond
+	defer func() { OpinionDelayOverride = 0 }()
 
 	// 7. Form opinion and check consensus for B
 	network.formOpinion()
