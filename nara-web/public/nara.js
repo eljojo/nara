@@ -48,7 +48,9 @@ function NaraList() {
         .then(response => response.json())
         .then(function(data) {
           if(fetchDate > lastDate) {
-            const filteredNaras = data.naras.filter(nara => nara.LastSeen > yesterday);
+            const filteredNaras = data.naras
+              .filter(nara => nara.LastSeen > yesterday)
+              .sort((a, b) => b.LastSeen - a.LastSeen);
             const newData = Object.assign(data, { filteredNaras: filteredNaras });
             setData(newData);
             lastDate = fetchDate;
