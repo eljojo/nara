@@ -1,12 +1,10 @@
 package nara
 
 import (
-	"bytes"
 	"encoding/json"
 	"embed"
 	"io/fs"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"net/http"
 
@@ -20,7 +18,7 @@ var staticContent embed.FS
 func (network *Network) startHttpServer(serveUI bool, httpAddr string) error {
 	listen_interface := httpAddr
 	if listen_interface == "" {
-		listen_interface = fmt.Sprintf("%s:0", network.local.Me.Ip)
+		listen_interface = ":0"
 	}
 
 	listener, err := net.Listen("tcp", listen_interface)
@@ -29,12 +27,9 @@ func (network *Network) startHttpServer(serveUI bool, httpAddr string) error {
 	}
 
 	port := listener.Addr().(*net.TCPAddr).Port
-	url := fmt.Sprintf("http://%s:%d", network.local.Me.Ip, port)
-	network.local.Me.ApiUrl = url
 	network.local.Me.HttpPort = port
-	logrus.Printf("Listening on %s", url)
+	logrus.Printf("Listening on port %d", port)
 
-	http.HandleFunc("/ping_events", network.httpPingDbHandler)
 	http.HandleFunc("/wave_message", network.httpWaveMessageHandler)
 	http.HandleFunc("/message", network.httpNewWaveMessageHandler)
 
@@ -59,20 +54,6 @@ func (network *Network) startHttpServer(serveUI bool, httpAddr string) error {
 
 	go http.Serve(listener, nil)
 	return nil
-}
-
-func (network *Network) httpPingDbHandler(w http.ResponseWriter, r *http.Request) {
-	pingEvents := network.pingEvents()
-
-	logrus.Printf("Serving Ping DB to %s", r.RemoteAddr)
-	w.Header().Set("Content-Type", "application/json")
-
-	payload, err := json.Marshal(pingEvents)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	fmt.Fprint(w, string(payload))
 }
 
 func (network *Network) httpHomepageHandler(w http.ResponseWriter, r *http.Request) {
@@ -129,44 +110,6 @@ func (network *Network) httpNewWaveMessageHandler(w http.ResponseWriter, r *http
 		logrus.Printf("discarding invalid WaveMessage")
 		w.WriteHeader(http.StatusBadRequest)
 	}
-}
-
-func (network *Network) httpPostWaveMessage(name string, wm WaveMessage) error {
-	jsonValue, _ := json.Marshal(wm)
-	nara := network.getNara(name)
-	url := fmt.Sprintf("%s/wave_message", nara.BestApiUrl())
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonValue))
-	if err != nil {
-		return err
-	}
-
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("failed to post waveMessage to %s, response code: %d", name, resp.StatusCode)
-	}
-
-	return nil
-}
-
-func httpFetchJson(url string, result interface{}) error {
-	resp, err := http.Get(url)
-
-	if err != nil {
-		return fmt.Errorf("failed to get from url %s: %w", url, err)
-	}
-
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-
-	if err != nil {
-		return fmt.Errorf("failed to get from url %s: %w", url, err)
-	}
-
-	err = json.Unmarshal(body, result)
-	if err != nil {
-		return fmt.Errorf("failed to decode response: %w %s", err, body)
-	}
-
-	return nil
 }
 
 func (network *Network) httpApiJsonHandler(w http.ResponseWriter, r *http.Request) {
@@ -318,7 +261,7 @@ func (network *Network) httpTraefikJsonHandler(w http.ResponseWriter, r *http.Re
 	services := make(map[string]interface{})
 
 	for _, nara := range network.Neighbourhood {
-		if nara.Status.Observations[nara.Name].Online != "ONLINE" || nara.ApiUrl == "" {
+		if nara.Status.Observations[nara.Name].Online != "ONLINE" || nara.Name == "" {
 			continue
 		}
 
@@ -340,7 +283,7 @@ func (network *Network) httpTraefikJsonHandler(w http.ResponseWriter, r *http.Re
 
 		services[serviceName] = map[string]interface{}{
 			"loadBalancer": map[string]interface{}{
-				"servers": []map[string]string{{"url": nara.ApiUrl}},
+				"servers": []map[string]string{{"url": "http://" + domain}},
 			},
 		}
 	}

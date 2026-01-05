@@ -53,26 +53,7 @@ func (nara *Nara) setObservation(name string, observation NaraObservation) {
 
 func (network *Network) formOpinion() {
 	time.Sleep(5 * time.Second)
-	err := network.fetchPingEventsFromNeighbouringNara()
-
-	// try again lol - need to learn how to do this more elegantly
-	if err != nil {
-		time.Sleep(5 * time.Second)
-		err = network.fetchPingEventsFromNeighbouringNara()
-	}
-	if err != nil {
-		time.Sleep(5 * time.Second)
-		err = network.fetchPingEventsFromNeighbouringNara()
-	}
-
-	if err == nil {
-		logrus.Printf("🏓 seeded ping data from neighbour nara")
-	} else {
-		logrus.Printf("couldn't fetch ping events from neighbour: %v", err)
-	}
-	time.Sleep(10 * time.Second)
 	logrus.Printf("🕵️  forming opinions...")
-
 	for _, name := range network.NeighbourhoodNames() {
 		observation := network.local.getObservation(name)
 		startTime := network.findStartingTimeFromNeighbourhoodForNara(name)

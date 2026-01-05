@@ -1,13 +1,7 @@
 package nara
 
 import (
-	"encoding/json"
-	"errors"
-	"io/ioutil"
-	"net"
-	"net/http"
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/host"
@@ -18,17 +12,6 @@ import (
 type HostStats struct {
 	Uptime  uint64
 	LoadAvg float64
-}
-
-type IRL struct {
-	CountryName string `json:"country"`
-	CountryCode string `json:"countryCode"`
-	City        string `json:"city"`
-	//ISP         string `json:"isp"`
-	PublicIp string `json:"publicIp"`
-}
-type IpContainer struct {
-	Ip string `json:"ip"`
 }
 
 func (ln *LocalNara) updateHostStatsForever() {
@@ -76,106 +59,4 @@ func (ln *LocalNara) updateHostStats() {
 	}
 
 	ln.Me.Status.Chattiness = chattiness
-}
-
-// https://stackoverflow.com/questions/23558425/how-do-i-get-the-local-ip-address-in-go
-func internalIP() (string, error) {
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		return "", err
-	}
-	for _, iface := range ifaces {
-		if iface.Flags&net.FlagUp == 0 {
-			continue // interface down
-		}
-		if iface.Flags&net.FlagLoopback != 0 {
-			continue // loopback interface
-		}
-		addrs, err := iface.Addrs()
-		if err != nil {
-			return "", err
-		}
-		for _, addr := range addrs {
-			var ip net.IP
-			switch v := addr.(type) {
-			case *net.IPNet:
-				ip = v.IP
-			case *net.IPAddr:
-				ip = v.IP
-			}
-			if ip == nil || ip.IsLoopback() {
-				continue
-			}
-			ip = ip.To4()
-			if ip == nil {
-				continue // not an ipv4 address
-			}
-
-			// skip non-tailscale IPs
-			if !strings.HasPrefix(ip.String(), "100.") {
-				continue
-			}
-
-			return ip.String(), nil
-		}
-	}
-	return "", errors.New("are you connected to the network?")
-}
-
-func fetchIRL() (IRL, error) {
-	irl := IRL{}
-
-	logrus.Debug("fetching ip data...")
-	resp, err := http.Get("http://ip-api.com/json/")
-
-	if err != nil {
-		return irl, err
-	}
-
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-
-	if err != nil {
-		return irl, err
-	}
-
-	err = json.Unmarshal(body, &irl)
-	if err != nil {
-		return irl, err
-	}
-
-	publicIp, err := fetchPublicIp()
-
-	if err != nil {
-		return irl, err
-	}
-	irl.PublicIp = publicIp.Ip
-
-	logrus.Debugf("public IP is %s", irl.PublicIp)
-
-	return irl, nil
-}
-
-func fetchPublicIp() (IpContainer, error) {
-	container := IpContainer{}
-	logrus.Debug("fetching public ip...")
-	resp, err := http.Get("https://api.ipify.org?format=json")
-
-	if err != nil {
-		return container, err
-	}
-
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-
-	if err != nil {
-		return container, err
-	}
-
-	err = json.Unmarshal(body, &container)
-	if err != nil {
-		return container, err
-	}
-
-	return container, nil
 }

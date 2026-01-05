@@ -1,74 +1,39 @@
 package nara
 
 import (
-	"github.com/pbnjay/clustering"
-	"sort"
+	"crypto/sha256"
+	"encoding/binary"
+	"time"
 )
 
 var clusterNames = []string{"martini", "sand", "ocean", "basil", "watermelon", "sorbet", "wizard", "bohemian", "pizza", "moai", "ufo", "gem", "fish", "surf", "peach", "sandwich"}
 var BarrioEmoji = []string{"🍸", "🏖", "🌊", "🌿", "🍉", "🍧", "🧙", "👽", "🍕", "🗿", "🛸", "💎", "🐠", "🏄", "🍑", "🥪"}
 
 func (network *Network) neighbourhoodMaintenance() {
-	distanceMap := network.prepareClusteringDistanceMap()
-	clusters := clustering.NewDistanceMapClusterSet(distanceMap)
+	for _, name := range network.NeighbourhoodNames() {
+		observation := network.local.getObservation(name)
+		vibe := network.calculateVibe(name)
 
-	// the Threshold defines how mini ms between nodes to consider as one cluster
-	clustering.Cluster(clusters, clustering.Threshold(50), clustering.CompleteLinkage())
-	sortedClusters := network.sortClusters(clusters)
-
-	for clusterIndex, cluster := range sortedClusters {
-		for _, name := range cluster {
-			observation := network.local.getObservation(name)
-			observation.ClusterName = clusterNames[clusterIndex]
-			observation.ClusterEmoji = BarrioEmoji[clusterIndex]
-			network.local.setObservation(name, observation)
-		}
+		clusterIndex := vibe % len(clusterNames)
+		observation.ClusterName = clusterNames[clusterIndex]
+		observation.ClusterEmoji = BarrioEmoji[clusterIndex]
+		network.local.setObservation(name, observation)
 	}
 }
 
-func (network Network) prepareClusteringDistanceMap() clustering.DistanceMap {
-	distanceMap := make(clustering.DistanceMap)
+func (network *Network) calculateVibe(name string) int {
+	// vibe is based on the name and the current month
+	// so neighbourhoods shift over time but stay consistent across the network
+	hasher := sha256.New()
+	hasher.Write([]byte(name))
 
-	network.local.mu.Lock()
-	defer network.local.mu.Unlock()
-	for _, nara := range network.Neighbourhood {
-		// first create distance map with all pings from the perspective of each neighbour
-		distanceMap[nara.Name] = nara.pingMap()
-	}
+	year, month, _ := time.Now().Date()
+	hasher.Write([]byte(string(rune(year))))
+	hasher.Write([]byte(string(rune(month))))
 
-	distanceMap[network.meName()] = network.local.Me.pingMap()
+	hash := hasher.Sum(nil)
+	// use the first 8 bytes of hash as a uint64
+	vibe := binary.BigEndian.Uint64(hash[:8])
 
-	return distanceMap
-}
-
-func (network Network) sortClusters(clusters clustering.ClusterSet) [][]string {
-	res := make([][]string, 0)
-
-	clusters.EachCluster(-1, func(clusterIndex int) {
-		cl := make([]string, 0)
-		clusters.EachItem(clusterIndex, func(nameInterface clustering.ClusterItem) {
-			name := nameInterface.(string)
-			cl = append(cl, name)
-		})
-		res = append(res, cl)
-	})
-
-	sort.SliceStable(res, func(i, j int) bool {
-		a := network.sortingKeyForCluster(res[i])
-		b := network.sortingKeyForCluster(res[j])
-
-		return a < b
-	})
-
-	return res
-}
-
-func (network Network) sortingKeyForCluster(cluster []string) string {
-	oldest := cluster[0]
-	for _, name := range cluster {
-		if name < oldest {
-			oldest = name
-		}
-	}
-	return oldest
+	return int(vibe)
 }

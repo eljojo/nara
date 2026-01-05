@@ -16,7 +16,6 @@ type Network struct {
 	skippingEvents   bool
 	local            *LocalNara
 	Mqtt             mqtt.Client
-	pingInbox        chan PingEvent
 	heyThereInbox    chan HeyThereEvent
 	newspaperInbox   chan NewspaperEvent
 	chauInbox        chan Nara
@@ -38,7 +37,6 @@ type HeyThereEvent struct {
 func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Network {
 	network := &Network{local: localNara}
 	network.Neighbourhood = make(map[string]*Nara)
-	network.pingInbox = make(chan PingEvent)
 	network.heyThereInbox = make(chan HeyThereEvent)
 	network.chauInbox = make(chan Nara)
 	network.selfieInbox = make(chan Nara)
@@ -77,7 +75,6 @@ func (network *Network) Start(serveUI bool, httpAddr string) {
 	if !network.ReadOnly {
 		go network.announceForever()
 	}
-	go network.processPingEvents()
 	go network.processHeyThereEvents()
 	go network.processSelfieEvents()
 	go network.processChauEvents()
@@ -376,22 +373,6 @@ func (network Network) mostRestarts() Nara {
 	return result
 }
 
-func (network *Network) anyNaraApiUrl() (string, error) {
-	network.local.mu.Lock()
-	defer network.local.mu.Unlock()
-
-	for name, nara := range network.Neighbourhood {
-		observation := network.local.getObservationLocked(name)
-		if !observation.isOnline() {
-			continue
-		}
-
-		return nara.BestApiUrl(), nil
-	}
-
-	return "", fmt.Errorf("no neighbour nara with api available")
-}
-
 func (network Network) NeighbourhoodNames() []string {
 	var result []string
 	network.local.mu.Lock()
@@ -416,9 +397,12 @@ func (network Network) NeighbourhoodOnlineNames() []string {
 	return result
 }
 
-func (network Network) getNara(name string) Nara {
+func (network *Network) getNara(name string) Nara {
 	network.local.mu.Lock()
-	nara, _ := network.Neighbourhood[name]
+	nara, present := network.Neighbourhood[name]
 	network.local.mu.Unlock()
-	return *nara
+	if present {
+		return *nara
+	}
+	return Nara{}
 }

@@ -1,8 +1,6 @@
 package nara
 
 import (
-	"github.com/enescakir/emoji"
-	"github.com/sirupsen/logrus"
 	"io/ioutil"
 	"os"
 	"strings"
@@ -59,11 +57,7 @@ func (ln LocalNara) Flair() string {
 
 func (ln LocalNara) LicensePlate() string {
 	barrio := ln.getMeObservation().ClusterEmoji
-	country, err := emoji.CountryFlag(ln.Me.IRL.CountryCode)
-	if err != nil {
-		logrus.Panic("lol failed to get country emoji lmao", ln.Me.IRL.CountryCode, err)
-	}
-	return barrio + " " + country.String()
+	return barrio
 }
 
 func isRaspberryPi() bool {

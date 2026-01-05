@@ -2,7 +2,6 @@ package nara
 
 import (
 	"github.com/sirupsen/logrus"
-	"sort"
 	"time"
 )
 
@@ -96,22 +95,12 @@ func (network *Network) processWaveMessageEvents() {
 
 		waveMessage = waveMessage.markAsSeen(network.meName())
 
-		naraByPing := network.NeighbourhoodOnlineNames()
-		sort.Slice(naraByPing, func(i, j int) bool {
-			a := naraByPing[i]
-			b := naraByPing[j]
-			return network.local.Me.getPing(a) < network.local.Me.getPing(b)
-		})
-		nextNara := waveMessage.nextNara(naraByPing)
+		// WaveMessages are now propagated exclusively via MQTT
+		// We post it back to the plaza and others will pick it up
+		// This is simpler and doesn't require knowing IPs
+		logrus.Printf("propagating WaveMessage via MQTT")
 
-		err := network.httpPostWaveMessage(nextNara, waveMessage)
-		if err == nil {
-			logrus.Printf("posted WaveMessage to %s", nextNara)
-		} else {
-			logrus.Errorf("failed to post WaveMessage to %s: %v", nextNara, err)
-		}
-
-		topic := "nara/debug/wave_message"
+		topic := "nara/wave"
 		network.postEvent(topic, waveMessage)
 	}
 }

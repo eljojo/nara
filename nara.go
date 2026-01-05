@@ -26,13 +26,9 @@ type LocalNara struct {
 type Nara struct {
 	Name      string
 	Hostname  string
-	Ip        string
-	ApiUrl    string
 	HttpPort  int
 	MeshPort  int
-	IRL       IRL
 	Status    NaraStatus
-	pingStats map[string]float64
 	mu        sync.Mutex
 	// remember to sync with setValuesFrom
 }
@@ -61,38 +57,8 @@ func NewLocalNara(name string, mqtt_host string, mqtt_user string, mqtt_pass str
 
 	ln.updateHostStats()
 
-	irl, err := fetchIRL()
-	if (err == nil && irl != IRL{}) {
-		ln.Me.IRL = irl
-		logrus.Printf("🪐 Hello from %s, %s", irl.City, irl.CountryName)
-	} else {
-		logrus.Panic("couldn't find IRL data", err)
-	}
-
-	ip, err := internalIP()
-	if err == nil {
-		ln.Me.Ip = ip
-	} else {
-		logrus.Panic("couldn't find internal IP", err)
-	}
-
 	hostinfo, _ := host.Info()
 	ln.Me.Hostname = hostinfo.Hostname
-
-	previousStatus, err := fetchStatusFromApi(name)
-	if err != nil { // lol
-		previousStatus, err = fetchStatusFromApi(name)
-	}
-	if err != nil { // lol
-		previousStatus, err = fetchStatusFromApi(name)
-	}
-	if err != nil {
-		logrus.Debugf("failed to fetch status from API: %v", err)
-	} else {
-		logrus.Print("fetched last status from nara-web API")
-		// logrus.Debugf("%v", previousStatus)
-		ln.Me.Status.setValuesFrom(previousStatus)
-	}
 
 	observation := ln.getMeObservation()
 	observation.LastRestart = time.Now().Unix()
@@ -103,7 +69,6 @@ func NewLocalNara(name string, mqtt_host string, mqtt_user string, mqtt_pass str
 
 func NewNara(name string) *Nara {
 	nara := &Nara{Name: name}
-	nara.pingStats = make(map[string]float64)
 	nara.Status.Observations = make(map[string]NaraObservation)
 	return nara
 }
@@ -116,9 +81,8 @@ func (ln *LocalNara) Start(serveUI bool, readOnly bool, httpAddr string) {
 
 	go ln.updateHostStatsForever()
 	ln.Network.Start(serveUI, httpAddr)
-	if !readOnly {
-		go ln.measurePingForever()
-	} else {
+
+	if readOnly {
 		logrus.Printf("🤫 Read-only mode: not pinging or announcing")
 	}
 }
@@ -151,19 +115,6 @@ func (ln LocalNara) isBooting() bool {
 	return ln.uptime() < 120
 }
 
-func fetchStatusFromApi(name string) (NaraStatus, error) {
-	status := &NaraStatus{}
-
-	logrus.Debugf("fetching status from API for %s", name)
-	url := fmt.Sprintf("https://nara.network/status/%s.json", name)
-	err := httpFetchJson(url, status)
-	if err != nil {
-		return *status, fmt.Errorf("failed to get status from api: %w", err)
-	}
-
-	return *status, nil
-}
-
 func (nara *Nara) setValuesFrom(other Nara) {
 	nara.mu.Lock()
 	defer nara.mu.Unlock()
@@ -175,15 +126,6 @@ func (nara *Nara) setValuesFrom(other Nara) {
 
 	if other.Hostname != "" {
 		nara.Hostname = other.Hostname
-	}
-	if other.Ip != "" {
-		nara.Ip = other.Ip
-	}
-	if other.ApiUrl != "" {
-		nara.ApiUrl = other.ApiUrl
-	}
-	if (other.IRL != IRL{}) {
-		nara.IRL = other.IRL
 	}
 	nara.Status.setValuesFrom(other.Status)
 }
@@ -205,16 +147,4 @@ func (ns *NaraStatus) setValuesFrom(other NaraStatus) {
 			ns.Observations[name] = nara
 		}
 	}
-}
-
-func (nara Nara) BestApiUrl() string {
-	return nara.ApiUrl
-}
-
-func (nara Nara) BestPingIp() string {
-	if nara.IRL.PublicIp != "" {
-		return nara.IRL.PublicIp
-	}
-	logrus.Debugf("pinging tailscale IP :( %s %s", nara.Ip, nara.Name)
-	return nara.Ip
 }

@@ -25,17 +25,7 @@ func (network *Network) subscribeHandlers(client mqtt.Client) {
 	subscribeMqtt(client, "nara/plaza/chau", network.chauHandler)
 	subscribeMqtt(client, "nara/newspaper/#", network.newspaperHandler)
 	subscribeMqtt(client, "nara/selfies/#", network.selfieHandler)
-	subscribeMqtt(client, "nara/ping/#", network.pingHandler)
 	subscribeMqtt(client, "nara/wave", network.waveMqttHandler)
-	subscribeMqtt(client, "nara/debug/clear_ping", network.mqttClearPingHandler)
-}
-
-func (network *Network) pingHandler(client mqtt.Client, msg mqtt.Message) {
-	var pingEvent PingEvent
-	json.Unmarshal(msg.Payload(), &pingEvent)
-	network.pingInbox <- pingEvent
-
-	// network.recordObservationOnlineNara(pingEvent.From) // dubious
 }
 
 func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
@@ -121,11 +111,6 @@ func subscribeMqtt(client mqtt.Client, topic string, handler func(client mqtt.Cl
 	}
 }
 
-func (network *Network) postPing(ping PingEvent) {
-	topic := fmt.Sprintf("%s/%s/%s", "nara/ping", ping.From, ping.To)
-	network.postEvent(topic, ping)
-}
-
 func (network *Network) postEvent(topic string, event interface{}) {
 	logrus.Debugf("posting on %s", topic)
 
@@ -174,13 +159,4 @@ func initializeMQTT(onConnect mqtt.OnConnectHandler, name string, host string, u
 	}
 	client := mqtt.NewClient(opts)
 	return client
-}
-func (network *Network) mqttClearPingHandler(client mqtt.Client, msg mqtt.Message) {
-	logrus.Printf("🏓 MQTT: /nara/debug/clear_ping: Clearing ping stats and increasing Buzz")
-	network.local.mu.Lock()
-	for _, nara := range network.Neighbourhood {
-		nara.clearPing()
-	}
-	network.Buzz.increase(200)
-	network.local.mu.Unlock()
 }
