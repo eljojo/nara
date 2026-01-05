@@ -38,7 +38,7 @@ func main() {
 	httpAddrPtr := flag.String("http-addr", getEnv("HTTP_ADDR", ""), "http server address (e.g. :8080)")
 	naraIdPtr := flag.String("nara-id", getEnv("NARA_ID", hostname), "nara id")
 	showNeighboursPtr := flag.Bool("show-neighbours", true, "show table with neighbourhood")
-	showNeighboursSpeedPtr := flag.Int("refresh-rate", 60, "refresh rate in seconds for neighbourhood table")
+	showNeighboursSpeedPtr := flag.Int("refresh-rate", 600, "refresh rate in seconds for neighbourhood table")
 	forceChattinessPtr := flag.Int("force-chattiness", -1, "specific chattiness to force, -1 for auto (default)")
 	verbosePtr := flag.Bool("verbose", false, "log debug stuff")
 	readOnlyPtr := flag.Bool("read-only", false, "watch the network without sending any messages")

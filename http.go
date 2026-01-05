@@ -37,7 +37,6 @@ func (network *Network) startHttpServer(serveUI bool, httpAddr string) error {
 		http.HandleFunc("/api.json", network.httpApiJsonHandler)
 		http.HandleFunc("/narae.json", network.httpNaraeJsonHandler)
 		http.HandleFunc("/last_wave.json", network.httpLastWaveJsonHandler)
-		http.HandleFunc("/traefik.json", network.httpTraefikJsonHandler)
 		http.HandleFunc("/metrics", network.httpMetricsHandler)
 		http.HandleFunc("/status/", network.httpStatusJsonHandler)
 		publicFS, _ := fs.Sub(staticContent, "nara-web/public")
@@ -115,9 +114,11 @@ func (network *Network) httpNewWaveMessageHandler(w http.ResponseWriter, r *http
 func (network *Network) httpApiJsonHandler(w http.ResponseWriter, r *http.Request) {
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
+	
+	allNarae := network.getNarae()
 
 	var naras []map[string]interface{}
-	for _, nara := range network.Neighbourhood {
+	for _, nara := range allNarae {
 		nara.mu.Lock()
 		statusMap := make(map[string]interface{})
 		jsonStatus, _ := json.Marshal(nara.Status)
@@ -140,8 +141,10 @@ func (network *Network) httpNaraeJsonHandler(w http.ResponseWriter, r *http.Requ
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
 
+	allNarae := network.getNarae()
+
 	var naras []map[string]interface{}
-	for _, nara := range network.Neighbourhood {
+	for _, nara := range allNarae {
 		obs := nara.getObservation(nara.Name)
 		nara.mu.Lock()
 		naraMap := map[string]interface{}{
@@ -198,6 +201,17 @@ func (network *Network) httpStatusJsonHandler(w http.ResponseWriter, r *http.Req
 	json.NewEncoder(w).Encode(nara.Status)
 }
 
+func (network *Network) getNarae() []*Nara {
+	var naras []*Nara
+	for _, nara := range network.Neighbourhood {
+		naras = append(naras, nara)
+	}
+	if !network.ReadOnly {
+		naras = append(naras, network.local.Me)
+	}
+	return naras
+}
+
 func (network *Network) httpMetricsHandler(w http.ResponseWriter, r *http.Request) {
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
@@ -223,7 +237,9 @@ func (network *Network) httpMetricsHandler(w http.ResponseWriter, r *http.Reques
 	lines = append(lines, "# HELP nara_restarts_total Restart count from the Nara")
 	lines = append(lines, "# TYPE nara_restarts_total counter")
 
-	for _, nara := range network.Neighbourhood {
+	allNarae := network.getNarae()
+
+	for _, nara := range allNarae {
 		obs := nara.getObservation(nara.Name)
 
 		nara.mu.Lock()
@@ -260,47 +276,4 @@ func (network *Network) httpMetricsHandler(w http.ResponseWriter, r *http.Reques
 	for _, line := range lines {
 		fmt.Fprintln(w, line)
 	}
-}
-
-func (network *Network) httpTraefikJsonHandler(w http.ResponseWriter, r *http.Request) {
-	network.local.mu.Lock()
-	defer network.local.mu.Unlock()
-
-	routers := make(map[string]interface{})
-	services := make(map[string]interface{})
-
-	for _, nara := range network.Neighbourhood {
-		obs := nara.getObservation(nara.Name)
-		if obs.Online != "ONLINE" || nara.Name == "" {
-			continue
-		}
-
-		name := nara.Name
-		domain := fmt.Sprintf("%s.nara.network", name)
-		serviceName := fmt.Sprintf("%s-api", name)
-
-		routers[serviceName] = map[string]interface{}{
-			"entryPoints": []string{"public"},
-			"rule":        fmt.Sprintf("Host(`%s`)", domain), // Fixed backticks for Host rule
-			"service":     serviceName,
-		}
-		routers[fmt.Sprintf("%s-secure", serviceName)] = map[string]interface{}{
-			"entryPoints": []string{"public-secure"},
-			"rule":        fmt.Sprintf("Host(`%s`)", domain), // Fixed backticks for Host rule
-			"service":     serviceName,
-			"tls":         map[string]interface{}{},
-		}
-
-		services[serviceName] = map[string]interface{}{
-			"loadBalancer": map[string]interface{}{
-				"servers": []map[string]string{{"url": "http://" + domain}},
-			},
-		}
-	}
-
-	response := map[string]interface{}{
-		"http": map[string]interface{}{"routers": routers, "services": services},
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
 }

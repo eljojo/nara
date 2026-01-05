@@ -41,16 +41,27 @@ func TestHttpApiJsonHandler(t *testing.T) {
 	}
 
 	naras := response["naras"].([]interface{})
-	if len(naras) != 1 {
-		t.Errorf("expected 1 nara in neighbourhood, got %v", len(naras))
+	if len(naras) != 2 {
+		t.Errorf("expected 2 naras, got %v", len(naras))
 	}
 
-	nara0 := naras[0].(map[string]interface{})
-	if nara0["Name"] != "other" {
-		t.Errorf("expected nara name to be other, got %v", nara0["Name"])
+	foundOther := false
+	foundMe := false
+	for _, n := range naras {
+		nara := n.(map[string]interface{})
+		if nara["Name"] == "other" {
+			foundOther = true
+			if nara["Flair"] != "🌟" {
+				t.Errorf("expected other nara flair to be 🌟, got %v", nara["Flair"])
+			}
+		}
+		if nara["Name"] == "test-nara" {
+			foundMe = true
+		}
 	}
-	if nara0["Flair"] != "🌟" {
-		t.Errorf("expected nara flair to be 🌟, got %v", nara0["Flair"])
+
+	if !foundOther || !foundMe {
+		t.Errorf("expected to find both other and me in the naras list, foundOther: %v, foundMe: %v", foundOther, foundMe)
 	}
 }
 
