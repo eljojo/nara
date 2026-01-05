@@ -43,8 +43,10 @@ jobs:
           docker push $IMAGE_ID:latest
           docker push $IMAGE_ID:${{ github.sha }}
 
-      - name: Install Flyctl
+      - name: Setup flyctl
         uses: superfly/flyctl-actions/setup-flyctl@v1
+        with:
+          version: latest
 
       - name: Deploy to Fly
         env:
@@ -52,4 +54,4 @@ jobs:
         run: |
           IMAGE_ID=ghcr.io/${{ github.repository }}
           IMAGE_ID=$(echo $IMAGE_ID | tr '[A-Z]' '[a-z]')
-          fly deploy --image $IMAGE_ID:${{ github.sha }} --remote-only
+          flyctl deploy --app nara-web --image "$IMAGE_ID:${{ github.sha }}"
