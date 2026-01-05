@@ -118,10 +118,11 @@ func (network *Network) httpApiJsonHandler(w http.ResponseWriter, r *http.Reques
 
 	var naras []map[string]interface{}
 	for _, nara := range network.Neighbourhood {
-		// we need to merge Name into Status to match legacy API
+		nara.mu.Lock()
 		statusMap := make(map[string]interface{})
 		jsonStatus, _ := json.Marshal(nara.Status)
 		json.Unmarshal(jsonStatus, &statusMap)
+		nara.mu.Unlock()
 		statusMap["Name"] = nara.Name
 		naras = append(naras, statusMap)
 	}
@@ -141,19 +142,22 @@ func (network *Network) httpNaraeJsonHandler(w http.ResponseWriter, r *http.Requ
 
 	var naras []map[string]interface{}
 	for _, nara := range network.Neighbourhood {
+		obs := nara.getObservation(nara.Name)
+		nara.mu.Lock()
 		naraMap := map[string]interface{}{
 			"Name":         nara.Name,
 			"Flair":        nara.Status.Flair,
 			"LicensePlate": nara.Status.LicensePlate,
 			"Buzz":         nara.Status.Buzz,
 			"Chattiness":   nara.Status.Chattiness,
-			"LastSeen":     nara.Status.Observations[nara.Name].LastSeen,
-			"LastRestart":  nara.Status.Observations[nara.Name].LastRestart,
-			"Online":       nara.Status.Observations[nara.Name].Online,
-			"StartTime":    nara.Status.Observations[nara.Name].StartTime,
-			"Restarts":     nara.Status.Observations[nara.Name].Restarts,
+			"LastSeen":     obs.LastSeen,
+			"LastRestart":  obs.LastRestart,
+			"Online":       obs.Online,
+			"StartTime":    obs.StartTime,
+			"Restarts":     obs.Restarts,
 			"Uptime":       nara.Status.HostStats.Uptime,
 		}
+		nara.mu.Unlock()
 		naras = append(naras, naraMap)
 	}
 
@@ -220,17 +224,22 @@ func (network *Network) httpMetricsHandler(w http.ResponseWriter, r *http.Reques
 	lines = append(lines, "# TYPE nara_restarts_total counter")
 
 	for _, nara := range network.Neighbourhood {
-		obs := nara.Status.Observations[nara.Name]
+		obs := nara.getObservation(nara.Name)
 
+		nara.mu.Lock()
 		lines = append(lines, fmt.Sprintf(`nara_info{name="%s",flair="%s",license_plate="%s"} 1`, nara.Name, nara.Status.Flair, nara.Status.LicensePlate))
+		buzz := nara.Status.Buzz
+		chattiness := nara.Status.Chattiness
+		uptime := nara.Status.HostStats.Uptime
+		nara.mu.Unlock()
 
 		onlineValue := 0
 		if obs.Online == "ONLINE" {
 			onlineValue = 1
 		}
 		lines = append(lines, fmt.Sprintf(`nara_online{name="%s"} %d`, nara.Name, onlineValue))
-		lines = append(lines, fmt.Sprintf(`nara_buzz{name="%s"} %d`, nara.Name, nara.Status.Buzz))
-		lines = append(lines, fmt.Sprintf(`nara_chattiness{name="%s"} %d`, nara.Name, nara.Status.Chattiness))
+		lines = append(lines, fmt.Sprintf(`nara_buzz{name="%s"} %d`, nara.Name, buzz))
+		lines = append(lines, fmt.Sprintf(`nara_chattiness{name="%s"} %d`, nara.Name, chattiness))
 
 		if obs.LastSeen > 0 {
 			lines = append(lines, fmt.Sprintf(`nara_last_seen{name="%s"} %d`, nara.Name, obs.LastSeen))
@@ -241,8 +250,8 @@ func (network *Network) httpMetricsHandler(w http.ResponseWriter, r *http.Reques
 		if obs.StartTime > 0 {
 			lines = append(lines, fmt.Sprintf(`nara_start_time{name="%s"} %d`, nara.Name, obs.StartTime))
 		}
-		if nara.Status.HostStats.Uptime > 0 {
-			lines = append(lines, fmt.Sprintf(`nara_uptime_seconds{name="%s"} %d`, nara.Name, nara.Status.HostStats.Uptime))
+		if uptime > 0 {
+			lines = append(lines, fmt.Sprintf(`nara_uptime_seconds{name="%s"} %d`, nara.Name, uptime))
 		}
 		lines = append(lines, fmt.Sprintf(`nara_restarts_total{name="%s"} %d`, nara.Name, obs.Restarts))
 	}
@@ -261,7 +270,8 @@ func (network *Network) httpTraefikJsonHandler(w http.ResponseWriter, r *http.Re
 	services := make(map[string]interface{})
 
 	for _, nara := range network.Neighbourhood {
-		if nara.Status.Observations[nara.Name].Online != "ONLINE" || nara.Name == "" {
+		obs := nara.getObservation(nara.Name)
+		if obs.Online != "ONLINE" || nara.Name == "" {
 			continue
 		}
 

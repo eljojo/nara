@@ -83,7 +83,7 @@ func (network *Network) Start(serveUI bool, httpAddr string) {
 	go network.maintenanceBuzz()
 }
 
-func (network Network) meName() string {
+func (network *Network) meName() string {
 	return network.local.Me.Name
 }
 
@@ -134,6 +134,8 @@ func (network *Network) processNewspaperEvents() {
 func (network *Network) importNara(nara *Nara) {
 	nara.mu.Lock()
 	defer nara.mu.Unlock()
+
+	// deadlock prevention: ensure we always lock in the same order
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
 
@@ -247,20 +249,20 @@ func (network *Network) Chau() {
 	network.local.setMeObservation(observation)
 
 	network.postEvent(topic, network.local.Me)
+	network.local.mu.Unlock()
 }
 
-func (network Network) oldestNaraBarrio() Nara {
+func (network *Network) oldestNaraBarrio() Nara {
 	result := *network.local.Me
 	oldest := int64(network.local.getMeObservation().StartTime)
 	myClusterName := network.local.getMeObservation().ClusterName
-
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
 
 	for name, nara := range network.Neighbourhood {
 		// question: do we follow our opinion of their neighbourhood or their opinion?
 		obs := network.local.getObservationLocked(name)
-		if !obs.isOnline() {
+		if obs.Online != "ONLINE" {
 			continue
 		}
 		if obs.ClusterName != myClusterName {
@@ -277,7 +279,7 @@ func (network Network) oldestNaraBarrio() Nara {
 	return result
 }
 
-func (network Network) oldestNara() Nara {
+func (network *Network) oldestNara() Nara {
 	result := *network.local.Me
 	oldest := int64(network.local.getMeObservation().StartTime)
 
@@ -286,7 +288,7 @@ func (network Network) oldestNara() Nara {
 
 	for name, nara := range network.Neighbourhood {
 		obs := network.local.getObservationLocked(name)
-		if !obs.isOnline() {
+		if obs.Online != "ONLINE" {
 			continue
 		}
 		if oldest <= obs.StartTime && name > result.Name {
@@ -300,7 +302,7 @@ func (network Network) oldestNara() Nara {
 	return result
 }
 
-func (network Network) youngestNaraBarrio() Nara {
+func (network *Network) youngestNaraBarrio() Nara {
 	result := *network.local.Me
 	youngest := int64(network.local.getMeObservation().StartTime)
 	myClusterName := network.local.getMeObservation().ClusterName
@@ -310,7 +312,7 @@ func (network Network) youngestNaraBarrio() Nara {
 
 	for name, nara := range network.Neighbourhood {
 		obs := network.local.getObservationLocked(name)
-		if !obs.isOnline() {
+		if obs.Online != "ONLINE" {
 			continue
 		}
 		if obs.ClusterName != myClusterName {
@@ -327,7 +329,7 @@ func (network Network) youngestNaraBarrio() Nara {
 	return result
 }
 
-func (network Network) youngestNara() Nara {
+func (network *Network) youngestNara() Nara {
 	result := *network.local.Me
 	youngest := int64(network.local.getMeObservation().StartTime)
 
@@ -336,7 +338,7 @@ func (network Network) youngestNara() Nara {
 
 	for name, nara := range network.Neighbourhood {
 		obs := network.local.getObservationLocked(name)
-		if !obs.isOnline() {
+		if obs.Online != "ONLINE" {
 			continue
 		}
 		if youngest >= obs.StartTime && name < result.Name {
@@ -350,7 +352,7 @@ func (network Network) youngestNara() Nara {
 	return result
 }
 
-func (network Network) mostRestarts() Nara {
+func (network *Network) mostRestarts() Nara {
 	result := *network.local.Me
 	most_restarts := network.local.getMeObservation().Restarts
 
@@ -359,7 +361,7 @@ func (network Network) mostRestarts() Nara {
 
 	for name, nara := range network.Neighbourhood {
 		obs := network.local.getObservationLocked(name)
-		if !obs.isOnline() {
+		if obs.Online != "ONLINE" {
 			continue
 		}
 		if most_restarts >= obs.Restarts && name > result.Name {
@@ -373,7 +375,7 @@ func (network Network) mostRestarts() Nara {
 	return result
 }
 
-func (network Network) NeighbourhoodNames() []string {
+func (network *Network) NeighbourhoodNames() []string {
 	var result []string
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
@@ -383,7 +385,7 @@ func (network Network) NeighbourhoodNames() []string {
 	return result
 }
 
-func (network Network) NeighbourhoodOnlineNames() []string {
+func (network *Network) NeighbourhoodOnlineNames() []string {
 	var result []string
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()

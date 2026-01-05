@@ -14,7 +14,13 @@ func (network *Network) neighbourhoodMaintenance() {
 		observation := network.local.getObservation(name)
 		vibe := calculateVibe(name, time.Now())
 
-		clusterIndex := vibe % uint64(len(clusterNames))
+		if len(clusterNames) == 0 {
+			continue
+		}
+
+		vibeMod := vibe % uint64(len(clusterNames))
+		clusterIndex := int(vibeMod)
+
 		observation.ClusterName = clusterNames[clusterIndex]
 		observation.ClusterEmoji = BarrioEmoji[clusterIndex]
 		network.local.setObservation(name, observation)

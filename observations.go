@@ -16,7 +16,7 @@ type NaraObservation struct {
 	ClusterEmoji string
 }
 
-func (localNara LocalNara) getMeObservation() NaraObservation {
+func (localNara *LocalNara) getMeObservation() NaraObservation {
 	return localNara.getObservation(localNara.Me.Name)
 }
 
@@ -24,13 +24,17 @@ func (localNara *LocalNara) setMeObservation(observation NaraObservation) {
 	localNara.setObservation(localNara.Me.Name, observation)
 }
 
-func (localNara LocalNara) getObservation(name string) NaraObservation {
+func (localNara *LocalNara) getObservation(name string) NaraObservation {
 	observation := localNara.Me.getObservation(name)
 	return observation
 }
 
-func (localNara LocalNara) getObservationLocked(name string) NaraObservation {
-	observation := localNara.Me.getObservation(name)
+func (localNara *LocalNara) getObservationLocked(name string) NaraObservation {
+	// this is called when localNara.mu is already held
+	// but we still need to lock localNara.Me.mu
+	localNara.Me.mu.Lock()
+	observation, _ := localNara.Me.Status.Observations[name]
+	localNara.Me.mu.Unlock()
 	return observation
 }
 
@@ -40,8 +44,10 @@ func (localNara *LocalNara) setObservation(name string, observation NaraObservat
 	localNara.mu.Unlock()
 }
 
-func (nara Nara) getObservation(name string) NaraObservation {
+func (nara *Nara) getObservation(name string) NaraObservation {
+	nara.mu.Lock()
 	observation, _ := nara.Status.Observations[name]
+	nara.mu.Unlock()
 	return observation
 }
 
@@ -54,7 +60,10 @@ func (nara *Nara) setObservation(name string, observation NaraObservation) {
 func (network *Network) formOpinion() {
 	time.Sleep(5 * time.Second)
 	logrus.Printf("🕵️  forming opinions...")
-	for _, name := range network.NeighbourhoodNames() {
+
+	names := network.NeighbourhoodNames()
+
+	for _, name := range names {
 		observation := network.local.getObservation(name)
 		startTime := network.findStartingTimeFromNeighbourhoodForNara(name)
 		if startTime > 0 {
@@ -81,9 +90,8 @@ func (network *Network) formOpinion() {
 	logrus.Printf("👀  opinions formed")
 }
 
-func (network Network) findStartingTimeFromNeighbourhoodForNara(name string) int64 {
+func (network *Network) findStartingTimeFromNeighbourhoodForNara(name string) int64 {
 	times := make(map[int64]int)
-
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
 	for _, nara := range network.Neighbourhood {
@@ -149,10 +157,9 @@ func (network *Network) recordObservationOnlineNara(name string) {
 	network.local.setObservation(name, observation)
 }
 
-func (network Network) findRestartCountFromNeighbourhoodForNara(name string) int64 {
+func (network *Network) findRestartCountFromNeighbourhoodForNara(name string) int64 {
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
-
 	var maxSeen int64 = 0
 
 	for _, nara := range network.Neighbourhood {
@@ -165,9 +172,8 @@ func (network Network) findRestartCountFromNeighbourhoodForNara(name string) int
 	return maxSeen
 }
 
-func (network Network) findLastRestartFromNeighbourhoodForNara(name string) int64 {
+func (network *Network) findLastRestartFromNeighbourhoodForNara(name string) int64 {
 	values := make(map[int64]int)
-
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
 	for _, nara := range network.Neighbourhood {
@@ -193,11 +199,18 @@ func (network Network) findLastRestartFromNeighbourhoodForNara(name string) int6
 
 func (network *Network) observationMaintenance() {
 	for {
+		network.local.Me.mu.Lock()
+		observations := make(map[string]NaraObservation)
+		for name, obs := range network.local.Me.Status.Observations {
+			observations[name] = obs
+		}
+		network.local.Me.mu.Unlock()
+
 		now := time.Now().Unix()
 
-		for name, observation := range network.local.Me.Status.Observations {
+		for name, observation := range observations {
 			// only do maintenance on naras that are online
-			if observation.Online != "ONLINE" {
+			if !observation.isOnline() {
 				if observation.ClusterName != "" {
 					// reset cluster for offline naras
 					observation.ClusterName = ""
