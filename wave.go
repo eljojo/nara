@@ -76,6 +76,10 @@ func (network *Network) processWaveMessageEvents() {
 
 		if waveMessage.hasSeen(network.meName()) {
 			seconds := float64(timeNowMs()-waveMessage.CreatedAt) / 1000
+			if network.ReadOnly {
+				logrus.Printf("🙌 message seen, took %.2f seconds and was seen by %d narae", seconds, len(waveMessage.SeenBy))
+				continue
+			}
 			count := len(waveMessage.SeenBy)
 			logrus.Printf("🙌 message came back, took %.2f seconds and was seen by %d narae", seconds, count)
 
@@ -83,6 +87,10 @@ func (network *Network) processWaveMessageEvents() {
 				topic := "nara/wave"
 				network.postEvent(topic, waveMessage)
 			}
+			continue
+		}
+
+		if network.ReadOnly {
 			continue
 		}
 
@@ -100,7 +108,7 @@ func (network *Network) processWaveMessageEvents() {
 		if err == nil {
 			logrus.Printf("posted WaveMessage to %s", nextNara)
 		} else {
-			logrus.Errorf("failed to post WaveMessage to %s: %w", nextNara, err)
+			logrus.Errorf("failed to post WaveMessage to %s: %v", nextNara, err)
 		}
 
 		topic := "nara/debug/wave_message"

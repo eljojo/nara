@@ -13,3 +13,8 @@ events are shared over [mqtt](https://en.wikipedia.org/wiki/MQTT) and nara obser
 the current network is composed of various raspberry pis and virtual machines deployed all over the world!
 
 more details will come eventually, stay tuned! if you have thoughts, let me know [@eljojo](https://twitter.com/eljojo)
+
+### Usage
+
+- `--read-only`: Connect to the network but do not send any messages.
+- `--serve-ui`: Serve the web UI (formerly provided by the Ruby app) at `/`.

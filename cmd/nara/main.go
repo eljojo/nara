@@ -3,6 +3,8 @@ package main
 import (
 	"flag"
 	"os"
+	"net/http"
+	"crypto/tls"
 	"github.com/bugsnag/bugsnag-go"
 	"github.com/eljojo/nara"
 	"github.com/sirupsen/logrus"
@@ -18,6 +20,9 @@ func main() {
 	bugsnag.Configure(bugsnag.Configuration{
 		APIKey:          "0bd8e595fccf5f1befe9151c3a32ea61",
 		ProjectPackages: []string{"main"},
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
 	})
 
 	mqttHostPtr := flag.String("mqtt-host", getEnv("MQTT_HOST", "tcp://hass.eljojo.casa:1883"), "mqtt server hostname")
@@ -28,6 +33,8 @@ func main() {
 	showNeighboursSpeedPtr := flag.Int("refresh-rate", 60, "refresh rate in seconds for neighbourhood table")
 	forceChattinessPtr := flag.Int("force-chattiness", -1, "specific chattiness to force, -1 for auto (default)")
 	verbosePtr := flag.Bool("verbose", false, "log debug stuff")
+	readOnlyPtr := flag.Bool("read-only", false, "watch the network without sending any messages")
+	serveUiPtr := flag.Bool("serve-ui", false, "serve the web UI")
 
 	flag.Parse()
 
@@ -37,7 +44,7 @@ func main() {
 
 	localNara := nara.NewLocalNara(*naraIdPtr, *mqttHostPtr, *mqttUserPtr, *mqttPassPtr, *forceChattinessPtr)
 
-	localNara.Start()
+	localNara.Start(*serveUiPtr, *readOnlyPtr)
 	if *showNeighboursPtr {
 		go localNara.PrintNeigbourhoodForever(*showNeighboursSpeedPtr)
 	}

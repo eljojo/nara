@@ -108,10 +108,19 @@ func NewNara(name string) *Nara {
 	return nara
 }
 
-func (ln *LocalNara) Start() {
+func (ln *LocalNara) Start(serveUI bool, readOnly bool) {
+	ln.Network.ReadOnly = readOnly
+	if serveUI {
+		logrus.Printf("💻 Serving UI")
+	}
+
 	go ln.updateHostStatsForever()
-	ln.Network.Start()
-	go ln.measurePingForever()
+	ln.Network.Start(serveUI)
+	if !readOnly {
+		go ln.measurePingForever()
+	} else {
+		logrus.Printf("🤫 Read-only mode: not pinging or announcing")
+	}
 }
 
 func (ln *LocalNara) SetupCloseHandler() {

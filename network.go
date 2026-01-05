@@ -22,6 +22,8 @@ type Network struct {
 	chauInbox        chan Nara
 	selfieInbox      chan Nara
 	waveMessageInbox chan WaveMessage
+	LastWave         WaveMessage
+	ReadOnly         bool
 }
 
 type NewspaperEvent struct {
@@ -48,8 +50,8 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	return network
 }
 
-func (network *Network) Start() {
-	err := network.startHttpServer()
+func (network *Network) Start(serveUI bool) {
+	err := network.startHttpServer(serveUI)
 	if err != nil {
 		logrus.Panic(err)
 	}
@@ -60,17 +62,21 @@ func (network *Network) Start() {
 	}
 
 	if token := network.Mqtt.Connect(); token.Wait() && token.Error() != nil {
-		panic(token.Error())
+		logrus.Fatalf("MQTT connection error: %v", token.Error())
 	}
 
-	network.heyThere()
-	network.announce()
+	if !network.ReadOnly {
+		network.heyThere()
+		network.announce()
+	}
 
 	time.Sleep(1 * time.Second)
 
 	go network.formOpinion()
 	go network.observationMaintenance()
-	go network.announceForever()
+	if !network.ReadOnly {
+		go network.announceForever()
+	}
 	go network.processPingEvents()
 	go network.processHeyThereEvents()
 	go network.processSelfieEvents()
@@ -85,6 +91,9 @@ func (network Network) meName() string {
 }
 
 func (network *Network) announce() {
+	if network.ReadOnly {
+		return
+	}
 	topic := fmt.Sprintf("%s/%s", "nara/newspaper", network.meName())
 	network.recordObservationOnlineNara(network.meName())
 	network.postEvent(topic, network.local.Me.Status)
@@ -115,7 +124,7 @@ func (network *Network) processNewspaperEvents() {
 		} else {
 			logrus.Printf("%s posted a newspaper story (whodis?)", newspaperEvent.From)
 			nara = NewNara(newspaperEvent.From)
-			if network.local.Me.Status.Chattiness > 0 {
+			if network.local.Me.Status.Chattiness > 0 && !network.ReadOnly {
 				network.heyThere()
 			}
 			network.importNara(nara)
@@ -161,12 +170,17 @@ func (network *Network) processHeyThereEvents() {
 		// artificially slow down so if two naras boot at the same time they both get the message
 		time.Sleep(1 * time.Second)
 
-		network.selfie()
+		if !network.ReadOnly {
+			network.selfie()
+		}
 		network.Buzz.increase(1)
 	}
 }
 
 func (network *Network) heyThere() {
+	if network.ReadOnly {
+		return
+	}
 	ts := int64(5) // seconds
 	network.recordObservationOnlineNara(network.meName())
 	if (time.Now().Unix() - network.LastHeyThere) <= ts {
@@ -184,6 +198,9 @@ func (network *Network) heyThere() {
 }
 
 func (network *Network) selfie() {
+	if network.ReadOnly {
+		return
+	}
 	ts := int64(5) // seconds
 	network.recordObservationOnlineNara(network.meName())
 	if (time.Now().Unix() - network.LastSelfie) <= ts {
@@ -221,6 +238,9 @@ func (network *Network) processChauEvents() {
 }
 
 func (network *Network) Chau() {
+	if network.ReadOnly {
+		return
+	}
 	topic := "nara/plaza/chau"
 	logrus.Printf("posting to %s", topic)
 

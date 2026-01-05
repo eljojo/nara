@@ -7,6 +7,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"math/rand"
 	"strings"
+	"time"
 )
 
 func (network *Network) mqttOnConnectHandler() mqtt.OnConnectHandler {
@@ -89,10 +90,23 @@ func (network *Network) waveMqttHandler(client mqtt.Client, msg mqtt.Message) {
 	var wm WaveMessage
 	json.Unmarshal(msg.Payload(), &wm)
 
-	// IMPORTANT - avoids endless loops
+	network.local.mu.Lock()
+	network.LastWave = wm
+	network.local.mu.Unlock()
+
 	if wm.StartNara == network.meName() {
+		// if we started the wave, we don't need to process it again
+		// but we might want to log that it came back if it's the first time we see it back
+		if len(wm.SeenBy) > 1 && wm.hasSeen(network.meName()) {
+			seconds := float64(timeNowMs()-wm.CreatedAt) / 1000
+			logrus.Printf("🙌 message came back via MQTT, took %.2f seconds and was seen by %d narae", seconds, len(wm.SeenBy))
+		}
 		return
 	}
+
+	// IMPORTANT - avoids endless loops by not re-processing our own broadcasts
+	// this check is now redundant because of the one above, but kept for clarity
+	// if wm.StartNara == network.meName() { return }
 
 	if wm.Valid() {
 		network.waveMessageInbox <- wm
@@ -138,16 +152,29 @@ func initializeMQTT(onConnect mqtt.OnConnectHandler, name string, host string, u
 	opts.SetUsername(user)
 	opts.SetPassword(pass)
 	opts.SetOrderMatters(false)
+	opts.SetAutoReconnect(false)
 	opts.OnConnect = onConnect
-	opts.OnConnectionLost = connectLostHandler
+	opts.OnConnectionLost = func(client mqtt.Client, err error) {
+		logrus.Printf("MQTT Connection lost: %v", err)
+		go func() {
+			for {
+				// wait between 5 and 35 seconds
+				wait := rand.Intn(30) + 5
+				logrus.Printf("MQTT: Waiting %d seconds before reconnecting...", wait)
+				time.Sleep(time.Duration(wait) * time.Second)
+
+				token := client.Connect()
+				if token.Wait() && token.Error() == nil {
+					logrus.Printf("MQTT: Reconnected")
+					return
+				}
+				logrus.Printf("MQTT: Reconnect failed: %v", token.Error())
+			}
+		}()
+	}
 	client := mqtt.NewClient(opts)
 	return client
 }
-
-var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err error) {
-	logrus.Printf("MQTT Connection lost: %v", err)
-}
-
 func (network *Network) mqttClearPingHandler(client mqtt.Client, msg mqtt.Message) {
 	logrus.Printf("🏓 MQTT: /nara/debug/clear_ping: Clearing ping stats and increasing Buzz")
 	network.local.mu.Lock()

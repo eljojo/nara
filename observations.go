@@ -68,7 +68,7 @@ func (network *Network) formOpinion() {
 	if err == nil {
 		logrus.Printf("🏓 seeded ping data from neighbour nara")
 	} else {
-		logrus.Printf("couldn't fetch ping events from neighbour: %w", err)
+		logrus.Printf("couldn't fetch ping events from neighbour: %v", err)
 	}
 	time.Sleep(10 * time.Second)
 	logrus.Printf("🕵️  forming opinions...")
