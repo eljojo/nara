@@ -5,11 +5,8 @@ go 1.24.0
 require (
 	github.com/bugsnag/bugsnag-go v2.6.2+incompatible
 	github.com/eclipse/paho.mqtt.golang v1.5.1
-	github.com/enescakir/emoji v1.0.0
-	github.com/go-ping/ping v1.2.0
 	github.com/kataras/tablewriter v0.0.0-20180708051242-e063d29b7c23
 	github.com/lensesio/tableprinter v0.0.0-20201125135848-89e81fc956e7
-	github.com/pbnjay/clustering v0.0.0-20180426023255-34a8f36cd397
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/sirupsen/logrus v1.9.3
 	github.com/weaveworks/mesh v0.0.0-20191105120815-58dbcc3e8e63
