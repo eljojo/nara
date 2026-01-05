@@ -25,9 +25,10 @@
             tag = "latest";
             contents = [ nara pkgs.cacert ];
             config = {
-              Cmd = [ "${nara}/bin/nara" "-serve-ui" ];
+              Cmd = [ "${nara}/bin/nara" "-serve-ui" "-http-addr" ":8080" ];
+              Env = [ "HTTP_ADDR=:8080" ];
               ExposedPorts = {
-                "80/tcp" = { };
+                "8080/tcp" = { };
               };
             };
           };

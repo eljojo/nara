@@ -35,6 +35,7 @@ func main() {
 	mqttHostPtr := flag.String("mqtt-host", getEnv("MQTT_HOST", "tcp://hass.eljojo.casa:1883"), "mqtt server hostname")
 	mqttUserPtr := flag.String("mqtt-user", getEnv("MQTT_USER", "my_username"), "mqtt server username")
 	mqttPassPtr := flag.String("mqtt-pass", getEnv("MQTT_PASS", "my_password"), "mqtt server password")
+	httpAddrPtr := flag.String("http-addr", getEnv("HTTP_ADDR", ""), "http server address (e.g. :8080)")
 	naraIdPtr := flag.String("nara-id", getEnv("NARA_ID", hostname), "nara id")
 	showNeighboursPtr := flag.Bool("show-neighbours", true, "show table with neighbourhood")
 	showNeighboursSpeedPtr := flag.Int("refresh-rate", 60, "refresh rate in seconds for neighbourhood table")
@@ -51,7 +52,7 @@ func main() {
 
 	localNara := nara.NewLocalNara(*naraIdPtr, *mqttHostPtr, *mqttUserPtr, *mqttPassPtr, *forceChattinessPtr)
 
-	localNara.Start(*serveUiPtr, *readOnlyPtr)
+	localNara.Start(*serveUiPtr, *readOnlyPtr, *httpAddrPtr)
 	if *showNeighboursPtr {
 		go localNara.PrintNeigbourhoodForever(*showNeighboursSpeedPtr)
 	}

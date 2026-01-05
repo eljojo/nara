@@ -108,14 +108,14 @@ func NewNara(name string) *Nara {
 	return nara
 }
 
-func (ln *LocalNara) Start(serveUI bool, readOnly bool) {
+func (ln *LocalNara) Start(serveUI bool, readOnly bool, httpAddr string) {
 	ln.Network.ReadOnly = readOnly
 	if serveUI {
 		logrus.Printf("💻 Serving UI")
 	}
 
 	go ln.updateHostStatsForever()
-	ln.Network.Start(serveUI)
+	ln.Network.Start(serveUI, httpAddr)
 	if !readOnly {
 		go ln.measurePingForever()
 	} else {

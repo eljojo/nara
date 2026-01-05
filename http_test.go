@@ -10,8 +10,8 @@ import (
 
 func TestHttpApiJsonHandler(t *testing.T) {
 	ln := NewLocalNara("test-nara", "host", "user", "pass", -1)
-	network := NewNetwork(ln, "host", "user", "pass")
-
+	network := ln.Network
+	
 	// Add a neighbour
 	otherNara := NewNara("other")
 	otherNara.Status.Flair = "🌟"
@@ -56,7 +56,7 @@ func TestHttpApiJsonHandler(t *testing.T) {
 
 func TestReadOnlyLogic(t *testing.T) {
 	ln := NewLocalNara("test-nara", "host", "user", "pass", -1)
-	network := NewNetwork(ln, "host", "user", "pass")
+	network := ln.Network
 	network.ReadOnly = true
 
 	// Test that these don't crash and presumably return early
@@ -68,8 +68,8 @@ func TestReadOnlyLogic(t *testing.T) {
 
 func TestHttpMetricsHandler(t *testing.T) {
 	ln := NewLocalNara("test-nara", "host", "user", "pass", -1)
-	network := NewNetwork(ln, "host", "user", "pass")
-
+	network := ln.Network
+	
 	otherNara := NewNara("other")
 	otherNara.Status.Flair = "🌟"
 	otherNara.Status.Observations["other"] = NaraObservation{Online: "ONLINE", Restarts: 5}

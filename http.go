@@ -17,8 +17,12 @@ import (
 //go:embed nara-web/public/*
 var staticContent embed.FS
 
-func (network *Network) startHttpServer(serveUI bool) error {
-	listen_interface := fmt.Sprintf("%s:0", network.local.Me.Ip)
+func (network *Network) startHttpServer(serveUI bool, httpAddr string) error {
+	listen_interface := httpAddr
+	if listen_interface == "" {
+		listen_interface = fmt.Sprintf("%s:0", network.local.Me.Ip)
+	}
+
 	listener, err := net.Listen("tcp", listen_interface)
 	if err != nil {
 		return fmt.Errorf("listen error: %w", err)

@@ -34,10 +34,10 @@ services:
       - MQTT_USER=your_user
       - MQTT_PASS=your_password
     ports:
-      - "8080:80"
+      - "8080:8080"
     command: ["-serve-ui"]
-```
 
+### NixOS Module
 ### NixOS Module
 
 You can also use the provided NixOS module by adding it to your `imports`:

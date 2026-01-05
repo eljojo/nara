@@ -50,8 +50,8 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	return network
 }
 
-func (network *Network) Start(serveUI bool) {
-	err := network.startHttpServer(serveUI)
+func (network *Network) Start(serveUI bool, httpAddr string) {
+	err := network.startHttpServer(serveUI, httpAddr)
 	if err != nil {
 		logrus.Panic(err)
 	}
