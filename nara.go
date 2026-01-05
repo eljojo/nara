@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+const NaraVersion = "0.2.0"
+
 type LocalNara struct {
 	Me              *Nara
 	Network         *Network
@@ -26,9 +28,16 @@ type LocalNara struct {
 type Nara struct {
 	Name     string
 	Hostname string
+	Version  string
 	Status   NaraStatus
 	mu       sync.Mutex
 	// remember to sync with setValuesFrom
+}
+
+type NaraPersonality struct {
+	Agreeableness int // 0-100, high = more likely to join a clique
+	Sociability   int // 0-100, high = more likely to start a clique
+	Chill         int // 0-100, high = less likely to leave a clique
 }
 
 type NaraStatus struct {
@@ -38,6 +47,10 @@ type NaraStatus struct {
 	Chattiness   int64
 	Buzz         int
 	Observations map[string]NaraObservation
+	Trend        string
+	TrendEmoji   string
+	Personality  NaraPersonality
+	Version      string
 	// remember to sync with setValuesFrom
 }
 
@@ -51,8 +64,12 @@ func NewLocalNara(name string, mqtt_host string, mqtt_user string, mqtt_pass str
 		isNixOs:         isNixOs(),
 		isKubernetes:    isKubernetes(),
 	}
+	ln.Me.Version = NaraVersion
+	ln.Me.Status.Version = NaraVersion
+
 	ln.Network = NewNetwork(ln, mqtt_host, mqtt_user, mqtt_pass)
 
+	ln.seedPersonality()
 	ln.updateHostStats()
 
 	hostinfo, _ := host.Info()
@@ -125,18 +142,28 @@ func (nara *Nara) setValuesFrom(other Nara) {
 	if other.Hostname != "" {
 		nara.Hostname = other.Hostname
 	}
+	if other.Version != "" {
+		nara.Version = other.Version
+	}
 	nara.Status.setValuesFrom(other.Status)
 }
 
 func (ns *NaraStatus) setValuesFrom(other NaraStatus) {
-	if other.LicensePlate != "" {
-		ns.LicensePlate = other.LicensePlate
-	}
+	ns.LicensePlate = other.LicensePlate
 	if other.Flair != "" {
 		ns.Flair = other.Flair
 	}
 	if (other.HostStats != HostStats{}) {
 		ns.HostStats = other.HostStats
+	}
+	if other.Version != "" {
+		ns.Version = other.Version
+	}
+	ns.Trend = other.Trend
+	ns.TrendEmoji = other.TrendEmoji
+	ns.Personality = other.Personality
+	if other.LicensePlate != "" {
+		ns.LicensePlate = other.LicensePlate
 	}
 	ns.Chattiness = other.Chattiness
 	ns.Buzz = other.Buzz

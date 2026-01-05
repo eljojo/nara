@@ -4,6 +4,9 @@ import (
 	"io/ioutil"
 	"os"
 	"strings"
+	"crypto/sha256"
+	"encoding/binary"
+	"math/rand"
 )
 
 func (ln LocalNara) Flair() string {
@@ -52,6 +55,23 @@ func (ln LocalNara) Flair() string {
 	if ln.isBooting() {
 		awards = awards + "📡"
 	}
+
+	// Trend Flair
+	if ln.Me.Status.Trend != "" {
+		awards = awards + ln.Me.Status.TrendEmoji
+	}
+
+	// Expressive Personality Flair (The Chotchkie's Rule)
+	// 15 pieces of flair minimum? No, let's base it on sociability
+	flairCount := (ln.Me.Status.Personality.Sociability / 20) + 1
+	hasher := sha256.New()
+	hasher.Write([]byte(ln.Me.Name))
+	seed := int64(binary.BigEndian.Uint64(hasher.Sum(nil)[:8]))
+	r := rand.New(rand.NewSource(seed))
+	for i := 0; i < flairCount; i++ {
+		awards = awards + PersonalFlairPool[r.Intn(len(PersonalFlairPool))]
+	}
+
 	return awards
 }
 

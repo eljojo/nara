@@ -73,6 +73,7 @@ func (network *Network) Start(serveUI bool, httpAddr string) {
 	go network.processSelfieEvents()
 	go network.processChauEvents()
 	go network.processNewspaperEvents()
+	go network.trendMaintenance()
 	go network.maintenanceBuzz()
 }
 
