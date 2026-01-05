@@ -18,3 +18,34 @@ more details will come eventually, stay tuned! if you have thoughts, let me know
 
 - `--read-only`: Connect to the network but do not send any messages.
 - `--serve-ui`: Serve the web UI (formerly provided by the Ruby app) at `/`.
+
+#### Docker Compose
+
+Here is a simple `docker-compose.yml` to get started. It uses environment variables to configure the nara name and MQTT credentials:
+
+```yaml
+services:
+  nara:
+    image: ghcr.io/eljojo/nara:latest
+    restart: always
+    environment:
+      - NARA_ID=my-nara-instance
+      - MQTT_HOST=tcp://your-mqtt-broker:1883
+      - MQTT_USER=your_user
+      - MQTT_PASS=your_password
+    ports:
+      - "8080:80"
+    command: ["-serve-ui"]
+```
+
+### NixOS Module
+
+You can also use the provided NixOS module by adding it to your `imports`:
+
+```nix
+services.nara.enable = true;
+services.nara.instances = [ "lily" ];
+services.nara.mqttHost = "tcp://hass.eljojo.casa:1883";
+```
+
+Check `nara.nix` for more options.

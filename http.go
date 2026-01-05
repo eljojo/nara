@@ -3,6 +3,8 @@ package nara
 import (
 	"bytes"
 	"encoding/json"
+	"embed"
+	"io/fs"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -11,6 +13,9 @@ import (
 	"github.com/bugsnag/bugsnag-go"
 	"github.com/sirupsen/logrus"
 )
+
+//go:embed nara-web/public/*
+var staticContent embed.FS
 
 func (network *Network) startHttpServer(serveUI bool) error {
 	listen_interface := fmt.Sprintf("%s:0", network.local.Me.Ip)
@@ -36,7 +41,8 @@ func (network *Network) startHttpServer(serveUI bool) error {
 		http.HandleFunc("/traefik.json", network.httpTraefikJsonHandler)
 		http.HandleFunc("/metrics", network.httpMetricsHandler)
 		http.HandleFunc("/status/", network.httpStatusJsonHandler)
-		http.Handle("/", http.FileServer(http.Dir("./nara-web/public")))
+		publicFS, _ := fs.Sub(staticContent, "nara-web/public")
+		http.Handle("/", http.FileServer(http.FS(publicFS)))
 	} else {
 		// also when not serving UI it's useful to have these endpoints
 		// TODO: maybe we should just serve them all the time?
