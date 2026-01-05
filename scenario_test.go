@@ -1,8 +1,8 @@
 package nara
 
 import (
-	"time"
 	"testing"
+	"time"
 )
 
 func TestScenario_Interaction(t *testing.T) {

@@ -169,10 +169,15 @@ func (network *Network) findStartingTimeFromNeighbourhoodForNara(name string) in
 
 	var startTime int64
 	maxSeen := 0
-	one_fourth := len(times) / 4
+
+	total_votes := 0
+	for _, count := range times {
+		total_votes += count
+	}
+	threshold := total_votes / 4
 
 	for time, count := range times {
-		if count > maxSeen && count > one_fourth {
+		if count > maxSeen && count > threshold {
 			maxSeen = count
 			startTime = time
 		}
@@ -191,13 +196,13 @@ func (network *Network) recordObservationOnlineNara(name string) {
 
 	observation := network.local.getObservation(name)
 
+	if observation.Online == "" && name != network.meName() {
+		logrus.Printf("observation: seen %s for the first time", name)
+		network.Buzz.increase(3)
+	}
+
 	// "our" observation is mostly a mirror of what others think of us
 	if observation.StartTime == 0 || name == network.meName() {
-		if name != network.meName() {
-			logrus.Printf("observation: seen %s for the first time", name)
-			network.Buzz.increase(3)
-		}
-
 		restarts := network.findRestartCountFromNeighbourhoodForNara(name)
 		startTime := network.findStartingTimeFromNeighbourhoodForNara(name)
 		lastRestart := network.findLastRestartFromNeighbourhoodForNara(name)
@@ -213,8 +218,8 @@ func (network *Network) recordObservationOnlineNara(name string) {
 		}
 
 		if observation.StartTime == 0 && name == network.meName() && !network.local.isBooting() {
-			observation.StartTime = time.Now().Unix()
-			logrus.Printf("⚠️ set StartTime to now")
+			observation.StartTime = observation.LastRestart
+			logrus.Printf("⚠️ set StartTime to LastRestart")
 		}
 	}
 
@@ -258,10 +263,15 @@ func (network *Network) findLastRestartFromNeighbourhoodForNara(name string) int
 
 	var result int64
 	maxSeen := 0
-	one_fourth := len(values) / 4
+
+	total_votes := 0
+	for _, count := range values {
+		total_votes += count
+	}
+	threshold := total_votes / 4
 
 	for last_restart, count := range values {
-		if count > maxSeen && count >= one_fourth {
+		if count > maxSeen && count > threshold {
 			maxSeen = count
 			result = last_restart
 		}
