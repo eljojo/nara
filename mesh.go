@@ -330,6 +330,7 @@ func (t *TsnetMesh) Send(target string, msg *WorldMessage) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	logrus.Debugf("🕸️  Dialing %s:%d via tsnet mesh...", target, t.port)
 	conn, err := t.server.Dial(ctx, "tcp", fmt.Sprintf("%s:%d", target, t.port))
 	if err != nil {
 		return fmt.Errorf("failed to dial %s: %w", target, err)
@@ -341,6 +342,7 @@ func (t *TsnetMesh) Send(target string, msg *WorldMessage) error {
 		return fmt.Errorf("failed to send message: %w", err)
 	}
 
+	logrus.Debugf("🕸️  World message sent to %s", target)
 	return nil
 }
 

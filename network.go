@@ -99,6 +99,7 @@ func (network *Network) getOnlineNaraNames() []string {
 	requireMesh := network.tsnetMesh != nil
 
 	names := []string{network.local.Me.Name}
+	skippedCount := 0
 	for name, nara := range network.Neighbourhood {
 		obs := nara.getObservation(name)
 		if obs.Online != "ONLINE" {
@@ -111,12 +112,18 @@ func (network *Network) getOnlineNaraNames() []string {
 			meshEnabled := nara.Status.MeshEnabled
 			nara.mu.Unlock()
 			if !meshEnabled {
+				skippedCount++
 				continue
 			}
 		}
 
 		names = append(names, name)
 	}
+
+	if requireMesh && skippedCount > 0 {
+		logrus.Debugf("🕸️  World journey: %d mesh-enabled naras, skipped %d non-mesh naras", len(names)-1, skippedCount)
+	}
+
 	return names
 }
 

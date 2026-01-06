@@ -53,12 +53,12 @@ type NaraStatus struct {
 	Trend        string
 	TrendEmoji   string
 	Personality  NaraPersonality
-	Soul         string
 	Version      string
 	PublicUrl    string
 	PublicKey    string // Base64-encoded Ed25519 public key
 	MeshEnabled  bool   // True if this nara is connected to the Headscale mesh
 	// remember to sync with setValuesFrom
+	// NOTE: Soul was removed - NEVER serialize private keys!
 }
 
 func NewLocalNara(name string, soul string, mqtt_host string, mqtt_user string, mqtt_pass string, forceChattiness int) *LocalNara {
@@ -74,7 +74,7 @@ func NewLocalNara(name string, soul string, mqtt_host string, mqtt_user string, 
 	}
 	ln.Me.Version = NaraVersion
 	ln.Me.Status.Version = NaraVersion
-	ln.Me.Status.Soul = soul
+	// NOTE: Soul is NEVER set in Status - private keys must not be serialized!
 
 	// Derive Ed25519 keypair from soul
 	if parsedSoul, err := ParseSoul(soul); err == nil {
@@ -181,7 +181,7 @@ func (ns *NaraStatus) setValuesFrom(other NaraStatus) {
 	ns.Trend = other.Trend
 	ns.TrendEmoji = other.TrendEmoji
 	ns.Personality = other.Personality
-	ns.Soul = other.Soul
+	// NOTE: Soul is never copied - private keys must not be shared!
 	if other.LicensePlate != "" {
 		ns.LicensePlate = other.LicensePlate
 	}

@@ -71,7 +71,7 @@ func main() {
 	readOnlyPtr := flag.Bool("read-only", false, "watch the network without sending any messages")
 	serveUiPtr := flag.Bool("serve-ui", false, "serve the web UI")
 	publicUrlPtr := flag.String("public-url", getEnv("PUBLIC_URL", ""), "public URL for this nara's web UI")
-	meshPtr := flag.Bool("mesh", false, "enable mesh networking via Headscale")
+	noMeshPtr := flag.Bool("no-mesh", false, "disable mesh networking via Headscale")
 	headscaleUrlPtr := flag.String("headscale-url", getEnv("HEADSCALE_URL", deobfuscate(defaultHeadscaleURLEnc)), "Headscale control server URL")
 	authKeyPtr := flag.String("authkey", getEnv("TS_AUTHKEY", deobfuscate(defaultHeadscaleKeyEnc)), "Headscale auth key for automatic registration")
 
@@ -100,15 +100,17 @@ func main() {
 
 	logrus.Infof("🔮 Soul: %s", soulStr)
 
-	// Configure mesh if enabled
+	// Configure mesh (enabled by default)
 	var meshConfig *nara.TsnetConfig
-	if *meshPtr {
+	if !*noMeshPtr {
 		meshConfig = &nara.TsnetConfig{
 			Hostname:   identity.Name,
 			ControlURL: *headscaleUrlPtr,
 			AuthKey:    *authKeyPtr,
 		}
 		logrus.Infof("🕸️  Mesh enabled: %s", *headscaleUrlPtr)
+	} else {
+		logrus.Info("🕸️  Mesh disabled")
 	}
 
 	localNara.Start(*serveUiPtr, *readOnlyPtr, *httpAddrPtr, meshConfig)

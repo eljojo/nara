@@ -53,7 +53,7 @@ func ParseSoul(s string) (SoulV1, error) {
 // ComputeTag computes the HMAC tag that bonds a seed to a name
 func ComputeTag(seed [SeedLen]byte, name string) [TagLen]byte {
 	h := hmac.New(sha256.New, seed[:])
-	h.Write([]byte("nara:name:v1:" + name))
+	h.Write([]byte("nara:name:v2:" + name))
 	sum := h.Sum(nil)
 
 	var tag [TagLen]byte
@@ -73,7 +73,7 @@ func ValidateBond(soul SoulV1, name string) bool {
 // NativeSoulCustom generates a deterministic soul for a custom name on given hardware
 func NativeSoulCustom(hwFingerprint []byte, name string) SoulV1 {
 	// Derive seed using HKDF
-	hkdfReader := hkdf.New(sha256.New, hwFingerprint, []byte("nara:soul:v1"), []byte("seed:custom:"+name))
+	hkdfReader := hkdf.New(sha256.New, hwFingerprint, []byte("nara:soul:v2"), []byte("seed:custom:"+name))
 
 	var seed [SeedLen]byte
 	io.ReadFull(hkdfReader, seed[:])
@@ -86,7 +86,7 @@ func NativeSoulCustom(hwFingerprint []byte, name string) SoulV1 {
 // NativeSoulGenerated generates a deterministic soul for generated-name mode
 func NativeSoulGenerated(hwFingerprint []byte) SoulV1 {
 	// Derive seed using HKDF (without name in derivation)
-	hkdfReader := hkdf.New(sha256.New, hwFingerprint, []byte("nara:soul:v1"), []byte("seed:generated"))
+	hkdfReader := hkdf.New(sha256.New, hwFingerprint, []byte("nara:soul:v2"), []byte("seed:generated"))
 
 	var seed [SeedLen]byte
 	io.ReadFull(hkdfReader, seed[:])
