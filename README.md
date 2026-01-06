@@ -99,6 +99,55 @@ graph TD
     CheckNative -- No --> Traveler(💎 Valid Foreign Soul<br/>Traveler)
 ```
 
+### Consensus: How Naras Form Opinions
+
+naras observe each other and form opinions about the network. but what happens when naras disagree? for example, two naras might report slightly different start times for a third nara due to clock drift. or a newly-joined nara might have stale information.
+
+#### Uptime-Weighted Clustering
+
+naras use a **credibility-weighted clustering** algorithm with a hierarchy of strategies:
+
+1. **Collect observations** from all neighbors, weighted by their uptime
+2. **Cluster similar values** within a 60-second tolerance (handles clock drift)
+3. **Pick the winner** using strategies from strictest to most permissive:
+   - **Strong**: cluster with >= 2 agreeing observers (agreement beats raw uptime)
+   - **Weak**: cluster with highest total uptime (when no agreement exists)
+   - **Coin flip**: if top 2 clusters are within 20% uptime, flip a coin 🪙
+4. **Return the median** of the winning cluster
+
+```
+Example: determining lily's start time
+
+raccoon (uptime: 6 days)  says: 1622957339
+lisa    (uptime: 4 hours) says: 1622957340  ← 1 second off (clock drift)
+bart    (uptime: 5 hours) says: 1622957339
+r2d2    (uptime: 15 days) says: 1622957339
+
+All values within 60s → one cluster
+Total uptime: ~21 days
+Result: median = 1622957339
+```
+
+#### Why Uptime Matters
+
+longer-running naras have had more time to:
+- observe the network and converge on truth
+- receive corrections from other naras
+- form stable opinions
+
+a nara that's been online for 15 days is more trustworthy than one that just booted 5 minutes ago. uptime serves as a credibility weight: evidence from longer-running observers counts more.
+
+#### Edge Cases
+
+| Scenario | Behavior |
+|----------|----------|
+| All naras agree exactly | Returns the agreed value |
+| Small disagreement (clock drift) | Clusters together, returns median |
+| Two competing clusters (both with 2+ observers) | Cluster with higher total uptime wins |
+| One trusted elder vs 2+ agreeing observers | Agreement wins (Strategy 1 > Strategy 2) |
+| Two single-observer clusters with similar uptime | 🪙 Coin flip! |
+| Complete chaos (all disagree) | Highest uptime wins, or coin flip if close |
+
 ### Fashion and Trends
 
 nara love to follow trends! they might start a new trend or join one started by their neighbors. 

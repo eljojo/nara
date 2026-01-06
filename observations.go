@@ -3,6 +3,7 @@ package nara
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -156,34 +157,123 @@ func (network *Network) fetchOpinionsFromBlueJay() {
 	}
 }
 
+// weightedObservation pairs a value with the observer's uptime (credibility weight)
+type weightedObservation struct {
+	value  int64
+	uptime uint64
+}
+
+// observationCluster groups similar observations and tracks total credibility
+type observationCluster struct {
+	values      []int64
+	totalUptime uint64
+}
+
+// findStartingTimeFromNeighbourhoodForNara uses uptime-weighted clustering consensus
+// with a hierarchy of strategies from strictest to most permissive:
+//
+// Strategy 1 (Strong): Pick cluster with >= 2 agreeing observers and highest uptime
+// Strategy 2 (Weak): Pick cluster with highest uptime (even single observer)
+// Strategy 3 (Coin flip): If top 2 clusters are close in uptime, flip a coin
+//
+// This handles: exact agreement, small clock drift, competing opinions,
+// and total chaos (with a sense of humor).
 func (network *Network) findStartingTimeFromNeighbourhoodForNara(name string) int64 {
-	times := make(map[int64]int)
+	const tolerance int64 = 60 // seconds - handles clock drift
+
+	var observations []weightedObservation
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
+
 	for _, nara := range network.Neighbourhood {
-		observed_start_time := nara.getObservation(name).StartTime
-		if observed_start_time > 0 {
-			times[observed_start_time] += 1
+		obs := nara.getObservation(name)
+		if obs.StartTime > 0 {
+			uptime := nara.Status.HostStats.Uptime
+			if uptime == 0 {
+				uptime = 1 // minimum weight
+			}
+			observations = append(observations, weightedObservation{
+				value:  obs.StartTime,
+				uptime: uptime,
+			})
 		}
 	}
 
-	var startTime int64
-	maxSeen := 0
-
-	total_votes := 0
-	for _, count := range times {
-		total_votes += count
+	if len(observations) == 0 {
+		return 0
 	}
-	threshold := total_votes / 4
 
-	for time, count := range times {
-		if count > maxSeen && count > threshold {
-			maxSeen = count
-			startTime = time
+	// Sort by value for clustering
+	sort.Slice(observations, func(i, j int) bool {
+		return observations[i].value < observations[j].value
+	})
+
+	// Build clusters: group values within tolerance of cluster's first value
+	// This prevents "chaining" where [100, 159, 218] would incorrectly cluster
+	// (159-100<=60, 218-159<=60, but 218-100>60)
+	var clusters []observationCluster
+	currentCluster := observationCluster{
+		values:      []int64{observations[0].value},
+		totalUptime: observations[0].uptime,
+	}
+	clusterStart := observations[0].value
+
+	for i := 1; i < len(observations); i++ {
+		obs := observations[i]
+
+		if obs.value-clusterStart <= tolerance {
+			// Within tolerance of cluster start - add to current cluster
+			currentCluster.values = append(currentCluster.values, obs.value)
+			currentCluster.totalUptime += obs.uptime
+		} else {
+			// Gap too large - start new cluster
+			clusters = append(clusters, currentCluster)
+			currentCluster = observationCluster{
+				values:      []int64{obs.value},
+				totalUptime: obs.uptime,
+			}
+			clusterStart = obs.value
+		}
+	}
+	clusters = append(clusters, currentCluster)
+
+	// Sort clusters by total uptime (descending)
+	sort.Slice(clusters, func(i, j int) bool {
+		return clusters[i].totalUptime > clusters[j].totalUptime
+	})
+
+	// Strategy 1 (Strong): cluster with >= 2 observers and highest uptime
+	for _, cluster := range clusters {
+		if len(cluster.values) >= 2 {
+			return cluster.values[len(cluster.values)/2]
 		}
 	}
 
-	return startTime
+	// Strategy 2 & 3: No cluster has 2+ observers
+	// Check if we should flip a coin between top candidates
+	if len(clusters) >= 2 {
+		first := clusters[0]
+		second := clusters[1]
+
+		// If top 2 are within 20% of each other, flip a coin
+		threshold := first.totalUptime * 80 / 100
+		if second.totalUptime >= threshold {
+			// 🪙 Coin flip time!
+			coin := time.Now().UnixNano() % 2
+			if coin == 0 {
+				logrus.Printf("🪙 coin flip! chose %d over %d (both had ~%d uptime)",
+					first.values[0], second.values[0], first.totalUptime)
+				return first.values[len(first.values)/2]
+			} else {
+				logrus.Printf("🪙 coin flip! chose %d over %d (both had ~%d uptime)",
+					second.values[0], first.values[0], second.totalUptime)
+				return second.values[len(second.values)/2]
+			}
+		}
+	}
+
+	// Strategy 2 (Weak): just pick highest uptime cluster
+	return clusters[0].values[len(clusters[0].values)/2]
 }
 
 func (network *Network) recordObservationOnlineNara(name string) {
