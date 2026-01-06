@@ -101,6 +101,7 @@ func (tw *TestWorld) createHandler(tn *TestNara) *WorldJourneyHandler {
 			}
 			return nil
 		},
+		nil, // getMeshIP - not needed for mock transport
 		func(wm *WorldMessage) {
 			tw.CompleteMu.Lock()
 			tw.Completed = append(tw.Completed, wm)

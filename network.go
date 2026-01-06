@@ -75,10 +75,26 @@ func (network *Network) InitWorldJourney(mesh MeshTransport) {
 		network.getCloutMap,
 		network.getOnlineNaraNames,
 		network.getPublicKeyForNara,
+		network.getMeshIPForNara,
 		network.onWorldJourneyComplete,
 	)
 	network.worldHandler.Listen()
 	logrus.Printf("World journey handler initialized")
+}
+
+// getMeshIPForNara returns the tailscale IP for a nara (for direct mesh communication)
+func (network *Network) getMeshIPForNara(name string) string {
+	network.local.mu.Lock()
+	defer network.local.mu.Unlock()
+
+	nara, ok := network.Neighbourhood[name]
+	if !ok {
+		return ""
+	}
+
+	nara.mu.Lock()
+	defer nara.mu.Unlock()
+	return nara.Status.MeshIP
 }
 
 func (network *Network) getCloutMap() map[string]map[string]float64 {
@@ -196,7 +212,8 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 					network.tsnetMesh = tsnetMesh
 					network.InitWorldJourney(tsnetMesh)
 					network.local.Me.Status.MeshEnabled = true
-					logrus.Info("World journey using tsnet mesh")
+					network.local.Me.Status.MeshIP = tsnetMesh.IP()
+					logrus.Infof("World journey using tsnet mesh (IP: %s)", tsnetMesh.IP())
 				}
 			}
 		}

@@ -57,6 +57,7 @@ type NaraStatus struct {
 	PublicUrl    string
 	PublicKey    string // Base64-encoded Ed25519 public key
 	MeshEnabled  bool   // True if this nara is connected to the Headscale mesh
+	MeshIP       string // Tailscale IP for direct mesh communication (no DNS needed)
 	// remember to sync with setValuesFrom
 	// NOTE: Soul was removed - NEVER serialize private keys!
 }
@@ -199,4 +200,5 @@ func (ns *NaraStatus) setValuesFrom(other NaraStatus) {
 		ns.PublicKey = other.PublicKey
 	}
 	ns.MeshEnabled = other.MeshEnabled
+	ns.MeshIP = other.MeshIP
 }

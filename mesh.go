@@ -180,6 +180,7 @@ type TsnetMesh struct {
 	closed     bool
 	mu         sync.Mutex
 	myName     string
+	myIP       string // Our tailscale IP (for broadcasting to others)
 	port       int
 	stateStore *mem.Store // In-memory state store (no disk writes)
 }
@@ -252,7 +253,11 @@ func (t *TsnetMesh) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to start tsnet: %w", err)
 	}
 
-	logrus.Infof("Tsnet connected! IP: %v", status.TailscaleIPs)
+	// Store our tailscale IP for broadcasting to others
+	if len(status.TailscaleIPs) > 0 {
+		t.myIP = status.TailscaleIPs[0].String()
+	}
+	logrus.Infof("Tsnet connected! IP: %s", t.myIP)
 
 	// Start listening for incoming connections
 	listener, err := t.server.Listen("tcp", fmt.Sprintf(":%d", t.port))
@@ -267,6 +272,11 @@ func (t *TsnetMesh) Start(ctx context.Context) error {
 	go t.acceptConnections()
 
 	return nil
+}
+
+// IP returns the tailscale IP address of this mesh node
+func (t *TsnetMesh) IP() string {
+	return t.myIP
 }
 
 // acceptConnections handles incoming connections

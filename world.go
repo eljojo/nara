@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 // WorldHop represents a single hop in the world journey
@@ -143,11 +145,9 @@ func (wm *WorldMessage) VerifyChain(getPublicKey func(string) []byte) error {
 }
 
 // ChooseNextNara selects the next nara based on clout, excluding already visited
+// Falls back to random selection if no clout data is available
 func ChooseNextNara(currentNara string, wm *WorldMessage, clout map[string]map[string]float64, onlineNaras []string) string {
 	myClout := clout[currentNara]
-	if myClout == nil {
-		return ""
-	}
 
 	// Build list of candidates (online, not visited, not self)
 	type candidate struct {
@@ -164,7 +164,10 @@ func ChooseNextNara(currentNara string, wm *WorldMessage, clout map[string]map[s
 			continue // Skip already visited (unless it's originator for return)
 		}
 
-		score := myClout[nara]
+		score := float64(0)
+		if myClout != nil {
+			score = myClout[nara]
+		}
 		candidates = append(candidates, candidate{nara, score})
 	}
 
@@ -172,7 +175,7 @@ func ChooseNextNara(currentNara string, wm *WorldMessage, clout map[string]map[s
 		return ""
 	}
 
-	// Sort by clout descending
+	// Sort by clout descending (if no clout, all scores are 0 so order is arbitrary)
 	sort.Slice(candidates, func(i, j int) bool {
 		return candidates[i].score > candidates[j].score
 	})
@@ -217,6 +220,7 @@ type WorldJourneyHandler struct {
 	getClout       func() map[string]map[string]float64
 	getOnlineNaras func() []string
 	getPublicKey   func(string) []byte
+	getMeshIP      func(string) string // Resolve nara name to mesh IP
 	onComplete     func(*WorldMessage)
 	stamps         []string // Available stamps for this nara
 }
@@ -228,6 +232,7 @@ func NewWorldJourneyHandler(
 	getClout func() map[string]map[string]float64,
 	getOnlineNaras func() []string,
 	getPublicKey func(string) []byte,
+	getMeshIP func(string) string,
 	onComplete func(*WorldMessage),
 ) *WorldJourneyHandler {
 	return &WorldJourneyHandler{
@@ -236,6 +241,7 @@ func NewWorldJourneyHandler(
 		getClout:       getClout,
 		getOnlineNaras: getOnlineNaras,
 		getPublicKey:   getPublicKey,
+		getMeshIP:      getMeshIP,
 		onComplete:     onComplete,
 		stamps:         defaultStamps(),
 	}
@@ -253,6 +259,18 @@ func (h *WorldJourneyHandler) pickStamp(wm *WorldMessage) string {
 	return h.stamps[idx]
 }
 
+// sendToNara sends a message to a nara, resolving name to IP if available
+func (h *WorldJourneyHandler) sendToNara(name string, wm *WorldMessage) error {
+	target := name
+	if h.getMeshIP != nil {
+		if ip := h.getMeshIP(name); ip != "" {
+			target = ip
+			logrus.Debugf("🌍 Resolved %s -> %s", name, ip)
+		}
+	}
+	return h.mesh.Send(target, wm)
+}
+
 // StartJourney begins a new world journey
 func (h *WorldJourneyHandler) StartJourney(message string) (*WorldMessage, error) {
 	wm := NewWorldMessage(message, h.localNara.Me.Name)
@@ -264,7 +282,7 @@ func (h *WorldJourneyHandler) StartJourney(message string) (*WorldMessage, error
 	}
 
 	// Send to first hop
-	if err := h.mesh.Send(next, wm); err != nil {
+	if err := h.sendToNara(next, wm); err != nil {
 		return nil, fmt.Errorf("failed to send to %s: %w", next, err)
 	}
 
@@ -302,7 +320,7 @@ func (h *WorldJourneyHandler) HandleIncoming(wm *WorldMessage) error {
 	}
 
 	// Forward the message
-	if err := h.mesh.Send(next, wm); err != nil {
+	if err := h.sendToNara(next, wm); err != nil {
 		return fmt.Errorf("failed to forward to %s: %w", next, err)
 	}
 
@@ -313,7 +331,12 @@ func (h *WorldJourneyHandler) HandleIncoming(wm *WorldMessage) error {
 func (h *WorldJourneyHandler) chooseNext(wm *WorldMessage) string {
 	clout := h.getClout()
 	online := h.getOnlineNaras()
-	return ChooseNextNara(h.localNara.Me.Name, wm, clout, online)
+	logrus.Debugf("🌍 World journey: %d online naras (mesh-enabled): %v", len(online), online)
+	next := ChooseNextNara(h.localNara.Me.Name, wm, clout, online)
+	if next == "" {
+		logrus.Debugf("🌍 World journey: no next nara available (self=%s, hops=%d)", h.localNara.Me.Name, len(wm.Hops))
+	}
+	return next
 }
 
 // Listen starts listening for incoming world messages
