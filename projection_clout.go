@@ -105,6 +105,9 @@ func (p *CloutProjection) DeriveClout(observerSoul string, personality NaraPerso
 		case "observation":
 			// System observations affect the TARGET's clout
 			applyProjectionObservationClout(clout, record, weight)
+		case "service":
+			// Service events (e.g., storing stash) give positive clout to the actor
+			clout[record.Actor] += weight * 0.5
 		}
 	}
 

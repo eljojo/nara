@@ -45,6 +45,17 @@ func (network *Network) subscribeHandlers(client mqtt.Client) {
 	ledgerResponseTopic := fmt.Sprintf("nara/ledger/%s/response", network.meName())
 	subscribeMqtt(client, ledgerRequestTopic, network.ledgerRequestHandler)
 	subscribeMqtt(client, ledgerResponseTopic, network.ledgerResponseHandler)
+
+	// Subscribe to stash topics for distributed encrypted storage
+	stashStoreTopic := fmt.Sprintf("nara/stash/%s/store", network.meName())
+	stashAckTopic := fmt.Sprintf("nara/stash/%s/ack", network.meName())
+	stashResponseTopic := fmt.Sprintf("nara/stash/%s/response", network.meName())
+	stashDeleteTopic := fmt.Sprintf("nara/stash/%s/delete", network.meName())
+	subscribeMqtt(client, stashStoreTopic, network.stashStoreHandler)
+	subscribeMqtt(client, stashAckTopic, network.stashAckHandler)
+	subscribeMqtt(client, "nara/plaza/stash_request", network.stashRequestHandler)
+	subscribeMqtt(client, stashResponseTopic, network.stashResponseHandler)
+	subscribeMqtt(client, stashDeleteTopic, network.stashDeleteHandler)
 }
 
 func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
@@ -395,4 +406,77 @@ func (network *Network) initializeMQTT(onConnect mqtt.OnConnectHandler, name str
 	}
 	client := mqtt.NewClient(opts)
 	return client
+}
+
+// --- Stash Handlers (Distributed Encrypted Storage) ---
+
+func (network *Network) stashStoreHandler(client mqtt.Client, msg mqtt.Message) {
+	storeMsg := &StashStore{}
+	if err := json.Unmarshal(msg.Payload(), storeMsg); err != nil {
+		logrus.Debugf("stashStoreHandler: invalid JSON: %v", err)
+		return
+	}
+
+	if storeMsg.From == network.meName() || storeMsg.From == "" {
+		return
+	}
+
+	network.stashStoreInbox <- *storeMsg
+}
+
+func (network *Network) stashAckHandler(client mqtt.Client, msg mqtt.Message) {
+	ack := &StashStoreAck{}
+	if err := json.Unmarshal(msg.Payload(), ack); err != nil {
+		logrus.Debugf("stashAckHandler: invalid JSON: %v", err)
+		return
+	}
+
+	if ack.From == network.meName() {
+		return
+	}
+
+	network.stashAckInbox <- *ack
+}
+
+func (network *Network) stashRequestHandler(client mqtt.Client, msg mqtt.Message) {
+	req := &StashRequest{}
+	if err := json.Unmarshal(msg.Payload(), req); err != nil {
+		logrus.Debugf("stashRequestHandler: invalid JSON: %v", err)
+		return
+	}
+
+	// Ignore our own requests
+	if req.From == network.meName() || req.From == "" {
+		return
+	}
+
+	network.stashRequestInbox <- *req
+}
+
+func (network *Network) stashResponseHandler(client mqtt.Client, msg mqtt.Message) {
+	resp := &StashResponse{}
+	if err := json.Unmarshal(msg.Payload(), resp); err != nil {
+		logrus.Debugf("stashResponseHandler: invalid JSON: %v", err)
+		return
+	}
+
+	if resp.From == network.meName() {
+		return
+	}
+
+	network.stashResponseInbox <- *resp
+}
+
+func (network *Network) stashDeleteHandler(client mqtt.Client, msg mqtt.Message) {
+	deleteMsg := &StashDelete{}
+	if err := json.Unmarshal(msg.Payload(), deleteMsg); err != nil {
+		logrus.Debugf("stashDeleteHandler: invalid JSON: %v", err)
+		return
+	}
+
+	if deleteMsg.From == network.meName() || deleteMsg.From == "" {
+		return
+	}
+
+	network.stashDeleteInbox <- *deleteMsg
 }

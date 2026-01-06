@@ -6,7 +6,9 @@
       "Bash(git log:*)",
       "Bash(go build:*)",
       "Bash(wc:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(make test-fast:*)",
+      "Bash(go test:*)"
     ]
   }
 }
