@@ -36,6 +36,7 @@ func (network *Network) startHttpServer(httpAddr string) error {
 	http.HandleFunc("/social/recent", network.httpRecentEventsHandler)
 	http.HandleFunc("/world/start", network.httpWorldStartHandler)
 	http.HandleFunc("/world/journeys", network.httpWorldJourneysHandler)
+	http.HandleFunc("/events/sync", network.httpEventsSyncHandler)
 	publicFS, _ := fs.Sub(staticContent, "nara-web/public")
 	http.Handle("/", http.FileServer(http.FS(publicFS)))
 
@@ -375,5 +376,63 @@ func (network *Network) httpWorldJourneysHandler(w http.ResponseWriter, r *http.
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"journeys": response,
 		"server":   network.meName(),
+	})
+}
+
+// Mesh Event Sync HTTP handlers
+
+// POST /events/sync - Sync events via mesh
+// Used by booting naras to recover event history from neighbors
+func (network *Network) httpEventsSyncHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		From       string   `json:"from"`        // requesting nara
+		Subjects   []string `json:"subjects"`    // which naras to get events about (empty = all)
+		SinceTime  int64    `json:"since_time"`  // events after this timestamp (0 = all)
+		SliceIndex int      `json:"slice_index"` // for interleaved distribution
+		SliceTotal int      `json:"slice_total"` // total slices
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Validate request
+	if req.From == "" {
+		http.Error(w, "from is required", http.StatusBadRequest)
+		return
+	}
+
+	// Sanity check slice params
+	if req.SliceTotal < 1 {
+		req.SliceTotal = 1
+	}
+	if req.SliceIndex < 0 || req.SliceIndex >= req.SliceTotal {
+		req.SliceIndex = 0
+	}
+
+	// Get events from our ledger
+	const maxEvents = 1000
+	var events []SocialEvent
+	if network.local.SocialLedger != nil {
+		events = network.local.SocialLedger.GetEventsSyncSlice(
+			req.Subjects,
+			req.SinceTime,
+			req.SliceIndex,
+			req.SliceTotal,
+			maxEvents,
+		)
+	}
+
+	logrus.Debugf("📦 mesh sync: sent %d events to %s (slice %d/%d)", len(events), req.From, req.SliceIndex+1, req.SliceTotal)
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"from":   network.meName(),
+		"events": events,
 	})
 }

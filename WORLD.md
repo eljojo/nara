@@ -60,8 +60,17 @@ If verification fails, the message is rejected.
 
 When the message returns to the originator:
 1. The originator verifies the complete chain
-2. Posts the final `WorldMessage` to MQTT for everyone to see
-3. Clout rewards are distributed
+2. Broadcasts a lightweight completion signal via MQTT (`nara/plaza/journey_complete`)
+3. Records a `journey-complete` observation event (see [EVENTS.md](EVENTS.md))
+4. Clout rewards are distributed
+
+Each nara that participated:
+- Receives the completion signal
+- Records their own `journey-complete` observation
+- Resolves the journey from their pending list (good vibe!)
+
+If the journey never completes (5 minute timeout):
+- Participating naras record a `journey-timeout` observation (bad vibe)
 
 ### 6. Rewards
 
@@ -113,7 +122,9 @@ This ensures:
 World messages travel over the **mesh network** (tsnet/Headscale), not MQTT:
 - Direct nara-to-nara connections
 - More reliable for chain-of-custody
-- MQTT only used for the final broadcast
+- MQTT only used for lightweight coordination signals
+
+See [EVENTS.md](EVENTS.md) for details on the MQTT + Mesh architecture.
 
 ## Example Journey
 
@@ -143,7 +154,7 @@ World messages travel over the **mesh network** (tsnet/Headscale), not MQTT:
 - **Nara offline**: Skip and try next highest clout
 - **Signature invalid**: Reject message, log warning
 - **No path back**: Journey fails if all naras visited but can't reach originator
-- **Timeout**: Journey expires after 24 hours
+- **Timeout**: Participating naras consider journey failed after 5 minutes without completion signal
 
 ## Future Enhancements
 

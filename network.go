@@ -1,8 +1,11 @@
 package nara
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -37,6 +40,25 @@ type Network struct {
 	worldMesh       *MockMeshNetwork   // Used when no tsnet configured
 	worldTransport  *MockMeshTransport // Used when no tsnet configured
 	tsnetMesh       *TsnetMesh         // Used when Headscale is configured
+	// Pending journey tracking for timeout detection
+	pendingJourneys      map[string]*PendingJourney
+	pendingJourneysMu    sync.RWMutex
+	journeyCompleteInbox chan JourneyCompletion
+}
+
+// PendingJourney tracks a journey we participated in, waiting for completion
+type PendingJourney struct {
+	JourneyID  string
+	Originator string
+	SeenAt     int64  // when we first saw it
+	Message    string // original message for context
+}
+
+// JourneyCompletion is the lightweight MQTT signal for journey completion
+type JourneyCompletion struct {
+	JourneyID  string `json:"journey_id"`
+	Originator string `json:"originator"`
+	ReportedBy string `json:"reported_by"`
 }
 
 type NewspaperEvent struct {
@@ -63,6 +85,8 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	network.skippingEvents = false
 	network.Buzz = newBuzz()
 	network.worldJourneys = make([]*WorldMessage, 0)
+	network.pendingJourneys = make(map[string]*PendingJourney)
+	network.journeyCompleteInbox = make(chan JourneyCompletion, 50)
 	network.Mqtt = initializeMQTT(network.mqttOnConnectHandler(), network.meName(), host, user, pass)
 	return network
 }
@@ -77,6 +101,7 @@ func (network *Network) InitWorldJourney(mesh MeshTransport) {
 		network.getPublicKeyForNara,
 		network.getMeshIPForNara,
 		network.onWorldJourneyComplete,
+		network.onWorldJourneyPassThrough,
 	)
 	network.worldHandler.Listen()
 	logrus.Printf("World journey handler initialized")
@@ -179,7 +204,52 @@ func (network *Network) onWorldJourneyComplete(wm *WorldMessage) {
 	}
 	network.worldJourneysMu.Unlock()
 
+	// Record journey-complete observation event
+	if network.local.SocialLedger != nil {
+		event := NewJourneyObservationEvent(network.meName(), wm.Originator, ReasonJourneyComplete, wm.ID)
+		network.local.SocialLedger.AddEvent(event)
+	}
+
+	// Remove from pending journeys (we were the originator)
+	network.pendingJourneysMu.Lock()
+	delete(network.pendingJourneys, wm.ID)
+	network.pendingJourneysMu.Unlock()
+
+	// Broadcast completion via MQTT so others can resolve their pending journeys
+	if !network.ReadOnly {
+		completion := JourneyCompletion{
+			JourneyID:  wm.ID,
+			Originator: wm.Originator,
+			ReportedBy: network.meName(),
+		}
+		network.postEvent("nara/plaza/journey_complete", completion)
+	}
+
 	logrus.Printf("World journey complete! %s: %s", wm.Originator, wm.OriginalMessage)
+	logrus.Printf("observation: journey %s completed! (from %s)", wm.ID[:8], wm.Originator)
+	network.Buzz.increase(10)
+}
+
+// onWorldJourneyPassThrough is called when a journey passes through us (before forwarding)
+func (network *Network) onWorldJourneyPassThrough(wm *WorldMessage) {
+	// Track as pending journey (for timeout detection)
+	network.pendingJourneysMu.Lock()
+	network.pendingJourneys[wm.ID] = &PendingJourney{
+		JourneyID:  wm.ID,
+		Originator: wm.Originator,
+		SeenAt:     time.Now().Unix(),
+		Message:    wm.OriginalMessage,
+	}
+	network.pendingJourneysMu.Unlock()
+
+	// Record journey-pass observation event
+	if network.local.SocialLedger != nil {
+		event := NewJourneyObservationEvent(network.meName(), wm.Originator, ReasonJourneyPass, wm.ID)
+		network.local.SocialLedger.AddEvent(event)
+	}
+
+	logrus.Printf("observation: journey %s passed through (from %s)", wm.ID[:8], wm.Originator)
+	network.Buzz.increase(2)
 }
 
 func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetConfig) {
@@ -245,6 +315,7 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 	go network.processSocialEvents()
 	go network.processLedgerRequests()
 	go network.processLedgerResponses()
+	go network.processJourneyCompleteEvents()
 	go network.trendMaintenance()
 	go network.maintenanceBuzz()
 
@@ -255,6 +326,9 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 
 	// Start garbage collection maintenance
 	go network.socialMaintenance()
+
+	// Start journey timeout maintenance
+	go network.journeyTimeoutMaintenance()
 }
 
 func (network *Network) meName() string {
@@ -395,9 +469,17 @@ func (network *Network) handleChauEvent(nara Nara) {
 	}
 
 	observation := network.local.getObservation(nara.Name)
+	previousState := observation.Online
 	observation.Online = "OFFLINE"
 	observation.LastSeen = time.Now().Unix()
 	network.local.setObservation(nara.Name, observation)
+
+	// Record offline observation event if state changed
+	if previousState == "ONLINE" && !network.local.isBooting() && network.local.SocialLedger != nil {
+		event := NewObservationEvent(network.meName(), nara.Name, ReasonOffline)
+		network.local.SocialLedger.AddEvent(event)
+		logrus.Printf("observation: %s went offline", nara.Name)
+	}
 
 	logrus.Printf("%s: chau!", nara.Name)
 	network.Buzz.increase(2)
@@ -817,6 +899,112 @@ func (network *Network) bootRecovery() {
 		return
 	}
 
+	// Try mesh HTTP recovery first
+	if network.tsnetMesh != nil {
+		network.bootRecoveryViaMesh(online)
+		return
+	}
+
+	// Fall back to MQTT-based recovery
+	network.bootRecoveryViaMQTT(online)
+}
+
+// bootRecoveryViaMesh uses direct HTTP to sync events from neighbors
+func (network *Network) bootRecoveryViaMesh(online []string) {
+	// Get all known subjects (naras)
+	subjects := append(online, network.meName())
+
+	// Pick up to 5 mesh-enabled neighbors
+	var meshNeighbors []struct {
+		name string
+		ip   string
+	}
+
+	for _, name := range online {
+		if len(meshNeighbors) >= 5 {
+			break
+		}
+		ip := network.getMeshIPForNara(name)
+		if ip != "" {
+			meshNeighbors = append(meshNeighbors, struct {
+				name string
+				ip   string
+			}{name, ip})
+		}
+	}
+
+	if len(meshNeighbors) == 0 {
+		logrus.Printf("📦 no mesh-enabled neighbors for boot recovery, falling back to MQTT")
+		network.bootRecoveryViaMQTT(online)
+		return
+	}
+
+	totalSlices := len(meshNeighbors)
+	logrus.Printf("📦 boot recovery via mesh: syncing from %d neighbors", totalSlices)
+
+	// Query each neighbor with interleaved slicing
+	var totalMerged int
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	for i, neighbor := range meshNeighbors {
+		events := network.fetchEventsFromMesh(client, neighbor.ip, neighbor.name, subjects, i, totalSlices)
+		if len(events) > 0 {
+			added := network.local.SocialLedger.MergeEvents(events)
+			totalMerged += added
+			logrus.Printf("📦 mesh sync from %s: received %d events, merged %d", neighbor.name, len(events), added)
+		}
+	}
+
+	logrus.Printf("📦 boot recovery via mesh complete: merged %d events total", totalMerged)
+}
+
+// fetchEventsFromMesh fetches events from a neighbor via mesh HTTP
+func (network *Network) fetchEventsFromMesh(client *http.Client, meshIP, name string, subjects []string, sliceIndex, sliceTotal int) []SocialEvent {
+	// Build request
+	reqBody := map[string]interface{}{
+		"from":        network.meName(),
+		"subjects":    subjects,
+		"since_time":  0, // get all events
+		"slice_index": sliceIndex,
+		"slice_total": sliceTotal,
+	}
+
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		logrus.Warnf("📦 failed to marshal mesh sync request: %v", err)
+		return nil
+	}
+
+	// Make HTTP request to neighbor's mesh endpoint
+	// TODO: Make port configurable or discoverable
+	url := fmt.Sprintf("http://%s:7433/events/sync", meshIP) // TODO: use port from mesh.go
+	resp, err := client.Post(url, "application/json", bytes.NewReader(jsonBody))
+	if err != nil {
+		logrus.Warnf("📦 mesh sync from %s failed: %v", name, err)
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		logrus.Warnf("📦 mesh sync from %s returned status %d", name, resp.StatusCode)
+		return nil
+	}
+
+	// Parse response
+	var response struct {
+		From   string        `json:"from"`
+		Events []SocialEvent `json:"events"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		logrus.Warnf("📦 failed to decode mesh sync response from %s: %v", name, err)
+		return nil
+	}
+
+	return response.Events
+}
+
+// bootRecoveryViaMQTT uses MQTT ledger requests to sync events (fallback)
+func (network *Network) bootRecoveryViaMQTT(online []string) {
 	// Get all known subjects (naras)
 	subjects := append(online, network.meName())
 
@@ -829,7 +1017,7 @@ func (network *Network) bootRecovery() {
 	// Partition subjects across neighbors
 	partitions := PartitionSubjects(subjects, maxNeighbors)
 
-	logrus.Printf("📦 boot recovery: requesting events from %d neighbors", maxNeighbors)
+	logrus.Printf("📦 boot recovery via MQTT: requesting events from %d neighbors", maxNeighbors)
 
 	for i := 0; i < maxNeighbors; i++ {
 		neighbor := online[i]
@@ -887,5 +1075,70 @@ func (network *Network) socialMaintenance() {
 
 		// Cleanup tease cooldowns
 		network.TeaseState.Cleanup()
+	}
+}
+
+// --- Journey Completion Handling ---
+
+func (network *Network) processJourneyCompleteEvents() {
+	for {
+		network.handleJourneyCompletion(<-network.journeyCompleteInbox)
+	}
+}
+
+func (network *Network) handleJourneyCompletion(completion JourneyCompletion) {
+	// Check if we have this journey pending
+	network.pendingJourneysMu.Lock()
+	pending, exists := network.pendingJourneys[completion.JourneyID]
+	if exists {
+		delete(network.pendingJourneys, completion.JourneyID)
+	}
+	network.pendingJourneysMu.Unlock()
+
+	if !exists {
+		// We didn't participate in this journey, nothing to do
+		return
+	}
+
+	// Record journey-complete observation event (we heard it completed)
+	if network.local.SocialLedger != nil {
+		event := NewJourneyObservationEvent(network.meName(), pending.Originator, ReasonJourneyComplete, completion.JourneyID)
+		network.local.SocialLedger.AddEvent(event)
+	}
+
+	logrus.Printf("observation: journey %s completed! (from %s, reported by %s)", completion.JourneyID[:8], pending.Originator, completion.ReportedBy)
+}
+
+// journeyTimeoutMaintenance checks for journeys that have timed out
+func (network *Network) journeyTimeoutMaintenance() {
+	const journeyTimeout = 5 * time.Minute
+
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		<-ticker.C
+
+		now := time.Now().Unix()
+		var timedOut []*PendingJourney
+
+		network.pendingJourneysMu.Lock()
+		for id, pending := range network.pendingJourneys {
+			if now-pending.SeenAt > int64(journeyTimeout.Seconds()) {
+				timedOut = append(timedOut, pending)
+				delete(network.pendingJourneys, id)
+			}
+		}
+		network.pendingJourneysMu.Unlock()
+
+		// Record timeout events for each timed out journey
+		for _, pending := range timedOut {
+			if network.local.SocialLedger != nil {
+				event := NewJourneyObservationEvent(network.meName(), pending.Originator, ReasonJourneyTimeout, pending.JourneyID)
+				network.local.SocialLedger.AddEvent(event)
+			}
+
+			logrus.Printf("observation: journey %s timed out (from %s)", pending.JourneyID[:8], pending.Originator)
+		}
 	}
 }

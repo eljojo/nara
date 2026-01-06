@@ -113,6 +113,7 @@ func (tw *TestWorld) createHandler(tn *TestNara) *WorldJourneyHandler {
 			tw.Completed = append(tw.Completed, wm)
 			tw.CompleteMu.Unlock()
 		},
+		nil, // onJourneyPass - not needed for these tests
 	)
 }
 

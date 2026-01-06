@@ -224,7 +224,8 @@ type WorldJourneyHandler struct {
 	getPublicKey   func(string) []byte
 	getMeshIP      func(string) string // Resolve nara name to mesh IP
 	onComplete     func(*WorldMessage)
-	stamps         []string // Available stamps for this nara
+	onJourneyPass  func(*WorldMessage) // Called when a journey passes through (before forwarding)
+	stamps         []string            // Available stamps for this nara
 }
 
 // NewWorldJourneyHandler creates a new journey handler
@@ -236,6 +237,7 @@ func NewWorldJourneyHandler(
 	getPublicKey func(string) []byte,
 	getMeshIP func(string) string,
 	onComplete func(*WorldMessage),
+	onJourneyPass func(*WorldMessage),
 ) *WorldJourneyHandler {
 	return &WorldJourneyHandler{
 		localNara:      localNara,
@@ -245,6 +247,7 @@ func NewWorldJourneyHandler(
 		getPublicKey:   getPublicKey,
 		getMeshIP:      getMeshIP,
 		onComplete:     onComplete,
+		onJourneyPass:  onJourneyPass,
 		stamps:         defaultStamps(),
 	}
 }
@@ -313,6 +316,11 @@ func (h *WorldJourneyHandler) HandleIncoming(wm *WorldMessage) error {
 			h.onComplete(wm)
 		}
 		return nil
+	}
+
+	// Notify that a journey passed through us (before forwarding)
+	if h.onJourneyPass != nil {
+		h.onJourneyPass(wm)
 	}
 
 	// Choose next recipient

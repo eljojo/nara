@@ -25,6 +25,7 @@ func (network *Network) subscribeHandlers(client mqtt.Client) {
 	subscribeMqtt(client, "nara/plaza/hey_there", network.heyThereHandler)
 	subscribeMqtt(client, "nara/plaza/chau", network.chauHandler)
 	subscribeMqtt(client, "nara/plaza/social", network.socialHandler)
+	subscribeMqtt(client, "nara/plaza/journey_complete", network.journeyCompleteHandler)
 	subscribeMqtt(client, "nara/newspaper/#", network.newspaperHandler)
 	subscribeMqtt(client, "nara/selfies/#", network.selfieHandler)
 
@@ -121,6 +122,26 @@ func (network *Network) ledgerResponseHandler(client mqtt.Client, msg mqtt.Messa
 	}
 
 	network.ledgerResponseInbox <- resp
+}
+
+func (network *Network) journeyCompleteHandler(client mqtt.Client, msg mqtt.Message) {
+	completion := JourneyCompletion{}
+	if err := json.Unmarshal(msg.Payload(), &completion); err != nil {
+		logrus.Debugf("journeyCompleteHandler: invalid JSON: %v", err)
+		return
+	}
+
+	// Ignore our own completion signals
+	if completion.ReportedBy == network.meName() {
+		return
+	}
+
+	// Validate required fields
+	if completion.JourneyID == "" || completion.Originator == "" {
+		return
+	}
+
+	network.journeyCompleteInbox <- completion
 }
 
 func (network *Network) newspaperHandler(client mqtt.Client, msg mqtt.Message) {

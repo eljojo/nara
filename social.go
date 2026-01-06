@@ -16,6 +16,13 @@ const (
 	ReasonTrendAbandon = "trend-abandon"
 	ReasonRandom       = "random"
 	ReasonNiceNumber   = "nice-number" // naras appreciate good looking numbers
+
+	// Observation reasons - system observations that shape opinion
+	ReasonOnline          = "online"           // observed a nara come online
+	ReasonOffline         = "offline"          // observed a nara go offline
+	ReasonJourneyPass     = "journey-pass"     // a world journey passed through us
+	ReasonJourneyComplete = "journey-complete" // heard a journey completed
+	ReasonJourneyTimeout  = "journey-timeout"  // a journey we saw never completed
 )
 
 // SocialEvent represents an immutable social fact in the network
@@ -41,9 +48,10 @@ func (e *SocialEvent) ComputeID() {
 // IsValid checks if the event has a valid type
 func (e *SocialEvent) IsValid() bool {
 	validTypes := map[string]bool{
-		"tease":    true,
-		"observed": true,
-		"gossip":   true,
+		"tease":       true,
+		"observed":    true,
+		"gossip":      true,
+		"observation": true, // system observations (online/offline, journey events)
 	}
 	return validTypes[e.Type]
 }
@@ -100,7 +108,31 @@ func (l *SocialLedger) eventIsMeaningful(e SocialEvent) bool {
 		return false
 	}
 
-	// Very chill naras only care about significant events
+	// Handle observation events specially
+	if e.Type == "observation" {
+		// Everyone keeps journey-timeout (reliability matters!)
+		if e.Reason == ReasonJourneyTimeout {
+			return true
+		}
+
+		// Very chill naras skip routine online/offline
+		if l.Personality.Chill > 85 {
+			if e.Reason == ReasonOnline || e.Reason == ReasonOffline {
+				return false
+			}
+		}
+
+		// Low sociability naras skip journey-pass/complete
+		if l.Personality.Sociability < 30 {
+			if e.Reason == ReasonJourneyPass || e.Reason == ReasonJourneyComplete {
+				return false
+			}
+		}
+
+		return true
+	}
+
+	// Very chill naras only care about significant events (for non-observation types)
 	if l.Personality.Chill > 85 {
 		// Only store comebacks and high-restarts (significant events)
 		if e.Reason != ReasonComeback && e.Reason != ReasonHighRestarts {
@@ -186,10 +218,35 @@ func (l *SocialLedger) DeriveClout(observerSoul string) map[string]float64 {
 		case "gossip":
 			// Gossip has minimal direct clout impact
 			clout[event.Actor] += weight * 0.1
+		case "observation":
+			// System observations affect the TARGET's clout
+			l.applyObservationClout(clout, event, weight)
 		}
 	}
 
 	return clout
+}
+
+// applyObservationClout handles clout changes from observation events
+// Observations affect the TARGET's clout (the one being observed)
+func (l *SocialLedger) applyObservationClout(clout map[string]float64, event SocialEvent, weight float64) {
+	switch event.Reason {
+	case ReasonOnline:
+		// Coming online is slightly positive (reliable, available)
+		clout[event.Target] += weight * 0.1
+	case ReasonOffline:
+		// Going offline is slightly negative (less available)
+		clout[event.Target] -= weight * 0.05
+	case ReasonJourneyPass:
+		// Participating in journeys is positive (engaged citizen)
+		clout[event.Target] += weight * 0.2
+	case ReasonJourneyComplete:
+		// Completing journeys is very positive (success!)
+		clout[event.Target] += weight * 0.5
+	case ReasonJourneyTimeout:
+		// Journey timeout is negative (unreliable)
+		clout[event.Target] -= weight * 0.3
+	}
 }
 
 // eventWeight calculates how much an event matters based on personality AND event properties
@@ -237,6 +294,20 @@ func (l *SocialLedger) eventWeight(event SocialEvent) float64 {
 	case ReasonNiceNumber:
 		// Everyone appreciates good looking numbers a bit
 		weight *= 1.1
+
+	// Observation event reasons
+	case ReasonOnline, ReasonOffline:
+		// Online/offline are routine events, lower weight
+		weight *= 0.5
+	case ReasonJourneyPass:
+		// Journey participation is moderately interesting
+		weight *= 0.8
+	case ReasonJourneyComplete:
+		// Journey completion is significant
+		weight *= 1.3
+	case ReasonJourneyTimeout:
+		// Journey timeout is notable (indicates problem)
+		weight *= 1.2
 	}
 
 	// Event type affects weight
@@ -249,6 +320,9 @@ func (l *SocialLedger) eventWeight(event SocialEvent) float64 {
 	case "gossip":
 		// Gossip is the least reliable/impactful
 		weight *= 0.4
+	case "observation":
+		// System observations carry full weight (already at 1.0)
+		// The reason-based weights above already adjust appropriately
 	}
 
 	// Time decay: old events matter less than recent ones
@@ -394,6 +468,49 @@ func (l *SocialLedger) GetEventHashes() []string {
 	return hashes
 }
 
+// GetEventsInterleaved returns an interleaved slice of events for distributed sync.
+// When multiple responders serve events, each returns a different slice:
+// - sliceIndex 0 returns events 0, N, 2N, 3N...
+// - sliceIndex 1 returns events 1, N+1, 2N+1...
+// This provides time-spread coverage so the requester gets variety.
+func (l *SocialLedger) GetEventsInterleaved(sliceIndex, totalSlices int) []SocialEvent {
+	return l.GetEventsInterleavedWithLimit(sliceIndex, totalSlices, 0)
+}
+
+// GetEventsInterleavedWithLimit is like GetEventsInterleaved but with a max event limit
+func (l *SocialLedger) GetEventsInterleavedWithLimit(sliceIndex, totalSlices, maxEvents int) []SocialEvent {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	if totalSlices <= 0 {
+		totalSlices = 1
+	}
+	if sliceIndex < 0 || sliceIndex >= totalSlices {
+		sliceIndex = 0
+	}
+
+	// Sort events by timestamp for deterministic ordering
+	sorted := make([]SocialEvent, len(l.Events))
+	copy(sorted, l.Events)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].Timestamp < sorted[j].Timestamp
+	})
+
+	// Extract interleaved slice
+	var result []SocialEvent
+	for i := sliceIndex; i < len(sorted); i += totalSlices {
+		result = append(result, sorted[i])
+	}
+
+	// Apply max limit if specified
+	if maxEvents > 0 && len(result) > maxEvents {
+		// Keep most recent events (they're at the end since sorted ascending)
+		result = result[len(result)-maxEvents:]
+	}
+
+	return result
+}
+
 // --- Teasing Mechanics ---
 
 // NewTeaseEvent creates a new tease social event
@@ -404,6 +521,35 @@ func NewTeaseEvent(actor, target, reason string) SocialEvent {
 		Actor:     actor,
 		Target:    target,
 		Reason:    reason,
+	}
+	event.ComputeID()
+	return event
+}
+
+// NewObservationEvent creates a new observation social event
+// Type is "observation" for system observations (online/offline, etc.)
+func NewObservationEvent(actor, target, reason string) SocialEvent {
+	event := SocialEvent{
+		Timestamp: time.Now().Unix(),
+		Type:      "observation",
+		Actor:     actor,
+		Target:    target,
+		Reason:    reason,
+	}
+	event.ComputeID()
+	return event
+}
+
+// NewJourneyObservationEvent creates a journey-related observation event
+// The journeyID is stored in the Witness field for tracking
+func NewJourneyObservationEvent(observer, journeyOriginator, reason string, journeyID string) SocialEvent {
+	event := SocialEvent{
+		Timestamp: time.Now().Unix(),
+		Type:      "observation",
+		Actor:     observer,
+		Target:    journeyOriginator,
+		Reason:    reason,
+		Witness:   journeyID, // Repurpose Witness field for journey tracking
 	}
 	event.ComputeID()
 	return event
@@ -751,6 +897,56 @@ func (l *SocialLedger) GetEventsForSubjects(subjects []string) []SocialEvent {
 		}
 	}
 	return result
+}
+
+// GetEventsSyncSlice returns events for mesh sync with interleaved slicing
+// - subjects: filter to events involving these naras (empty = all)
+// - sinceTime: only events after this timestamp (0 = no filter)
+// - sliceIndex: which slice of interleaved events to return
+// - sliceTotal: total number of slices
+// - maxEvents: maximum events to return
+func (l *SocialLedger) GetEventsSyncSlice(subjects []string, sinceTime int64, sliceIndex, sliceTotal, maxEvents int) []SocialEvent {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	// Build subject set for filtering
+	subjectSet := make(map[string]bool)
+	filterBySubject := len(subjects) > 0
+	for _, s := range subjects {
+		subjectSet[s] = true
+	}
+
+	// First pass: filter events
+	var filtered []SocialEvent
+	for _, e := range l.Events {
+		// Filter by time
+		if sinceTime > 0 && e.Timestamp <= sinceTime {
+			continue
+		}
+		// Filter by subject
+		if filterBySubject && !subjectSet[e.Actor] && !subjectSet[e.Target] {
+			continue
+		}
+		filtered = append(filtered, e)
+	}
+
+	// Apply interleaved slicing if requested
+	if sliceTotal > 1 && sliceIndex >= 0 && sliceIndex < sliceTotal {
+		var sliced []SocialEvent
+		for i, e := range filtered {
+			if i%sliceTotal == sliceIndex {
+				sliced = append(sliced, e)
+			}
+		}
+		filtered = sliced
+	}
+
+	// Apply max limit
+	if maxEvents > 0 && len(filtered) > maxEvents {
+		filtered = filtered[:maxEvents]
+	}
+
+	return filtered
 }
 
 // PartitionSubjects divides subjects into N roughly equal chunks
