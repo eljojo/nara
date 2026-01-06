@@ -86,6 +86,8 @@ func (network *Network) httpNaraeJsonHandler(w http.ResponseWriter, r *http.Requ
 			"StartTime":    obs.StartTime,
 			"Restarts":     obs.Restarts,
 			"Uptime":       nara.Status.HostStats.Uptime,
+			"Trend":        nara.Status.Trend,
+			"TrendEmoji":   nara.Status.TrendEmoji,
 		}
 		nara.mu.Unlock()
 		naras = append(naras, naraMap)

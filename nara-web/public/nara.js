@@ -1,5 +1,18 @@
 'use strict';
 
+function stringToColor(str) {
+  var hash = 0;
+  for (var i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  var colour = '#';
+  for (var i = 0; i < 3; i++) {
+    var value = (hash >> (i * 8)) & 0xFF;
+    colour += ('00' + value.toString(16)).substr(-2);
+  }
+  return colour;
+}
+
 function NaraRow(props) {
   const nara = props.nara;
 
@@ -18,11 +31,23 @@ function NaraRow(props) {
   const url = `https://${nara.Name}.nara.network`;
   const nameOrLink =  nara.Online == "ONLINE" ? (<a href={url} target="_blank">{ nara.Name }</a>) : nara.Name;
 
+  const trendColor = nara.Trend ? stringToColor(nara.Trend) : 'transparent';
+  const trendStyle = {
+    backgroundColor: trendColor,
+    color: nara.Trend ? 'white' : 'black',
+    padding: '2px 6px',
+    borderRadius: '4px',
+    fontSize: '0.8em',
+    fontWeight: 'bold'
+  };
+  const trend = nara.Trend ? (<span style={trendStyle}>{nara.TrendEmoji} {nara.Trend}</span>) : "";
+
   return (
     <tr>
       <td>{ nara.LicensePlate } { nameOrLink }</td>
       <td>{ nara.Flair }</td>
       <td>{ nara.Buzz  }</td>
+      <td>{ trend }</td>
       <td>{ nara.Chattiness  }</td>
       <td>{ timeAgo(moment().unix() - nara.LastSeen) } ago</td>
       <td>{ uptime }</td>
@@ -30,6 +55,25 @@ function NaraRow(props) {
       <td>{ timeAgo(nara.Uptime)  }</td>
       <td>{ nara.Restarts }</td>
     </tr>
+  );
+}
+
+function TrendSummary({ naras }) {
+  const trends = naras.reduce((acc, nara) => {
+    if (nara.Trend) {
+      acc[nara.Trend] = (acc[nara.Trend] || 0) + 1;
+    }
+    return acc;
+  }, {});
+
+  return (
+    <div style={{ marginBottom: '20px', padding: '10px', border: '1px solid #ddd', borderRadius: '8px' }}>
+      <strong>Current Trends:</strong>
+      {Object.entries(trends).length === 0 && <span> None at the moment</span>}
+      {Object.entries(trends).map(([trend, count]) => (
+        <span key={trend} style={{ marginLeft: '10px', padding: '4px 8px', backgroundColor: stringToColor(trend), color: 'white', borderRadius: '12px', fontSize: '0.9em' }}>{trend} ({count})</span>
+      ))}
+    </div>
   );
 }
 
@@ -64,12 +108,14 @@ function NaraList() {
 
   return (
     <div>
+      <TrendSummary naras={data.filteredNaras} />
       <table id="naras">
         <thead>
           <tr>
             <th>Name</th>
             <th>Flair</th>
             <th>Buzz</th>
+            <th>Trend</th>
             <th>Chat</th>
             <th>Last Ping</th>
             <th>Nara Uptime</th>
