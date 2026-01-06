@@ -29,7 +29,7 @@ type LocalNara struct {
 
 type Nara struct {
 	Name     string
-	Hostname string
+	Hostname string `json:"-"`
 	Version  string
 	Status   NaraStatus
 	mu       sync.Mutex
@@ -54,6 +54,7 @@ type NaraStatus struct {
 	Personality  NaraPersonality
 	Soul         string
 	Version      string
+	PublicUrl    string
 	// remember to sync with setValuesFrom
 }
 
@@ -148,9 +149,6 @@ func (nara *Nara) setValuesFrom(other Nara) {
 		return
 	}
 
-	if other.Hostname != "" {
-		nara.Hostname = other.Hostname
-	}
 	if other.Version != "" {
 		nara.Version = other.Version
 	}
@@ -181,5 +179,8 @@ func (ns *NaraStatus) setValuesFrom(other NaraStatus) {
 		for name, nara := range other.Observations {
 			ns.Observations[name] = nara
 		}
+	}
+	if other.PublicUrl != "" {
+		ns.PublicUrl = other.PublicUrl
 	}
 }

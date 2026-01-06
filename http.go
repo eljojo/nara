@@ -79,6 +79,7 @@ func (network *Network) httpNaraeJsonHandler(w http.ResponseWriter, r *http.Requ
 		nara.mu.Lock()
 		naraMap := map[string]interface{}{
 			"Name":         nara.Name,
+			"PublicUrl":    nara.Status.PublicUrl,
 			"Flair":        nara.Status.Flair,
 			"LicensePlate": nara.Status.LicensePlate,
 			"Buzz":         nara.Status.Buzz,

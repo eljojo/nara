@@ -36,17 +36,17 @@ function ShootingStar({ event, onComplete }) {
     // Remove after animation completes
     const timer = setTimeout(() => {
       onComplete();
-    }, 4500);
+    }, 2500);
 
     // Generate sparkles along the path
     const colors = ['gold', 'pink', 'white', 'purple'];
     const sparkleInterval = setInterval(() => {
       // Calculate approximate current position based on time
-      const elapsed = Date.now() % 4000;
-      const progress = elapsed / 4000;
+      const elapsed = Date.now() % 2000;
+      const progress = elapsed / 2000;
 
       // Only spawn sparkles during the visible part of animation
-      if (progress > 0.1 && progress < 0.9) {
+      if (progress > 0.1 && progress < 0.8) {
         const x = progress * (window.innerWidth + 200) - 100;
         const y = (startY / 100) * window.innerHeight - (progress * 80);
 
@@ -59,12 +59,12 @@ function ShootingStar({ event, onComplete }) {
           x: x + offsetX,
           y: y + offsetY,
           color: colors[Math.floor(Math.random() * colors.length)],
-          delay: Math.random() * 100,
+          delay: Math.random() * 50,
         };
 
-        setSparkles(prev => [...prev.slice(-15), newSparkle]); // Keep last 15 sparkles
+        setSparkles(prev => [...prev.slice(-6), newSparkle]); // Keep last 6 sparkles
       }
-    }, 80);
+    }, 150);
 
     return () => {
       clearTimeout(timer);
@@ -94,41 +94,40 @@ function ShootingStar({ event, onComplete }) {
 
 // Container for all shooting stars
 function ShootingStarContainer() {
-  const { useState, useEffect } = React;
+  const { useState, useEffect, useRef } = React;
   const [stars, setStars] = useState([]);
+  const lastStarTime = useRef(0);
 
-  const addStar = (event) => {
-    const id = Date.now() + Math.random();
+  // Rate limit: minimum 2.5-5 minutes between stars (randomized)
+  const MIN_INTERVAL_MS = 150000; // 2.5 minutes
+  const MAX_INTERVAL_MS = 300000; // 5 minutes
+
+  const maybeAddStar = (event) => {
+    const now = Date.now();
+    const timeSinceLast = now - lastStarTime.current;
+    // Randomize the cooldown between min and max
+    const cooldown = MIN_INTERVAL_MS + Math.random() * (MAX_INTERVAL_MS - MIN_INTERVAL_MS);
+
+    if (timeSinceLast < cooldown) {
+      return; // Too soon, skip this one
+    }
+
+    lastStarTime.current = now;
+    const id = now + Math.random();
     setStars(prev => [...prev, { id, event }]);
   };
 
   useEffect(() => {
-    // Expose test function to window for console testing
-    window.testShootingStar = (actor = 'alice', target = 'bob', message = 'nice uptime, butterfingers') => {
-      addStar({ actor, target, message, type: 'tease', reason: 'test' });
-      console.log('🌟 Test shooting star launched!');
-    };
-
     // Connect to SSE endpoint
     const eventSource = new EventSource('/events');
 
     eventSource.addEventListener('social', (e) => {
       const event = JSON.parse(e.data);
-      addStar(event);
+      maybeAddStar(event);
     });
-
-    eventSource.addEventListener('connected', (e) => {
-      console.log('🌟 Connected to social stream:', JSON.parse(e.data));
-      console.log('💡 Tip: Run testShootingStar() in console to test the animation!');
-    });
-
-    eventSource.onerror = () => {
-      console.log('SSE connection error, will reconnect...');
-    };
 
     return () => {
       eventSource.close();
-      delete window.testShootingStar;
     };
   }, []);
 
@@ -160,8 +159,9 @@ function NaraRow(props) {
 
   const uptime = nara.Online == "ONLINE" ? timeAgo(nara.LastSeen - nara.LastRestart) : nara.Online;
 
-  const url = `https://${nara.Name}.nara.network`;
-  const nameOrLink =  nara.Online == "ONLINE" ? (<a href={url} target="_blank">{ nara.Name }</a>) : nara.Name;
+  const nameOrLink = (nara.Online == "ONLINE" && nara.PublicUrl)
+    ? (<a href={nara.PublicUrl} target="_blank">{ nara.Name }</a>)
+    : nara.Name;
 
   const trendColor = nara.Trend ? stringToColor(nara.Trend) : 'transparent';
   const trendStyle = {

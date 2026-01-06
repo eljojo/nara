@@ -68,6 +68,7 @@ func main() {
 	verbosePtr := flag.Bool("verbose", false, "log debug stuff")
 	readOnlyPtr := flag.Bool("read-only", false, "watch the network without sending any messages")
 	serveUiPtr := flag.Bool("serve-ui", false, "serve the web UI")
+	publicUrlPtr := flag.String("public-url", getEnv("PUBLIC_URL", ""), "public URL for this nara's web UI")
 
 	flag.Parse()
 
@@ -83,6 +84,7 @@ func main() {
 	soulStr := nara.FormatSoul(identity.Soul)
 
 	localNara := nara.NewLocalNara(identity.Name, soulStr, *mqttHostPtr, *mqttUserPtr, *mqttPassPtr, *forceChattinessPtr)
+	localNara.Me.Status.PublicUrl = *publicUrlPtr
 
 	// Log identity status
 	if !identity.IsValidBond {
