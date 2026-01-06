@@ -19,6 +19,7 @@ type LocalNara struct {
 	Me              *Nara
 	Network         *Network
 	Soul            string
+	Keypair         NaraKeypair
 	SocialLedger    *SocialLedger
 	forceChattiness int
 	isRaspberryPi   bool
@@ -55,6 +56,8 @@ type NaraStatus struct {
 	Soul         string
 	Version      string
 	PublicUrl    string
+	PublicKey    string // Base64-encoded Ed25519 public key
+	MeshEnabled  bool   // True if this nara is connected to the Headscale mesh
 	// remember to sync with setValuesFrom
 }
 
@@ -72,6 +75,15 @@ func NewLocalNara(name string, soul string, mqtt_host string, mqtt_user string, 
 	ln.Me.Version = NaraVersion
 	ln.Me.Status.Version = NaraVersion
 	ln.Me.Status.Soul = soul
+
+	// Derive Ed25519 keypair from soul
+	if parsedSoul, err := ParseSoul(soul); err == nil {
+		ln.Keypair = DeriveKeypair(parsedSoul)
+		ln.Me.Status.PublicKey = FormatPublicKey(ln.Keypair.PublicKey)
+		logrus.Printf("🔑 Keypair derived from soul")
+	} else {
+		logrus.Warnf("⚠️  Could not derive keypair from soul: %v", err)
+	}
 
 	ln.Network = NewNetwork(ln, mqtt_host, mqtt_user, mqtt_pass)
 
@@ -98,14 +110,14 @@ func NewNara(name string) *Nara {
 	return nara
 }
 
-func (ln *LocalNara) Start(serveUI bool, readOnly bool, httpAddr string) {
+func (ln *LocalNara) Start(serveUI bool, readOnly bool, httpAddr string, meshConfig *TsnetConfig) {
 	ln.Network.ReadOnly = readOnly
 	if serveUI {
 		logrus.Printf("💻 Serving UI")
 	}
 
 	go ln.updateHostStatsForever()
-	ln.Network.Start(serveUI, httpAddr)
+	ln.Network.Start(serveUI, httpAddr, meshConfig)
 
 	if readOnly {
 		logrus.Printf("🤫 Read-only mode: not pinging or announcing")
@@ -183,4 +195,8 @@ func (ns *NaraStatus) setValuesFrom(other NaraStatus) {
 	if other.PublicUrl != "" {
 		ns.PublicUrl = other.PublicUrl
 	}
+	if other.PublicKey != "" {
+		ns.PublicKey = other.PublicKey
+	}
+	ns.MeshEnabled = other.MeshEnabled
 }

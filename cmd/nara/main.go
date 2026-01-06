@@ -69,6 +69,8 @@ func main() {
 	readOnlyPtr := flag.Bool("read-only", false, "watch the network without sending any messages")
 	serveUiPtr := flag.Bool("serve-ui", false, "serve the web UI")
 	publicUrlPtr := flag.String("public-url", getEnv("PUBLIC_URL", ""), "public URL for this nara's web UI")
+	headscaleUrlPtr := flag.String("headscale-url", getEnv("HEADSCALE_URL", ""), "Headscale control server URL (e.g., https://vpn.nara.network)")
+	authKeyPtr := flag.String("authkey", getEnv("TS_AUTHKEY", ""), "Tailscale/Headscale auth key for automatic registration")
 
 	flag.Parse()
 
@@ -95,7 +97,18 @@ func main() {
 
 	logrus.Infof("🔮 Soul: %s", soulStr)
 
-	localNara.Start(*serveUiPtr, *readOnlyPtr, *httpAddrPtr)
+	// Configure mesh if Headscale is enabled
+	var meshConfig *nara.TsnetConfig
+	if *headscaleUrlPtr != "" {
+		meshConfig = &nara.TsnetConfig{
+			Hostname:   identity.Name,
+			ControlURL: *headscaleUrlPtr,
+			AuthKey:    *authKeyPtr,
+		}
+		logrus.Infof("Headscale mesh enabled: %s", *headscaleUrlPtr)
+	}
+
+	localNara.Start(*serveUiPtr, *readOnlyPtr, *httpAddrPtr, meshConfig)
 	if *showNeighboursPtr {
 		go localNara.PrintNeigbourhoodForever(*showNeighboursSpeedPtr)
 	}

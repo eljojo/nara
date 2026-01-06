@@ -34,6 +34,8 @@ func (network *Network) startHttpServer(httpAddr string) error {
 	http.HandleFunc("/events", network.httpEventsSSEHandler)
 	http.HandleFunc("/social/clout", network.httpCloutHandler)
 	http.HandleFunc("/social/recent", network.httpRecentEventsHandler)
+	http.HandleFunc("/world/start", network.httpWorldStartHandler)
+	http.HandleFunc("/world/journeys", network.httpWorldJourneysHandler)
 	publicFS, _ := fs.Sub(staticContent, "nara-web/public")
 	http.Handle("/", http.FileServer(http.FS(publicFS)))
 
@@ -285,4 +287,93 @@ func (network *Network) httpMetricsHandler(w http.ResponseWriter, r *http.Reques
 	for _, line := range lines {
 		fmt.Fprintln(w, line)
 	}
+}
+
+// World Journey HTTP handlers
+
+// POST /world/start - Start a new world journey
+func (network *Network) httpWorldStartHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Message string `json:"message"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.Message == "" {
+		http.Error(w, "Message is required", http.StatusBadRequest)
+		return
+	}
+
+	if network.worldHandler == nil {
+		http.Error(w, "World journey not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	wm, err := network.worldHandler.StartJourney(req.Message)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"id":      wm.ID,
+		"message": wm.OriginalMessage,
+	})
+}
+
+// GET /world/journeys - Get completed world journeys
+func (network *Network) httpWorldJourneysHandler(w http.ResponseWriter, r *http.Request) {
+	network.worldJourneysMu.RLock()
+	journeys := make([]*WorldMessage, len(network.worldJourneys))
+	copy(journeys, network.worldJourneys)
+	network.worldJourneysMu.RUnlock()
+
+	// Return most recent first, limit to 20
+	if len(journeys) > 20 {
+		journeys = journeys[len(journeys)-20:]
+	}
+
+	// Reverse order (most recent first)
+	for i, j := 0, len(journeys)-1; i < j; i, j = i+1, j-1 {
+		journeys[i], journeys[j] = journeys[j], journeys[i]
+	}
+
+	// Convert to response format
+	var response []map[string]interface{}
+	for _, wm := range journeys {
+		hops := make([]map[string]interface{}, len(wm.Hops))
+		for i, hop := range wm.Hops {
+			hops[i] = map[string]interface{}{
+				"nara":      hop.Nara,
+				"timestamp": hop.Timestamp,
+				"stamp":     hop.Stamp,
+			}
+		}
+
+		rewards := CalculateWorldRewards(wm)
+
+		response = append(response, map[string]interface{}{
+			"id":         wm.ID,
+			"message":    wm.OriginalMessage,
+			"originator": wm.Originator,
+			"hops":       hops,
+			"rewards":    rewards,
+			"complete":   wm.IsComplete(),
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"journeys": response,
+		"server":   network.meName(),
+	})
 }

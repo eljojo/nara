@@ -1,6 +1,7 @@
 package nara
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -29,6 +30,13 @@ type Network struct {
 	// SSE broadcast for web clients
 	sseClients   map[chan SocialEvent]bool
 	sseClientsMu sync.RWMutex
+	// World journey state
+	worldJourneys   []*WorldMessage // Completed journeys
+	worldJourneysMu sync.RWMutex
+	worldHandler    *WorldJourneyHandler
+	worldMesh       *MockMeshNetwork   // Used when no tsnet configured
+	worldTransport  *MockMeshTransport // Used when no tsnet configured
+	tsnetMesh       *TsnetMesh         // Used when Headscale is configured
 }
 
 type NewspaperEvent struct {
@@ -54,11 +62,106 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	network.sseClients = make(map[chan SocialEvent]bool)
 	network.skippingEvents = false
 	network.Buzz = newBuzz()
+	network.worldJourneys = make([]*WorldMessage, 0)
 	network.Mqtt = initializeMQTT(network.mqttOnConnectHandler(), network.meName(), host, user, pass)
 	return network
 }
 
-func (network *Network) Start(serveUI bool, httpAddr string) {
+// InitWorldJourney sets up the world journey handler with the given mesh transport
+func (network *Network) InitWorldJourney(mesh MeshTransport) {
+	network.worldHandler = NewWorldJourneyHandler(
+		network.local,
+		mesh,
+		network.getCloutMap,
+		network.getOnlineNaraNames,
+		network.getPublicKeyForNara,
+		network.onWorldJourneyComplete,
+	)
+	network.worldHandler.Listen()
+	logrus.Printf("World journey handler initialized")
+}
+
+func (network *Network) getCloutMap() map[string]map[string]float64 {
+	// Build clout map from social ledger
+	clout := make(map[string]map[string]float64)
+	if network.local.SocialLedger != nil {
+		myClout := network.local.SocialLedger.DeriveClout(network.local.Soul)
+		clout[network.local.Me.Name] = myClout
+	}
+	return clout
+}
+
+func (network *Network) getOnlineNaraNames() []string {
+	network.local.mu.Lock()
+	defer network.local.mu.Unlock()
+
+	// Check if we're using real mesh (tsnet) - if so, only include mesh-enabled naras
+	requireMesh := network.tsnetMesh != nil
+
+	names := []string{network.local.Me.Name}
+	for name, nara := range network.Neighbourhood {
+		obs := nara.getObservation(name)
+		if obs.Online != "ONLINE" {
+			continue
+		}
+
+		// If using tsnet, only include mesh-enabled naras
+		if requireMesh {
+			nara.mu.Lock()
+			meshEnabled := nara.Status.MeshEnabled
+			nara.mu.Unlock()
+			if !meshEnabled {
+				continue
+			}
+		}
+
+		names = append(names, name)
+	}
+	return names
+}
+
+func (network *Network) getPublicKeyForNara(name string) []byte {
+	if name == network.local.Me.Name {
+		return network.local.Keypair.PublicKey
+	}
+
+	network.local.mu.Lock()
+	nara, ok := network.Neighbourhood[name]
+	network.local.mu.Unlock()
+
+	if !ok {
+		return nil
+	}
+
+	// Lock nara before accessing its Status to avoid race condition
+	nara.mu.Lock()
+	publicKey := nara.Status.PublicKey
+	nara.mu.Unlock()
+
+	if publicKey == "" {
+		return nil
+	}
+
+	pubKey, err := ParsePublicKey(publicKey)
+	if err != nil {
+		return nil
+	}
+	return pubKey
+}
+
+func (network *Network) onWorldJourneyComplete(wm *WorldMessage) {
+	network.worldJourneysMu.Lock()
+	network.worldJourneys = append(network.worldJourneys, wm)
+	// Keep only last 100 journeys
+	if len(network.worldJourneys) > 100 {
+		network.worldJourneys = network.worldJourneys[len(network.worldJourneys)-100:]
+	}
+	network.worldJourneysMu.Unlock()
+
+	logrus.Printf("World journey complete! %s: %s", wm.Originator, wm.OriginalMessage)
+}
+
+func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetConfig) {
 	if serveUI {
 		err := network.startHttpServer(httpAddr)
 		if err != nil {
@@ -68,6 +171,37 @@ func (network *Network) Start(serveUI bool, httpAddr string) {
 
 	if token := network.Mqtt.Connect(); token.Wait() && token.Error() != nil {
 		logrus.Fatalf("MQTT connection error: %v", token.Error())
+	}
+
+	// Initialize world journey handler
+	if !network.ReadOnly {
+		if meshConfig != nil {
+			// Use real tsnet mesh with Headscale
+			tsnetMesh, err := NewTsnetMesh(*meshConfig)
+			if err != nil {
+				logrus.Errorf("Failed to create tsnet mesh: %v", err)
+			} else {
+				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+				defer cancel()
+				if err := tsnetMesh.Start(ctx); err != nil {
+					logrus.Errorf("Failed to start tsnet mesh: %v", err)
+				} else {
+					network.tsnetMesh = tsnetMesh
+					network.InitWorldJourney(tsnetMesh)
+					network.local.Me.Status.MeshEnabled = true
+					logrus.Info("World journey using tsnet mesh")
+				}
+			}
+		}
+
+		// Fall back to mock mesh if tsnet not configured or failed
+		if network.worldHandler == nil {
+			network.worldMesh = NewMockMeshNetwork()
+			network.worldTransport = NewMockMeshTransport()
+			network.worldMesh.Register(network.meName(), network.worldTransport)
+			network.InitWorldJourney(network.worldTransport)
+			logrus.Info("World journey using mock mesh (local only)")
+		}
 	}
 
 	if !network.ReadOnly {
