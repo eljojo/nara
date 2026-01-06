@@ -143,24 +143,55 @@ func (s *StashDelete) Verify(publicKey []byte) bool {
 
 // ConfidentTracker tracks which confidents have our stash (owner side)
 type ConfidentTracker struct {
-	confidents  map[string]int64 // name -> timestamp they confirmed
+	confidents  map[string]int64 // name -> timestamp they confirmed (acked)
+	pending     map[string]int64 // name -> timestamp we sent (awaiting ack)
 	targetCount int
 	mu          sync.RWMutex
 }
+
+// PendingTimeout is how long to wait for an ack before giving up
+const PendingTimeout = 60 * time.Second
 
 // NewConfidentTracker creates a new tracker with the given target count
 func NewConfidentTracker(targetCount int) *ConfidentTracker {
 	return &ConfidentTracker{
 		confidents:  make(map[string]int64),
+		pending:     make(map[string]int64),
 		targetCount: targetCount,
 	}
 }
 
-// Add adds a confident with the given confirmation timestamp
+// Add adds a confident with the given confirmation timestamp (for acked confidents)
 func (t *ConfidentTracker) Add(name string, timestamp int64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.confidents[name] = timestamp
+	delete(t.pending, name) // Remove from pending if it was there
+}
+
+// AddPending marks a confident as pending (sent but not yet acked)
+func (t *ConfidentTracker) AddPending(name string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if _, confirmed := t.confidents[name]; !confirmed {
+		t.pending[name] = time.Now().Unix()
+	}
+}
+
+// CleanupExpiredPending removes pending confidents that have timed out
+func (t *ConfidentTracker) CleanupExpiredPending() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	now := time.Now().Unix()
+	cutoff := now - int64(PendingTimeout.Seconds())
+	var expired []string
+	for name, sentAt := range t.pending {
+		if sentAt < cutoff {
+			expired = append(expired, name)
+			delete(t.pending, name)
+		}
+	}
+	return expired
 }
 
 // Remove removes a confident
@@ -168,13 +199,22 @@ func (t *ConfidentTracker) Remove(name string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	delete(t.confidents, name)
+	delete(t.pending, name)
 }
 
-// Has returns true if the given name is a tracked confident
+// Has returns true if the given name is a confirmed confident
 func (t *ConfidentTracker) Has(name string) bool {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	_, ok := t.confidents[name]
+	return ok
+}
+
+// IsPending returns true if the given name is pending (sent but not acked)
+func (t *ConfidentTracker) IsPending(name string) bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	_, ok := t.pending[name]
 	return ok
 }
 
@@ -197,6 +237,17 @@ func (t *ConfidentTracker) NeedsMore() bool {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return len(t.confidents) < t.targetCount
+}
+
+// NeedsCount returns how many more confidents are needed
+func (t *ConfidentTracker) NeedsCount() int {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	needed := t.targetCount - len(t.confidents)
+	if needed < 0 {
+		return 0
+	}
+	return needed
 }
 
 // GetExcess returns confidents beyond the target count (oldest first)
@@ -234,7 +285,7 @@ func (t *ConfidentTracker) GetExcess() []string {
 	return excess
 }
 
-// SelectRandom selects a random confident from online naras, excluding self and existing confidents
+// SelectRandom selects a random confident from online naras, excluding self, existing, and pending confidents
 func (t *ConfidentTracker) SelectRandom(self string, online []string) string {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -246,6 +297,9 @@ func (t *ConfidentTracker) SelectRandom(self string, online []string) string {
 			continue
 		}
 		if _, exists := t.confidents[name]; exists {
+			continue
+		}
+		if _, pending := t.pending[name]; pending {
 			continue
 		}
 		candidates = append(candidates, name)
