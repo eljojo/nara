@@ -3,12 +3,14 @@ module github.com/eljojo/nara
 go 1.24.0
 
 require (
+	github.com/btcsuite/btcutil v1.0.2
 	github.com/bugsnag/bugsnag-go v2.6.2+incompatible
 	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/kataras/tablewriter v0.0.0-20180708051242-e063d29b7c23
 	github.com/lensesio/tableprinter v0.0.0-20201125135848-89e81fc956e7
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/sirupsen/logrus v1.9.3
+	golang.org/x/crypto v0.46.0
 )
 
 require (
@@ -28,7 +30,7 @@ require (
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
-	golang.org/x/net v0.44.0 // indirect
+	golang.org/x/net v0.47.0 // indirect
 	golang.org/x/sync v0.17.0 // indirect
-	golang.org/x/sys v0.36.0 // indirect
+	golang.org/x/sys v0.39.0 // indirect
 )

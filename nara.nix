@@ -19,9 +19,28 @@ in
     };
 
     instances = lib.mkOption {
-      type = lib.types.listOf lib.types.str;
-      default = [ ];
-      description = "List of nara instance names to run. If empty and enabled, runs one instance with the hostname.";
+      type = lib.types.attrsOf (lib.types.submodule {
+        options = {
+          soul = lib.mkOption {
+            type = lib.types.nullOr lib.types.str;
+            default = null;
+            description = "The soul for this instance. Save this to preserve identity across hardware changes.";
+          };
+          extraArgs = lib.mkOption {
+            type = lib.types.listOf lib.types.str;
+            default = [ ];
+            description = "Extra arguments for this instance.";
+          };
+        };
+      });
+      default = { };
+      description = "Nara instances to run. Keys are instance names.";
+      example = lib.literalExpression ''
+        {
+          lily = { soul = "5Kd3NBqT..."; };
+          rose = { };  # will generate new soul from hardware
+        }
+      '';
     };
 
     mqttHost = lib.mkOption {
@@ -33,7 +52,7 @@ in
     extraArgs = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [ ];
-      description = "Extra arguments to pass to the nara binary.";
+      description = "Extra arguments to pass to all nara instances.";
     };
 
     environmentFile = lib.mkOption {
@@ -50,11 +69,10 @@ in
     };
     users.groups.nara = { };
 
-    systemd.services = 
-      let 
-        instances = if cfg.instances == [] then [ "" ] else cfg.instances;
-        makeService = name: {
-          name = if name == "" then "nara" else "nara-${name}";
+    systemd.services =
+      let
+        makeService = name: instanceCfg: {
+          name = "nara-${name}";
           value = {
             wantedBy = [ "multi-user.target" ];
             after = [ "network.target" ];
@@ -62,15 +80,16 @@ in
             serviceConfig = {
               Type = "simple";
               User = "nara";
-              ExecStart = "${cfg.package}/bin/nara -mqtt-host=${cfg.mqttHost}" 
-                + (lib.optionalString (name != "") " -nara-id=${name}")
-                + " " + (lib.concatStringsSep " " cfg.extraArgs);
+              ExecStart = "${cfg.package}/bin/nara -mqtt-host=${cfg.mqttHost}"
+                + " -nara-id=${name}"
+                + (lib.optionalString (instanceCfg.soul != null) " -soul=${instanceCfg.soul}")
+                + " " + (lib.concatStringsSep " " (cfg.extraArgs ++ instanceCfg.extraArgs));
               Restart = "always";
               RestartSec = 3;
               EnvironmentFile = lib.optional (cfg.environmentFile != null) cfg.environmentFile;
             };
           };
         };
-      in lib.listToAttrs (map makeService instances);
+      in lib.mapAttrs' makeService cfg.instances;
   };
 }

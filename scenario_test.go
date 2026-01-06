@@ -5,10 +5,11 @@ import (
 	"time"
 )
 
-func TestScenario_Interaction(t *testing.T) {
-	// 1. Initialize our local Nara (A)
-	ln := NewLocalNara("blue-jay", "host", "user", "pass", -1) // use blue-jay to skip fetch
+func TestScenario_VibeShift(t *testing.T) {
+	ln := NewLocalNara("blue-jay", "blue-jay-soul",  "host", "user", "pass", -1) // use blue-jay to skip fetch
 	network := ln.Network
+
+	// Mock observations
 	network.ReadOnly = true // avoid MQTT publish in tests
 
 	// 2. Simulate Nara B joining (Hey There)

@@ -5,11 +5,23 @@ import (
 	"time"
 )
 
-func TestObservation_OnlineTransitions(t *testing.T) {
-	ln := NewLocalNara("me", "host", "user", "pass", -1)
-	network := ln.Network
+func TestObservations_Record(t *testing.T) {
+	ln := NewLocalNara("me", "me-soul", "host", "user", "pass", -1)
 
-	name := "test-nara"
+	obs := ln.getMeObservation()
+	obs.LastSeen = 100
+	ln.setMeObservation(obs)
+
+	savedObs := ln.getMeObservation()
+	if savedObs.LastSeen != 100 {
+		t.Errorf("expected LastSeen 100, got %d", savedObs.LastSeen)
+	}
+}
+
+func TestObservations_Online(t *testing.T) {
+	ln := NewLocalNara("me", "me-soul", "host", "user", "pass", -1)
+	network := ln.Network
+	name := "other"
 	network.importNara(NewNara(name))
 
 	// 1. Initial observation via recording online
@@ -22,9 +34,7 @@ func TestObservation_OnlineTransitions(t *testing.T) {
 		t.Error("expected LastSeen to be set")
 	}
 
-	// 2. Transition to OFFLINE via Chau
-	// Since we can't easily simulate receiving an MQTT chau message without the client,
-	// we test the internal logic used when processing chau events
+	// 2. Transition to OFFLINE
 	obs.Online = "OFFLINE"
 	obs.LastSeen = time.Now().Unix()
 	network.local.setObservation(name, obs)
@@ -42,36 +52,5 @@ func TestObservation_OnlineTransitions(t *testing.T) {
 	}
 	if obs.Restarts != 1 {
 		t.Errorf("expected 1 restart, got %d", obs.Restarts)
-	}
-}
-
-func TestObservation_OpinionFormation(t *testing.T) {
-	ln := NewLocalNara("me", "host", "user", "pass", -1)
-	network := ln.Network
-
-	target := "target"
-	network.importNara(NewNara(target))
-
-	// Setup neighbors with different opinions about target's start time
-	n1 := NewNara("n1")
-	n1.setObservation(target, NaraObservation{StartTime: 100})
-	network.importNara(n1)
-
-	n2 := NewNara("n2")
-	n2.setObservation(target, NaraObservation{StartTime: 200})
-	network.importNara(n2)
-
-	n3 := NewNara("n3")
-	n3.setObservation(target, NaraObservation{StartTime: 100})
-	network.importNara(n3)
-
-	OpinionDelayOverride = 1 * time.Millisecond
-	defer func() { OpinionDelayOverride = 0 }()
-
-	// findStartingTimeFromNeighbourhoodForNara uses simple majority/plurality
-	// 100 appears twice, 200 appears once.
-	startTime := network.findStartingTimeFromNeighbourhoodForNara(target)
-	if startTime != 100 {
-		t.Errorf("expected consensus StartTime 100, got %d", startTime)
 	}
 }

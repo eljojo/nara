@@ -18,6 +18,7 @@ const NaraVersion = "0.2.0"
 type LocalNara struct {
 	Me              *Nara
 	Network         *Network
+	Soul            string
 	forceChattiness int
 	isRaspberryPi   bool
 	isNixOs         bool
@@ -50,15 +51,17 @@ type NaraStatus struct {
 	Trend        string
 	TrendEmoji   string
 	Personality  NaraPersonality
+	Soul         string
 	Version      string
 	// remember to sync with setValuesFrom
 }
 
-func NewLocalNara(name string, mqtt_host string, mqtt_user string, mqtt_pass string, forceChattiness int) *LocalNara {
+func NewLocalNara(name string, soul string, mqtt_host string, mqtt_user string, mqtt_pass string, forceChattiness int) *LocalNara {
 	logrus.Printf("📟 Booting nara: %s", name)
 
 	ln := &LocalNara{
 		Me:              NewNara(name),
+		Soul:            soul,
 		forceChattiness: forceChattiness,
 		isRaspberryPi:   isRaspberryPi(),
 		isNixOs:         isNixOs(),
@@ -66,6 +69,7 @@ func NewLocalNara(name string, mqtt_host string, mqtt_user string, mqtt_pass str
 	}
 	ln.Me.Version = NaraVersion
 	ln.Me.Status.Version = NaraVersion
+	ln.Me.Status.Soul = soul
 
 	ln.Network = NewNetwork(ln, mqtt_host, mqtt_user, mqtt_pass)
 
@@ -162,6 +166,7 @@ func (ns *NaraStatus) setValuesFrom(other NaraStatus) {
 	ns.Trend = other.Trend
 	ns.TrendEmoji = other.TrendEmoji
 	ns.Personality = other.Personality
+	ns.Soul = other.Soul
 	if other.LicensePlate != "" {
 		ns.LicensePlate = other.LicensePlate
 	}

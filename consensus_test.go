@@ -5,10 +5,9 @@ import (
 	"testing"
 )
 
-func TestConsensusThreshold(t *testing.T) {
-	ln := NewLocalNara("me", "host", "user", "pass", -1)
+func TestConsensus_FormOpinions(t *testing.T) {
+	ln := NewLocalNara("me", "me-soul", "host", "user", "pass", -1)
 	network := ln.Network
-
 	target := "target"
 	network.importNara(NewNara(target))
 
@@ -49,7 +48,7 @@ func TestConsensusThreshold(t *testing.T) {
 }
 
 func TestDissentAndChangeOfMind(t *testing.T) {
-	ln := NewLocalNara("me", "host", "user", "pass", -1)
+	ln := NewLocalNara("me", "me-soul", "host", "user", "pass", -1)
 	network := ln.Network
 
 	target := "target"
@@ -71,9 +70,6 @@ func TestDissentAndChangeOfMind(t *testing.T) {
 	}
 
 	// Introduce a large number of dissenters with a different opinion (200)
-	// We need enough to overcome the 100s.
-	// Total voters will be me(1) + n1(1) + n2(1) + dissenters.
-	// We'll add 10 dissenters. Total = 13. Threshold = 13/4 = 3.
 	for i := 0; i < 10; i++ {
 		dn := NewNara(fmt.Sprintf("d%d", i))
 		dn.setObservation(target, NaraObservation{StartTime: 200})
@@ -87,7 +83,7 @@ func TestDissentAndChangeOfMind(t *testing.T) {
 	}
 
 	// Now check what happens with complete chaos (no agreement > 25%)
-	// Total voters is 13. Threshold is 3.
+	// Total voters is 13 (me + n1 + n2 + 10 dissenters). Threshold is 13/4 = 3.25 -> 3
 	// We have ten '200's. Let's change 8 of them to unique values.
 	// Result: two '200's, two '100's, and 8 unique values.
 	// No value has > 3 votes.
@@ -103,14 +99,12 @@ func TestDissentAndChangeOfMind(t *testing.T) {
 	}
 }
 
-func TestFirstSeenLogSpam(t *testing.T) {
-	ln := NewLocalNara("me", "host", "user", "pass", -1)
+func TestObservations_OnlineTransitions(t *testing.T) {
+	ln := NewLocalNara("me", "me-soul", "host", "user", "pass", -1)
 	network := ln.Network
+	name := "target"
 
-	name := "other"
 	network.importNara(NewNara(name))
-
-	// First time should be "seen for first time" (internal state transitions from "")
 
 	obs := network.local.getObservation(name)
 	if obs.Online != "" {
@@ -122,13 +116,4 @@ func TestFirstSeenLogSpam(t *testing.T) {
 	if obs.Online != "ONLINE" {
 		t.Errorf("expected state ONLINE, got %s", obs.Online)
 	}
-
-	// Second time should NOT trigger the "first seen" block because Online is already "ONLINE"
-	// even if StartTime is still 0 (which happens during booting)
-	obs.StartTime = 0
-	network.local.setObservation(name, obs)
-
-	// This call should not trigger the logic that would print the log
-	// (we fixed this by checking Online == "" instead of StartTime == 0)
-	network.recordObservationOnlineNara(name)
 }

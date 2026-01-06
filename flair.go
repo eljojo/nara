@@ -1,29 +1,19 @@
 package nara
 
 import (
-	"io/ioutil"
-	"os"
-	"strings"
 	"crypto/sha256"
 	"encoding/binary"
+	"io/ioutil"
 	"math/rand"
+	"os"
+	"strings"
 )
 
 func (ln LocalNara) Flair() string {
+	awards := ln.Me.Flair(ln.Soul, ln.isRaspberryPi, ln.isNixOs, ln.isKubernetes)
+
+	// Network-dependent flair (only for local nara)
 	networkSize := len(ln.Network.Neighbourhood)
-	awards := ""
-	if ln.Me.Name == ln.Me.Hostname {
-		awards = awards + "🧑‍🚀"
-	}
-	if ln.isRaspberryPi {
-		awards = awards + "🍓"
-	}
-	if ln.isNixOs {
-		awards = awards + "❄️"
-	}
-	if ln.isKubernetes {
-		awards = awards + "🐳"
-	}
 	if networkSize > 2 {
 		if ln.Me.Name == ln.Network.oldestNara().Name {
 			awards = awards + "🧓"
@@ -41,6 +31,8 @@ func (ln LocalNara) Flair() string {
 			awards = awards + "🔁"
 		}
 	}
+
+	// Status-dependent flair
 	if ln.Me.Status.Chattiness >= 80 {
 		awards = awards + "💬"
 	}
@@ -56,16 +48,40 @@ func (ln LocalNara) Flair() string {
 		awards = awards + "📡"
 	}
 
-	// Trend Flair
-	if ln.Me.Status.Trend != "" {
-		awards = awards + ln.Me.Status.TrendEmoji
+	return awards
+}
+
+func (nara Nara) Flair(soul string, isRaspberryPi bool, isNixOs bool, isKubernetes bool) string {
+	awards := ""
+
+	if nara.IsInHarmony(soul) {
+		awards = Gemstone(nara.Name, soul)
+	} else {
+		awards = "👤"
 	}
 
-	// Expressive Personality Flair (The Chotchkie's Rule)
-	// 15 pieces of flair minimum? No, let's base it on sociability
-	flairCount := (ln.Me.Status.Personality.Sociability / 20) + 1
+	if nara.Name == nara.Hostname {
+		awards = awards + "🧑‍🚀"
+	}
+	if isRaspberryPi {
+		awards = awards + "🍓"
+	}
+	if isNixOs {
+		awards = awards + "❄️"
+	}
+	if isKubernetes {
+		awards = awards + "🐳"
+	}
+
+	// Trend Flair
+	if nara.Status.Trend != "" {
+		awards = awards + nara.Status.TrendEmoji
+	}
+
+	// Expressive Personality Flair
+	flairCount := (nara.Status.Personality.Sociability / 31) + 1
 	hasher := sha256.New()
-	hasher.Write([]byte(ln.Me.Name))
+	hasher.Write([]byte(nara.Name))
 	seed := int64(binary.BigEndian.Uint64(hasher.Sum(nil)[:8]))
 	r := rand.New(rand.NewSource(seed))
 	for i := 0; i < flairCount; i++ {
@@ -73,6 +89,19 @@ func (ln LocalNara) Flair() string {
 	}
 
 	return awards
+}
+
+func (nara Nara) IsInHarmony(soulStr string) bool {
+	if soulStr == "" {
+		return false
+	}
+
+	soul, err := ParseSoul(soulStr)
+	if err != nil {
+		return false
+	}
+
+	return ValidateBond(soul, nara.Name)
 }
 
 func (ln LocalNara) LicensePlate() string {

@@ -5,7 +5,7 @@ import (
 )
 
 func TestNetwork_ImportNara(t *testing.T) {
-	ln := NewLocalNara("me", "host", "user", "pass", -1)
+	ln := NewLocalNara("me", "me-soul", "host", "user", "pass", -1)
 	network := ln.Network
 
 	other := NewNara("other")
@@ -27,7 +27,7 @@ func TestNetwork_ImportNara(t *testing.T) {
 }
 
 func TestNetwork_NaraOrdering(t *testing.T) {
-	ln := NewLocalNara("me", "host", "user", "pass", -1)
+	ln := NewLocalNara("me", "me-soul", "host", "user", "pass", -1)
 	network := ln.Network
 
 	// Set me observation
@@ -60,7 +60,7 @@ func TestNetwork_NaraOrdering(t *testing.T) {
 }
 
 func TestNetwork_NeighbourhoodNames(t *testing.T) {
-	ln := NewLocalNara("me", "host", "user", "pass", -1)
+	ln := NewLocalNara("me", "me-soul", "host", "user", "pass", -1)
 	network := ln.Network
 
 	network.importNara(NewNara("a"))

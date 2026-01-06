@@ -16,7 +16,7 @@ var PersonalFlairPool = []string{"🍀", "🌸", "🍕", "🍔", "🍦", "🍩",
 
 func (ln *LocalNara) seedPersonality() {
 	hasher := sha256.New()
-	hasher.Write([]byte(ln.Me.Name))
+	hasher.Write([]byte(ln.Soul))
 	hash := hasher.Sum(nil)
 	seed := int64(binary.BigEndian.Uint64(hash[:8]))
 	r := rand.New(rand.NewSource(seed))
@@ -35,12 +35,15 @@ func (ln *LocalNara) seedPersonality() {
 func (network *Network) trendMaintenance() {
 	for {
 		time.Sleep(30 * time.Second)
+		network.maintenanceStep()
+	}
+}
 
-		if network.local.Me.Status.Trend == "" {
-			network.considerJoiningTrend()
-		} else {
-			network.considerLeavingTrend()
-		}
+func (network *Network) maintenanceStep() {
+	if network.local.Me.Status.Trend == "" {
+		network.considerJoiningTrend()
+	} else {
+		network.considerLeavingTrend()
 	}
 }
 
