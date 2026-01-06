@@ -16,6 +16,35 @@ import (
 	"runtime"
 )
 
+// ------------------------------------------------------------------
+// 🙏 A note to whoever is reading this code:
+//
+// The MQTT credentials below are lightly obfuscated (XOR) - not for
+// real security, just to keep them out of `strings` and casual grep.
+//
+// These credentials are shared with the nara community for a fun,
+// collaborative project. We're trusting you to be a good neighbor.
+// Please don't abuse them, share them publicly, or do anything that
+// would ruin the fun for everyone else.
+//
+// Be kind. 🌸
+// ------------------------------------------------------------------
+
+var credKey = []byte("nara")
+
+// XOR-obfuscated default credentials (decoded at runtime)
+// To encode new values: for each byte, XOR with credKey[i % len(credKey)]
+var defaultUserEnc = []byte{6, 4, 30, 13, 1, 76, 17, 20, 28, 8, 29, 20, 29, 76, 28, 0, 28, 0, 95, 7, 28, 8, 23, 15, 10}
+var defaultPassEnc = []byte{30, 13, 23, 0, 29, 4, 95, 3, 11, 76, 25, 8, 0, 5, 95, 21, 1, 76, 29, 20, 28, 76, 30, 8, 26, 21, 30, 4, 67, 21, 19, 12, 15, 6, 29, 21, 13, 9, 27, 18}
+
+func deobfuscate(enc []byte) string {
+	result := make([]byte, len(enc))
+	for i, b := range enc {
+		result[i] = b ^ credKey[i%len(credKey)]
+	}
+	return string(result)
+}
+
 func main() {
 	rand.Seed(time.Now().UnixNano())
 
@@ -27,9 +56,9 @@ func main() {
 		},
 	})
 
-	mqttHostPtr := flag.String("mqtt-host", getEnv("MQTT_HOST", "tcp://hass.eljojo.casa:1883"), "mqtt server hostname")
-	mqttUserPtr := flag.String("mqtt-user", getEnv("MQTT_USER", "my_username"), "mqtt server username")
-	mqttPassPtr := flag.String("mqtt-pass", getEnv("MQTT_PASS", "my_password"), "mqtt server password")
+	mqttHostPtr := flag.String("mqtt-host", getEnv("MQTT_HOST", "tls://mqtt.nara.network:8883"), "mqtt server hostname")
+	mqttUserPtr := flag.String("mqtt-user", getEnv("MQTT_USER", deobfuscate(defaultUserEnc)), "mqtt server username")
+	mqttPassPtr := flag.String("mqtt-pass", getEnv("MQTT_PASS", deobfuscate(defaultPassEnc)), "mqtt server password")
 	httpAddrPtr := flag.String("http-addr", getEnv("HTTP_ADDR", ""), "http server address (e.g. :8080)")
 	naraIdPtr := flag.String("nara-id", getEnv("NARA_ID", ""), "nara id")
 	soulPtr := flag.String("soul", getEnv("NARA_SOUL", ""), "nara soul to inherit identity")

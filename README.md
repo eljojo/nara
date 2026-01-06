@@ -124,11 +124,8 @@ services:
     image: ghcr.io/eljojo/nara:latest
     restart: always
     environment:
-      - NARA_ID=my-nara-instance
+      - NARA_ID=my-nara-instance # optional: give your nara a name
       - NARA_SOUL=  # optional: pass a saved soul to preserve identity
-      - MQTT_HOST=tcp://your-mqtt-broker:1883
-      - MQTT_USER=your_user
-      - MQTT_PASS=your_password
     ports:
       - "8080:8080"
     command: ["-serve-ui"]
