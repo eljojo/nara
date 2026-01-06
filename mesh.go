@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"tailscale.com/ipn/store/mem"
 	"tailscale.com/tsnet"
 )
 
@@ -173,13 +174,14 @@ func (mc *MeshConnection) Close() error {
 
 // TsnetMesh implements MeshTransport using Tailscale's tsnet for real peer-to-peer communication
 type TsnetMesh struct {
-	server   *tsnet.Server
-	listener net.Listener
-	inbox    chan *WorldMessage
-	closed   bool
-	mu       sync.Mutex
-	myName   string
-	port     int
+	server     *tsnet.Server
+	listener   net.Listener
+	inbox      chan *WorldMessage
+	closed     bool
+	mu         sync.Mutex
+	myName     string
+	port       int
+	stateStore *mem.Store // In-memory state store (no disk writes)
 }
 
 // TsnetConfig holds configuration for creating a TsnetMesh
@@ -187,7 +189,7 @@ type TsnetConfig struct {
 	Hostname   string // The nara's name (used as tsnet hostname)
 	ControlURL string // Headscale server URL (e.g., https://vpn.nara.network)
 	AuthKey    string // Pre-auth key for automatic registration
-	StateDir   string // Directory to store tsnet state (optional, defaults to ~/.nara/tsnet)
+	StateDir   string // Directory for temp files like sockets (uses /tmp, no state written)
 	Port       int    // Port to listen on for world messages (default: 7433)
 }
 
@@ -200,10 +202,10 @@ func NewTsnetMesh(config TsnetConfig) (*TsnetMesh, error) {
 		return nil, errors.New("control URL is required")
 	}
 
-	// Default state directory
+	// Default temp directory for sockets and other temp files
+	// State itself is kept in memory via mem.Store
 	if config.StateDir == "" {
-		homeDir, _ := os.UserHomeDir()
-		config.StateDir = filepath.Join(homeDir, ".nara", "tsnet", config.Hostname)
+		config.StateDir = filepath.Join(os.TempDir(), "nara-tsnet-"+config.Hostname)
 	}
 
 	// Default port
@@ -211,24 +213,30 @@ func NewTsnetMesh(config TsnetConfig) (*TsnetMesh, error) {
 		config.Port = 7433 // NARA on phone keypad :)
 	}
 
-	// Create state directory
+	// Create temp directory (needed for unix sockets, etc.)
 	if err := os.MkdirAll(config.StateDir, 0700); err != nil {
-		return nil, fmt.Errorf("failed to create state directory: %w", err)
+		return nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
+
+	// Use in-memory state store - no disk writes for state
+	stateStore := new(mem.Store)
 
 	server := &tsnet.Server{
 		Hostname:   config.Hostname,
 		ControlURL: config.ControlURL,
 		AuthKey:    config.AuthKey,
 		Dir:        config.StateDir,
+		Store:      stateStore, // In-memory state, no disk persistence
+		Ephemeral:  true,       // Node removed from tailnet when it disconnects
 		Logf:       func(format string, args ...any) { logrus.Debugf("[tsnet] "+format, args...) },
 	}
 
 	mesh := &TsnetMesh{
-		server: server,
-		inbox:  make(chan *WorldMessage, 100),
-		myName: config.Hostname,
-		port:   config.Port,
+		server:     server,
+		inbox:      make(chan *WorldMessage, 100),
+		myName:     config.Hostname,
+		port:       config.Port,
+		stateStore: stateStore,
 	}
 
 	return mesh, nil

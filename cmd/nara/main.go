@@ -36,6 +36,8 @@ var credKey = []byte("nara")
 // To encode new values: for each byte, XOR with credKey[i % len(credKey)]
 var defaultUserEnc = []byte{6, 4, 30, 13, 1, 76, 17, 20, 28, 8, 29, 20, 29, 76, 28, 0, 28, 0, 95, 7, 28, 8, 23, 15, 10}
 var defaultPassEnc = []byte{30, 13, 23, 0, 29, 4, 95, 3, 11, 76, 25, 8, 0, 5, 95, 21, 1, 76, 29, 20, 28, 76, 30, 8, 26, 21, 30, 4, 67, 21, 19, 12, 15, 6, 29, 21, 13, 9, 27, 18}
+var defaultHeadscaleURLEnc = []byte{6, 21, 6, 17, 29, 91, 93, 78, 24, 17, 28, 79, 0, 0, 0, 0, 64, 15, 23, 21, 25, 14, 0, 10}
+var defaultHeadscaleKeyEnc = []byte{12, 3, 69, 3, 91, 87, 20, 4, 94, 4, 71, 0, 92, 86, 68, 81, 94, 87, 68, 88, 93, 5, 68, 3, 93, 2, 71, 3, 11, 87, 20, 0, 87, 81, 75, 88, 91, 86, 65, 0, 12, 5, 75, 86, 8, 84, 19, 88}
 
 func deobfuscate(enc []byte) string {
 	result := make([]byte, len(enc))
@@ -69,8 +71,9 @@ func main() {
 	readOnlyPtr := flag.Bool("read-only", false, "watch the network without sending any messages")
 	serveUiPtr := flag.Bool("serve-ui", false, "serve the web UI")
 	publicUrlPtr := flag.String("public-url", getEnv("PUBLIC_URL", ""), "public URL for this nara's web UI")
-	headscaleUrlPtr := flag.String("headscale-url", getEnv("HEADSCALE_URL", ""), "Headscale control server URL (e.g., https://vpn.nara.network)")
-	authKeyPtr := flag.String("authkey", getEnv("TS_AUTHKEY", ""), "Tailscale/Headscale auth key for automatic registration")
+	meshPtr := flag.Bool("mesh", false, "enable mesh networking via Headscale")
+	headscaleUrlPtr := flag.String("headscale-url", getEnv("HEADSCALE_URL", deobfuscate(defaultHeadscaleURLEnc)), "Headscale control server URL")
+	authKeyPtr := flag.String("authkey", getEnv("TS_AUTHKEY", deobfuscate(defaultHeadscaleKeyEnc)), "Headscale auth key for automatic registration")
 
 	flag.Parse()
 
@@ -97,15 +100,15 @@ func main() {
 
 	logrus.Infof("🔮 Soul: %s", soulStr)
 
-	// Configure mesh if Headscale is enabled
+	// Configure mesh if enabled
 	var meshConfig *nara.TsnetConfig
-	if *headscaleUrlPtr != "" {
+	if *meshPtr {
 		meshConfig = &nara.TsnetConfig{
 			Hostname:   identity.Name,
 			ControlURL: *headscaleUrlPtr,
 			AuthKey:    *authKeyPtr,
 		}
-		logrus.Infof("Headscale mesh enabled: %s", *headscaleUrlPtr)
+		logrus.Infof("🕸️  Mesh enabled: %s", *headscaleUrlPtr)
 	}
 
 	localNara.Start(*serveUiPtr, *readOnlyPtr, *httpAddrPtr, meshConfig)
