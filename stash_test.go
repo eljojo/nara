@@ -341,6 +341,123 @@ func TestConfidentSelectionExcludesExisting(t *testing.T) {
 	}
 }
 
+func TestPendingConfidentTimeout(t *testing.T) {
+	tracker := NewConfidentTracker(2)
+
+	online := []string{"alice", "bob", "carol", "dave"}
+
+	// Add bob as pending (sent stash, awaiting ack)
+	tracker.AddPending("bob")
+
+	// Verify bob is pending
+	if !tracker.IsPending("bob") {
+		t.Error("Bob should be pending")
+	}
+
+	// Pending should not count as confirmed
+	if tracker.Has("bob") {
+		t.Error("Pending confident should not count as confirmed")
+	}
+	if tracker.Count() != 0 {
+		t.Errorf("Expected 0 confirmed confidents, got %d", tracker.Count())
+	}
+
+	// SelectRandom should exclude pending confidents
+	for i := 0; i < 100; i++ {
+		selected := tracker.SelectRandom("alice", online)
+		if selected == "bob" {
+			t.Error("Should not select pending confident")
+		}
+		if selected == "alice" {
+			t.Error("Should not select self")
+		}
+	}
+
+	// When bob acks, move from pending to confirmed
+	tracker.Add("bob", time.Now().Unix())
+	if tracker.IsPending("bob") {
+		t.Error("Bob should no longer be pending after ack")
+	}
+	if !tracker.Has("bob") {
+		t.Error("Bob should be confirmed after ack")
+	}
+}
+
+func TestPendingConfidentExpiry(t *testing.T) {
+	tracker := NewConfidentTracker(2)
+
+	// Manually set an expired pending entry (simulating old timestamp)
+	tracker.mu.Lock()
+	tracker.pending["bob"] = time.Now().Add(-2 * PendingTimeout).Unix()
+	tracker.pending["carol"] = time.Now().Unix() // Not expired
+	tracker.mu.Unlock()
+
+	// Cleanup should remove expired but keep non-expired
+	expired := tracker.CleanupExpiredPending()
+
+	if len(expired) != 1 {
+		t.Errorf("Expected 1 expired, got %d", len(expired))
+	}
+	if expired[0] != "bob" {
+		t.Errorf("Expected bob to be expired, got %s", expired[0])
+	}
+
+	// Bob should be gone, carol should remain pending
+	if tracker.IsPending("bob") {
+		t.Error("Bob should be removed after expiry")
+	}
+	if !tracker.IsPending("carol") {
+		t.Error("Carol should still be pending (not expired)")
+	}
+}
+
+func TestPendingToConfirmedFlow(t *testing.T) {
+	// Simulate the full flow: send -> pending -> ack -> confirmed
+	tracker := NewConfidentTracker(2)
+
+	online := []string{"alice", "bob", "carol", "dave"}
+
+	// Step 1: Select and mark as pending (simulating sending stash)
+	selected := tracker.SelectRandom("alice", online)
+	if selected == "" {
+		t.Fatal("Should select someone")
+	}
+	tracker.AddPending(selected)
+	t.Logf("Selected %s, marked as pending", selected)
+
+	// Step 2: Verify needs more (pending doesn't count)
+	if !tracker.NeedsMore() {
+		t.Error("Should still need more (pending doesn't count)")
+	}
+	if tracker.NeedsCount() != 2 {
+		t.Errorf("Should need 2 more, got %d", tracker.NeedsCount())
+	}
+
+	// Step 3: Simulate ack received
+	tracker.Add(selected, time.Now().Unix())
+
+	// Step 4: Now we have 1 confirmed, need 1 more
+	if tracker.Count() != 1 {
+		t.Errorf("Expected 1 confirmed, got %d", tracker.Count())
+	}
+	if tracker.NeedsCount() != 1 {
+		t.Errorf("Should need 1 more, got %d", tracker.NeedsCount())
+	}
+
+	// Step 5: Select another
+	selected2 := tracker.SelectRandom("alice", online)
+	if selected2 == "" || selected2 == selected {
+		t.Errorf("Should select different confident, got %s", selected2)
+	}
+	tracker.AddPending(selected2)
+	tracker.Add(selected2, time.Now().Unix())
+
+	// Step 6: Now satisfied
+	if !tracker.IsSatisfied() {
+		t.Error("Should be satisfied with 2 confirmed confidents")
+	}
+}
+
 // =====================================================
 // Message Tests
 // =====================================================

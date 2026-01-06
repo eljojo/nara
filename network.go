@@ -4702,6 +4702,12 @@ func (network *Network) maintainStashConfidents() {
 	online := network.NeighbourhoodOnlineNames()
 	tracker := network.stashManager.confidentTracker
 
+	// Cleanup expired pending (didn't ack in time - probably old version)
+	expired := tracker.CleanupExpiredPending()
+	for _, name := range expired {
+		logrus.Printf("📦 %s didn't ack stash (timeout), will try another", name)
+	}
+
 	// Remove offline confidents
 	for _, name := range tracker.GetAll() {
 		tracker.MarkOffline(name, online)
@@ -4711,7 +4717,7 @@ func (network *Network) maintainStashConfidents() {
 	for tracker.NeedsMore() && len(online) > 0 {
 		selected := tracker.SelectRandom(network.meName(), online)
 		if selected == "" {
-			break // no eligible candidates
+			break // no eligible candidates (all are confirmed or pending)
 		}
 
 		if err := network.sendStashTo(selected); err != nil {
@@ -4719,9 +4725,9 @@ func (network *Network) maintainStashConfidents() {
 			continue
 		}
 
-		// Optimistically add (will be confirmed by ack)
-		tracker.Add(selected, time.Now().Unix())
-		logrus.Printf("📦 sent stash to new confident %s", selected)
+		// Mark as pending - will be confirmed on ack
+		tracker.AddPending(selected)
+		logrus.Printf("📦 sent stash to %s (awaiting ack)", selected)
 	}
 
 	// If we have too many confidents, ask extras to delete
