@@ -68,9 +68,9 @@ func (network *Network) formOpinion() {
 		logrus.Printf("🕵️  forming opinions (overridden) in %v...", OpinionDelayOverride)
 		time.Sleep(OpinionDelayOverride)
 	} else {
-		wait := 1 * time.Minute
+		wait := 3 * time.Minute
 		if network.meName() == "blue-jay" {
-			wait = 10 * time.Minute
+			wait = 15 * time.Minute
 		}
 
 		logrus.Printf("🕵️  forming opinions in %v...", wait)
