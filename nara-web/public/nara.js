@@ -358,11 +358,205 @@ function NaraList() {
   );
 }
 
+// World Journey Panel
+function WorldJourneyPanel() {
+  const { useState, useEffect } = React;
+  const [message, setMessage] = useState('');
+  const [journeys, setJourneys] = useState([]);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+
+  const fetchJourneys = () => {
+    window.fetch("/world/journeys")
+      .then(response => response.json())
+      .then(data => {
+        setJourneys(data.journeys || []);
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    fetchJourneys();
+    const interval = setInterval(fetchJourneys, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const startJourney = () => {
+    if (!message.trim()) return;
+    setSending(true);
+    setError('');
+
+    window.fetch("/world/start", {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: message.trim() })
+    })
+      .then(response => {
+        if (!response.ok) {
+          return response.text().then(text => { throw new Error(text); });
+        }
+        return response.json();
+      })
+      .then(() => {
+        setMessage('');
+        fetchJourneys();
+      })
+      .catch(err => {
+        setError(err.message);
+      })
+      .finally(() => {
+        setSending(false);
+      });
+  };
+
+  const formatTime = (timestamp) => {
+    return moment.unix(timestamp).format('HH:mm:ss');
+  };
+
+  return (
+    <div style={{ marginBottom: '20px', padding: '15px', border: '2px solid #667eea', borderRadius: '12px', background: 'linear-gradient(135deg, #f5f7fa 0%, #e4e8f0 100%)' }}>
+      <h3 style={{ margin: '0 0 15px 0', color: '#667eea' }}>Going Around the World</h3>
+
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
+        <input
+          type="text"
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          onKeyPress={(e) => e.key === 'Enter' && startJourney()}
+          placeholder="Enter a message to send around the world..."
+          style={{
+            flex: 1,
+            padding: '10px 15px',
+            borderRadius: '8px',
+            border: '1px solid #ddd',
+            fontSize: '14px'
+          }}
+          disabled={sending}
+        />
+        <button
+          onClick={startJourney}
+          disabled={sending || !message.trim()}
+          style={{
+            padding: '10px 20px',
+            borderRadius: '8px',
+            border: 'none',
+            background: sending ? '#ccc' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            color: 'white',
+            fontWeight: 'bold',
+            cursor: sending ? 'not-allowed' : 'pointer'
+          }}
+        >
+          {sending ? 'Sending...' : 'Send'}
+        </button>
+      </div>
+
+      {error && (
+        <div style={{ color: 'red', marginBottom: '10px', fontSize: '14px' }}>{error}</div>
+      )}
+
+      <div>
+        <strong>Completed Journeys:</strong>
+        {journeys.length === 0 && (
+          <div style={{ color: '#888', marginTop: '10px', fontStyle: 'italic' }}>
+            No completed journeys yet. Start one above!
+          </div>
+        )}
+
+        {journeys.map((journey, idx) => (
+          <JourneyReceipt key={journey.id || idx} journey={journey} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Journey Receipt Component
+function JourneyReceipt({ journey }) {
+  const formatTime = (timestamp) => {
+    return moment.unix(timestamp).format('MMM D, HH:mm:ss');
+  };
+
+  const totalTime = journey.hops.length > 0
+    ? journey.hops[journey.hops.length - 1].timestamp - journey.hops[0].timestamp
+    : 0;
+
+  return (
+    <div style={{
+      marginTop: '10px',
+      padding: '12px',
+      background: 'white',
+      borderRadius: '8px',
+      border: '1px solid #e0e0e0',
+      boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <div style={{ fontWeight: 'bold', fontSize: '15px', marginBottom: '5px' }}>
+            "{journey.message}"
+          </div>
+          <div style={{ fontSize: '12px', color: '#666' }}>
+            Started by <strong>{journey.originator}</strong>
+          </div>
+        </div>
+        {journey.complete && (
+          <span style={{
+            background: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)',
+            color: 'white',
+            padding: '3px 10px',
+            borderRadius: '12px',
+            fontSize: '11px',
+            fontWeight: 'bold'
+          }}>
+            COMPLETE
+          </span>
+        )}
+      </div>
+
+      <div style={{ marginTop: '10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '5px' }}>
+        <span style={{ fontSize: '13px', color: '#444' }}>{journey.originator}</span>
+        {journey.hops.map((hop, i) => (
+          <React.Fragment key={i}>
+            <span style={{ color: '#999' }}>→</span>
+            <span style={{ fontSize: '13px' }}>
+              <span style={{ marginRight: '2px' }}>{hop.stamp}</span>
+              <strong>{hop.nara}</strong>
+            </span>
+          </React.Fragment>
+        ))}
+      </div>
+
+      {journey.complete && (
+        <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px dashed #e0e0e0' }}>
+          <div style={{ fontSize: '12px', color: '#666', marginBottom: '5px' }}>
+            <strong>Rewards:</strong>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            {Object.entries(journey.rewards || {}).map(([nara, clout]) => (
+              <span key={nara} style={{
+                background: clout >= 10 ? '#ffd700' : '#e8e8e8',
+                padding: '2px 8px',
+                borderRadius: '10px',
+                fontSize: '11px'
+              }}>
+                {nara}: +{clout}
+              </span>
+            ))}
+          </div>
+          <div style={{ fontSize: '11px', color: '#999', marginTop: '5px' }}>
+            Total time: {totalTime}s
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Main App with shooting stars
 function App() {
   return (
     <React.Fragment>
       <ShootingStarContainer />
+      <WorldJourneyPanel />
       <NaraList />
     </React.Fragment>
   );

@@ -97,7 +97,7 @@ func hashBytes(data []byte) []byte {
 }
 
 func IsGenericHostname(hostname string) bool {
-	genericNames := []string{"localhost", "raspberrypi", "raspberry", "debian", "ubuntu", "nixos", "nara"}
+	genericNames := []string{"localhost", "raspberrypi", "raspberry", "debian", "ubuntu", "nixos", "nara", "Mac"}
 	for _, name := range genericNames {
 		if strings.Contains(strings.ToLower(hostname), name) {
 			return true
