@@ -242,7 +242,7 @@ func TestWorldJourney_CloutRouting(t *testing.T) {
 	// Alice likes: Bob (10), Carol (5), Dave (2)
 	// Should route Alice -> Bob -> Carol -> Dave -> Alice
 
-	mockClout := map[string]map[string]float64{
+	clout := map[string]map[string]float64{
 		"alice": {"bob": 10, "carol": 5, "dave": 2},
 		"bob":   {"carol": 8, "dave": 3, "alice": 5},
 		"carol": {"dave": 7, "alice": 4, "bob": 2},
@@ -252,7 +252,7 @@ func TestWorldJourney_CloutRouting(t *testing.T) {
 	wm := NewWorldMessage("Hello!", "alice")
 
 	// Alice chooses next (should be Bob - highest clout)
-	next := ChooseNextNara("alice", wm, mockClout, []string{"alice", "bob", "carol", "dave"})
+	next := ChooseNextNara("alice", wm, clout["alice"], []string{"alice", "bob", "carol", "dave"})
 	if next != "bob" {
 		t.Errorf("Alice should choose bob, got %s", next)
 	}
@@ -262,7 +262,7 @@ func TestWorldJourney_CloutRouting(t *testing.T) {
 	wm.AddHop("bob", DeriveKeypair(bobSoul), "🌟")
 
 	// Bob chooses next (should be Carol - highest unvisited)
-	next = ChooseNextNara("bob", wm, mockClout, []string{"alice", "bob", "carol", "dave"})
+	next = ChooseNextNara("bob", wm, clout["bob"], []string{"alice", "bob", "carol", "dave"})
 	if next != "carol" {
 		t.Errorf("Bob should choose carol, got %s", next)
 	}
@@ -272,7 +272,7 @@ func TestWorldJourney_CloutRouting(t *testing.T) {
 	wm.AddHop("carol", DeriveKeypair(carolSoul), "🎉")
 
 	// Carol chooses next (should be Dave - only unvisited non-originator)
-	next = ChooseNextNara("carol", wm, mockClout, []string{"alice", "bob", "carol", "dave"})
+	next = ChooseNextNara("carol", wm, clout["carol"], []string{"alice", "bob", "carol", "dave"})
 	if next != "dave" {
 		t.Errorf("Carol should choose dave, got %s", next)
 	}
@@ -282,7 +282,7 @@ func TestWorldJourney_CloutRouting(t *testing.T) {
 	wm.AddHop("dave", DeriveKeypair(daveSoul), "🚀")
 
 	// Dave chooses next (should be Alice - only option is to return home)
-	next = ChooseNextNara("dave", wm, mockClout, []string{"alice", "bob", "carol", "dave"})
+	next = ChooseNextNara("dave", wm, clout["dave"], []string{"alice", "bob", "carol", "dave"})
 	if next != "alice" {
 		t.Errorf("Dave should choose alice (return home), got %s", next)
 	}
@@ -314,7 +314,7 @@ func TestWorldJourney_EndToEnd(t *testing.T) {
 	}
 
 	// Mock clout - creates path: alice -> bob -> carol -> dave -> alice
-	mockClout := map[string]map[string]float64{
+	clout := map[string]map[string]float64{
 		"alice": {"bob": 10, "carol": 5, "dave": 2},
 		"bob":   {"carol": 8, "dave": 3, "alice": 5},
 		"carol": {"dave": 7, "alice": 4, "bob": 2},
@@ -328,7 +328,7 @@ func TestWorldJourney_EndToEnd(t *testing.T) {
 	// Simulate the journey
 	currentNara := "alice"
 	for !wm.IsComplete() {
-		next := ChooseNextNara(currentNara, wm, mockClout, onlineNaras)
+		next := ChooseNextNara(currentNara, wm, clout[currentNara], onlineNaras)
 		if next == "" {
 			t.Fatal("Journey stuck - no next nara")
 		}

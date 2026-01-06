@@ -145,11 +145,10 @@ func (wm *WorldMessage) VerifyChain(getPublicKey func(string) []byte) error {
 }
 
 // ChooseNextNara selects the next nara based on clout, excluding already visited
-// Falls back to random selection if no clout data is available
-func ChooseNextNara(currentNara string, wm *WorldMessage, clout map[string]map[string]float64, onlineNaras []string) string {
-	myClout := clout[currentNara]
-
-	// Build list of candidates (online, not visited, not self)
+// Falls back to arbitrary ordering if no clout data is available
+// Routing rule: visit all non-originators first, then return to originator
+func ChooseNextNara(currentNara string, wm *WorldMessage, myClout map[string]float64, onlineNaras []string) string {
+	// Build list of candidates (online, not visited, not self, not originator)
 	type candidate struct {
 		name  string
 		score float64
@@ -160,8 +159,11 @@ func ChooseNextNara(currentNara string, wm *WorldMessage, clout map[string]map[s
 		if nara == currentNara {
 			continue // Skip self
 		}
-		if wm.HasVisited(nara) && nara != wm.Originator {
-			continue // Skip already visited (unless it's originator for return)
+		if nara == wm.Originator {
+			continue // Don't visit originator until all others visited
+		}
+		if wm.HasVisited(nara) {
+			continue // Skip already visited
 		}
 
 		score := float64(0)
@@ -171,8 +173,17 @@ func ChooseNextNara(currentNara string, wm *WorldMessage, clout map[string]map[s
 		candidates = append(candidates, candidate{nara, score})
 	}
 
+	// If no non-originator candidates left, return to originator
 	if len(candidates) == 0 {
-		return ""
+		// Only return to originator if they're online and we're not the originator
+		if currentNara != wm.Originator {
+			for _, nara := range onlineNaras {
+				if nara == wm.Originator {
+					return wm.Originator
+				}
+			}
+		}
+		return "" // Journey stuck
 	}
 
 	// Sort by clout descending (if no clout, all scores are 0 so order is arbitrary)
@@ -180,16 +191,7 @@ func ChooseNextNara(currentNara string, wm *WorldMessage, clout map[string]map[s
 		return candidates[i].score > candidates[j].score
 	})
 
-	// If only originator is left unvisited, return to them
-	// Otherwise pick highest clout non-originator
-	for _, c := range candidates {
-		if c.name != wm.Originator {
-			return c.name
-		}
-	}
-
-	// Only originator left - return home
-	return wm.Originator
+	return candidates[0].name
 }
 
 // CalculateWorldRewards calculates clout rewards for a completed journey
@@ -217,7 +219,7 @@ func CalculateWorldRewards(wm *WorldMessage) map[string]float64 {
 type WorldJourneyHandler struct {
 	localNara      *LocalNara
 	mesh           MeshTransport
-	getClout       func() map[string]map[string]float64
+	getMyClout     func() map[string]float64 // This nara's clout scores for others
 	getOnlineNaras func() []string
 	getPublicKey   func(string) []byte
 	getMeshIP      func(string) string // Resolve nara name to mesh IP
@@ -229,7 +231,7 @@ type WorldJourneyHandler struct {
 func NewWorldJourneyHandler(
 	localNara *LocalNara,
 	mesh MeshTransport,
-	getClout func() map[string]map[string]float64,
+	getMyClout func() map[string]float64,
 	getOnlineNaras func() []string,
 	getPublicKey func(string) []byte,
 	getMeshIP func(string) string,
@@ -238,7 +240,7 @@ func NewWorldJourneyHandler(
 	return &WorldJourneyHandler{
 		localNara:      localNara,
 		mesh:           mesh,
-		getClout:       getClout,
+		getMyClout:     getMyClout,
 		getOnlineNaras: getOnlineNaras,
 		getPublicKey:   getPublicKey,
 		getMeshIP:      getMeshIP,
@@ -329,10 +331,10 @@ func (h *WorldJourneyHandler) HandleIncoming(wm *WorldMessage) error {
 
 // chooseNext selects the next nara based on clout
 func (h *WorldJourneyHandler) chooseNext(wm *WorldMessage) string {
-	clout := h.getClout()
+	myClout := h.getMyClout()
 	online := h.getOnlineNaras()
 	logrus.Debugf("🌍 World journey: %d online naras (mesh-enabled): %v", len(online), online)
-	next := ChooseNextNara(h.localNara.Me.Name, wm, clout, online)
+	next := ChooseNextNara(h.localNara.Me.Name, wm, myClout, online)
 	if next == "" {
 		logrus.Debugf("🌍 World journey: no next nara available (self=%s, hops=%d)", h.localNara.Me.Name, len(wm.Hops))
 	}

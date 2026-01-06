@@ -87,7 +87,13 @@ func (tw *TestWorld) createHandler(tn *TestNara) *WorldJourneyHandler {
 	return NewWorldJourneyHandler(
 		tn.LocalNara,
 		tn.Transport,
-		func() map[string]map[string]float64 { return tw.Clout },
+		func() map[string]float64 {
+			// Return this nara's clout scores
+			if tw.Clout != nil {
+				return tw.Clout[tn.LocalNara.Me.Name]
+			}
+			return nil
+		},
 		func() []string {
 			names := make([]string, 0, len(tw.Naras))
 			for name := range tw.Naras {

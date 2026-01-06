@@ -72,7 +72,7 @@ func (network *Network) InitWorldJourney(mesh MeshTransport) {
 	network.worldHandler = NewWorldJourneyHandler(
 		network.local,
 		mesh,
-		network.getCloutMap,
+		network.getMyClout,
 		network.getOnlineNaraNames,
 		network.getPublicKeyForNara,
 		network.getMeshIPForNara,
@@ -97,14 +97,12 @@ func (network *Network) getMeshIPForNara(name string) string {
 	return nara.Status.MeshIP
 }
 
-func (network *Network) getCloutMap() map[string]map[string]float64 {
-	// Build clout map from social ledger
-	clout := make(map[string]map[string]float64)
+func (network *Network) getMyClout() map[string]float64 {
+	// Get this nara's clout scores for other naras
 	if network.local.SocialLedger != nil {
-		myClout := network.local.SocialLedger.DeriveClout(network.local.Soul)
-		clout[network.local.Me.Name] = myClout
+		return network.local.SocialLedger.DeriveClout(network.local.Soul)
 	}
-	return clout
+	return nil
 }
 
 func (network *Network) getOnlineNaraNames() []string {
