@@ -67,7 +67,7 @@ func TestCalculateVibeDifferentYears(t *testing.T) {
 
 func TestNeighbourhoodMaintenance(t *testing.T) {
 	localNara := &LocalNara{
-		Me: NewNara("me"),
+		Me:   NewNara("me"),
 		Soul: "me-soul",
 	}
 	network := &Network{
@@ -102,7 +102,7 @@ func TestNeighbourhoodMaintenance(t *testing.T) {
 
 func TestNeighbourhoodMaintenance_IncludesMe(t *testing.T) {
 	localNara := &LocalNara{
-		Me: NewNara("me"),
+		Me:   NewNara("me"),
 		Soul: "me-soul",
 	}
 	network := &Network{

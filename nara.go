@@ -19,6 +19,7 @@ type LocalNara struct {
 	Me              *Nara
 	Network         *Network
 	Soul            string
+	SocialLedger    *SocialLedger
 	forceChattiness int
 	isRaspberryPi   bool
 	isNixOs         bool
@@ -74,6 +75,10 @@ func NewLocalNara(name string, soul string, mqtt_host string, mqtt_user string, 
 	ln.Network = NewNetwork(ln, mqtt_host, mqtt_user, mqtt_pass)
 
 	ln.seedPersonality()
+
+	// Initialize social ledger with personality (max 30,000 events ~= 10MB)
+	ln.SocialLedger = NewSocialLedger(ln.Me.Status.Personality, 30000)
+
 	ln.updateHostStats()
 
 	hostinfo, _ := host.Info()

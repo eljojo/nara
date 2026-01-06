@@ -13,6 +13,138 @@ function stringToColor(str) {
   return colour;
 }
 
+// Sparkle particle component
+function Sparkle({ x, y, color, delay }) {
+  const style = {
+    left: x,
+    top: y,
+    animationDelay: `${delay}ms`,
+  };
+  return <div className={`sparkle ${color}`} style={style} />;
+}
+
+// Shooting Star Component with sparkles
+function ShootingStar({ event, onComplete }) {
+  const { useEffect, useState, useRef } = React;
+  const [sparkles, setSparkles] = useState([]);
+  const sparkleId = useRef(0);
+
+  // Random starting Y position (top 60% of screen)
+  const startY = Math.random() * 60 + 10; // 10% to 70%
+
+  useEffect(() => {
+    // Remove after animation completes
+    const timer = setTimeout(() => {
+      onComplete();
+    }, 4500);
+
+    // Generate sparkles along the path
+    const colors = ['gold', 'pink', 'white', 'purple'];
+    const sparkleInterval = setInterval(() => {
+      // Calculate approximate current position based on time
+      const elapsed = Date.now() % 4000;
+      const progress = elapsed / 4000;
+
+      // Only spawn sparkles during the visible part of animation
+      if (progress > 0.1 && progress < 0.9) {
+        const x = progress * (window.innerWidth + 200) - 100;
+        const y = (startY / 100) * window.innerHeight - (progress * 80);
+
+        // Add some randomness
+        const offsetX = (Math.random() - 0.5) * 40;
+        const offsetY = (Math.random() - 0.5) * 30;
+
+        const newSparkle = {
+          id: sparkleId.current++,
+          x: x + offsetX,
+          y: y + offsetY,
+          color: colors[Math.floor(Math.random() * colors.length)],
+          delay: Math.random() * 100,
+        };
+
+        setSparkles(prev => [...prev.slice(-15), newSparkle]); // Keep last 15 sparkles
+      }
+    }, 80);
+
+    return () => {
+      clearTimeout(timer);
+      clearInterval(sparkleInterval);
+    };
+  }, [startY]);
+
+  const style = {
+    top: `${startY}%`,
+    left: '-100px',
+  };
+
+  return (
+    <React.Fragment>
+      {sparkles.map(s => (
+        <Sparkle key={s.id} x={s.x} y={s.y} color={s.color} delay={s.delay} />
+      ))}
+      <div className="shooting-star burst" style={style}>
+        <span className="actor">{event.actor}</span>
+        <span className="arrow">→</span>
+        <span className="target">{event.target}</span>
+        <span style={{ marginLeft: '8px', opacity: 0.9 }}>{event.message}</span>
+      </div>
+    </React.Fragment>
+  );
+}
+
+// Container for all shooting stars
+function ShootingStarContainer() {
+  const { useState, useEffect } = React;
+  const [stars, setStars] = useState([]);
+
+  const addStar = (event) => {
+    const id = Date.now() + Math.random();
+    setStars(prev => [...prev, { id, event }]);
+  };
+
+  useEffect(() => {
+    // Expose test function to window for console testing
+    window.testShootingStar = (actor = 'alice', target = 'bob', message = 'nice uptime, butterfingers') => {
+      addStar({ actor, target, message, type: 'tease', reason: 'test' });
+      console.log('🌟 Test shooting star launched!');
+    };
+
+    // Connect to SSE endpoint
+    const eventSource = new EventSource('/events');
+
+    eventSource.addEventListener('social', (e) => {
+      const event = JSON.parse(e.data);
+      addStar(event);
+    });
+
+    eventSource.addEventListener('connected', (e) => {
+      console.log('🌟 Connected to social stream:', JSON.parse(e.data));
+      console.log('💡 Tip: Run testShootingStar() in console to test the animation!');
+    });
+
+    eventSource.onerror = () => {
+      console.log('SSE connection error, will reconnect...');
+    };
+
+    return () => {
+      eventSource.close();
+      delete window.testShootingStar;
+    };
+  }, []);
+
+  const removeStar = (id) => {
+    setStars(prev => prev.filter(s => s.id !== id));
+  };
+
+  return (
+    <div className="shooting-star-container">
+      {stars.map(({ id, event }) => (
+        <ShootingStar key={id} event={event} onComplete={() => removeStar(id)} />
+      ))}
+    </div>
+  );
+}
+
 function NaraRow(props) {
   const nara = props.nara;
 
@@ -58,6 +190,96 @@ function NaraRow(props) {
   );
 }
 
+// Social panel showing opinions and recent teases
+function SocialPanel() {
+  const { useState, useEffect } = React;
+  const [clout, setClout] = useState({});
+  const [recentEvents, setRecentEvents] = useState([]);
+  const [server, setServer] = useState('');
+
+  function timeAgo(timestamp) {
+    const seconds = moment().unix() - timestamp;
+    if (seconds < 60) {
+      return `${Math.round(seconds)}s ago`;
+    }
+    if (seconds < 3600) {
+      return `${Math.round(seconds / 60)}m ago`;
+    }
+    if (seconds < 86400) {
+      return `${Math.round(seconds / 3600)}h ago`;
+    }
+    return `${Math.round(seconds / 86400)}d ago`;
+  }
+
+  useEffect(() => {
+    const refresh = () => {
+      window.fetch("/social/clout")
+        .then(response => response.json())
+        .then(data => {
+          setClout(data.clout || {});
+          setServer(data.server);
+        })
+        .catch(() => {});
+
+      window.fetch("/social/recent")
+        .then(response => response.json())
+        .then(data => {
+          setRecentEvents(data.events || []);
+        })
+        .catch(() => {});
+    };
+
+    refresh();
+    const interval = setInterval(refresh, 10000); // every 10s instead of 2s
+    return () => clearInterval(interval);
+  }, []);
+
+  // Sort clout by score descending
+  const sortedClout = Object.entries(clout)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10);
+
+  const cloutEmoji = (score) => {
+    if (score >= 8) return '🌟';
+    if (score >= 5) return '✨';
+    if (score >= 2) return '👍';
+    if (score >= 0) return '😐';
+    return '👎';
+  };
+
+  return (
+    <div style={{ display: 'flex', gap: '20px', marginBottom: '20px' }}>
+      <div style={{ flex: 1, padding: '10px', border: '1px solid #ddd', borderRadius: '8px' }}>
+        <strong>💭 {server}'s Opinions:</strong>
+        {sortedClout.length === 0 && <div style={{ color: '#888', marginTop: '8px' }}>No opinions yet...</div>}
+        <div style={{ marginTop: '8px' }}>
+          {sortedClout.map(([name, score]) => (
+            <div key={name} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
+              <span>{name}</span>
+              <span>{cloutEmoji(score)} {score.toFixed(1)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ flex: 1, padding: '10px', border: '1px solid #ddd', borderRadius: '8px' }}>
+        <strong>📜 Recent Teases:</strong>
+        {recentEvents.length === 0 && <div style={{ color: '#888', marginTop: '8px' }}>No teases yet...</div>}
+        <div style={{ marginTop: '8px' }}>
+          {recentEvents.map((event, i) => (
+            <div key={i} style={{ padding: '4px 0', borderBottom: i < recentEvents.length - 1 ? '1px solid #eee' : 'none' }}>
+              <div style={{ fontSize: '0.9em' }}>
+                <strong>{event.actor}</strong> → <strong>{event.target}</strong>
+                <span style={{ color: '#888', marginLeft: '8px' }}>{timeAgo(event.timestamp)}</span>
+              </div>
+              <div style={{ fontSize: '0.85em', color: '#666', fontStyle: 'italic' }}>"{event.message}"</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TrendSummary({ naras }) {
   const trends = naras.reduce((acc, nara) => {
     if (nara.Trend) {
@@ -94,7 +316,7 @@ function NaraList() {
           if(fetchDate > lastDate) {
             const filteredNaras = data.naras
               .filter(nara => nara.LastSeen > yesterday)
-              .sort((a, b) => b.LastSeen - a.LastSeen);
+              .sort((a, b) => a.Name.localeCompare(b.Name));
             const newData = Object.assign(data, { filteredNaras: filteredNaras });
             setData(newData);
             lastDate = fetchDate;
@@ -108,6 +330,7 @@ function NaraList() {
 
   return (
     <div>
+      <SocialPanel />
       <TrendSummary naras={data.filteredNaras} />
       <table id="naras">
         <thead>
@@ -135,5 +358,15 @@ function NaraList() {
   );
 }
 
+// Main App with shooting stars
+function App() {
+  return (
+    <React.Fragment>
+      <ShootingStarContainer />
+      <NaraList />
+    </React.Fragment>
+  );
+}
+
 const domContainer = document.querySelector('#naras_container');
-ReactDOM.render(React.createElement(NaraList), domContainer);
+ReactDOM.render(React.createElement(App), domContainer);

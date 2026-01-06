@@ -286,6 +286,13 @@ func (network *Network) recordObservationOnlineNara(name string) {
 
 	observation := network.local.getObservation(name)
 
+	// Track previous state for teasing triggers
+	previousState := observation.Online
+	previousTrend := ""
+	if nara := network.getNara(name); nara.Name != "" {
+		previousTrend = nara.Status.Trend
+	}
+
 	if observation.Online == "" && name != network.meName() {
 		logrus.Printf("observation: seen %s for the first time", name)
 		network.Buzz.increase(3)
@@ -323,6 +330,12 @@ func (network *Network) recordObservationOnlineNara(name string) {
 	observation.Online = "ONLINE"
 	observation.LastSeen = time.Now().Unix()
 	network.local.setObservation(name, observation)
+
+	// Check teasing triggers after observation update
+	// Run inline - it's cheap (mostly returns early) and cooldown prevents spam
+	if !network.local.isBooting() && name != network.meName() {
+		network.checkAndTease(name, previousState, previousTrend)
+	}
 }
 
 func (network *Network) findRestartCountFromNeighbourhoodForNara(name string) int64 {

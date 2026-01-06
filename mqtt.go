@@ -24,13 +24,23 @@ func (network *Network) mqttOnConnectHandler() mqtt.OnConnectHandler {
 func (network *Network) subscribeHandlers(client mqtt.Client) {
 	subscribeMqtt(client, "nara/plaza/hey_there", network.heyThereHandler)
 	subscribeMqtt(client, "nara/plaza/chau", network.chauHandler)
+	subscribeMqtt(client, "nara/plaza/social", network.socialHandler)
 	subscribeMqtt(client, "nara/newspaper/#", network.newspaperHandler)
 	subscribeMqtt(client, "nara/selfies/#", network.selfieHandler)
+
+	// Subscribe to ledger requests and responses for this nara
+	ledgerRequestTopic := fmt.Sprintf("nara/ledger/%s/request", network.meName())
+	ledgerResponseTopic := fmt.Sprintf("nara/ledger/%s/response", network.meName())
+	subscribeMqtt(client, ledgerRequestTopic, network.ledgerRequestHandler)
+	subscribeMqtt(client, ledgerResponseTopic, network.ledgerResponseHandler)
 }
 
 func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 	heyThere := &HeyThereEvent{}
-	json.Unmarshal(msg.Payload(), heyThere)
+	if err := json.Unmarshal(msg.Payload(), heyThere); err != nil {
+		logrus.Debugf("heyThereHandler: invalid JSON: %v", err)
+		return
+	}
 
 	if heyThere.From == network.meName() || heyThere.From == "" {
 		return
@@ -41,7 +51,10 @@ func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 
 func (network *Network) selfieHandler(client mqtt.Client, msg mqtt.Message) {
 	nara := NewNara("")
-	json.Unmarshal(msg.Payload(), nara)
+	if err := json.Unmarshal(msg.Payload(), nara); err != nil {
+		logrus.Debugf("selfieHandler: invalid JSON: %v", err)
+		return
+	}
 
 	if nara.Name == network.meName() || nara.Name == "" {
 		return
@@ -52,9 +65,62 @@ func (network *Network) selfieHandler(client mqtt.Client, msg mqtt.Message) {
 
 func (network *Network) chauHandler(client mqtt.Client, msg mqtt.Message) {
 	nara := NewNara("")
-	json.Unmarshal(msg.Payload(), nara)
+	if err := json.Unmarshal(msg.Payload(), nara); err != nil {
+		logrus.Debugf("chauHandler: invalid JSON: %v", err)
+		return
+	}
 
 	network.chauInbox <- *nara
+}
+
+func (network *Network) socialHandler(client mqtt.Client, msg mqtt.Message) {
+	event := SocialEvent{}
+	if err := json.Unmarshal(msg.Payload(), &event); err != nil {
+		logrus.Debugf("socialHandler: invalid JSON: %v", err)
+		return
+	}
+
+	// Ignore our own events
+	if event.Actor == network.meName() {
+		return
+	}
+
+	// Validate event
+	if !event.IsValid() || event.Actor == "" || event.Target == "" {
+		return
+	}
+
+	network.socialInbox <- event
+}
+
+func (network *Network) ledgerRequestHandler(client mqtt.Client, msg mqtt.Message) {
+	req := LedgerRequest{}
+	if err := json.Unmarshal(msg.Payload(), &req); err != nil {
+		logrus.Debugf("ledgerRequestHandler: invalid JSON: %v", err)
+		return
+	}
+
+	// Ignore our own requests
+	if req.From == network.meName() || req.From == "" {
+		return
+	}
+
+	network.ledgerRequestInbox <- req
+}
+
+func (network *Network) ledgerResponseHandler(client mqtt.Client, msg mqtt.Message) {
+	resp := LedgerResponse{}
+	if err := json.Unmarshal(msg.Payload(), &resp); err != nil {
+		logrus.Debugf("ledgerResponseHandler: invalid JSON: %v", err)
+		return
+	}
+
+	// Ignore responses from ourselves (shouldn't happen, but be safe)
+	if resp.From == network.meName() {
+		return
+	}
+
+	network.ledgerResponseInbox <- resp
 }
 
 func (network *Network) newspaperHandler(client mqtt.Client, msg mqtt.Message) {
@@ -71,7 +137,10 @@ func (network *Network) newspaperHandler(client mqtt.Client, msg mqtt.Message) {
 	}
 
 	var status NaraStatus
-	json.Unmarshal(msg.Payload(), &status)
+	if err := json.Unmarshal(msg.Payload(), &status); err != nil {
+		logrus.Debugf("newspaperHandler: invalid JSON: %v", err)
+		return
+	}
 
 	network.newspaperInbox <- NewspaperEvent{From: from, Status: status}
 }

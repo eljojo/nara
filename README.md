@@ -10,147 +10,102 @@ a nara is a single entity, it's stateful but it has no persistence. sometimes I 
 
 events are shared over [mqtt](https://en.wikipedia.org/wiki/MQTT) and nara observe them to form opinions. for example, by observing the network, nara can (independently) group in neighbourhoods based on their "vibes".
 
-each nara has its own **personality** (Agreeableness, Sociability, and Chill), which dictates how it interacts with others and the trends it follows.
+each nara has its own **personality** (Agreeableness, Sociability, and Chill), which dictates how it interacts with others, the trends it follows, and how it judges social interactions.
 
-### Identity and the Soul
+### Identity: The Soul
 
-every nara has a **soul** - a portable cryptographic identity that bonds a nara to its name. souls are deterministically generated from hardware fingerprints, but can be saved and moved between machines.
+every nara has a **soul** - a portable cryptographic identity (~54 chars, Base58) that bonds a nara to its name.
 
-#### Soul Basics
+- **Quirky Names**: unnamed naras get fun names like `stretchy-mushroom-421` (there are over 2.5 million possible name combinations!)
+- **Gemstones** (💎, 🧿, 🏮): valid bond between soul and name
+- **Shadows** (👤): invalid bond - soul was minted for a different name
 
-- **Quirky Names**: if a nara is unnamed or has a generic hostname (like `raspberrypi`), it generates a fun, deterministic name like `stretchy-mushroom-421` or `cyber-star-099`. there are over 2.5 million possible name combinations!
-- **The Soul**: a 54-character string (Base58 encoded) that cryptographically bonds to a name. on boot, every nara reveals its soul (e.g., `🔮 Soul: 5Kd3...x9Qm`).
-- **The Gemstone**: a valid bond between soul and name is shown as a **Gemstone** (💎, 🧿, 🏮). this proves the soul was minted for this name.
-- **The Shadow**: if a soul doesn't match its claimed name (a broken bond), it shows a shadow icon (👤) instead.
-
-#### Portability: Travelers and Natives
-
-souls are **portable**. you can move a nara's identity to different hardware:
+souls are **portable** across machines. save your soul string to preserve identity:
 
 ```bash
-# on machine A - note the soul
-./nara -name jojo
-# logs: 🔮 Soul: 5Kd3NBqT...
+# machine A
+./nara -name jojo          # logs: 🔮 Soul: 5Kd3NBqT...
 
-# on machine B - pass the soul to preserve identity
-./nara -name jojo -soul 5Kd3NBqT...
-# logs: ℹ️ Traveler: foreign soul (valid)
+# machine B - same identity, different hardware
+./nara -name jojo -soul 5Kd3NBqT...   # logs: 💎 Traveler
 ```
 
-the soul remains **valid** on machine B because the cryptographic bond (soul ↔ name) is intact. it's just not **native** to that hardware.
+<details>
+<summary>Technical details</summary>
 
-| Scenario | Bond | Native | Status |
-|----------|------|--------|--------|
-| `./nara -name jojo` on HW1 | ✓ valid | ✓ native | 💎 |
-| `./nara -name jojo -soul <HW1's soul>` on HW2 | ✓ valid | ✗ foreign | 💎 Traveler |
-| `./nara -name jojo -soul <random>` | ✗ invalid | ✗ foreign | 👤 Warning |
+A soul is 40 bytes: a 32-byte seed (HKDF from hardware fingerprint) + 8-byte HMAC tag proving the bond to a name. Validation recomputes the tag and checks it matches.
 
-#### Saving Your Soul
+</details>
 
-**important**: if you care about preserving a nara's identity, **save the soul string**.
+### Consensus: How Naras Agree
 
-souls are generated deterministically from hardware fingerprints (MAC addresses, host ID). if your hardware changes (new NIC, VM migration, docker rebuild), your nara will generate a *different* native soul and thus a different identity.
+naras observe each other and must handle disagreements (clock drift, stale data, competing opinions).
 
-to preserve identity across hardware changes:
+**uptime-weighted clustering** resolves conflicts:
+1. Cluster observations within 60-second tolerance
+2. Pick winner via strategy hierarchy:
+   - **Strong**: 2+ agreeing observers beats raw uptime
+   - **Weak**: highest total uptime wins
+   - **Coin flip** 🪙: if top 2 clusters are within 20%, flip a coin
 
-1. note the soul on first boot: `🔮 Soul: 5Kd3NBqT...`
-2. save it somewhere (env var, secrets manager, config file)
-3. pass it on subsequent boots: `-soul 5Kd3NBqT...` or `NARA_SOUL=5Kd3NBqT...`
+longer-running naras are more credible - they've had time to converge on truth.
 
-for docker deployments, consider storing the soul in a volume or external config:
+### Social Dynamics
 
-```yaml
-environment:
-  - NARA_SOUL=${SAVED_SOUL}  # from your secrets
-```
+naras don't just observe facts - they have **social interactions** that shape opinions over time.
 
-#### How It Works (Technical)
+#### Teasing
 
-a soul is 40 bytes encoded as Base58 (~54 chars):
-- **seed** (32 bytes): derived via HKDF from hardware fingerprint
-- **tag** (8 bytes): HMAC proving the bond to a specific name
+naras tease each other based on observed behavior:
+- high restart count ("nice uptime, butterfingers")
+- abandoning a trend everyone else follows
+- coming back after being "missing"
+- random playful jabs (personality-dependent)
 
-```
-tag = HMAC-SHA256(key=seed, msg="nara:name:v1:" + name)[:8]
-soul = Base58(seed || tag)
-```
+teasing is **public** - the whole network sees it happen.
 
-validation is simple: recompute the tag from (seed, name) and check it matches.
+#### Clout and Reputation
 
-#### The Flow of the Soul
+each nara maintains **subjective opinions** about others. the same tease might be:
+- hilarious to a high-sociability nara
+- cringe to a high-chill nara
+- offensive to a high-agreeableness nara
 
-```mermaid
-graph TD
-    Boot(Boot Sequence) --> CheckName{Is Name Generic?}
-    CheckName -- Yes --> GenSeed[Generate Seed from Hardware]
-    GenSeed --> GenName[Derive Name from Seed]
-    GenName --> ComputeTag[Compute Bond Tag]
-    ComputeTag --> Harmony(💎 Native Soul)
-
-    CheckName -- No --> CheckSoul{Soul Provided?}
-    CheckSoul -- No --> CustomSeed[Generate Seed from<br/>Hardware + Name]
-    CustomSeed --> ComputeTag
-
-    CheckSoul -- Yes --> ParseSoul[Parse Soul → seed, tag]
-    ParseSoul --> ValidateBond{tag == HMAC(seed, name)?}
-    ValidateBond -- No --> Shadow(👤 Invalid Bond<br/>Warning!)
-    ValidateBond -- Yes --> CheckNative{Is Native Soul?}
-    CheckNative -- Yes --> Harmony
-    CheckNative -- No --> Traveler(💎 Valid Foreign Soul<br/>Traveler)
-```
-
-### Consensus: How Naras Form Opinions
-
-naras observe each other and form opinions about the network. but what happens when naras disagree? for example, two naras might report slightly different start times for a third nara due to clock drift. or a newly-joined nara might have stale information.
-
-#### Uptime-Weighted Clustering
-
-naras use a **credibility-weighted clustering** algorithm with a hierarchy of strategies:
-
-1. **Collect observations** from all neighbors, weighted by their uptime
-2. **Cluster similar values** within a 60-second tolerance (handles clock drift)
-3. **Pick the winner** using strategies from strictest to most permissive:
-   - **Strong**: cluster with >= 2 agreeing observers (agreement beats raw uptime)
-   - **Weak**: cluster with highest total uptime (when no agreement exists)
-   - **Coin flip**: if top 2 clusters are within 20% uptime, flip a coin 🪙
-4. **Return the median** of the winning cluster
+**clout** emerges from accumulated social interactions. but it's not global - every nara has their own view of who's cool and who's not.
 
 ```
-Example: determining lily's start time
+same event → different observers → different opinions
 
-raccoon (uptime: 6 days)  says: 1622957339
-lisa    (uptime: 4 hours) says: 1622957340  ← 1 second off (clock drift)
-bart    (uptime: 5 hours) says: 1622957339
-r2d2    (uptime: 15 days) says: 1622957339
-
-All values within 60s → one cluster
-Total uptime: ~21 days
-Result: median = 1622957339
+raccoon sees lily tease bart: "haha, good one" → lily gains clout
+zen-master sees lily tease bart: "unnecessary drama" → lily loses clout
 ```
 
-#### Why Uptime Matters
+#### Collective Memory
 
-longer-running naras have had more time to:
-- observe the network and converge on truth
-- receive corrections from other naras
-- form stable opinions
+the network has **memory that survives individual restarts**:
 
-a nara that's been online for 15 days is more trustworthy than one that just booted 5 minutes ago. uptime serves as a credibility weight: evidence from longer-running observers counts more.
+- social events are stored in a local **ledger** (immutable facts)
+- when a nara restarts, it requests memories from neighbors
+- opinions are **derived** from the ledger, not stored directly
+- same events + same personality = same opinions (deterministic)
 
-#### Edge Cases
+this means the network "remembers" even if individual naras forget.
 
-| Scenario | Behavior |
-|----------|----------|
-| All naras agree exactly | Returns the agreed value |
-| Small disagreement (clock drift) | Clusters together, returns median |
-| Two competing clusters (both with 2+ observers) | Cluster with higher total uptime wins |
-| One trusted elder vs 2+ agreeing observers | Agreement wins (Strategy 1 > Strategy 2) |
-| Two single-observer clusters with similar uptime | 🪙 Coin flip! |
-| Complete chaos (all disagree) | Highest uptime wins, or coin flip if close |
+#### Event Sourcing
+
+opinions are computed, not stored:
+
+```
+ledger (facts) → derivation function → opinions
+
+opinion = f(events, my_soul, my_personality)
+```
+
+the derivation function is deterministic: replay the same events and you get the same opinions. but different naras with different personalities derive different opinions from the same events.
 
 ### Fashion and Trends
 
-nara love to follow trends! they might start a new trend or join one started by their neighbors. 
+nara love to follow trends! they might start a new trend or join one started by their neighbors.
 - **Following the Wave**: a nara's personality determines how likely it is to join a trend or how quickly it might get bored and leave.
 - **Visualizing Fashion**: on the web dashboard, you can see current trends listed. each trend is color-coded, making it easy to spot which naras are currently vibing together.
 

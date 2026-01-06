@@ -6,9 +6,9 @@ import (
 )
 
 func TestPersonalitySeeding(t *testing.T) {
-	ln1 := NewLocalNara("alice", "alice-soul",  "host", "user", "pass", -1)
-	ln2 := NewLocalNara("alice", "alice-soul",  "host", "user", "pass", -1)
-	ln3 := NewLocalNara("bob", "bob-soul",  "host", "user", "pass", -1)
+	ln1 := NewLocalNara("alice", "alice-soul", "host", "user", "pass", -1)
+	ln2 := NewLocalNara("alice", "alice-soul", "host", "user", "pass", -1)
+	ln3 := NewLocalNara("bob", "bob-soul", "host", "user", "pass", -1)
 
 	if ln1.Me.Status.Personality != ln2.Me.Status.Personality {
 		t.Errorf("expected same personality for same name")
@@ -46,7 +46,7 @@ func TestFlairIncludesTrendAndPersonality(t *testing.T) {
 }
 
 func TestTrendJoiningLogic(t *testing.T) {
-	ln := NewLocalNara("follower", "follower-soul",  "host", "user", "pass", -1)
+	ln := NewLocalNara("follower", "follower-soul", "host", "user", "pass", -1)
 	ln.Me.Status.Personality.Agreeableness = 150 // guaranteed to join
 	network := ln.Network
 
@@ -71,7 +71,7 @@ func TestTrendJoiningLogic(t *testing.T) {
 }
 
 func TestTrendLeavingLogic(t *testing.T) {
-	ln := NewLocalNara("loner", "loner-soul",  "host", "user", "pass", -1)
+	ln := NewLocalNara("loner", "loner-soul", "host", "user", "pass", -1)
 	ln.Me.Status.Trend = "dead-trend"
 	ln.Me.Status.Personality.Chill = 0 // not chill at all, will leave
 	network := ln.Network
@@ -86,7 +86,7 @@ func TestTrendLeavingLogic(t *testing.T) {
 }
 
 func TestTrendVersionCompatibility(t *testing.T) {
-	ln := NewLocalNara("modern", "modern-soul",  "host", "user", "pass", -1)
+	ln := NewLocalNara("modern", "modern-soul", "host", "user", "pass", -1)
 	ln.Me.Status.Version = "0.2.0"
 	network := ln.Network
 

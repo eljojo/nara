@@ -2,6 +2,7 @@ package nara
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -9,18 +10,25 @@ import (
 )
 
 type Network struct {
-	Neighbourhood  map[string]*Nara
-	Buzz           *Buzz
-	LastHeyThere   int64
-	LastSelfie     int64
-	skippingEvents bool
-	local          *LocalNara
-	Mqtt           mqtt.Client
-	heyThereInbox  chan HeyThereEvent
-	newspaperInbox chan NewspaperEvent
-	chauInbox      chan Nara
-	selfieInbox    chan Nara
-	ReadOnly       bool
+	Neighbourhood       map[string]*Nara
+	Buzz                *Buzz
+	LastHeyThere        int64
+	LastSelfie          int64
+	skippingEvents      bool
+	local               *LocalNara
+	Mqtt                mqtt.Client
+	heyThereInbox       chan HeyThereEvent
+	newspaperInbox      chan NewspaperEvent
+	chauInbox           chan Nara
+	selfieInbox         chan Nara
+	socialInbox         chan SocialEvent
+	ledgerRequestInbox  chan LedgerRequest
+	ledgerResponseInbox chan LedgerResponse
+	TeaseState          *TeaseState
+	ReadOnly            bool
+	// SSE broadcast for web clients
+	sseClients   map[chan SocialEvent]bool
+	sseClientsMu sync.RWMutex
 }
 
 type NewspaperEvent struct {
@@ -39,6 +47,11 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	network.chauInbox = make(chan Nara)
 	network.selfieInbox = make(chan Nara)
 	network.newspaperInbox = make(chan NewspaperEvent)
+	network.socialInbox = make(chan SocialEvent, 100)
+	network.ledgerRequestInbox = make(chan LedgerRequest, 50)
+	network.ledgerResponseInbox = make(chan LedgerResponse, 50)
+	network.TeaseState = NewTeaseState()
+	network.sseClients = make(map[chan SocialEvent]bool)
 	network.skippingEvents = false
 	network.Buzz = newBuzz()
 	network.Mqtt = initializeMQTT(network.mqttOnConnectHandler(), network.meName(), host, user, pass)
@@ -73,8 +86,19 @@ func (network *Network) Start(serveUI bool, httpAddr string) {
 	go network.processSelfieEvents()
 	go network.processChauEvents()
 	go network.processNewspaperEvents()
+	go network.processSocialEvents()
+	go network.processLedgerRequests()
+	go network.processLedgerResponses()
 	go network.trendMaintenance()
 	go network.maintenanceBuzz()
+
+	// Start boot recovery after a short delay to gather neighbors
+	if !network.ReadOnly {
+		go network.bootRecovery()
+	}
+
+	// Start garbage collection maintenance
+	go network.socialMaintenance()
 }
 
 func (network *Network) meName() string {
@@ -408,5 +432,304 @@ func (network *Network) importNara(nara *Nara) {
 		n.setValuesFrom(*nara)
 	} else {
 		network.Neighbourhood[nara.Name] = nara
+	}
+}
+
+// --- Social Event Handling ---
+
+func (network *Network) processSocialEvents() {
+	for {
+		network.handleSocialEvent(<-network.socialInbox)
+	}
+}
+
+func (network *Network) handleSocialEvent(event SocialEvent) {
+	// Don't process our own events from the network
+	if event.Actor == network.meName() {
+		return
+	}
+
+	// Add to our ledger
+	if network.local.SocialLedger.AddEvent(event) {
+		logrus.Printf("📢 %s teased %s: %s", event.Actor, event.Target, TeaseMessage(event.Reason, event.Actor, event.Target))
+		network.Buzz.increase(5)
+
+		// Broadcast to SSE clients (for the shooting star effect!)
+		network.broadcastSSE(event)
+	}
+}
+
+// SSE client management
+
+func (network *Network) subscribeSSE() chan SocialEvent {
+	ch := make(chan SocialEvent, 10) // buffered to prevent blocking
+	network.sseClientsMu.Lock()
+	network.sseClients[ch] = true
+	network.sseClientsMu.Unlock()
+	return ch
+}
+
+func (network *Network) unsubscribeSSE(ch chan SocialEvent) {
+	network.sseClientsMu.Lock()
+	delete(network.sseClients, ch)
+	network.sseClientsMu.Unlock()
+	// Don't close the channel - a broadcast already in-flight might still
+	// have a reference and would panic on send. Let GC collect it once
+	// the SSE handler returns and stops selecting on it.
+}
+
+func (network *Network) broadcastSSE(event SocialEvent) {
+	network.sseClientsMu.RLock()
+	defer network.sseClientsMu.RUnlock()
+
+	for ch := range network.sseClients {
+		select {
+		case ch <- event:
+		default:
+			// Client too slow, skip this event for them
+		}
+	}
+}
+
+// Tease broadcasts a tease event to the network.
+// Returns true if the tease was sent, false if blocked by cooldown or readonly.
+func (network *Network) Tease(target, reason string) bool {
+	if network.ReadOnly {
+		return false
+	}
+
+	actor := network.meName()
+
+	// Atomically check and record cooldown (prevents TOCTOU race)
+	if !network.TeaseState.TryTease(actor, target) {
+		return false
+	}
+
+	// Create and broadcast the event
+	event := NewTeaseEvent(actor, target, reason)
+
+	// Add to our own ledger
+	if network.local.SocialLedger != nil {
+		network.local.SocialLedger.AddEvent(event)
+	}
+
+	// Broadcast to network via MQTT
+	topic := "nara/plaza/social"
+	network.postEvent(topic, event)
+
+	// Broadcast to local SSE clients (shooting star!)
+	network.broadcastSSE(event)
+
+	msg := TeaseMessage(reason, actor, target)
+	logrus.Printf("😈 teasing %s: %s", target, msg)
+	network.Buzz.increase(3)
+	return true
+}
+
+// checkAndTease evaluates teasing triggers for a given nara.
+// Tease() handles cooldown atomically via TryTease, so no separate CanTease checks needed.
+func (network *Network) checkAndTease(name string, previousState string, previousTrend string) {
+	if network.ReadOnly || name == network.meName() {
+		return
+	}
+
+	obs := network.local.getObservation(name)
+	personality := network.local.Me.Status.Personality
+
+	// Check restart-based teasing
+	if ShouldTeaseForRestarts(obs, personality) {
+		if network.Tease(name, ReasonHighRestarts) {
+			return // one tease at a time
+		}
+	}
+
+	// Check nice number teasing (naras appreciate good looking numbers)
+	if ShouldTeaseForNiceNumber(obs.Restarts, personality) {
+		if network.Tease(name, ReasonNiceNumber) {
+			return
+		}
+	}
+
+	// Check comeback teasing
+	if ShouldTeaseForComeback(obs, previousState, personality) {
+		if network.Tease(name, ReasonComeback) {
+			return
+		}
+	}
+
+	// Check trend abandon teasing
+	if previousTrend != "" {
+		trendPopularity := network.trendPopularity(previousTrend)
+		nara := network.getNara(name)
+		if ShouldTeaseForTrendAbandon(previousTrend, nara.Status.Trend, trendPopularity, personality) {
+			if network.Tease(name, ReasonTrendAbandon) {
+				return
+			}
+		}
+	}
+
+	// Random teasing (very low probability)
+	if ShouldRandomTease(network.local.Soul, name, time.Now().Unix(), personality) {
+		network.Tease(name, ReasonRandom)
+	}
+}
+
+// trendPopularity returns the fraction of online naras following a trend
+func (network *Network) trendPopularity(trend string) float64 {
+	if trend == "" {
+		return 0
+	}
+
+	online := network.NeighbourhoodOnlineNames()
+	if len(online) == 0 {
+		return 0
+	}
+
+	following := 0
+	for _, name := range online {
+		nara := network.getNara(name)
+		if nara.Status.Trend == trend {
+			following++
+		}
+	}
+
+	return float64(following) / float64(len(online))
+}
+
+// --- Ledger Gossip and Boot Recovery ---
+
+func (network *Network) processLedgerRequests() {
+	for {
+		network.handleLedgerRequest(<-network.ledgerRequestInbox)
+	}
+}
+
+func (network *Network) handleLedgerRequest(req LedgerRequest) {
+	if network.ReadOnly {
+		return
+	}
+
+	// Get events for requested subjects from our ledger
+	events := network.local.SocialLedger.GetEventsForSubjects(req.Subjects)
+
+	// Respond directly to the requester
+	response := LedgerResponse{
+		From:   network.meName(),
+		Events: events,
+	}
+
+	topic := fmt.Sprintf("nara/ledger/%s/response", req.From)
+	network.postEvent(topic, response)
+	logrus.Debugf("📤 sent %d events to %s", len(events), req.From)
+}
+
+func (network *Network) processLedgerResponses() {
+	for {
+		network.handleLedgerResponse(<-network.ledgerResponseInbox)
+	}
+}
+
+func (network *Network) handleLedgerResponse(resp LedgerResponse) {
+	// Merge received events into our ledger
+	added := network.local.SocialLedger.MergeEvents(resp.Events)
+	if added > 0 {
+		logrus.Printf("📥 merged %d events from %s", added, resp.From)
+	}
+}
+
+// bootRecovery requests social events from neighbors after boot
+func (network *Network) bootRecovery() {
+	// Wait for initial neighbor discovery
+	time.Sleep(30 * time.Second)
+
+	// Retry up to 3 times with backoff if no neighbors found
+	var online []string
+	for attempt := 0; attempt < 3; attempt++ {
+		online = network.NeighbourhoodOnlineNames()
+		if len(online) > 0 {
+			break
+		}
+		if attempt < 2 {
+			waitTime := time.Duration(30*(attempt+1)) * time.Second
+			logrus.Printf("📦 no neighbors for boot recovery, retrying in %v...", waitTime)
+			time.Sleep(waitTime)
+		}
+	}
+
+	if len(online) == 0 {
+		logrus.Printf("📦 no neighbors for boot recovery after retries")
+		return
+	}
+
+	// Get all known subjects (naras)
+	subjects := append(online, network.meName())
+
+	// Pick up to 5 neighbors to query
+	maxNeighbors := 5
+	if len(online) < maxNeighbors {
+		maxNeighbors = len(online)
+	}
+
+	// Partition subjects across neighbors
+	partitions := PartitionSubjects(subjects, maxNeighbors)
+
+	logrus.Printf("📦 boot recovery: requesting events from %d neighbors", maxNeighbors)
+
+	for i := 0; i < maxNeighbors; i++ {
+		neighbor := online[i]
+		partition := partitions[i]
+
+		if len(partition) == 0 {
+			continue
+		}
+
+		req := LedgerRequest{
+			From:     network.meName(),
+			Subjects: partition,
+		}
+
+		topic := fmt.Sprintf("nara/ledger/%s/request", neighbor)
+		network.postEvent(topic, req)
+		logrus.Debugf("📦 requested events about %d subjects from %s", len(partition), neighbor)
+	}
+}
+
+// RequestLedgerSync manually triggers a sync request to a specific neighbor
+func (network *Network) RequestLedgerSync(neighbor string, subjects []string) {
+	if network.ReadOnly {
+		return
+	}
+
+	req := LedgerRequest{
+		From:     network.meName(),
+		Subjects: subjects,
+	}
+
+	topic := fmt.Sprintf("nara/ledger/%s/request", neighbor)
+	network.postEvent(topic, req)
+}
+
+// socialMaintenance periodically cleans up social data
+func (network *Network) socialMaintenance() {
+	// Run every 5 minutes
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		<-ticker.C
+
+		// Prune the social ledger
+		if network.local.SocialLedger != nil {
+			beforeCount := network.local.SocialLedger.EventCount()
+			network.local.SocialLedger.Prune()
+			afterCount := network.local.SocialLedger.EventCount()
+
+			if beforeCount != afterCount {
+				logrus.Printf("🗑️  pruned %d old events (now: %d)", beforeCount-afterCount, afterCount)
+			}
+		}
+
+		// Cleanup tease cooldowns
+		network.TeaseState.Cleanup()
 	}
 }

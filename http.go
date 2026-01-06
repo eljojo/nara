@@ -31,6 +31,9 @@ func (network *Network) startHttpServer(httpAddr string) error {
 	http.HandleFunc("/narae.json", network.httpNaraeJsonHandler)
 	http.HandleFunc("/metrics", network.httpMetricsHandler)
 	http.HandleFunc("/status/", network.httpStatusJsonHandler)
+	http.HandleFunc("/events", network.httpEventsSSEHandler)
+	http.HandleFunc("/social/clout", network.httpCloutHandler)
+	http.HandleFunc("/social/recent", network.httpRecentEventsHandler)
 	publicFS, _ := fs.Sub(staticContent, "nara-web/public")
 	http.Handle("/", http.FileServer(http.FS(publicFS)))
 
@@ -60,7 +63,7 @@ func (network *Network) httpApiJsonHandler(w http.ResponseWriter, r *http.Reques
 		"server": network.local.Me.Name,
 	}
 
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(response)
 }
 
@@ -98,7 +101,7 @@ func (network *Network) httpNaraeJsonHandler(w http.ResponseWriter, r *http.Requ
 		"server": network.local.Me.Name,
 	}
 
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(response)
 }
 
@@ -113,7 +116,7 @@ func (network *Network) httpStatusJsonHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(nara.Status)
 }
 
@@ -126,6 +129,95 @@ func (network *Network) getNarae() []*Nara {
 		naras = append(naras, network.local.Me)
 	}
 	return naras
+}
+
+// SSE endpoint for real-time social events (shooting stars!)
+func (network *Network) httpEventsSSEHandler(w http.ResponseWriter, r *http.Request) {
+	// Set SSE headers
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	// Get flusher for streaming
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "SSE not supported", http.StatusInternalServerError)
+		return
+	}
+
+	// Subscribe to events
+	eventChan := network.subscribeSSE()
+	defer network.unsubscribeSSE(eventChan)
+
+	// Send initial connection event
+	fmt.Fprintf(w, "event: connected\ndata: {\"server\":\"%s\"}\n\n", network.meName())
+	flusher.Flush()
+
+	// Stream events until client disconnects
+	for {
+		select {
+		case event := <-eventChan:
+			data, _ := json.Marshal(map[string]interface{}{
+				"type":      event.Type,
+				"actor":     event.Actor,
+				"target":    event.Target,
+				"reason":    event.Reason,
+				"message":   TeaseMessage(event.Reason, event.Actor, event.Target),
+				"timestamp": event.Timestamp,
+			})
+			fmt.Fprintf(w, "event: social\ndata: %s\n\n", data)
+			flusher.Flush()
+		case <-r.Context().Done():
+			return
+		}
+	}
+}
+
+// Clout scores from this nara's perspective
+func (network *Network) httpCloutHandler(w http.ResponseWriter, r *http.Request) {
+	var clout map[string]float64
+	if network.local.SocialLedger != nil {
+		clout = network.local.SocialLedger.DeriveClout(network.local.Soul)
+	} else {
+		clout = make(map[string]float64)
+	}
+
+	response := map[string]interface{}{
+		"server": network.meName(),
+		"clout":  clout,
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(response)
+}
+
+// Recent social events
+func (network *Network) httpRecentEventsHandler(w http.ResponseWriter, r *http.Request) {
+	var events []SocialEvent
+	if network.local.SocialLedger != nil {
+		events = network.local.SocialLedger.GetRecentEvents(5)
+	}
+
+	// Convert to JSON-friendly format
+	var eventList []map[string]interface{}
+	for _, e := range events {
+		eventList = append(eventList, map[string]interface{}{
+			"actor":     e.Actor,
+			"target":    e.Target,
+			"reason":    e.Reason,
+			"message":   TeaseMessage(e.Reason, e.Actor, e.Target),
+			"timestamp": e.Timestamp,
+		})
+	}
+
+	response := map[string]interface{}{
+		"server": network.meName(),
+		"events": eventList,
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(response)
 }
 
 func (network *Network) httpMetricsHandler(w http.ResponseWriter, r *http.Request) {
@@ -188,7 +280,7 @@ func (network *Network) httpMetricsHandler(w http.ResponseWriter, r *http.Reques
 		lines = append(lines, fmt.Sprintf(`nara_restarts_total{name="%s"} %d`, nara.Name, obs.Restarts))
 	}
 
-	w.Header().Set("Content-Type", "text/plain")
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	for _, line := range lines {
 		fmt.Fprintln(w, line)
 	}
