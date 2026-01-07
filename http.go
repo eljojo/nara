@@ -1,9 +1,11 @@
 package nara
 
 import (
+	"bytes"
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
 	"net/http"
@@ -11,6 +13,87 @@ import (
 
 	"github.com/sirupsen/logrus"
 )
+
+// High-frequency endpoints that skip logging entirely
+var silentEndpoints = map[string]bool{
+	"/ping":    true,
+	"/metrics": true,
+}
+
+// pingLogger tracks recent pings for batched logging
+type pingLoggerState struct {
+	count   int
+	pingers []string
+}
+
+var pingLogger = &pingLoggerState{}
+
+// loggingMiddleware wraps an http.HandlerFunc with request/response logging
+func (network *Network) loggingMiddleware(path string, handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+
+		// Try to identify the caller
+		caller := r.Header.Get("X-Nara-From")
+		if caller == "" {
+			caller = r.RemoteAddr
+		}
+
+		// For POST requests, peek at the body
+		var bodySummary string
+		if r.Method == "POST" && r.Body != nil {
+			bodyBytes, _ := io.ReadAll(r.Body)
+			r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes)) // restore body
+
+			// Summarize based on endpoint
+			if path == "/events/sync" {
+				var req SyncRequest
+				if json.Unmarshal(bodyBytes, &req) == nil {
+					bodySummary = fmt.Sprintf("from=%s since=%s services=%v max=%d",
+						req.From,
+						time.Unix(req.SinceTime, 0).Format("15:04:05"),
+						req.Services,
+						req.MaxEvents)
+				}
+			} else if len(bodyBytes) > 0 && len(bodyBytes) < 200 {
+				bodySummary = string(bodyBytes)
+			} else if len(bodyBytes) >= 200 {
+				bodySummary = fmt.Sprintf("(%d bytes)", len(bodyBytes))
+			}
+		}
+
+		// Wrap response writer to capture status
+		wrapped := &responseLogger{ResponseWriter: w, status: 200}
+		handler(wrapped, r)
+
+		duration := time.Since(start)
+
+		// Skip logging for high-frequency endpoints
+		if silentEndpoints[path] {
+			return
+		}
+
+		// Log the request
+		if bodySummary != "" {
+			logrus.Debugf("📨 %s %s from %s [%s] → %d (%v)",
+				r.Method, path, caller, bodySummary, wrapped.status, duration.Round(time.Millisecond))
+		} else {
+			logrus.Debugf("📨 %s %s from %s → %d (%v)",
+				r.Method, path, caller, wrapped.status, duration.Round(time.Millisecond))
+		}
+	}
+}
+
+// responseLogger wraps ResponseWriter to capture status code
+type responseLogger struct {
+	http.ResponseWriter
+	status int
+}
+
+func (rl *responseLogger) WriteHeader(code int) {
+	rl.status = code
+	rl.ResponseWriter.WriteHeader(code)
+}
 
 //go:embed nara-web/public/*
 var staticContent embed.FS
@@ -29,20 +112,21 @@ func (network *Network) startHttpServer(httpAddr string) error {
 	port := listener.Addr().(*net.TCPAddr).Port
 	logrus.Printf("Listening for HTTP on port %d", port)
 
-	http.HandleFunc("/api.json", network.httpApiJsonHandler)
-	http.HandleFunc("/narae.json", network.httpNaraeJsonHandler)
-	http.HandleFunc("/metrics", network.httpMetricsHandler)
-	http.HandleFunc("/status/", network.httpStatusJsonHandler)
-	http.HandleFunc("/events", network.httpEventsSSEHandler)
-	http.HandleFunc("/social/clout", network.httpCloutHandler)
-	http.HandleFunc("/social/recent", network.httpRecentEventsHandler)
-	http.HandleFunc("/world/start", network.httpWorldStartHandler)
-	http.HandleFunc("/world/journeys", network.httpWorldJourneysHandler)
-	http.HandleFunc("/events/sync", network.httpEventsSyncHandler)
-	http.HandleFunc("/ping", network.httpPingHandler)
-	http.HandleFunc("/coordinates", network.httpCoordinatesHandler)
-	http.HandleFunc("/network/map", network.httpNetworkMapHandler)
-	http.HandleFunc("/proximity", network.httpProximityHandler)
+	// Register handlers with logging middleware
+	http.HandleFunc("/api.json", network.loggingMiddleware("/api.json", network.httpApiJsonHandler))
+	http.HandleFunc("/narae.json", network.loggingMiddleware("/narae.json", network.httpNaraeJsonHandler))
+	http.HandleFunc("/metrics", network.loggingMiddleware("/metrics", network.httpMetricsHandler))
+	http.HandleFunc("/status/", network.loggingMiddleware("/status/", network.httpStatusJsonHandler))
+	http.HandleFunc("/events", network.loggingMiddleware("/events", network.httpEventsSSEHandler))
+	http.HandleFunc("/social/clout", network.loggingMiddleware("/social/clout", network.httpCloutHandler))
+	http.HandleFunc("/social/recent", network.loggingMiddleware("/social/recent", network.httpRecentEventsHandler))
+	http.HandleFunc("/world/start", network.loggingMiddleware("/world/start", network.httpWorldStartHandler))
+	http.HandleFunc("/world/journeys", network.loggingMiddleware("/world/journeys", network.httpWorldJourneysHandler))
+	http.HandleFunc("/events/sync", network.loggingMiddleware("/events/sync", network.httpEventsSyncHandler))
+	http.HandleFunc("/ping", network.loggingMiddleware("/ping", network.httpPingHandler))
+	http.HandleFunc("/coordinates", network.loggingMiddleware("/coordinates", network.httpCoordinatesHandler))
+	http.HandleFunc("/network/map", network.loggingMiddleware("/network/map", network.httpNetworkMapHandler))
+	http.HandleFunc("/proximity", network.loggingMiddleware("/proximity", network.httpProximityHandler))
 	publicFS, _ := fs.Sub(staticContent, "nara-web/public")
 	http.Handle("/", http.FileServer(http.FS(publicFS)))
 
@@ -449,6 +533,21 @@ func (network *Network) httpEventsSyncHandler(w http.ResponseWriter, r *http.Req
 // GET /ping - Lightweight latency probe for Vivaldi coordinates
 // Returns server timestamp and nara name for RTT measurement
 func (network *Network) httpPingHandler(w http.ResponseWriter, r *http.Request) {
+	// Track who's pinging us
+	caller := r.Header.Get("X-Nara-From")
+	if caller == "" {
+		caller = r.RemoteAddr
+	}
+	pingLogger.pingers = append(pingLogger.pingers, caller)
+	pingLogger.count++
+
+	// Log every 10 pings
+	if pingLogger.count >= 10 {
+		logrus.Infof("🏓 received 10 pings from: %v", pingLogger.pingers)
+		pingLogger.count = 0
+		pingLogger.pingers = nil
+	}
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"t":    time.Now().UnixNano(),
@@ -527,32 +626,25 @@ func (network *Network) httpNetworkMapHandler(w http.ResponseWriter, r *http.Req
 	json.NewEncoder(w).Encode(response)
 }
 
-// httpProximityHandler returns this nara's view of who their closest friends are
-// Each nara computes this independently using Vivaldi coordinates, but because
-// coordinates converge, they'll naturally agree on groupings without coordination
+// httpProximityHandler returns this nara's barrio information
+// Naras in the same barrio (grid cell) share the same emoji and are considered "nearby"
 func (network *Network) httpProximityHandler(w http.ResponseWriter, r *http.Request) {
-	// Get proximity group (default size, or from query param)
-	groupSize := ProximityGroupSize
-	group := network.GetProximityGroup(groupSize)
+	// Get my barrio info
+	myEmoji := network.GetMyBarrioEmoji()
 
-	// Build response
-	var friends []map[string]interface{}
-	for _, neighbor := range group {
-		friend := map[string]interface{}{
-			"name":         neighbor.Name,
-			"estimated_ms": neighbor.EstimatedRTT,
+	// Find all naras in my barrio
+	var barrioMembers []string
+	for name := range network.Neighbourhood {
+		if network.IsInMyBarrio(name) {
+			barrioMembers = append(barrioMembers, name)
 		}
-		if !neighbor.HasCoordinates {
-			friend["estimated_ms"] = nil
-			friend["no_coordinates"] = true
-		}
-		friends = append(friends, friend)
 	}
 
 	response := map[string]interface{}{
-		"server":          network.meName(),
-		"proximity_group": friends,
-		"group_size":      groupSize,
+		"server":         network.meName(),
+		"barrio_emoji":   myEmoji,
+		"barrio_members": barrioMembers,
+		"grid_size":      network.calculateGridSize(),
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

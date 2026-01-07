@@ -306,8 +306,8 @@ func TestApplyProximityToClout(t *testing.T) {
 	myCoords := &NetworkCoordinate{X: 0, Y: 0, Height: 0.01, Error: 0.1}
 
 	baseClout := map[string]float64{
-		"near":   5.0,
-		"far":    5.0,
+		"near":    5.0,
+		"far":     5.0,
 		"nocoord": 5.0,
 	}
 
@@ -360,10 +360,10 @@ func TestProximityBonus(t *testing.T) {
 		peerX    float64
 		expected float64 // approximate
 	}{
-		{"very close (1ms)", 1, 100.0},     // 100 / 1 = 100
-		{"moderate (10ms)", 10, 10.0},      // 100 / 10 = 10
-		{"far (100ms)", 100, 1.0},          // 100 / 100 = 1
-		{"very far (1000ms)", 1000, 0.1},   // 100 / 1000 = 0.1
+		{"very close (1ms)", 1, 100.0},   // 100 / 1 = 100
+		{"moderate (10ms)", 10, 10.0},    // 100 / 10 = 10
+		{"far (100ms)", 100, 1.0},        // 100 / 100 = 1
+		{"very far (1000ms)", 1000, 0.1}, // 100 / 1000 = 0.1
 	}
 
 	for _, tt := range tests {
@@ -394,9 +394,9 @@ func TestProximityBonus_NilCoords(t *testing.T) {
 
 func TestNetworkCoordinate_IsValid(t *testing.T) {
 	tests := []struct {
-		name   string
-		coord  *NetworkCoordinate
-		valid  bool
+		name  string
+		coord *NetworkCoordinate
+		valid bool
 	}{
 		{"nil", nil, false},
 		{"valid", &NetworkCoordinate{X: 1, Y: 2, Height: 0.01, Error: 0.5}, true},
