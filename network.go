@@ -1414,12 +1414,21 @@ func (network *Network) performBackgroundSync() {
 }
 
 // performBackgroundSyncViaMesh performs background sync with a specific neighbor via mesh
+//
+// IMPORTANT: This function determines which event types are continuously synced across the network.
+// When adding new service types (in sync.go), consider whether they should be synced here.
+// Current services synced:
+//   - ServiceObservation: restart/first-seen/status-change events (24h window, personality filtered)
+//   - ServicePing: RTT measurements (no time filter, used for Vivaldi coordinates)
+//   - ServiceSocial: teases, observations, gossip (24h window, personality filtered)
+//
+// Boot recovery (bootRecoveryViaMesh) syncs ALL events without filtering.
+// This background sync maintains eventual consistency for recent events.
 func (network *Network) performBackgroundSyncViaMesh(neighbor, ip string) {
 	// Use existing fetchSyncEventsFromMesh method with lightweight parameters
-	// We want observation events from the last 24 hours, max 100 events
 	client := &http.Client{Timeout: 10 * time.Second}
 
-	// Fetch observation events from this neighbor
+	// Fetch events from this neighbor (all types, we filter below)
 	events, success := network.fetchSyncEventsFromMesh(
 		client,
 		ip,
@@ -1435,23 +1444,36 @@ func (network *Network) performBackgroundSyncViaMesh(neighbor, ip string) {
 		return
 	}
 
-	// Filter for observation events from last 24h and merge with personality filtering
-	cutoff := time.Now().Add(-24 * time.Hour).Unix()
+	// Filter and merge events by type
+	// Time cutoff for observation and social events (24h window)
+	cutoff := time.Now().Add(-24 * time.Hour).UnixNano()
 	added := 0
 	hasPingEvents := false
+
 	for _, event := range events {
-		// Only process observation events from last 24h
-		if event.Service == ServiceObservation && event.Timestamp >= cutoff {
-			// Apply personality-based filtering
-			if network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality) {
-				added++
+		switch event.Service {
+		case ServiceObservation:
+			// Observation events: 24h window with personality filtering
+			if event.Timestamp >= cutoff {
+				if network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality) {
+					added++
+				}
 			}
-		}
-		// Also check for ping events (no time filtering, they're always useful)
-		if event.Service == ServicePing {
+
+		case ServicePing:
+			// Ping events: no time filtering (always useful for coordinate estimation)
 			if network.local.SyncLedger.AddEvent(event) {
 				added++
 				hasPingEvents = true
+			}
+
+		case ServiceSocial:
+			// Social events: 24h window with personality filtering
+			// This ensures teases, gossip, and social observations propagate across the network
+			if event.Timestamp >= cutoff {
+				if network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality) {
+					added++
+				}
 			}
 		}
 	}
