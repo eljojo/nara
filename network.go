@@ -3,6 +3,9 @@ package nara
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math/rand"
@@ -14,6 +17,27 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/sirupsen/logrus"
 )
+
+// TransportMode determines how events spread through the network
+type TransportMode int
+
+const (
+	// TransportMQTT uses only MQTT broadcast (traditional mode)
+	TransportMQTT TransportMode = iota
+	// TransportGossip uses only P2P zine exchange (pure mesh)
+	TransportGossip
+	// TransportHybrid uses both MQTT and gossip (default, most resilient)
+	TransportHybrid
+)
+
+// Zine is a batch of recent events passed hand-to-hand between naras
+// Like underground zines at punk shows, these spread organically through mesh network
+type Zine struct {
+	From      string      `json:"from"`       // Publisher nara
+	CreatedAt int64       `json:"created_at"` // Unix timestamp
+	Events    []SyncEvent `json:"events"`     // Recent events (last ~5 minutes)
+	Signature string      `json:"signature"`  // Cryptographic signature for authenticity
+}
 
 type Network struct {
 	Neighbourhood       map[string]*Nara
@@ -42,6 +66,8 @@ type Network struct {
 	worldMesh       *MockMeshNetwork   // Used when no tsnet configured
 	worldTransport  *MockMeshTransport // Used when no tsnet configured
 	tsnetMesh       *TsnetMesh         // Used when Headscale is configured
+	// Transport mode (MQTT, Gossip, or Hybrid)
+	TransportMode TransportMode
 	// Pending journey tracking for timeout detection
 	pendingJourneys      map[string]*PendingJourney
 	pendingJourneysMu    sync.RWMutex
@@ -487,6 +513,11 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 
 	// Start coordinate maintenance (Vivaldi pings)
 	go network.coordinateMaintenance()
+
+	// Start gossip protocol (P2P zine exchange)
+	if !network.ReadOnly && network.TransportMode != TransportMQTT {
+		go network.gossipForever()
+	}
 }
 
 func (network *Network) meName() string {
@@ -1538,6 +1569,226 @@ func (network *Network) backfillObservations() {
 		logrus.Printf("📦 Backfilled %d historical observations into event system", backfillCount)
 	} else {
 		logrus.Printf("📦 No backfill needed (events already present or no meaningful data)")
+	}
+}
+
+// createZine creates a zine (batch of recent events) to share with neighbors
+// Returns nil if no events to share or if SyncLedger unavailable
+func (network *Network) createZine() *Zine {
+	if network.local.SyncLedger == nil {
+		return nil
+	}
+
+	// Get events from last 5 minutes
+	cutoff := time.Now().Add(-5 * time.Minute).UnixNano()
+	allEvents := network.local.SyncLedger.GetAllEvents()
+
+	var recentEvents []SyncEvent
+	for _, e := range allEvents {
+		if e.Timestamp >= cutoff {
+			recentEvents = append(recentEvents, e)
+		}
+	}
+
+	if len(recentEvents) == 0 {
+		return nil // Nothing to share
+	}
+
+	zine := &Zine{
+		From:      network.meName(),
+		CreatedAt: time.Now().Unix(),
+		Events:    recentEvents,
+	}
+
+	// Sign the zine for authenticity
+	sig, err := signZine(zine, network.local.Keypair)
+	if err != nil {
+		logrus.Warnf("📰 Failed to sign zine: %v", err)
+		return nil
+	}
+	zine.Signature = sig
+
+	return zine
+}
+
+// signZine computes the signature for a zine
+func signZine(z *Zine, keypair NaraKeypair) (string, error) {
+	if len(keypair.PrivateKey) == 0 {
+		return "", fmt.Errorf("no private key available")
+	}
+
+	// Create signing data (from + timestamp + event IDs)
+	hasher := sha256.New()
+	hasher.Write([]byte(fmt.Sprintf("%s:%d:", z.From, z.CreatedAt)))
+	for _, e := range z.Events {
+		hasher.Write([]byte(e.ID))
+	}
+
+	signingData := hasher.Sum(nil)
+	return keypair.SignBase64(signingData), nil
+}
+
+// verifyZine verifies a zine's signature
+func verifyZine(z *Zine, publicKey ed25519.PublicKey) bool {
+	if z.Signature == "" || len(publicKey) == 0 {
+		return false
+	}
+
+	// Recompute signing data
+	hasher := sha256.New()
+	hasher.Write([]byte(fmt.Sprintf("%s:%d:", z.From, z.CreatedAt)))
+	for _, e := range z.Events {
+		hasher.Write([]byte(e.ID))
+	}
+
+	signingData := hasher.Sum(nil)
+
+	// Decode signature
+	sig, err := base64.StdEncoding.DecodeString(z.Signature)
+	if err != nil {
+		return false
+	}
+
+	return ed25519.Verify(publicKey, signingData, sig)
+}
+
+// selectGossipTargets selects random mesh-enabled neighbors for gossip
+// Returns 3-5 random online naras with mesh connectivity
+func (network *Network) selectGossipTargets() []string {
+	online := network.NeighbourhoodOnlineNames()
+
+	// Filter to mesh-enabled only
+	var meshEnabled []string
+	for _, name := range online {
+		if network.getMeshIPForNara(name) != "" {
+			meshEnabled = append(meshEnabled, name)
+		}
+	}
+
+	if len(meshEnabled) == 0 {
+		return nil
+	}
+
+	// Select 3-5 random targets (or all if fewer available)
+	targetCount := 3 + rand.Intn(3) // Random between 3-5
+	if targetCount > len(meshEnabled) {
+		targetCount = len(meshEnabled)
+	}
+
+	// Shuffle and take first N
+	shuffled := make([]string, len(meshEnabled))
+	copy(shuffled, meshEnabled)
+	rand.Shuffle(len(shuffled), func(i, j int) {
+		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+	})
+
+	return shuffled[:targetCount]
+}
+
+// gossipForever periodically exchanges zines with random mesh neighbors
+// Runs in background, spreading events organically through the network
+func (network *Network) gossipForever() {
+	// Wait for mesh to be ready
+	time.Sleep(30 * time.Second)
+
+	for {
+		select {
+		case <-network.ctx.Done():
+			return
+		case <-time.After(network.gossipInterval()):
+			if network.ReadOnly || network.tsnetMesh == nil {
+				continue
+			}
+
+			// Skip if in MQTT-only mode
+			if network.TransportMode == TransportMQTT {
+				continue
+			}
+
+			network.performGossipRound()
+		}
+	}
+}
+
+// gossipInterval returns the time to wait between gossip rounds
+// Personality-based: 30-300 seconds, similar to chattiness
+func (network *Network) gossipInterval() time.Duration {
+	baseInterval := network.local.chattinessRate(30, 300)
+	return time.Duration(baseInterval) * time.Second
+}
+
+// performGossipRound creates a zine and exchanges it with random neighbors
+func (network *Network) performGossipRound() {
+	// Create our zine
+	zine := network.createZine()
+	if zine == nil {
+		logrus.Debug("📰 No events to gossip")
+		return
+	}
+
+	// Select targets
+	targets := network.selectGossipTargets()
+	if len(targets) == 0 {
+		logrus.Debug("📰 No gossip targets available")
+		return
+	}
+
+	logrus.Debugf("📰 Gossiping with %d neighbors (zine has %d events)", len(targets), len(zine.Events))
+
+	// Exchange zines with each target
+	for _, targetName := range targets {
+		go network.exchangeZine(targetName, zine)
+	}
+}
+
+// exchangeZine sends our zine to a neighbor and receives theirs back
+func (network *Network) exchangeZine(targetName string, myZine *Zine) {
+	meshIP := network.getMeshIPForNara(targetName)
+	if meshIP == "" {
+		return
+	}
+
+	// Encode our zine
+	zineBytes, err := json.Marshal(myZine)
+	if err != nil {
+		logrus.Warnf("📰 Failed to encode zine for %s: %v", targetName, err)
+		return
+	}
+
+	// POST to neighbor's /gossip/zine endpoint
+	url := fmt.Sprintf("http://%s:%d/gossip/zine", meshIP, DefaultMeshPort)
+	client := network.tsnetMesh.Server().HTTPClient()
+
+	resp, err := client.Post(url, "application/json", bytes.NewBuffer(zineBytes))
+	if err != nil {
+		logrus.Debugf("📰 Failed to exchange zine with %s: %v", targetName, err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		logrus.Debugf("📰 Zine exchange with %s failed: status %d", targetName, resp.StatusCode)
+		return
+	}
+
+	// Decode their zine
+	var theirZine Zine
+	if err := json.NewDecoder(resp.Body).Decode(&theirZine); err != nil {
+		logrus.Warnf("📰 Failed to decode zine from %s: %v", targetName, err)
+		return
+	}
+
+	// Verify signature
+	pubKey := network.getPublicKeyForNara(targetName)
+	if len(pubKey) > 0 && !verifyZine(&theirZine, pubKey) {
+		logrus.Warnf("📰 Invalid zine signature from %s, rejecting", targetName)
+		return
+	}
+
+	// Merge their events into our ledger
+	added, _ := network.MergeSyncEventsWithVerification(theirZine.Events)
+	if added > 0 {
+		logrus.Debugf("📰 Merged %d events from %s's zine", added, targetName)
 	}
 }
 

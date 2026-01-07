@@ -57,10 +57,11 @@ func TestIntegration_MultiNaraNetwork(t *testing.T) {
 
 		// Start the nara (this spawns all goroutines)
 		go ln.Start(
-			false, // don't serve UI
-			false, // not read-only
-			"",    // no HTTP addr
-			nil,   // no mesh
+			false,         // don't serve UI
+			false,         // not read-only
+			"",            // no HTTP addr
+			nil,           // no mesh
+			TransportMQTT, // MQTT-only for integration tests (no mesh)
 		)
 
 		t.Logf("✅ Started %s (personality: A=%d S=%d C=%d)",

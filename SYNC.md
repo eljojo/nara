@@ -77,6 +77,62 @@ Status broadcasts - current state, not history.
 - `nara/newspaper/{name}` - periodic status updates
 - Contains current flair, buzz, coordinates, etc.
 
+### Zines (P2P Gossip)
+Hand-to-hand event distribution - **the underground press**.
+
+A **zine** is a small batch of recent events (~5 minutes worth) passed directly between naras via mesh HTTP. Like underground zines passed hand-to-hand at punk shows, these spread organically through the network without central coordination.
+
+```
+Every 30-300 seconds (personality-based):
+  1. Create zine from recent events
+  2. Pick 3-5 random mesh neighbors
+  3. POST /gossip/zine with your zine
+  4. Receive their zine in response (bidirectional!)
+  5. Merge new events into SyncLedger
+```
+
+**Why Zines?**
+- **O(log N) bandwidth**: Epidemic spread instead of O(N²) broadcast
+- **Decentralized**: No MQTT broker bottleneck
+- **Redundant paths**: Multiple naras carrying same news
+- **Organic propagation**: Events spread like rumors, not announcements
+
+**Transport Modes:**
+
+Naras can operate in different modes, like preferring different social networks:
+
+- **MQTT Mode** (Traditional): Newspapers broadcast to all via MQTT plaza
+  - High bandwidth but guaranteed delivery
+  - Good for small networks (<100 naras)
+
+- **Gossip Mode** (P2P-only): Zines spread hand-to-hand via mesh
+  - Logarithmic bandwidth scaling
+  - Requires mesh connectivity
+  - Best for large networks (>1000 naras)
+
+- **Hybrid Mode** (Default): Both MQTT and Gossip simultaneously
+  - MQTT for discovery + time-critical announcements
+  - Gossip for bulk event distribution
+  - Most resilient option
+
+**Applications stay transport-agnostic:**
+```go
+// Publishing - same code regardless of transport
+network.local.SyncLedger.AddEvent(event)
+
+// Subscribing - events arrive via MQTT or gossip, app doesn't care
+events := network.local.SyncLedger.GetEvents()
+```
+
+The transport layer automatically picks up events from SyncLedger and spreads them. Apps never call transport-specific functions like `publishToMQTT()` or `gossipEvent()`.
+
+**Mixed networks work seamlessly:**
+- MQTT-only naras can coexist with gossip-only naras
+- Hybrid naras bridge the two worlds
+- Events deduplicated automatically (same event via multiple paths)
+
+It's like some people use Twitter (MQTT - broadcast to all), some use Mastodon (gossip - federated P2P), and some use both - but they all see the same posts (SyncEvents).
+
 ## Sync Protocol
 
 ### Boot Recovery (Getting Up to Speed)

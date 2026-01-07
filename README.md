@@ -25,7 +25,11 @@ you can [see it live](https://nara.network) ([backup/debug site](https://global-
 **public info** is authoritative - you define your own status and broadcast it.
 **event store** is hearsay - things that happened, spread through gossip.
 
-events flow through the **plaza** (MQTT), where all naras watch in real-time. when a nara boots, it catches up by asking neighbors what it missed. then it watches live.
+events spread through two channels:
+- **plaza** (MQTT broadcast) - the public square where everyone hears announcements
+- **zines** (P2P gossip) - events passed hand-to-hand between neighbors via mesh
+
+naras can use MQTT-only (traditional), gossip-only (P2P), or hybrid (both). apps stay transport-agnostic - they don't know or care how events arrive. when a nara boots, it catches up by asking neighbors what it missed, then spreads and receives news organically.
 
 ```
 ledger (facts) → derivation function → opinions
