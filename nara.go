@@ -135,12 +135,15 @@ func (ln *LocalNara) Start(serveUI bool, readOnly bool, httpAddr string, meshCon
 }
 
 func (ln *LocalNara) SetupCloseHandler() {
-	c := make(chan os.Signal)
+	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-c
 		fmt.Println("babaayyy")
 		ln.Network.Chau()
+
+		// Gracefully shutdown all background goroutines
+		ln.Network.Shutdown()
 
 		ln.Network.disconnectMQTT()
 

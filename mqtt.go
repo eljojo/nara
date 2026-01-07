@@ -205,6 +205,21 @@ func (network *Network) disconnectMQTT() {
 	logrus.Printf("Disconnected from MQTT")
 }
 
+// Shutdown gracefully stops all background goroutines
+func (network *Network) Shutdown() {
+	logrus.Printf("🛑 Initiating graceful shutdown...")
+
+	// Cancel context to signal all goroutines to stop
+	if network.cancelFunc != nil {
+		network.cancelFunc()
+	}
+
+	// Give goroutines a moment to finish their current work
+	time.Sleep(100 * time.Millisecond)
+
+	logrus.Printf("✅ Graceful shutdown complete")
+}
+
 func initializeMQTT(onConnect mqtt.OnConnectHandler, name string, host string, user string, pass string) mqtt.Client {
 	opts := mqtt.NewClientOptions()
 	opts.AddBroker(host)

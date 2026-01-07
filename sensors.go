@@ -17,7 +17,14 @@ type HostStats struct {
 func (ln *LocalNara) updateHostStatsForever() {
 	for {
 		ln.updateHostStats()
-		time.Sleep(5 * time.Second)
+
+		select {
+		case <-time.After(5 * time.Second):
+			// Continue to next iteration
+		case <-ln.Network.ctx.Done():
+			logrus.Debugf("updateHostStatsForever: shutting down gracefully")
+			return
+		}
 	}
 }
 

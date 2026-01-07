@@ -46,6 +46,9 @@ type Network struct {
 	pendingJourneys      map[string]*PendingJourney
 	pendingJourneysMu    sync.RWMutex
 	journeyCompleteInbox chan JourneyCompletion
+	// Graceful shutdown
+	ctx        context.Context
+	cancelFunc context.CancelFunc
 }
 
 // PendingJourney tracks a journey we participated in, waiting for completion
@@ -91,6 +94,8 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	network.worldJourneys = make([]*WorldMessage, 0)
 	network.pendingJourneys = make(map[string]*PendingJourney)
 	network.journeyCompleteInbox = make(chan JourneyCompletion, 50)
+	// Initialize context for graceful shutdown
+	network.ctx, network.cancelFunc = context.WithCancel(context.Background())
 	network.Mqtt = initializeMQTT(network.mqttOnConnectHandler(), network.meName(), host, user, pass)
 	return network
 }
@@ -451,9 +456,15 @@ func (network *Network) announceForever() {
 			ts = network.local.chattinessRate(5, 55)
 		}
 		// logrus.Debugf("time between announces = %d", ts)
-		time.Sleep(time.Duration(ts) * time.Second)
 
-		network.announce()
+		// Wait with graceful shutdown support
+		select {
+		case <-time.After(time.Duration(ts) * time.Second):
+			network.announce()
+		case <-network.ctx.Done():
+			logrus.Debugf("announceForever: shutting down gracefully")
+			return
+		}
 	}
 }
 
@@ -1281,7 +1292,12 @@ func (network *Network) backfillObservations() {
 func (network *Network) backgroundSync() {
 	// Initial random delay (0-5 minutes) to spread startup load
 	initialDelay := time.Duration(rand.Intn(5)) * time.Minute
-	time.Sleep(initialDelay)
+	select {
+	case <-time.After(initialDelay):
+	case <-network.ctx.Done():
+		logrus.Debugf("backgroundSync: shutting down before initial delay")
+		return
+	}
 
 	// Main sync loop: every 30 minutes ±5min jitter
 	for {
@@ -1289,9 +1305,13 @@ func (network *Network) backgroundSync() {
 		jitter := time.Duration(rand.Intn(10)-5) * time.Minute // -5 to +5 minutes
 		interval := baseInterval + jitter
 
-		time.Sleep(interval)
-
-		network.performBackgroundSync()
+		select {
+		case <-time.After(interval):
+			network.performBackgroundSync()
+		case <-network.ctx.Done():
+			logrus.Debugf("backgroundSync: shutting down gracefully")
+			return
+		}
 	}
 }
 

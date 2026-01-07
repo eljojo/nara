@@ -482,7 +482,13 @@ func (network *Network) observationMaintenance() {
 		network.local.Me.Status.Flair = newFlair
 		network.local.Me.Status.LicensePlate = network.local.LicensePlate()
 
-		time.Sleep(1 * time.Second)
+		select {
+		case <-time.After(1 * time.Second):
+			// Continue to next iteration
+		case <-network.ctx.Done():
+			logrus.Debugf("observationMaintenance: shutting down gracefully")
+			return
+		}
 	}
 }
 
