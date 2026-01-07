@@ -482,6 +482,8 @@ func (t *TsnetMesh) Close() error {
 
 // Ping measures RTT to a peer nara via the mesh network
 // Uses HTTP GET to the /ping endpoint and returns the round-trip time
+// Note: TCP handshake time is included, which is correct for Vivaldi coordinates
+// (the handshake itself measures one network RTT)
 func (t *TsnetMesh) Ping(targetIP string, timeout time.Duration) (time.Duration, error) {
 	t.mu.Lock()
 	if t.closed {
@@ -494,7 +496,7 @@ func (t *TsnetMesh) Ping(targetIP string, timeout time.Duration) (time.Duration,
 		return 0, errors.New("target IP is required")
 	}
 
-	// Create HTTP client using tsnet's HTTP client
+	// Use tsnet's HTTP client
 	client := t.server.HTTPClient()
 	client.Timeout = timeout
 
@@ -507,7 +509,8 @@ func (t *TsnetMesh) Ping(targetIP string, timeout time.Duration) (time.Duration,
 		return 0, fmt.Errorf("ping failed: %w", err)
 	}
 	rtt := time.Since(start)
-	defer resp.Body.Close()
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
 
 	if resp.StatusCode != 200 {
 		return 0, fmt.Errorf("ping returned status %d", resp.StatusCode)
