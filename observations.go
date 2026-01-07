@@ -21,6 +21,10 @@ type NaraObservation struct {
 	LastRestart  int64
 	ClusterName  string
 	ClusterEmoji string
+	// Latency measurement fields for Vivaldi coordinates
+	LastPingRTT  float64 // Last measured RTT in milliseconds
+	AvgPingRTT   float64 // Exponential moving average of RTT
+	LastPingTime int64   // Unix timestamp of last ping
 }
 
 func (localNara *LocalNara) getMeObservation() NaraObservation {

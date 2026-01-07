@@ -124,10 +124,18 @@ func (network *Network) getMeshIPForNara(name string) string {
 
 func (network *Network) getMyClout() map[string]float64 {
 	// Get this nara's clout scores for other naras
-	if network.local.SocialLedger != nil {
-		return network.local.SocialLedger.DeriveClout(network.local.Soul)
+	if network.local.SocialLedger == nil {
+		return nil
 	}
-	return nil
+
+	baseClout := network.local.SocialLedger.DeriveClout(network.local.Soul)
+
+	// Apply proximity weighting (nearby naras have more influence)
+	network.local.Me.mu.Lock()
+	myCoords := network.local.Me.Status.Coordinates
+	network.local.Me.mu.Unlock()
+
+	return ApplyProximityToClout(baseClout, myCoords, network.getCoordinatesForPeer)
 }
 
 func (network *Network) getOnlineNaraNames() []string {
@@ -324,11 +332,19 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 		go network.bootRecovery()
 	}
 
+	// Start continuous mesh sync for event propagation
+	if !network.ReadOnly {
+		go network.continuousMeshSync()
+	}
+
 	// Start garbage collection maintenance
 	go network.socialMaintenance()
 
 	// Start journey timeout maintenance
 	go network.journeyTimeoutMaintenance()
+
+	// Start coordinate maintenance (Vivaldi pings)
+	go network.coordinateMaintenance()
 }
 
 func (network *Network) meName() string {
@@ -806,8 +822,13 @@ func (network *Network) checkAndTease(name string, previousState string, previou
 		}
 	}
 
-	// Random teasing (very low probability)
-	if ShouldRandomTease(network.local.Soul, name, time.Now().Unix(), personality) {
+	// Random teasing (very low probability, boosted for nearby naras)
+	// You notice and interact more with those in your proximity group
+	proximityBoost := 1.0
+	if network.IsInMyProximityGroup(name, ProximityGroupSize) {
+		proximityBoost = 3.0 // 3x more likely to notice nearby naras
+	}
+	if ShouldRandomTeaseWithBoost(network.local.Soul, name, time.Now().Unix(), personality, proximityBoost) {
 		network.Tease(name, ReasonRandom)
 	}
 }
@@ -909,21 +930,21 @@ func (network *Network) bootRecovery() {
 	network.bootRecoveryViaMQTT(online)
 }
 
+// BootRecoveryTargetEvents is the target number of events to fetch on boot
+const BootRecoveryTargetEvents = 10000
+
 // bootRecoveryViaMesh uses direct HTTP to sync events from neighbors
 func (network *Network) bootRecoveryViaMesh(online []string) {
 	// Get all known subjects (naras)
 	subjects := append(online, network.meName())
 
-	// Pick up to 5 mesh-enabled neighbors
+	// Collect ALL mesh-enabled neighbors (no limit)
 	var meshNeighbors []struct {
 		name string
 		ip   string
 	}
 
 	for _, name := range online {
-		if len(meshNeighbors) >= 5 {
-			break
-		}
 		ip := network.getMeshIPForNara(name)
 		if ip != "" {
 			meshNeighbors = append(meshNeighbors, struct {
@@ -940,25 +961,94 @@ func (network *Network) bootRecoveryViaMesh(online []string) {
 	}
 
 	totalSlices := len(meshNeighbors)
-	logrus.Printf("📦 boot recovery via mesh: syncing from %d neighbors", totalSlices)
+	// Divide target across neighbors
+	eventsPerNeighbor := BootRecoveryTargetEvents / totalSlices
+	if eventsPerNeighbor < 100 {
+		eventsPerNeighbor = 100 // minimum events per neighbor
+	}
+
+	logrus.Printf("📦 boot recovery via mesh: syncing from %d neighbors (~%d events each)", totalSlices, eventsPerNeighbor)
 
 	// Query each neighbor with interleaved slicing
 	var totalMerged int
 	client := &http.Client{Timeout: 30 * time.Second}
 
 	for i, neighbor := range meshNeighbors {
-		events := network.fetchEventsFromMesh(client, neighbor.ip, neighbor.name, subjects, i, totalSlices)
+		events, verified := network.fetchSyncEventsFromMesh(client, neighbor.ip, neighbor.name, subjects, i, totalSlices, eventsPerNeighbor)
 		if len(events) > 0 {
-			added := network.local.SocialLedger.MergeEvents(events)
+			// Merge into SyncLedger (unified event store)
+			added := network.local.SyncLedger.MergeEvents(events)
 			totalMerged += added
-			logrus.Printf("📦 mesh sync from %s: received %d events, merged %d", neighbor.name, len(events), added)
+			verifiedStr := ""
+			if verified {
+				verifiedStr = " ✓"
+			}
+			logrus.Printf("📦 mesh sync from %s: received %d events, merged %d%s", neighbor.name, len(events), added, verifiedStr)
 		}
 	}
 
 	logrus.Printf("📦 boot recovery via mesh complete: merged %d events total", totalMerged)
 }
 
-// fetchEventsFromMesh fetches events from a neighbor via mesh HTTP
+// fetchSyncEventsFromMesh fetches unified SyncEvents with signature verification
+func (network *Network) fetchSyncEventsFromMesh(client *http.Client, meshIP, name string, subjects []string, sliceIndex, sliceTotal, maxEvents int) ([]SyncEvent, bool) {
+	// Build request
+	reqBody := SyncRequest{
+		From:       network.meName(),
+		Subjects:   subjects,
+		SinceTime:  0, // get all events
+		SliceIndex: sliceIndex,
+		SliceTotal: sliceTotal,
+		MaxEvents:  maxEvents,
+	}
+
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		logrus.Warnf("📦 failed to marshal mesh sync request: %v", err)
+		return nil, false
+	}
+
+	// Make HTTP request to neighbor's mesh endpoint
+	url := fmt.Sprintf("http://%s:7433/events/sync", meshIP)
+	resp, err := client.Post(url, "application/json", bytes.NewReader(jsonBody))
+	if err != nil {
+		logrus.Warnf("📦 mesh sync from %s failed: %v", name, err)
+		return nil, false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		logrus.Warnf("📦 mesh sync from %s returned status %d", name, resp.StatusCode)
+		return nil, false
+	}
+
+	// Parse response
+	var response SyncResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		logrus.Warnf("📦 failed to decode mesh sync response from %s: %v", name, err)
+		return nil, false
+	}
+
+	// Verify signature if present
+	verified := false
+	if response.Signature != "" {
+		// Look up sender's public key from our neighborhood
+		if nara := network.Neighbourhood[name]; nara != nil && nara.Status.PublicKey != "" {
+			pubKey, err := ParsePublicKey(nara.Status.PublicKey)
+			if err == nil {
+				if response.VerifySignature(pubKey) {
+					verified = true
+				} else {
+					logrus.Warnf("📦 signature verification failed for %s", name)
+				}
+			}
+		}
+	}
+
+	return response.Events, verified
+}
+
+// fetchEventsFromMesh fetches social events from a neighbor via mesh HTTP (legacy)
 func (network *Network) fetchEventsFromMesh(client *http.Client, meshIP, name string, subjects []string, sliceIndex, sliceTotal int) []SocialEvent {
 	// Build request
 	reqBody := map[string]interface{}{
@@ -1051,6 +1141,100 @@ func (network *Network) RequestLedgerSync(neighbor string, subjects []string) {
 
 	topic := fmt.Sprintf("nara/ledger/%s/request", neighbor)
 	network.postEvent(topic, req)
+}
+
+// continuousMeshSync periodically syncs recent events with mesh neighbors
+// This ensures events propagate through the network even after boot recovery
+func (network *Network) continuousMeshSync() {
+	// Wait for boot recovery to complete first
+	time.Sleep(2 * time.Minute)
+
+	// Sync interval: 30-45 seconds (randomized to avoid thundering herd)
+	baseTicker := time.NewTicker(30 * time.Second)
+	defer baseTicker.Stop()
+
+	client := &http.Client{Timeout: 15 * time.Second}
+
+	for range baseTicker.C {
+		if network.tsnetMesh == nil {
+			continue // Only sync via mesh
+		}
+
+		// Get online mesh neighbors
+		online := network.NeighbourhoodNames()
+		var meshNeighbors []struct {
+			name string
+			ip   string
+		}
+
+		for _, name := range online {
+			ip := network.getMeshIPForNara(name)
+			if ip != "" {
+				meshNeighbors = append(meshNeighbors, struct {
+					name string
+					ip   string
+				}{name, ip})
+			}
+		}
+
+		if len(meshNeighbors) == 0 {
+			continue
+		}
+
+		// Pick ONE random neighbor for this sync
+		neighbor := meshNeighbors[time.Now().UnixNano()%int64(len(meshNeighbors))]
+
+		// Request events from last 5 minutes only
+		sinceTime := time.Now().Add(-5 * time.Minute).Unix()
+
+		// Build request
+		reqBody := SyncRequest{
+			From:       network.meName(),
+			SinceTime:  sinceTime,
+			SliceIndex: 0,
+			SliceTotal: 1,
+			MaxEvents:  500, // Limit for incremental sync
+		}
+
+		jsonBody, err := json.Marshal(reqBody)
+		if err != nil {
+			continue
+		}
+
+		url := fmt.Sprintf("http://%s:7433/events/sync", neighbor.ip)
+		resp, err := client.Post(url, "application/json", bytes.NewReader(jsonBody))
+		if err != nil {
+			continue
+		}
+
+		var response SyncResponse
+		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+			resp.Body.Close()
+			continue
+		}
+		resp.Body.Close()
+
+		if len(response.Events) > 0 {
+			// Verify signature if present
+			verified := false
+			if response.Signature != "" {
+				if nara := network.Neighbourhood[neighbor.name]; nara != nil && nara.Status.PublicKey != "" {
+					if pubKey, err := ParsePublicKey(nara.Status.PublicKey); err == nil {
+						verified = response.VerifySignature(pubKey)
+					}
+				}
+			}
+
+			added := network.local.SyncLedger.MergeEvents(response.Events)
+			if added > 0 {
+				verifiedStr := ""
+				if verified {
+					verifiedStr = " ✓"
+				}
+				logrus.Debugf("🔄 continuous sync from %s: +%d events%s", neighbor.name, added, verifiedStr)
+			}
+		}
+	}
 }
 
 // socialMaintenance periodically cleans up social data

@@ -383,3 +383,39 @@ func (t *TsnetMesh) Close() error {
 
 	return nil
 }
+
+// Ping measures RTT to a peer nara via the mesh network
+// Uses HTTP GET to the /ping endpoint and returns the round-trip time
+func (t *TsnetMesh) Ping(targetIP string, timeout time.Duration) (time.Duration, error) {
+	t.mu.Lock()
+	if t.closed {
+		t.mu.Unlock()
+		return 0, errors.New("transport closed")
+	}
+	t.mu.Unlock()
+
+	if targetIP == "" {
+		return 0, errors.New("target IP is required")
+	}
+
+	// Create HTTP client using tsnet's HTTP client
+	client := t.server.HTTPClient()
+	client.Timeout = timeout
+
+	// Build the ping URL (using mesh IP directly, port 80 for HTTP)
+	url := fmt.Sprintf("http://%s/ping", targetIP)
+
+	start := time.Now()
+	resp, err := client.Get(url)
+	if err != nil {
+		return 0, fmt.Errorf("ping failed: %w", err)
+	}
+	rtt := time.Since(start)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return 0, fmt.Errorf("ping returned status %d", resp.StatusCode)
+	}
+
+	return rtt, nil
+}

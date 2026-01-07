@@ -708,6 +708,12 @@ func ShouldTeaseForNiceNumber(restarts int64, personality NaraPersonality) bool 
 
 // ShouldRandomTease determines if we should randomly tease (deterministic based on inputs)
 func ShouldRandomTease(soul, target string, timestamp int64, personality NaraPersonality) bool {
+	return ShouldRandomTeaseWithBoost(soul, target, timestamp, personality, 1.0)
+}
+
+// ShouldRandomTeaseWithBoost is like ShouldRandomTease but with a probability multiplier.
+// Use boost > 1.0 to increase probability (e.g., for nearby naras you notice more).
+func ShouldRandomTeaseWithBoost(soul, target string, timestamp int64, personality NaraPersonality, boost float64) bool {
 	// Very low probability: ~1% for average personality
 	hasher := sha256.New()
 	hasher.Write([]byte(soul))
@@ -721,15 +727,18 @@ func ShouldRandomTease(soul, target string, timestamp int64, personality NaraPer
 	// Base threshold of 10 (1% chance)
 	// High sociability increases chance
 	// High chill decreases chance
-	threshold := uint64(10)
-	threshold += uint64(personality.Sociability / 10) // +0 to +10
-	threshold -= uint64(personality.Chill / 20)       // -0 to -5
+	threshold := float64(10)
+	threshold += float64(personality.Sociability / 10) // +0 to +10
+	threshold -= float64(personality.Chill / 20)       // -0 to -5
+
+	// Apply proximity boost
+	threshold *= boost
 
 	if threshold > 50 {
 		threshold = 50 // cap at 5%
 	}
 
-	return prob < threshold
+	return prob < uint64(threshold)
 }
 
 // TeaseMessage returns a tease message for the given reason

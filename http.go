@@ -4,10 +4,12 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
-	"github.com/sirupsen/logrus"
 	"io/fs"
 	"net"
 	"net/http"
+	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 //go:embed nara-web/public/*
@@ -37,6 +39,10 @@ func (network *Network) startHttpServer(httpAddr string) error {
 	http.HandleFunc("/world/start", network.httpWorldStartHandler)
 	http.HandleFunc("/world/journeys", network.httpWorldJourneysHandler)
 	http.HandleFunc("/events/sync", network.httpEventsSyncHandler)
+	http.HandleFunc("/ping", network.httpPingHandler)
+	http.HandleFunc("/coordinates", network.httpCoordinatesHandler)
+	http.HandleFunc("/network/map", network.httpNetworkMapHandler)
+	http.HandleFunc("/proximity", network.httpProximityHandler)
 	publicFS, _ := fs.Sub(staticContent, "nara-web/public")
 	http.Handle("/", http.FileServer(http.FS(publicFS)))
 
@@ -381,21 +387,16 @@ func (network *Network) httpWorldJourneysHandler(w http.ResponseWriter, r *http.
 
 // Mesh Event Sync HTTP handlers
 
-// POST /events/sync - Sync events via mesh
+// POST /events/sync - Sync events via mesh (unified sync backbone)
 // Used by booting naras to recover event history from neighbors
+// Supports both social events and ping observations
 func (network *Network) httpEventsSyncHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	var req struct {
-		From       string   `json:"from"`        // requesting nara
-		Subjects   []string `json:"subjects"`    // which naras to get events about (empty = all)
-		SinceTime  int64    `json:"since_time"`  // events after this timestamp (0 = all)
-		SliceIndex int      `json:"slice_index"` // for interleaved distribution
-		SliceTotal int      `json:"slice_total"` // total slices
-	}
+	var req SyncRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -415,11 +416,17 @@ func (network *Network) httpEventsSyncHandler(w http.ResponseWriter, r *http.Req
 		req.SliceIndex = 0
 	}
 
-	// Get events from our ledger
-	const maxEvents = 1000
-	var events []SocialEvent
-	if network.local.SocialLedger != nil {
-		events = network.local.SocialLedger.GetEventsSyncSlice(
+	// Default max events if not specified
+	maxEvents := req.MaxEvents
+	if maxEvents <= 0 || maxEvents > 2000 {
+		maxEvents = 2000
+	}
+
+	// Get events from unified sync ledger
+	var events []SyncEvent
+	if network.local.SyncLedger != nil {
+		events = network.local.SyncLedger.GetEventsForSync(
+			req.Services,
 			req.Subjects,
 			req.SinceTime,
 			req.SliceIndex,
@@ -430,9 +437,124 @@ func (network *Network) httpEventsSyncHandler(w http.ResponseWriter, r *http.Req
 
 	logrus.Debugf("📦 mesh sync: sent %d events to %s (slice %d/%d)", len(events), req.From, req.SliceIndex+1, req.SliceTotal)
 
+	// Create signed response
+	response := NewSignedSyncResponse(network.meName(), events, network.local.Keypair)
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(response)
+}
+
+// Network Coordinate HTTP handlers
+
+// GET /ping - Lightweight latency probe for Vivaldi coordinates
+// Returns server timestamp and nara name for RTT measurement
+func (network *Network) httpPingHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"from":   network.meName(),
-		"events": events,
+		"t":    time.Now().UnixNano(),
+		"from": network.meName(),
 	})
+}
+
+// GET /coordinates - This nara's Vivaldi coordinates
+func (network *Network) httpCoordinatesHandler(w http.ResponseWriter, r *http.Request) {
+	network.local.Me.mu.Lock()
+	coords := network.local.Me.Status.Coordinates
+	network.local.Me.mu.Unlock()
+
+	response := map[string]interface{}{
+		"name":        network.meName(),
+		"coordinates": coords,
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(response)
+}
+
+// GET /network/map - All known nodes with coordinates for visualization
+func (network *Network) httpNetworkMapHandler(w http.ResponseWriter, r *http.Request) {
+	network.local.mu.Lock()
+	defer network.local.mu.Unlock()
+
+	var nodes []map[string]interface{}
+
+	// Add ourselves
+	network.local.Me.mu.Lock()
+	meCoords := network.local.Me.Status.Coordinates
+	network.local.Me.mu.Unlock()
+
+	nodes = append(nodes, map[string]interface{}{
+		"name":        network.meName(),
+		"coordinates": meCoords,
+		"online":      true,
+		"is_self":     true,
+	})
+
+	// Add all neighbours
+	for name, nara := range network.Neighbourhood {
+		nara.mu.Lock()
+		coords := nara.Status.Coordinates
+		nara.mu.Unlock()
+
+		obs := nara.getObservation(name)
+
+		// Get our RTT observation to this peer
+		myObs := network.local.getObservationLocked(name)
+
+		node := map[string]interface{}{
+			"name":        name,
+			"coordinates": coords,
+			"online":      obs.Online == "ONLINE",
+			"is_self":     false,
+		}
+
+		if myObs.LastPingRTT > 0 {
+			node["rtt_to_us"] = myObs.LastPingRTT
+		}
+		if myObs.AvgPingRTT > 0 {
+			node["avg_rtt"] = myObs.AvgPingRTT
+		}
+
+		nodes = append(nodes, node)
+	}
+
+	response := map[string]interface{}{
+		"nodes":  nodes,
+		"server": network.meName(),
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(response)
+}
+
+// httpProximityHandler returns this nara's view of who their closest friends are
+// Each nara computes this independently using Vivaldi coordinates, but because
+// coordinates converge, they'll naturally agree on groupings without coordination
+func (network *Network) httpProximityHandler(w http.ResponseWriter, r *http.Request) {
+	// Get proximity group (default size, or from query param)
+	groupSize := ProximityGroupSize
+	group := network.GetProximityGroup(groupSize)
+
+	// Build response
+	var friends []map[string]interface{}
+	for _, neighbor := range group {
+		friend := map[string]interface{}{
+			"name":         neighbor.Name,
+			"estimated_ms": neighbor.EstimatedRTT,
+		}
+		if !neighbor.HasCoordinates {
+			friend["estimated_ms"] = nil
+			friend["no_coordinates"] = true
+		}
+		friends = append(friends, friend)
+	}
+
+	response := map[string]interface{}{
+		"server":          network.meName(),
+		"proximity_group": friends,
+		"group_size":      groupSize,
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(response)
 }

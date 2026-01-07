@@ -551,12 +551,249 @@ function JourneyReceipt({ journey }) {
   );
 }
 
+// Network Map Panel using D3.js
+function NetworkMapPanel() {
+  const { useState, useEffect, useRef } = React;
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [mapData, setMapData] = useState({ nodes: [], server: '' });
+  const [tooltip, setTooltip] = useState(null);
+  const svgRef = useRef(null);
+
+  // Fetch network map data
+  useEffect(() => {
+    if (!isExpanded) return;
+
+    const fetchMap = () => {
+      window.fetch("/network/map")
+        .then(response => response.json())
+        .then(data => {
+          setMapData(data);
+        })
+        .catch(() => {});
+    };
+
+    fetchMap();
+    const interval = setInterval(fetchMap, 10000);
+    return () => clearInterval(interval);
+  }, [isExpanded]);
+
+  // Render D3 visualization
+  useEffect(() => {
+    if (!isExpanded || !svgRef.current || mapData.nodes.length === 0) return;
+
+    const svg = d3.select(svgRef.current);
+    const width = 600;
+    const height = 400;
+
+    // Clear previous content
+    svg.selectAll("*").remove();
+
+    // Separate nodes with and without coordinates
+    const nodesWithCoords = mapData.nodes.filter(n => n.coordinates && n.coordinates.x !== undefined);
+    const nodesWithoutCoords = mapData.nodes.filter(n => !n.coordinates || n.coordinates.x === undefined);
+
+    // Calculate bounds of coordinates (only from nodes that have them)
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+
+    nodesWithCoords.forEach(node => {
+      minX = Math.min(minX, node.coordinates.x);
+      maxX = Math.max(maxX, node.coordinates.x);
+      minY = Math.min(minY, node.coordinates.y);
+      maxY = Math.max(maxY, node.coordinates.y);
+    });
+
+    // Handle edge cases (no coordinates or all same point)
+    if (!isFinite(minX) || minX === maxX) {
+      minX = -1; maxX = 1;
+    }
+    if (!isFinite(minY) || minY === maxY) {
+      minY = -1; maxY = 1;
+    }
+
+    // Add padding
+    const padding = 0.2;
+    const rangeX = maxX - minX;
+    const rangeY = maxY - minY;
+    minX -= rangeX * padding;
+    maxX += rangeX * padding;
+    minY -= rangeY * padding;
+    maxY += rangeY * padding;
+
+    // Create scales
+    const xScale = d3.scaleLinear()
+      .domain([minX, maxX])
+      .range([50, width - 50]);
+
+    const yScale = d3.scaleLinear()
+      .domain([minY, maxY])
+      .range([height - 50, 50]);
+
+    // Draw grid lines
+    const gridLines = svg.append("g").attr("class", "grid");
+    for (let i = 0; i <= 4; i++) {
+      const x = 50 + (width - 100) * i / 4;
+      const y = 50 + (height - 100) * i / 4;
+      gridLines.append("line")
+        .attr("x1", x).attr("y1", 50)
+        .attr("x2", x).attr("y2", height - 50)
+        .attr("stroke", "#2d2d4a").attr("stroke-width", 1);
+      gridLines.append("line")
+        .attr("x1", 50).attr("y1", y)
+        .attr("x2", width - 50).attr("y2", y)
+        .attr("stroke", "#2d2d4a").attr("stroke-width", 1);
+    }
+
+    // Draw nodes WITH coordinates (positioned by Vivaldi)
+    const positionedNodes = svg.selectAll(".node-positioned")
+      .data(nodesWithCoords)
+      .enter()
+      .append("g")
+      .attr("class", "node")
+      .attr("transform", d => {
+        const x = xScale(d.coordinates.x);
+        const y = yScale(d.coordinates.y);
+        return `translate(${x}, ${y})`;
+      });
+
+    positionedNodes.append("circle")
+      .attr("class", d => "node-circle" + (d.is_self ? " self" : ""))
+      .attr("r", d => d.is_self ? 12 : 8)
+      .attr("fill", d => {
+        if (d.is_self) return "#ffd700";
+        return d.online ? "#48bb78" : "#a0aec0";
+      })
+      .on("mouseenter", function(event, d) {
+        const rect = svgRef.current.getBoundingClientRect();
+        setTooltip({
+          x: event.clientX - rect.left + 10,
+          y: event.clientY - rect.top - 10,
+          node: d
+        });
+      })
+      .on("mouseleave", () => setTooltip(null));
+
+    positionedNodes.append("text")
+      .attr("class", "node-label")
+      .attr("y", d => d.is_self ? 25 : 20)
+      .text(d => d.name);
+
+    // Draw nodes WITHOUT coordinates (stacked on the right side)
+    if (nodesWithoutCoords.length > 0) {
+      // Draw a separator area for unknown positions
+      svg.append("rect")
+        .attr("x", width - 45)
+        .attr("y", 45)
+        .attr("width", 40)
+        .attr("height", height - 90)
+        .attr("fill", "#2d2d4a")
+        .attr("rx", 5);
+
+      svg.append("text")
+        .attr("x", width - 25)
+        .attr("y", 60)
+        .attr("fill", "#666")
+        .attr("font-size", "8px")
+        .attr("text-anchor", "middle")
+        .text("?");
+
+      const unknownNodes = svg.selectAll(".node-unknown")
+        .data(nodesWithoutCoords)
+        .enter()
+        .append("g")
+        .attr("class", "node")
+        .attr("transform", (d, i) => {
+          const x = width - 25;
+          const y = 80 + i * 20;
+          return `translate(${x}, ${y})`;
+        });
+
+      unknownNodes.append("circle")
+        .attr("class", "node-circle")
+        .attr("r", 6)
+        .attr("fill", d => d.online ? "#48bb78" : "#a0aec0")
+        .attr("opacity", 0.6)
+        .on("mouseenter", function(event, d) {
+          const rect = svgRef.current.getBoundingClientRect();
+          setTooltip({
+            x: event.clientX - rect.left + 10,
+            y: event.clientY - rect.top - 10,
+            node: d
+          });
+        })
+        .on("mouseleave", () => setTooltip(null));
+
+      unknownNodes.append("text")
+        .attr("class", "node-label")
+        .attr("x", -15)
+        .attr("y", 3)
+        .attr("text-anchor", "end")
+        .attr("font-size", "8px")
+        .text(d => d.name);
+    }
+
+  }, [isExpanded, mapData]);
+
+  return (
+    <div className="network-map-container">
+      <div className="network-map-header">
+        <h3>Network Map</h3>
+        <button className="network-map-toggle" onClick={() => setIsExpanded(!isExpanded)}>
+          {isExpanded ? 'Hide Map' : 'Show Map'}
+        </button>
+      </div>
+
+      {isExpanded && (
+        <React.Fragment>
+          <div className="network-map" style={{ position: 'relative' }}>
+            <svg ref={svgRef} width="600" height="400"></svg>
+            {tooltip && (
+              <div className="node-tooltip" style={{ left: tooltip.x, top: tooltip.y }}>
+                <strong>{tooltip.node.name}</strong>
+                {tooltip.node.is_self && " (you)"}
+                <br />
+                Status: {tooltip.node.online ? "Online" : "Offline"}
+                {tooltip.node.rtt_to_us !== undefined && (
+                  <React.Fragment>
+                    <br />
+                    RTT: {tooltip.node.rtt_to_us.toFixed(1)}ms
+                  </React.Fragment>
+                )}
+                {tooltip.node.coordinates && tooltip.node.coordinates.x !== undefined ? (
+                  <React.Fragment>
+                    <br />
+                    Position: ({tooltip.node.coordinates.x.toFixed(2)}, {tooltip.node.coordinates.y.toFixed(2)})
+                    <br />
+                    Confidence: {((1 - tooltip.node.coordinates.error) * 100).toFixed(0)}%
+                  </React.Fragment>
+                ) : (
+                  <React.Fragment>
+                    <br />
+                    <span style={{ color: '#999' }}>Position unknown (older version)</span>
+                  </React.Fragment>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="network-map-legend">
+            <span><div className="legend-dot self"></div> You</span>
+            <span><div className="legend-dot online"></div> Online</span>
+            <span><div className="legend-dot offline"></div> Offline</span>
+            <span><div className="legend-dot online" style={{ opacity: 0.5 }}></div> Unknown position</span>
+          </div>
+        </React.Fragment>
+      )}
+    </div>
+  );
+}
+
 // Main App with shooting stars
 function App() {
   return (
     <React.Fragment>
       <ShootingStarContainer />
       <WorldJourneyPanel />
+      <NetworkMapPanel />
       <NaraList />
     </React.Fragment>
   );

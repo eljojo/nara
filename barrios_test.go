@@ -123,3 +123,101 @@ func TestNeighbourhoodMaintenance_IncludesMe(t *testing.T) {
 		t.Error("ClusterEmoji for 'me' should be set after neighbourhoodMaintenance")
 	}
 }
+
+// TestProximityBasedBarrios verifies that naras with the same closest neighbor
+// end up in the same cluster - this is the key property of proximity-based clustering
+func TestProximityBasedBarrios(t *testing.T) {
+	ln := NewLocalNara("me", "test-soul", "host", "user", "pass", -1)
+	network := ln.Network
+
+	// Give ourselves coordinates at origin
+	ln.Me.Status.Coordinates = NewNetworkCoordinate()
+	ln.Me.Status.Coordinates.X = 0
+	ln.Me.Status.Coordinates.Y = 0
+	ln.Me.Status.Coordinates.Error = 0.1
+
+	// Create a "hub" nara that will be closest to several others
+	hub := NewNara("hub")
+	hub.Status.Coordinates = NewNetworkCoordinate()
+	hub.Status.Coordinates.X = 10
+	hub.Status.Coordinates.Y = 0
+	hub.Status.Coordinates.Error = 0.1
+	network.Neighbourhood["hub"] = hub
+
+	// Create two naras that are both closest to "hub"
+	alice := NewNara("alice")
+	alice.Status.Coordinates = NewNetworkCoordinate()
+	alice.Status.Coordinates.X = 11 // Very close to hub
+	alice.Status.Coordinates.Y = 1
+	alice.Status.Coordinates.Error = 0.1
+	network.Neighbourhood["alice"] = alice
+
+	bob := NewNara("bob")
+	bob.Status.Coordinates = NewNetworkCoordinate()
+	bob.Status.Coordinates.X = 9 // Also very close to hub
+	bob.Status.Coordinates.Y = -1
+	bob.Status.Coordinates.Error = 0.1
+	network.Neighbourhood["bob"] = bob
+
+	// Initialize observations
+	ln.setObservation("hub", NaraObservation{})
+	ln.setObservation("alice", NaraObservation{})
+	ln.setObservation("bob", NaraObservation{})
+
+	// Run maintenance
+	network.neighbourhoodMaintenance()
+
+	// Alice and Bob should both have "hub" as their closest neighbor,
+	// so they should be in the same cluster
+	aliceObs := ln.getObservation("alice")
+	bobObs := ln.getObservation("bob")
+
+	if aliceObs.ClusterName == "" || bobObs.ClusterName == "" {
+		t.Fatal("cluster names should be set")
+	}
+
+	// Both should be in the cluster named after "hub"
+	expectedCluster := clusterNames[nameToClusterIndex("hub")]
+	if aliceObs.ClusterName != expectedCluster {
+		t.Errorf("expected alice to be in cluster '%s' (hub's cluster), got '%s'", expectedCluster, aliceObs.ClusterName)
+	}
+	if bobObs.ClusterName != expectedCluster {
+		t.Errorf("expected bob to be in cluster '%s' (hub's cluster), got '%s'", expectedCluster, bobObs.ClusterName)
+	}
+
+	// They should have the same emoji too
+	if aliceObs.ClusterEmoji != bobObs.ClusterEmoji {
+		t.Errorf("alice and bob should have same emoji since they're both closest to hub, got %s and %s",
+			aliceObs.ClusterEmoji, bobObs.ClusterEmoji)
+	}
+}
+
+// TestProximityBarriosFallback verifies fallback to hash-based when no coordinates
+func TestProximityBarriosFallback(t *testing.T) {
+	ln := NewLocalNara("me", "test-soul", "host", "user", "pass", -1)
+	network := ln.Network
+
+	// No coordinates for anyone
+	ln.Me.Status.Coordinates = nil
+
+	noCoords := NewNara("no-coords")
+	noCoords.Status.Coordinates = nil
+	network.Neighbourhood["no-coords"] = noCoords
+	ln.setObservation("no-coords", NaraObservation{})
+
+	network.neighbourhoodMaintenance()
+
+	obs := ln.getObservation("no-coords")
+
+	// Should still get a cluster (via fallback)
+	if obs.ClusterName == "" {
+		t.Error("should fall back to hash-based cluster when no coordinates")
+	}
+
+	// Should match the hash-based calculation
+	vibe := calculateVibe("no-coords", time.Now())
+	expectedIdx := int(vibe % uint64(len(clusterNames)))
+	if obs.ClusterName != clusterNames[expectedIdx] {
+		t.Errorf("expected fallback cluster '%s', got '%s'", clusterNames[expectedIdx], obs.ClusterName)
+	}
+}

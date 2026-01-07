@@ -21,6 +21,7 @@ type LocalNara struct {
 	Soul            string
 	Keypair         NaraKeypair
 	SocialLedger    *SocialLedger
+	SyncLedger      *SyncLedger // Unified event store for all syncable data
 	forceChattiness int
 	isRaspberryPi   bool
 	isNixOs         bool
@@ -58,6 +59,7 @@ type NaraStatus struct {
 	PublicKey    string // Base64-encoded Ed25519 public key
 	MeshEnabled  bool   // True if this nara is connected to the Headscale mesh
 	MeshIP       string // Tailscale IP for direct mesh communication (no DNS needed)
+	Coordinates  *NetworkCoordinate `json:"coordinates,omitempty"` // Vivaldi network coordinates
 	// remember to sync with setValuesFrom
 	// NOTE: Soul was removed - NEVER serialize private keys!
 }
@@ -75,6 +77,7 @@ func NewLocalNara(name string, soul string, mqtt_host string, mqtt_user string, 
 	}
 	ln.Me.Version = NaraVersion
 	ln.Me.Status.Version = NaraVersion
+	ln.Me.Status.Coordinates = NewNetworkCoordinate() // Initialize Vivaldi coordinates
 	// NOTE: Soul is NEVER set in Status - private keys must not be serialized!
 
 	// Derive Ed25519 keypair from soul
@@ -92,6 +95,9 @@ func NewLocalNara(name string, soul string, mqtt_host string, mqtt_user string, 
 
 	// Initialize social ledger with personality (max 30,000 events ~= 10MB)
 	ln.SocialLedger = NewSocialLedger(ln.Me.Status.Personality, 30000)
+
+	// Initialize unified sync ledger (max 50,000 events for all service types)
+	ln.SyncLedger = NewSyncLedger(50000)
 
 	ln.updateHostStats()
 
@@ -201,4 +207,7 @@ func (ns *NaraStatus) setValuesFrom(other NaraStatus) {
 	}
 	ns.MeshEnabled = other.MeshEnabled
 	ns.MeshIP = other.MeshIP
+	if other.Coordinates != nil {
+		ns.Coordinates = other.Coordinates
+	}
 }
