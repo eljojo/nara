@@ -124,8 +124,9 @@ func (network *Network) startHttpServer(httpAddr string) error {
 	http.HandleFunc("/social/recent", network.loggingMiddleware("/social/recent", network.httpRecentEventsHandler))
 	http.HandleFunc("/world/start", network.loggingMiddleware("/world/start", network.httpWorldStartHandler))
 	http.HandleFunc("/world/journeys", network.loggingMiddleware("/world/journeys", network.httpWorldJourneysHandler))
-	http.HandleFunc("/events/sync", network.loggingMiddleware("/events/sync", network.httpEventsSyncHandler))
-	http.HandleFunc("/ping", network.loggingMiddleware("/ping", network.httpPingHandler))
+	// Mesh endpoints - require Ed25519 authentication (except /ping which needs to be fast)
+	http.HandleFunc("/events/sync", network.loggingMiddleware("/events/sync", network.meshAuthMiddleware("/events/sync", network.httpEventsSyncHandler)))
+	http.HandleFunc("/ping", network.loggingMiddleware("/ping", network.httpPingHandler)) // No auth - latency critical
 	http.HandleFunc("/coordinates", network.loggingMiddleware("/coordinates", network.httpCoordinatesHandler))
 	http.HandleFunc("/network/map", network.loggingMiddleware("/network/map", network.httpNetworkMapHandler))
 	http.HandleFunc("/proximity", network.loggingMiddleware("/proximity", network.httpProximityHandler))

@@ -108,8 +108,8 @@ func TestTrendVersionCompatibility(t *testing.T) {
 
 func TestUndergroundTrend_ContrarianStartsWhenMainstreamDominates(t *testing.T) {
 	ln := NewLocalNara("rebel", "rebel-soul", "host", "user", "pass", -1)
-	ln.Me.Status.Personality.Agreeableness = 0   // maximum contrarian
-	ln.Me.Status.Personality.Sociability = 100   // high base chance
+	ln.Me.Status.Personality.Agreeableness = 0 // maximum contrarian
+	ln.Me.Status.Personality.Sociability = 100 // high base chance
 	network := ln.Network
 
 	// Create a dominant mainstream trend (80% of network)

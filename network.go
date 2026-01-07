@@ -1017,28 +1017,49 @@ func (network *Network) fetchSyncEventsFromMesh(client *http.Client, meshIP, nam
 
 	// Make HTTP request to neighbor's mesh endpoint
 	url := fmt.Sprintf("http://%s:%d/events/sync", meshIP, DefaultMeshPort)
-	resp, err := client.Post(url, "application/json", bytes.NewReader(jsonBody))
+	req, err := http.NewRequest("POST", url, bytes.NewReader(jsonBody))
+	if err != nil {
+		logrus.Warnf("📦 failed to create mesh sync request: %v", err)
+		return nil, false
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Add mesh authentication headers (Ed25519 signature)
+	network.AddMeshAuthHeaders(req)
+
+	resp, err := client.Do(req)
 	if err != nil {
 		logrus.Warnf("📦 mesh sync from %s failed: %v", name, err)
 		return nil, false
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusUnauthorized {
+		logrus.Warnf("📦 mesh sync from %s rejected our auth (they may not know us yet)", name)
+		return nil, false
+	}
+
 	if resp.StatusCode != http.StatusOK {
 		logrus.Warnf("📦 mesh sync from %s returned status %d", name, resp.StatusCode)
 		return nil, false
 	}
 
+	// Read and verify response body
+	body, verified := network.VerifyMeshResponseBody(resp)
+	if !verified {
+		logrus.Warnf("📦 mesh response from %s failed signature verification", name)
+		// Continue anyway - response might be valid but from a nara we don't know yet
+	}
+
 	// Parse response
 	var response SyncResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+	if err := json.Unmarshal(body, &response); err != nil {
 		logrus.Warnf("📦 failed to decode mesh sync response from %s: %v", name, err)
 		return nil, false
 	}
 
-	// Verify signature if present
-	verified := false
-	if response.Signature != "" {
+	// Also verify the inner signature for extra assurance
+	if response.Signature != "" && !verified {
 		// Look up sender's public key from our neighborhood
 		if nara := network.Neighbourhood[name]; nara != nil && nara.Status.PublicKey != "" {
 			pubKey, err := ParsePublicKey(nara.Status.PublicKey)
@@ -1046,7 +1067,7 @@ func (network *Network) fetchSyncEventsFromMesh(client *http.Client, meshIP, nam
 				if response.VerifySignature(pubKey) {
 					verified = true
 				} else {
-					logrus.Warnf("📦 signature verification failed for %s", name)
+					logrus.Warnf("📦 inner signature verification failed for %s", name)
 				}
 			}
 		}
