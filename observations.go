@@ -337,11 +337,11 @@ func (network *Network) recordObservationOnlineNara(name string) {
 
 	// Record observation event when state changes to ONLINE
 	// Only record if this is a state change (not first time seen or already online)
-	if name != network.meName() && !network.local.isBooting() && network.local.SocialLedger != nil {
+	if name != network.meName() && !network.local.isBooting() && network.local.SyncLedger != nil {
 		if previousState != "" && previousState != "ONLINE" {
 			// State changed from MISSING/OFFLINE to ONLINE
 			event := NewObservationEvent(network.meName(), name, ReasonOnline)
-			network.local.SocialLedger.AddEvent(event)
+			network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
 			logrus.Printf("observation: %s came online", name)
 		}
 	}
@@ -430,9 +430,9 @@ func (network *Network) observationMaintenance() {
 				network.Buzz.increase(10)
 
 				// Record offline observation event (MISSING counts as offline)
-				if network.local.SocialLedger != nil {
+				if network.local.SyncLedger != nil {
 					event := NewObservationEvent(network.meName(), name, ReasonOffline)
-					network.local.SocialLedger.AddEvent(event)
+					network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
 					logrus.Printf("observation: %s went offline (disappeared)", name)
 				}
 			}

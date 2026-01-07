@@ -126,11 +126,11 @@ func (network *Network) getMeshIPForNara(name string) string {
 
 func (network *Network) getMyClout() map[string]float64 {
 	// Get this nara's clout scores for other naras
-	if network.local.SocialLedger == nil {
+	if network.local.SyncLedger == nil {
 		return nil
 	}
 
-	baseClout := network.local.SocialLedger.DeriveClout(network.local.Soul)
+	baseClout := network.local.SyncLedger.DeriveClout(network.local.Soul, network.local.Me.Status.Personality)
 
 	// Apply proximity weighting (nearby naras have more influence)
 	network.local.Me.mu.Lock()
@@ -253,9 +253,9 @@ func (network *Network) onWorldJourneyComplete(wm *WorldMessage) {
 	network.worldJourneysMu.Unlock()
 
 	// Record journey-complete observation event
-	if network.local.SocialLedger != nil {
+	if network.local.SyncLedger != nil {
 		event := NewJourneyObservationEvent(network.meName(), wm.Originator, ReasonJourneyComplete, wm.ID)
-		network.local.SocialLedger.AddEvent(event)
+		network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
 	}
 
 	// Remove from pending journeys (we were the originator)
@@ -301,9 +301,9 @@ func (network *Network) onWorldJourneyPassThrough(wm *WorldMessage) {
 	network.pendingJourneysMu.Unlock()
 
 	// Record journey-pass observation event
-	if network.local.SocialLedger != nil {
+	if network.local.SyncLedger != nil {
 		event := NewJourneyObservationEvent(network.meName(), wm.Originator, ReasonJourneyPass, wm.ID)
-		network.local.SocialLedger.AddEvent(event)
+		network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
 	}
 
 	logrus.Printf("observation: journey %s passed through (from %s)", wm.ID[:8], wm.Originator)
@@ -544,9 +544,9 @@ func (network *Network) handleChauEvent(nara Nara) {
 	network.local.setObservation(nara.Name, observation)
 
 	// Record offline observation event if state changed
-	if previousState == "ONLINE" && !network.local.isBooting() && network.local.SocialLedger != nil {
+	if previousState == "ONLINE" && !network.local.isBooting() && network.local.SyncLedger != nil {
 		event := NewObservationEvent(network.meName(), nara.Name, ReasonOffline)
-		network.local.SocialLedger.AddEvent(event)
+		network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
 		logrus.Printf("observation: %s went offline", nara.Name)
 	}
 
@@ -757,7 +757,7 @@ func (network *Network) handleSocialEvent(event SocialEvent) {
 	}
 
 	// Add to our ledger
-	if network.local.SocialLedger.AddEvent(event) {
+	if network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality) {
 		logrus.Printf("📢 %s teased %s: %s", event.Actor, event.Target, TeaseMessage(event.Reason, event.Actor, event.Target))
 		network.Buzz.increase(5)
 
@@ -816,8 +816,8 @@ func (network *Network) Tease(target, reason string) bool {
 	event := NewTeaseEvent(actor, target, reason)
 
 	// Add to our own ledger
-	if network.local.SocialLedger != nil {
-		network.local.SocialLedger.AddEvent(event)
+	if network.local.SyncLedger != nil {
+		network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
 	}
 
 	// Broadcast to network via MQTT
@@ -922,7 +922,7 @@ func (network *Network) handleLedgerRequest(req LedgerRequest) {
 	}
 
 	// Get events for requested subjects from our ledger
-	events := network.local.SocialLedger.GetEventsForSubjects(req.Subjects)
+	events := network.local.SyncLedger.GetSocialEventsForSubjects(req.Subjects)
 
 	// Respond directly to the requester
 	response := LedgerResponse{
@@ -942,8 +942,8 @@ func (network *Network) processLedgerResponses() {
 }
 
 func (network *Network) handleLedgerResponse(resp LedgerResponse) {
-	// Merge received events into our ledger
-	added := network.local.SocialLedger.MergeEvents(resp.Events)
+	// Merge received events into our ledger (with personality filtering)
+	added := network.local.SyncLedger.MergeSocialEventsFiltered(resp.Events, network.local.Me.Status.Personality)
 	if added > 0 {
 		logrus.Printf("📥 merged %d events from %s", added, resp.From)
 	}
@@ -1237,11 +1237,11 @@ func (network *Network) socialMaintenance() {
 	for {
 		<-ticker.C
 
-		// Prune the social ledger
-		if network.local.SocialLedger != nil {
-			beforeCount := network.local.SocialLedger.EventCount()
-			network.local.SocialLedger.Prune()
-			afterCount := network.local.SocialLedger.EventCount()
+		// Prune the sync ledger
+		if network.local.SyncLedger != nil {
+			beforeCount := network.local.SyncLedger.EventCount()
+			network.local.SyncLedger.Prune()
+			afterCount := network.local.SyncLedger.EventCount()
 
 			if beforeCount != afterCount {
 				logrus.Printf("🗑️  pruned %d old events (now: %d)", beforeCount-afterCount, afterCount)
@@ -1276,9 +1276,9 @@ func (network *Network) handleJourneyCompletion(completion JourneyCompletion) {
 	}
 
 	// Record journey-complete observation event (we heard it completed)
-	if network.local.SocialLedger != nil {
+	if network.local.SyncLedger != nil {
 		event := NewJourneyObservationEvent(network.meName(), pending.Originator, ReasonJourneyComplete, completion.JourneyID)
-		network.local.SocialLedger.AddEvent(event)
+		network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
 	}
 
 	// Log with attestation chain if available
@@ -1321,9 +1321,9 @@ func (network *Network) journeyTimeoutMaintenance() {
 
 		// Record timeout events for each timed out journey
 		for _, pending := range timedOut {
-			if network.local.SocialLedger != nil {
+			if network.local.SyncLedger != nil {
 				event := NewJourneyObservationEvent(network.meName(), pending.Originator, ReasonJourneyTimeout, pending.JourneyID)
-				network.local.SocialLedger.AddEvent(event)
+				network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
 			}
 
 			logrus.Printf("observation: journey %s timed out (from %s)", pending.JourneyID[:8], pending.Originator)

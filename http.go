@@ -142,6 +142,7 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 		mux.HandleFunc("/events", network.loggingMiddleware("/events", network.httpEventsSSEHandler))
 		mux.HandleFunc("/social/clout", network.loggingMiddleware("/social/clout", network.httpCloutHandler))
 		mux.HandleFunc("/social/recent", network.loggingMiddleware("/social/recent", network.httpRecentEventsHandler))
+		mux.HandleFunc("/social/teases", network.loggingMiddleware("/social/teases", network.httpTeaseCountsHandler))
 		mux.HandleFunc("/world/start", network.loggingMiddleware("/world/start", network.httpWorldStartHandler))
 		mux.HandleFunc("/world/journeys", network.loggingMiddleware("/world/journeys", network.httpWorldJourneysHandler))
 		mux.HandleFunc("/network/map", network.loggingMiddleware("/network/map", network.httpNetworkMapHandler))
@@ -308,8 +309,8 @@ func (network *Network) httpEventsSSEHandler(w http.ResponseWriter, r *http.Requ
 // Clout scores from this nara's perspective
 func (network *Network) httpCloutHandler(w http.ResponseWriter, r *http.Request) {
 	var clout map[string]float64
-	if network.local.SocialLedger != nil {
-		clout = network.local.SocialLedger.DeriveClout(network.local.Soul)
+	if network.local.SyncLedger != nil {
+		clout = network.local.SyncLedger.DeriveClout(network.local.Soul, network.local.Me.Status.Personality)
 	} else {
 		clout = make(map[string]float64)
 	}
@@ -326,8 +327,14 @@ func (network *Network) httpCloutHandler(w http.ResponseWriter, r *http.Request)
 // Recent social events
 func (network *Network) httpRecentEventsHandler(w http.ResponseWriter, r *http.Request) {
 	var events []SocialEvent
-	if network.local.SocialLedger != nil {
-		events = network.local.SocialLedger.GetRecentEvents(5)
+	if network.local.SyncLedger != nil {
+		// Convert SyncEvents to legacy SocialEvents
+		syncEvents := network.local.SyncLedger.GetRecentSocialEvents(5)
+		for _, se := range syncEvents {
+			if legacy := se.ToSocialEvent(); legacy != nil {
+				events = append(events, *legacy)
+			}
+		}
 	}
 
 	// Convert to JSON-friendly format
@@ -345,6 +352,42 @@ func (network *Network) httpRecentEventsHandler(w http.ResponseWriter, r *http.R
 	response := map[string]interface{}{
 		"server": network.meName(),
 		"events": eventList,
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(response)
+}
+
+// Tease counts - objective count of teases per actor (no personality influence)
+func (network *Network) httpTeaseCountsHandler(w http.ResponseWriter, r *http.Request) {
+	var counts map[string]int
+	if network.local.SyncLedger != nil {
+		counts = network.local.SyncLedger.GetTeaseCounts()
+	} else {
+		counts = make(map[string]int)
+	}
+
+	// Convert to sorted list for the response
+	type teaseCount struct {
+		Actor string `json:"actor"`
+		Count int    `json:"count"`
+	}
+	var teases []teaseCount
+	for actor, count := range counts {
+		teases = append(teases, teaseCount{Actor: actor, Count: count})
+	}
+	// Sort by count descending
+	for i := 0; i < len(teases); i++ {
+		for j := i + 1; j < len(teases); j++ {
+			if teases[j].Count > teases[i].Count {
+				teases[i], teases[j] = teases[j], teases[i]
+			}
+		}
+	}
+
+	response := map[string]interface{}{
+		"server": network.meName(),
+		"teases": teases,
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

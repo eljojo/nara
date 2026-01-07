@@ -154,6 +154,43 @@ The sync system is designed to scale:
 4. **Diversify sources**: Query multiple peers for different perspectives
 5. **Self-throttling**: Ping budget doesn't grow with network size
 
+## Personality-Aware Processing
+
+While the SyncLedger stores events neutrally, **each nara interprets them subjectively** based on personality:
+
+### Filtering on Add
+Not all events are meaningful to every nara. When adding social events, personality determines what gets stored:
+
+- **High Chill (>70)**: Ignores random jabs
+- **Very High Chill (>85)**: Only keeps significant events (comebacks, high-restarts)
+- **High Agreeableness (>80)**: Filters out "trend-abandon" drama
+- **Low Sociability (<30)**: Less interested in others' drama
+
+### Clout Calculation
+Clout scores are **subjective** - the same events produce different clout for different observers:
+
+```go
+clout := ledger.DeriveClout(observerSoul, observerPersonality)
+```
+
+The `TeaseResonates()` function uses the observer's soul to deterministically decide if a tease was good or cringe. Same event, different reactions.
+
+### Time Decay
+Events fade over time, but personality affects memory:
+- **Low Chill**: Holds grudges longer (up to 50% longer half-life)
+- **High Chill**: Lets things go faster
+- **High Sociability**: Remembers social events longer
+
+## Tease Counter
+
+Separate from subjective clout, the **tease counter** is an objective metric:
+
+```go
+counts := ledger.GetTeaseCounts() // map[actor]int
+```
+
+This simply counts how many times each nara has teased others. No personality influence - pure numbers. Useful for leaderboards and identifying the most active teasers.
+
 ## Event Flow Example
 
 ```

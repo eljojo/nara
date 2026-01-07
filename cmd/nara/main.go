@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/tls"
 	"flag"
+	"fmt"
 	"math/rand"
 	"net/http"
 	"os"
@@ -74,6 +75,7 @@ func main() {
 	noMeshPtr := flag.Bool("no-mesh", false, "disable mesh networking via Headscale")
 	headscaleUrlPtr := flag.String("headscale-url", getEnv("HEADSCALE_URL", deobfuscate(defaultHeadscaleURLEnc)), "Headscale control server URL")
 	authKeyPtr := flag.String("authkey", getEnv("TS_AUTHKEY", deobfuscate(defaultHeadscaleKeyEnc)), "Headscale auth key for automatic registration")
+	ledgerCapacityPtr := flag.Int("ledger-capacity", getEnvInt("LEDGER_CAPACITY", 80000), "max events in sync ledger")
 
 	flag.Parse()
 
@@ -88,7 +90,7 @@ func main() {
 	identity := nara.DetermineIdentity(*naraIdPtr, *soulPtr, getHostname(), hwFingerprint)
 	soulStr := nara.FormatSoul(identity.Soul)
 
-	localNara := nara.NewLocalNara(identity.Name, soulStr, *mqttHostPtr, *mqttUserPtr, *mqttPassPtr, *forceChattinessPtr)
+	localNara := nara.NewLocalNara(identity.Name, soulStr, *mqttHostPtr, *mqttUserPtr, *mqttPassPtr, *forceChattinessPtr, *ledgerCapacityPtr)
 	localNara.Me.Status.PublicUrl = *publicUrlPtr
 
 	// Log identity status
@@ -131,6 +133,16 @@ func main() {
 func getEnv(key, fallback string) string {
 	if value, ok := os.LookupEnv(key); ok {
 		return value
+	}
+	return fallback
+}
+
+func getEnvInt(key string, fallback int) int {
+	if value, ok := os.LookupEnv(key); ok {
+		var result int
+		if _, err := fmt.Sscanf(value, "%d", &result); err == nil {
+			return result
+		}
 	}
 	return fallback
 }

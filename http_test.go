@@ -16,7 +16,7 @@ func testSoul(name string) string {
 }
 
 func TestHttpNaraeJsonHandler(t *testing.T) {
-	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1)
+	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	req, err := http.NewRequest("GET", "/narae.json", nil)
@@ -49,7 +49,7 @@ func TestHttpNaraeJsonHandler(t *testing.T) {
 }
 
 func TestHttpApiJsonHandler(t *testing.T) {
-	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1)
+	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	req, err := http.NewRequest("GET", "/api.json", nil)
@@ -77,7 +77,7 @@ func TestHttpApiJsonHandler(t *testing.T) {
 }
 
 func TestHttpStatusJsonHandler(t *testing.T) {
-	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1)
+	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	// Test existing nara
@@ -118,7 +118,7 @@ func TestHttpStatusJsonHandler(t *testing.T) {
 }
 
 func TestHttpMetricsHandler(t *testing.T) {
-	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1)
+	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	otherNara := NewNara("other")
@@ -154,7 +154,7 @@ func TestHttpMetricsHandler(t *testing.T) {
 }
 
 func TestHttpPingHandler(t *testing.T) {
-	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1)
+	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	req, err := http.NewRequest("GET", "/ping", nil)
@@ -188,7 +188,7 @@ func TestHttpPingHandler(t *testing.T) {
 }
 
 func TestHttpCoordinatesHandler(t *testing.T) {
-	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1)
+	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	req, err := http.NewRequest("GET", "/coordinates", nil)
@@ -237,7 +237,7 @@ func TestHttpCoordinatesHandler(t *testing.T) {
 }
 
 func TestHttpNetworkMapHandler(t *testing.T) {
-	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1)
+	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	// Add a neighbor with coordinates
@@ -310,7 +310,7 @@ func TestHttpNetworkMapHandler(t *testing.T) {
 }
 
 func TestHttpNetworkMapHandler_NodesWithoutCoordinates(t *testing.T) {
-	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1)
+	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	// Add a neighbor WITHOUT coordinates (simulating older version)
@@ -380,7 +380,7 @@ func TestHttpNetworkMapHandler_NodesWithoutCoordinates(t *testing.T) {
 }
 
 func TestHttpEventsSyncHandler(t *testing.T) {
-	ln := NewLocalNara("test-nara", testSoul("test-nara"), "host", "user", "pass", -1)
+	ln := NewLocalNara("test-nara", testSoul("test-nara"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	// Add some events to the SyncLedger
@@ -443,7 +443,7 @@ func TestHttpEventsSyncHandler(t *testing.T) {
 }
 
 func TestHttpEventsSyncHandler_FilterByService(t *testing.T) {
-	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1)
+	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	// Add mixed events
@@ -479,5 +479,75 @@ func TestHttpEventsSyncHandler_FilterByService(t *testing.T) {
 	}
 	if response.Events[0].Service != ServicePing {
 		t.Errorf("expected ping service, got %s", response.Events[0].Service)
+	}
+}
+
+func TestHttpTeaseCountsHandler(t *testing.T) {
+	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1, 0)
+	network := ln.Network
+
+	// Add some tease events
+	ln.SyncLedger.AddSocialEvent(SocialEvent{
+		Timestamp: 1234567890,
+		Type:      "tease",
+		Actor:     "alice",
+		Target:    "bob",
+		Reason:    "high-restarts",
+	})
+	ln.SyncLedger.AddSocialEvent(SocialEvent{
+		Timestamp: 1234567891,
+		Type:      "tease",
+		Actor:     "alice",
+		Target:    "charlie",
+		Reason:    "comeback",
+	})
+	ln.SyncLedger.AddSocialEvent(SocialEvent{
+		Timestamp: 1234567892,
+		Type:      "tease",
+		Actor:     "bob",
+		Target:    "alice",
+		Reason:    "random",
+	})
+
+	req, err := http.NewRequest("GET", "/social/teases", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(network.httpTeaseCountsHandler)
+	handler.ServeHTTP(rr, req)
+
+	if status := rr.Code; status != http.StatusOK {
+		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusOK)
+	}
+
+	var response map[string]interface{}
+	err = json.Unmarshal(rr.Body.Bytes(), &response)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if response["server"] != "test-nara" {
+		t.Errorf("expected server to be test-nara, got %v", response["server"])
+	}
+
+	teases, ok := response["teases"].([]interface{})
+	if !ok {
+		t.Fatal("expected teases to be an array")
+	}
+
+	// Should have 2 entries (alice: 2, bob: 1)
+	if len(teases) != 2 {
+		t.Errorf("expected 2 tease entries, got %d", len(teases))
+	}
+
+	// First should be alice with 2 teases (sorted by count descending)
+	first := teases[0].(map[string]interface{})
+	if first["actor"] != "alice" {
+		t.Errorf("expected first actor to be alice, got %v", first["actor"])
+	}
+	if first["count"].(float64) != 2 {
+		t.Errorf("expected alice to have 2 teases, got %v", first["count"])
 	}
 }

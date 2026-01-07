@@ -103,6 +103,7 @@ func (e *SyncEvent) Payload() Payload {
 	}
 	return nil
 }
+
 // ComputeID generates a deterministic ID from event content
 func (e *SyncEvent) ComputeID() {
 	hasher := sha256.New()
@@ -321,6 +322,57 @@ func (l *SyncLedger) AddEvent(e SyncEvent) bool {
 // AddSocialEvent is a convenience method to add a legacy SocialEvent
 func (l *SyncLedger) AddSocialEvent(se SocialEvent) bool {
 	return l.AddEvent(SyncEventFromSocialEvent(se))
+}
+
+// AddSocialEventFilteredLegacy adds a legacy SocialEvent with personality filtering
+func (l *SyncLedger) AddSocialEventFilteredLegacy(se SocialEvent, personality NaraPersonality) bool {
+	return l.AddSocialEventFiltered(SyncEventFromSocialEvent(se), personality)
+}
+
+// MergeSocialEvents adds legacy SocialEvents from another source (for boot recovery/gossip)
+func (l *SyncLedger) MergeSocialEvents(events []SocialEvent) int {
+	added := 0
+	for _, se := range events {
+		if l.AddSocialEvent(se) {
+			added++
+		}
+	}
+	return added
+}
+
+// MergeSocialEventsFiltered adds legacy SocialEvents with personality filtering
+func (l *SyncLedger) MergeSocialEventsFiltered(events []SocialEvent, personality NaraPersonality) int {
+	added := 0
+	for _, se := range events {
+		if l.AddSocialEventFilteredLegacy(se, personality) {
+			added++
+		}
+	}
+	return added
+}
+
+// GetSocialEventsForSubjects returns social events (legacy format) where any subject is actor or target
+func (l *SyncLedger) GetSocialEventsForSubjects(subjects []string) []SocialEvent {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	subjectSet := make(map[string]bool)
+	for _, s := range subjects {
+		subjectSet[s] = true
+	}
+
+	var result []SocialEvent
+	for _, e := range l.Events {
+		if e.Service != ServiceSocial || e.Social == nil {
+			continue
+		}
+		if subjectSet[e.Social.Actor] || subjectSet[e.Social.Target] {
+			if se := e.ToSocialEvent(); se != nil {
+				result = append(result, *se)
+			}
+		}
+	}
+	return result
 }
 
 // AddPingObservation is a convenience method to add a ping observation
@@ -777,4 +829,409 @@ func (r *SyncResponse) VerifySignature(publicKey ed25519.PublicKey) bool {
 
 	data := r.signingData()
 	return VerifySignature(publicKey, data, sigBytes)
+}
+
+// --- Personality-Aware Methods ---
+
+// socialEventIsMeaningful decides if a personality cares enough to store the event
+// This is the filter logic from SocialLedger.eventIsMeaningful, adapted for SyncEvent
+func socialEventIsMeaningful(payload *SocialEventPayload, personality NaraPersonality) bool {
+	if payload == nil {
+		return false
+	}
+
+	// High chill naras don't bother with random jabs
+	if personality.Chill > 70 && payload.Reason == ReasonRandom {
+		return false
+	}
+
+	// Handle observation events specially
+	if payload.Type == "observation" {
+		// Everyone keeps journey-timeout (reliability matters!)
+		if payload.Reason == ReasonJourneyTimeout {
+			return true
+		}
+
+		// Very chill naras skip routine online/offline
+		if personality.Chill > 85 {
+			if payload.Reason == ReasonOnline || payload.Reason == ReasonOffline {
+				return false
+			}
+		}
+
+		// Low sociability naras skip journey-pass/complete
+		if personality.Sociability < 30 {
+			if payload.Reason == ReasonJourneyPass || payload.Reason == ReasonJourneyComplete {
+				return false
+			}
+		}
+
+		return true
+	}
+
+	// Very chill naras only care about significant events (for non-observation types)
+	if personality.Chill > 85 {
+		// Only store comebacks and high-restarts (significant events)
+		if payload.Reason != ReasonComeback && payload.Reason != ReasonHighRestarts {
+			return false
+		}
+	}
+
+	// Highly agreeable naras don't like storing negative drama
+	if personality.Agreeableness > 80 && payload.Reason == ReasonTrendAbandon {
+		return false // "who am I to judge their choices"
+	}
+
+	// Low sociability naras are less interested in others' drama
+	if personality.Sociability < 20 {
+		// Only store if it seems important (not random)
+		if payload.Reason == ReasonRandom {
+			return false
+		}
+	}
+
+	return true
+}
+
+// AddSocialEventFiltered adds a social event if personality finds it meaningful
+func (l *SyncLedger) AddSocialEventFiltered(e SyncEvent, personality NaraPersonality) bool {
+	// Only filter social events
+	if e.Service != ServiceSocial || e.Social == nil {
+		return l.AddEvent(e)
+	}
+
+	// Personality-based filtering: do I even care about this?
+	if !socialEventIsMeaningful(e.Social, personality) {
+		return false
+	}
+
+	return l.AddEvent(e)
+}
+
+// EventWeight calculates how much an event matters based on personality AND event properties
+// Implements "strong opinions weakly held" - recent events matter more, old ones fade
+func (l *SyncLedger) EventWeight(event SyncEvent, personality NaraPersonality) float64 {
+	// Only social events have personality-aware weight
+	if event.Service != ServiceSocial || event.Social == nil {
+		return 1.0
+	}
+
+	payload := event.Social
+
+	// Base weight
+	weight := 1.0
+
+	// High sociability cares more about social events
+	weight += float64(personality.Sociability) / 200.0 // +0 to +0.5
+
+	// High chill diminishes drama
+	weight -= float64(personality.Chill) / 400.0 // -0 to -0.25
+
+	// Event reason affects weight differently per personality
+	switch payload.Reason {
+	case ReasonHighRestarts:
+		// Technical stuff - less interesting to highly social naras
+		if personality.Sociability > 70 {
+			weight *= 0.7
+		}
+	case ReasonComeback:
+		// Social naras love comeback drama
+		if personality.Sociability > 60 {
+			weight *= 1.4
+		}
+	case ReasonTrendAbandon:
+		// Agreeable naras don't like judging trend choices
+		if personality.Agreeableness > 70 {
+			weight *= 0.5
+		}
+		// But social naras find it interesting
+		if personality.Sociability > 60 {
+			weight *= 1.2
+		}
+	case ReasonRandom:
+		// Chill naras don't care about random jabs
+		if personality.Chill > 60 {
+			weight *= 0.3
+		}
+		// Highly agreeable naras find random teasing a bit much
+		if personality.Agreeableness > 70 {
+			weight *= 0.6
+		}
+	case ReasonNiceNumber:
+		// Everyone appreciates good looking numbers a bit
+		weight *= 1.1
+
+	// Observation event reasons
+	case ReasonOnline, ReasonOffline:
+		// Online/offline are routine events, lower weight
+		weight *= 0.5
+	case ReasonJourneyPass:
+		// Journey participation is moderately interesting
+		weight *= 0.8
+	case ReasonJourneyComplete:
+		// Journey completion is significant
+		weight *= 1.3
+	case ReasonJourneyTimeout:
+		// Journey timeout is notable (indicates problem)
+		weight *= 1.2
+	}
+
+	// Event type affects weight
+	switch payload.Type {
+	case "tease":
+		// Direct teases carry full weight (already at 1.0)
+	case "observed":
+		// Third-party observations are less impactful
+		weight *= 0.7
+	case "gossip":
+		// Gossip is the least reliable/impactful
+		weight *= 0.4
+	case "observation":
+		// System observations carry full weight (already at 1.0)
+		// The reason-based weights above already adjust appropriately
+	}
+
+	// Time decay: old events matter less than recent ones
+	// Some naras have better memory than others
+	now := time.Now().Unix()
+	age := now - event.Timestamp
+	if age < 0 {
+		// Future timestamp (clock skew or malicious) - treat as very old
+		age = 7 * 24 * 60 * 60 // 7 days worth of decay
+	}
+	if age > 0 {
+		// Base half-life of 24 hours, modified by personality
+		// Low chill = holds onto things longer (better memory for drama)
+		// High chill = lets things go faster (shorter memory)
+		// High sociability = remembers social events longer
+		baseHalfLife := float64(24 * 60 * 60) // 24 hours in seconds
+
+		// Chill naras forget faster (half-life reduced by up to 50%)
+		// Non-chill naras remember longer (half-life increased by up to 50%)
+		chillModifier := 1.0 + float64(50-personality.Chill)/100.0 // 0.5 to 1.5
+
+		// Sociable naras remember social stuff longer (up to 30% bonus)
+		socModifier := 1.0 + float64(personality.Sociability)/333.0 // 1.0 to 1.3
+
+		halfLife := baseHalfLife * chillModifier * socModifier
+		decayFactor := 1.0 / (1.0 + float64(age)/halfLife)
+		weight *= decayFactor
+	}
+
+	if weight < 0.1 {
+		weight = 0.1
+	}
+
+	return weight
+}
+
+// applyObservationClout handles clout changes from observation events
+// Observations affect the TARGET's clout (the one being observed)
+func applyObservationClout(clout map[string]float64, payload *SocialEventPayload, weight float64) {
+	switch payload.Reason {
+	case ReasonOnline:
+		// Coming online is slightly positive (reliable, available)
+		clout[payload.Target] += weight * 0.1
+	case ReasonOffline:
+		// Going offline is slightly negative (less available)
+		clout[payload.Target] -= weight * 0.05
+	case ReasonJourneyPass:
+		// Participating in journeys is positive (engaged citizen)
+		clout[payload.Target] += weight * 0.2
+	case ReasonJourneyComplete:
+		// Completing journeys is very positive (success!)
+		clout[payload.Target] += weight * 0.5
+	case ReasonJourneyTimeout:
+		// Journey timeout is negative (unreliable)
+		clout[payload.Target] -= weight * 0.3
+	}
+}
+
+// DeriveClout computes subjective clout scores based on the ledger events
+// Each observer derives their own opinion based on their soul and personality
+func (l *SyncLedger) DeriveClout(observerSoul string, personality NaraPersonality) map[string]float64 {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	clout := make(map[string]float64)
+
+	for _, event := range l.Events {
+		// Only process social events
+		if event.Service != ServiceSocial || event.Social == nil {
+			continue
+		}
+
+		payload := event.Social
+		weight := l.eventWeightUnlocked(event, personality)
+
+		switch payload.Type {
+		case "tease":
+			// Convert to legacy SocialEvent for TeaseResonates (it uses the same logic)
+			legacyEvent := SocialEvent{
+				ID:        event.ID,
+				Timestamp: event.Timestamp,
+				Type:      payload.Type,
+				Actor:     payload.Actor,
+				Target:    payload.Target,
+				Reason:    payload.Reason,
+				Witness:   payload.Witness,
+			}
+			if TeaseResonates(legacyEvent, observerSoul, personality) {
+				clout[payload.Actor] += weight * 1.0 // good tease = clout
+			} else {
+				clout[payload.Actor] -= weight * 0.3 // bad tease = cringe
+			}
+		case "observed":
+			// Third-party observation, smaller weight
+			legacyEvent := SocialEvent{
+				ID:        event.ID,
+				Timestamp: event.Timestamp,
+				Type:      payload.Type,
+				Actor:     payload.Actor,
+				Target:    payload.Target,
+				Reason:    payload.Reason,
+				Witness:   payload.Witness,
+			}
+			if TeaseResonates(legacyEvent, observerSoul, personality) {
+				clout[payload.Actor] += weight * 0.5
+			}
+		case "gossip":
+			// Gossip has minimal direct clout impact
+			clout[payload.Actor] += weight * 0.1
+		case "observation":
+			// System observations affect the TARGET's clout
+			applyObservationClout(clout, payload, weight)
+		}
+	}
+
+	return clout
+}
+
+// eventWeightUnlocked is EventWeight without locking (for use when already holding lock)
+func (l *SyncLedger) eventWeightUnlocked(event SyncEvent, personality NaraPersonality) float64 {
+	// Delegate to the public method logic (same calculation)
+	// Only social events have personality-aware weight
+	if event.Service != ServiceSocial || event.Social == nil {
+		return 1.0
+	}
+
+	payload := event.Social
+	weight := 1.0
+
+	weight += float64(personality.Sociability) / 200.0
+	weight -= float64(personality.Chill) / 400.0
+
+	switch payload.Reason {
+	case ReasonHighRestarts:
+		if personality.Sociability > 70 {
+			weight *= 0.7
+		}
+	case ReasonComeback:
+		if personality.Sociability > 60 {
+			weight *= 1.4
+		}
+	case ReasonTrendAbandon:
+		if personality.Agreeableness > 70 {
+			weight *= 0.5
+		}
+		if personality.Sociability > 60 {
+			weight *= 1.2
+		}
+	case ReasonRandom:
+		if personality.Chill > 60 {
+			weight *= 0.3
+		}
+		if personality.Agreeableness > 70 {
+			weight *= 0.6
+		}
+	case ReasonNiceNumber:
+		weight *= 1.1
+	case ReasonOnline, ReasonOffline:
+		weight *= 0.5
+	case ReasonJourneyPass:
+		weight *= 0.8
+	case ReasonJourneyComplete:
+		weight *= 1.3
+	case ReasonJourneyTimeout:
+		weight *= 1.2
+	}
+
+	switch payload.Type {
+	case "observed":
+		weight *= 0.7
+	case "gossip":
+		weight *= 0.4
+	}
+
+	now := time.Now().Unix()
+	age := now - event.Timestamp
+	if age < 0 {
+		age = 7 * 24 * 60 * 60
+	}
+	if age > 0 {
+		baseHalfLife := float64(24 * 60 * 60)
+		chillModifier := 1.0 + float64(50-personality.Chill)/100.0
+		socModifier := 1.0 + float64(personality.Sociability)/333.0
+		halfLife := baseHalfLife * chillModifier * socModifier
+		decayFactor := 1.0 / (1.0 + float64(age)/halfLife)
+		weight *= decayFactor
+	}
+
+	if weight < 0.1 {
+		weight = 0.1
+	}
+
+	return weight
+}
+
+// GetTeaseCounts returns objective count of teases per actor (no personality influence)
+func (l *SyncLedger) GetTeaseCounts() map[string]int {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	counts := make(map[string]int)
+	for _, e := range l.Events {
+		if e.Service == ServiceSocial && e.Social != nil && e.Social.Type == "tease" {
+			counts[e.Social.Actor]++
+		}
+	}
+	return counts
+}
+
+// GetRecentSocialEvents returns the N most recent social events
+func (l *SyncLedger) GetRecentSocialEvents(n int) []SyncEvent {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	// Collect social events
+	var social []SyncEvent
+	for _, e := range l.Events {
+		if e.Service == ServiceSocial {
+			social = append(social, e)
+		}
+	}
+
+	// Sort by timestamp descending
+	sort.Slice(social, func(i, j int) bool {
+		return social[i].Timestamp > social[j].Timestamp
+	})
+
+	if n > len(social) {
+		n = len(social)
+	}
+	return social[:n]
+}
+
+// GetSocialEventsAbout returns all social events where the given name is the target
+func (l *SyncLedger) GetSocialEventsAbout(name string) []SyncEvent {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	var result []SyncEvent
+	for _, e := range l.Events {
+		if e.Service == ServiceSocial && e.Social != nil && e.Social.Target == name {
+			result = append(result, e)
+		}
+	}
+	return result
 }

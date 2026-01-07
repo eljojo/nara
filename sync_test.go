@@ -3,6 +3,7 @@ package nara
 import (
 	"crypto/ed25519"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -714,5 +715,442 @@ func TestSyncLedger_AddSignedPingObservationWithReplace(t *testing.T) {
 	expectedRTT := float64(10 + MaxPingsPerPair)
 	if latest.RTT != expectedRTT {
 		t.Errorf("expected latest RTT %.1f, got %.1f", expectedRTT, latest.RTT)
+	}
+}
+
+// --- Personality-Aware Methods (for unified ledger) ---
+
+// TestSyncLedger_AddSocialEventFiltered tests personality-based filtering on add
+func TestSyncLedger_AddSocialEventFiltered(t *testing.T) {
+	tests := []struct {
+		name        string
+		personality NaraPersonality
+		event       SyncEvent
+		shouldAdd   bool
+		reason      string
+	}{
+		{
+			name:        "high_chill_ignores_random_jabs",
+			personality: NaraPersonality{Chill: 75, Sociability: 50, Agreeableness: 50},
+			event:       NewSocialSyncEvent("tease", "alice", "bob", ReasonRandom, ""),
+			shouldAdd:   false,
+			reason:      "high chill (>70) should ignore random jabs",
+		},
+		{
+			name:        "low_chill_keeps_random_jabs",
+			personality: NaraPersonality{Chill: 50, Sociability: 50, Agreeableness: 50},
+			event:       NewSocialSyncEvent("tease", "alice", "bob", ReasonRandom, ""),
+			shouldAdd:   true,
+			reason:      "low chill should keep random jabs",
+		},
+		{
+			name:        "very_high_chill_only_significant_events",
+			personality: NaraPersonality{Chill: 90, Sociability: 50, Agreeableness: 50},
+			event:       NewSocialSyncEvent("tease", "alice", "bob", ReasonTrendAbandon, ""),
+			shouldAdd:   false,
+			reason:      "very high chill (>85) only keeps comebacks and high-restarts",
+		},
+		{
+			name:        "very_high_chill_keeps_comebacks",
+			personality: NaraPersonality{Chill: 90, Sociability: 50, Agreeableness: 50},
+			event:       NewSocialSyncEvent("tease", "alice", "bob", ReasonComeback, ""),
+			shouldAdd:   true,
+			reason:      "very high chill should keep comebacks",
+		},
+		{
+			name:        "high_agreeableness_filters_trend_abandon",
+			personality: NaraPersonality{Chill: 50, Sociability: 50, Agreeableness: 85},
+			event:       NewSocialSyncEvent("tease", "alice", "bob", ReasonTrendAbandon, ""),
+			shouldAdd:   false,
+			reason:      "high agreeableness (>80) filters trend-abandon drama",
+		},
+		{
+			name:        "low_sociability_ignores_random",
+			personality: NaraPersonality{Chill: 50, Sociability: 15, Agreeableness: 50},
+			event:       NewSocialSyncEvent("tease", "alice", "bob", ReasonRandom, ""),
+			shouldAdd:   false,
+			reason:      "low sociability (<20) ignores random teases",
+		},
+		{
+			name:        "everyone_keeps_journey_timeout",
+			personality: NaraPersonality{Chill: 90, Sociability: 10, Agreeableness: 90},
+			event:       NewSocialSyncEvent("observation", "system", "bob", ReasonJourneyTimeout, ""),
+			shouldAdd:   true,
+			reason:      "everyone keeps journey-timeout (reliability matters)",
+		},
+		{
+			name:        "very_high_chill_skips_routine_online_offline",
+			personality: NaraPersonality{Chill: 90, Sociability: 50, Agreeableness: 50},
+			event:       NewSocialSyncEvent("observation", "system", "bob", ReasonOnline, ""),
+			shouldAdd:   false,
+			reason:      "very high chill (>85) skips routine online/offline",
+		},
+		{
+			name:        "low_sociability_skips_journey_pass",
+			personality: NaraPersonality{Chill: 50, Sociability: 25, Agreeableness: 50},
+			event:       NewSocialSyncEvent("observation", "system", "bob", ReasonJourneyPass, ""),
+			shouldAdd:   false,
+			reason:      "low sociability (<30) skips journey-pass",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ledger := NewSyncLedger(1000)
+			added := ledger.AddSocialEventFiltered(tt.event, tt.personality)
+			if added != tt.shouldAdd {
+				t.Errorf("%s: expected added=%v, got %v", tt.reason, tt.shouldAdd, added)
+			}
+		})
+	}
+}
+
+// TestSyncLedger_GetTeaseCounts tests objective tease counting (no personality influence)
+func TestSyncLedger_GetTeaseCounts(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+
+	// Add various teases from different actors
+	ledger.AddEvent(NewSocialSyncEvent("tease", "alice", "bob", ReasonRandom, ""))
+	ledger.AddEvent(NewSocialSyncEvent("tease", "alice", "charlie", ReasonComeback, ""))
+	ledger.AddEvent(NewSocialSyncEvent("tease", "alice", "dave", ReasonHighRestarts, ""))
+	ledger.AddEvent(NewSocialSyncEvent("tease", "bob", "alice", ReasonRandom, ""))
+	ledger.AddEvent(NewSocialSyncEvent("tease", "bob", "charlie", ReasonNiceNumber, ""))
+	ledger.AddEvent(NewSocialSyncEvent("tease", "charlie", "alice", ReasonRandom, ""))
+
+	// Add non-tease events (should not be counted)
+	ledger.AddEvent(NewSocialSyncEvent("observation", "system", "alice", ReasonOnline, ""))
+	ledger.AddEvent(NewSocialSyncEvent("gossip", "dave", "bob", ReasonRandom, ""))
+	ledger.AddPingObservation("alice", "bob", 42.5)
+
+	counts := ledger.GetTeaseCounts()
+
+	if counts["alice"] != 3 {
+		t.Errorf("expected alice to have 3 teases, got %d", counts["alice"])
+	}
+	if counts["bob"] != 2 {
+		t.Errorf("expected bob to have 2 teases, got %d", counts["bob"])
+	}
+	if counts["charlie"] != 1 {
+		t.Errorf("expected charlie to have 1 tease, got %d", counts["charlie"])
+	}
+	if counts["dave"] != 0 {
+		t.Errorf("expected dave to have 0 teases (gossip doesn't count), got %d", counts["dave"])
+	}
+	if counts["system"] != 0 {
+		t.Errorf("expected system to have 0 teases (observation doesn't count), got %d", counts["system"])
+	}
+}
+
+// TestSyncLedger_DeriveClout tests subjective clout calculation
+func TestSyncLedger_DeriveClout(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+
+	// Add events with recent timestamps
+	now := time.Now().Unix()
+
+	// Add a tease from alice to bob
+	teaseEvent := SyncEvent{
+		Timestamp: now,
+		Service:   ServiceSocial,
+		Social: &SocialEventPayload{
+			Type:   "tease",
+			Actor:  "alice",
+			Target: "bob",
+			Reason: ReasonHighRestarts,
+		},
+	}
+	teaseEvent.ComputeID()
+	ledger.AddEvent(teaseEvent)
+
+	// Different personalities should derive different clout
+	socialPersonality := NaraPersonality{Chill: 30, Sociability: 80, Agreeableness: 50}
+	chillPersonality := NaraPersonality{Chill: 80, Sociability: 30, Agreeableness: 50}
+
+	// Use deterministic souls for reproducibility
+	soul1 := "soul-observer-1"
+	soul2 := "soul-observer-2"
+
+	// Get clout from both perspectives
+	clout1 := ledger.DeriveClout(soul1, socialPersonality)
+	clout2 := ledger.DeriveClout(soul2, chillPersonality)
+
+	// Alice should have some clout (positive or negative depending on resonance)
+	// The exact values depend on TeaseResonates, but we can verify structure
+	if _, exists := clout1["alice"]; !exists {
+		// Tease actor should appear in clout map
+		t.Error("expected alice to have clout entry from social observer")
+	}
+
+	// The clout values should potentially differ due to different personalities
+	// (TeaseResonates uses personality to determine if tease lands)
+	t.Logf("Social observer clout for alice: %.2f", clout1["alice"])
+	t.Logf("Chill observer clout for alice: %.2f", clout2["alice"])
+}
+
+// TestSyncLedger_DeriveClout_Observations tests clout from observation events
+func TestSyncLedger_DeriveClout_Observations(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+	now := time.Now().Unix()
+
+	// Add observation events
+	events := []struct {
+		target string
+		reason string
+	}{
+		{"reliable-nara", ReasonJourneyComplete},  // positive
+		{"reliable-nara", ReasonJourneyPass},      // positive
+		{"unreliable-nara", ReasonJourneyTimeout}, // negative
+		{"random-nara", ReasonOnline},             // slightly positive
+		{"random-nara", ReasonOffline},            // slightly negative
+	}
+
+	for _, e := range events {
+		event := SyncEvent{
+			Timestamp: now,
+			Service:   ServiceSocial,
+			Social: &SocialEventPayload{
+				Type:   "observation",
+				Actor:  "observer",
+				Target: e.target,
+				Reason: e.reason,
+			},
+		}
+		event.ComputeID()
+		ledger.AddEvent(event)
+	}
+
+	personality := NaraPersonality{Chill: 50, Sociability: 50, Agreeableness: 50}
+	clout := ledger.DeriveClout("observer-soul", personality)
+
+	// reliable-nara should have positive clout (journey-complete + journey-pass)
+	if clout["reliable-nara"] <= 0 {
+		t.Errorf("expected reliable-nara to have positive clout, got %.2f", clout["reliable-nara"])
+	}
+
+	// unreliable-nara should have negative clout (journey-timeout)
+	if clout["unreliable-nara"] >= 0 {
+		t.Errorf("expected unreliable-nara to have negative clout, got %.2f", clout["unreliable-nara"])
+	}
+}
+
+// TestSyncLedger_EventWeight_TimeDecay tests that old events have less weight
+func TestSyncLedger_EventWeight_TimeDecay(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+	personality := NaraPersonality{Chill: 50, Sociability: 50, Agreeableness: 50}
+
+	now := time.Now().Unix()
+
+	// Recent event (just now)
+	recentEvent := SyncEvent{
+		Timestamp: now,
+		Service:   ServiceSocial,
+		Social: &SocialEventPayload{
+			Type:   "tease",
+			Actor:  "alice",
+			Target: "bob",
+			Reason: ReasonHighRestarts,
+		},
+	}
+	recentEvent.ComputeID()
+
+	// Old event (3 days ago)
+	oldEvent := SyncEvent{
+		Timestamp: now - 3*24*60*60,
+		Service:   ServiceSocial,
+		Social: &SocialEventPayload{
+			Type:   "tease",
+			Actor:  "charlie",
+			Target: "dave",
+			Reason: ReasonHighRestarts,
+		},
+	}
+	oldEvent.ComputeID()
+
+	recentWeight := ledger.EventWeight(recentEvent, personality)
+	oldWeight := ledger.EventWeight(oldEvent, personality)
+
+	// Recent events should have more weight
+	if recentWeight <= oldWeight {
+		t.Errorf("expected recent event weight (%.2f) > old event weight (%.2f)", recentWeight, oldWeight)
+	}
+}
+
+// TestSyncLedger_EventWeight_PersonalityModifiers tests personality affects weight
+func TestSyncLedger_EventWeight_PersonalityModifiers(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+	now := time.Now().Unix()
+
+	event := SyncEvent{
+		Timestamp: now,
+		Service:   ServiceSocial,
+		Social: &SocialEventPayload{
+			Type:   "tease",
+			Actor:  "alice",
+			Target: "bob",
+			Reason: ReasonComeback,
+		},
+	}
+	event.ComputeID()
+
+	// Social personality (high sociability)
+	socialPersonality := NaraPersonality{Chill: 30, Sociability: 90, Agreeableness: 50}
+	socialWeight := ledger.EventWeight(event, socialPersonality)
+
+	// Chill personality (high chill, low sociability)
+	chillPersonality := NaraPersonality{Chill: 90, Sociability: 30, Agreeableness: 50}
+	chillWeight := ledger.EventWeight(event, chillPersonality)
+
+	// Social naras should weight comeback events higher
+	if socialWeight <= chillWeight {
+		t.Errorf("expected social personality to weight comebacks higher (%.2f vs %.2f)", socialWeight, chillWeight)
+	}
+}
+
+// TestSyncLedger_EventWeight_ReasonModifiers tests reason affects weight
+func TestSyncLedger_EventWeight_ReasonModifiers(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+	now := time.Now().Unix()
+	personality := NaraPersonality{Chill: 90, Sociability: 50, Agreeableness: 50}
+
+	// Random event
+	randomEvent := SyncEvent{
+		Timestamp: now,
+		Service:   ServiceSocial,
+		Social: &SocialEventPayload{
+			Type:   "tease",
+			Actor:  "alice",
+			Target: "bob",
+			Reason: ReasonRandom,
+		},
+	}
+	randomEvent.ComputeID()
+
+	// High restarts event
+	highRestartsEvent := SyncEvent{
+		Timestamp: now,
+		Service:   ServiceSocial,
+		Social: &SocialEventPayload{
+			Type:   "tease",
+			Actor:  "alice",
+			Target: "bob",
+			Reason: ReasonHighRestarts,
+		},
+	}
+	highRestartsEvent.ComputeID()
+
+	randomWeight := ledger.EventWeight(randomEvent, personality)
+	highRestartsWeight := ledger.EventWeight(highRestartsEvent, personality)
+
+	// High chill should diminish random events more than high-restarts
+	if randomWeight >= highRestartsWeight {
+		t.Errorf("expected random event to have less weight for chill personality (%.2f vs %.2f)", randomWeight, highRestartsWeight)
+	}
+}
+
+// TestSyncLedger_GetRecentSocialEvents tests getting recent social events
+func TestSyncLedger_GetRecentSocialEvents(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+
+	// Add events with different timestamps
+	baseTime := time.Now().UnixNano()
+	for i := 0; i < 10; i++ {
+		e := SyncEvent{
+			Timestamp: baseTime + int64(i*1000),
+			Service:   ServiceSocial,
+			Social: &SocialEventPayload{
+				Type:   "tease",
+				Actor:  "alice",
+				Target: fmt.Sprintf("target-%d", i),
+				Reason: ReasonRandom,
+			},
+		}
+		e.ComputeID()
+		ledger.AddEvent(e)
+	}
+
+	// Add a ping event (should not be included)
+	ledger.AddPingObservation("alice", "bob", 42.5)
+
+	// Get 5 most recent
+	recent := ledger.GetRecentSocialEvents(5)
+	if len(recent) != 5 {
+		t.Errorf("expected 5 recent events, got %d", len(recent))
+	}
+
+	// Should be sorted by timestamp descending (most recent first)
+	for i := 1; i < len(recent); i++ {
+		if recent[i].Timestamp > recent[i-1].Timestamp {
+			t.Error("expected events sorted by timestamp descending")
+		}
+	}
+
+	// All should be social events
+	for _, e := range recent {
+		if e.Service != ServiceSocial {
+			t.Errorf("expected only social events, got %s", e.Service)
+		}
+	}
+}
+
+// TestSyncLedger_GetSocialEventsAbout tests getting events about a specific nara
+func TestSyncLedger_GetSocialEventsAbout(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+
+	// Add events targeting different naras
+	ledger.AddEvent(NewSocialSyncEvent("tease", "alice", "bob", ReasonRandom, ""))
+	ledger.AddEvent(NewSocialSyncEvent("tease", "charlie", "bob", ReasonComeback, ""))
+	ledger.AddEvent(NewSocialSyncEvent("tease", "alice", "dave", ReasonRandom, ""))
+	ledger.AddEvent(NewSocialSyncEvent("observation", "system", "bob", ReasonOnline, ""))
+
+	// Get events about bob
+	bobEvents := ledger.GetSocialEventsAbout("bob")
+	if len(bobEvents) != 3 {
+		t.Errorf("expected 3 events about bob, got %d", len(bobEvents))
+	}
+
+	// Verify all are about bob
+	for _, e := range bobEvents {
+		if e.Social.Target != "bob" {
+			t.Errorf("expected event to be about bob, got target %s", e.Social.Target)
+		}
+	}
+
+	// Get events about dave
+	daveEvents := ledger.GetSocialEventsAbout("dave")
+	if len(daveEvents) != 1 {
+		t.Errorf("expected 1 event about dave, got %d", len(daveEvents))
+	}
+}
+
+// TestSyncLedger_ChillMemoryDecay tests that chill naras forget faster
+func TestSyncLedger_ChillMemoryDecay(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+	now := time.Now().Unix()
+
+	// Event from 2 days ago
+	oldEvent := SyncEvent{
+		Timestamp: now - 2*24*60*60,
+		Service:   ServiceSocial,
+		Social: &SocialEventPayload{
+			Type:   "tease",
+			Actor:  "alice",
+			Target: "bob",
+			Reason: ReasonComeback,
+		},
+	}
+	oldEvent.ComputeID()
+
+	// Very chill personality (should forget faster)
+	chillPersonality := NaraPersonality{Chill: 90, Sociability: 50, Agreeableness: 50}
+
+	// Not chill personality (should remember longer)
+	notChillPersonality := NaraPersonality{Chill: 10, Sociability: 50, Agreeableness: 50}
+
+	chillWeight := ledger.EventWeight(oldEvent, chillPersonality)
+	notChillWeight := ledger.EventWeight(oldEvent, notChillPersonality)
+
+	// Not-chill nara should remember the event longer (higher weight)
+	if notChillWeight <= chillWeight {
+		t.Errorf("expected not-chill personality to have higher weight for old events (%.3f vs %.3f)", notChillWeight, chillWeight)
 	}
 }

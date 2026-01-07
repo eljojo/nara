@@ -20,8 +20,7 @@ type LocalNara struct {
 	Network         *Network
 	Soul            string
 	Keypair         NaraKeypair
-	SocialLedger    *SocialLedger
-	SyncLedger      *SyncLedger // Unified event store for all syncable data
+	SyncLedger      *SyncLedger // Unified event store for all syncable data (social + ping + future types)
 	forceChattiness int
 	isRaspberryPi   bool
 	isNixOs         bool
@@ -64,7 +63,7 @@ type NaraStatus struct {
 	// NOTE: Soul was removed - NEVER serialize private keys!
 }
 
-func NewLocalNara(name string, soul string, mqtt_host string, mqtt_user string, mqtt_pass string, forceChattiness int) *LocalNara {
+func NewLocalNara(name string, soul string, mqtt_host string, mqtt_user string, mqtt_pass string, forceChattiness int, ledgerCapacity int) *LocalNara {
 	logrus.Printf("📟 Booting nara: %s", name)
 
 	ln := &LocalNara{
@@ -93,11 +92,11 @@ func NewLocalNara(name string, soul string, mqtt_host string, mqtt_user string, 
 
 	ln.seedPersonality()
 
-	// Initialize social ledger with personality (max 30,000 events ~= 10MB)
-	ln.SocialLedger = NewSocialLedger(ln.Me.Status.Personality, 30000)
-
-	// Initialize unified sync ledger (max 50,000 events for all service types)
-	ln.SyncLedger = NewSyncLedger(50000)
+	// Initialize unified sync ledger for all service types (social + ping + future)
+	if ledgerCapacity <= 0 {
+		ledgerCapacity = 80000 // default
+	}
+	ln.SyncLedger = NewSyncLedger(ledgerCapacity)
 
 	ln.updateHostStats()
 
