@@ -8,15 +8,8 @@ import (
 	"testing"
 )
 
-// testSoul creates a valid soul string for testing with signing
-func testSoul(name string) string {
-	hw := hashBytes([]byte("test-hardware-" + name))
-	soul := NativeSoulCustom(hw, name)
-	return FormatSoul(soul)
-}
-
 func TestHttpNaraeJsonHandler(t *testing.T) {
-	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("test-nara", testSoul("test-nara"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	req, err := http.NewRequest("GET", "/narae.json", nil)
@@ -49,7 +42,7 @@ func TestHttpNaraeJsonHandler(t *testing.T) {
 }
 
 func TestHttpApiJsonHandler(t *testing.T) {
-	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("test-nara", testSoul("test-nara"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	req, err := http.NewRequest("GET", "/api.json", nil)
@@ -77,7 +70,7 @@ func TestHttpApiJsonHandler(t *testing.T) {
 }
 
 func TestHttpStatusJsonHandler(t *testing.T) {
-	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("test-nara", testSoul("test-nara"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	// Test existing nara
@@ -118,7 +111,7 @@ func TestHttpStatusJsonHandler(t *testing.T) {
 }
 
 func TestHttpMetricsHandler(t *testing.T) {
-	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("test-nara", testSoul("test-nara"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	otherNara := NewNara("other")
@@ -154,7 +147,7 @@ func TestHttpMetricsHandler(t *testing.T) {
 }
 
 func TestHttpPingHandler(t *testing.T) {
-	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("test-nara", testSoul("test-nara"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	req, err := http.NewRequest("GET", "/ping", nil)
@@ -188,7 +181,7 @@ func TestHttpPingHandler(t *testing.T) {
 }
 
 func TestHttpCoordinatesHandler(t *testing.T) {
-	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("test-nara", testSoul("test-nara"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	req, err := http.NewRequest("GET", "/coordinates", nil)
@@ -237,7 +230,7 @@ func TestHttpCoordinatesHandler(t *testing.T) {
 }
 
 func TestHttpNetworkMapHandler(t *testing.T) {
-	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("test-nara", testSoul("test-nara"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	// Add a neighbor with coordinates
@@ -310,7 +303,7 @@ func TestHttpNetworkMapHandler(t *testing.T) {
 }
 
 func TestHttpNetworkMapHandler_NodesWithoutCoordinates(t *testing.T) {
-	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("test-nara", testSoul("test-nara"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	// Add a neighbor WITHOUT coordinates (simulating older version)
@@ -443,7 +436,7 @@ func TestHttpEventsSyncHandler(t *testing.T) {
 }
 
 func TestHttpEventsSyncHandler_FilterByService(t *testing.T) {
-	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("test-nara", testSoul("test-nara"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	// Add mixed events
@@ -483,7 +476,7 @@ func TestHttpEventsSyncHandler_FilterByService(t *testing.T) {
 }
 
 func TestHttpTeaseCountsHandler(t *testing.T) {
-	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("test-nara", testSoul("test-nara"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	// Add some tease events

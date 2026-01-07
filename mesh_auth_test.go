@@ -222,7 +222,7 @@ func TestVerifyMeshResponse_TamperedBody(t *testing.T) {
 }
 
 func TestMeshAuthMiddleware_SkipsPing(t *testing.T) {
-	ln := NewLocalNara("test", "test-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("test", testSoul("test"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	called := false
@@ -245,7 +245,7 @@ func TestMeshAuthMiddleware_SkipsPing(t *testing.T) {
 }
 
 func TestMeshAuthMiddleware_RejectsUnauthenticated(t *testing.T) {
-	ln := NewLocalNara("test", "test-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("test", testSoul("test"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	called := false

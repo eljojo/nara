@@ -7,7 +7,7 @@ import (
 
 func TestHeyThereEvent_SignAndVerify(t *testing.T) {
 	// Create a keypair from a test soul
-	soul := NativeSoulCustom("test-hw-heythere-1", "alice")
+	soul := NativeSoulCustom([]byte("test-hw-heythere-1"), "alice")
 	keypair := DeriveKeypair(soul)
 
 	// Create and sign a hey_there event
@@ -61,7 +61,7 @@ func TestHeyThereEvent_VerifyUnsigned(t *testing.T) {
 
 func TestNewspaperEvent_SignAndVerify(t *testing.T) {
 	// Create a keypair from a test soul
-	soul := NativeSoulCustom("test-hw-newspaper-1", "alice")
+	soul := NativeSoulCustom([]byte("test-hw-newspaper-1"), "alice")
 	keypair := DeriveKeypair(soul)
 
 	// Create a status
@@ -95,7 +95,7 @@ func TestNewspaperEvent_SignAndVerify(t *testing.T) {
 	}
 
 	// Wrong public key - should fail
-	wrongSoul := NativeSoulCustom("different-hw-newspaper", "bob")
+	wrongSoul := NativeSoulCustom([]byte("different-hw-newspaper"), "bob")
 	wrongKeypair := DeriveKeypair(wrongSoul)
 	if event.Verify(wrongKeypair.PublicKey) {
 		t.Error("Expected wrong public key to fail verification")
@@ -108,7 +108,7 @@ func TestNewspaperEvent_VerifyUnsigned(t *testing.T) {
 		Status: NaraStatus{Flair: "test"},
 	}
 
-	soul := NativeSoulCustom("test-hw-newspaper-2", "alice")
+	soul := NativeSoulCustom([]byte("test-hw-newspaper-2"), "alice")
 	keypair := DeriveKeypair(soul)
 
 	// Should return false for unsigned event

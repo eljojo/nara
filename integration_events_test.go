@@ -18,7 +18,7 @@ func TestIntegration_EventEmissionNoDuplicates(t *testing.T) {
 	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
 
 	// Create nara with proper Network initialization
-	ln1 := NewLocalNara("nara-1", "test-soul-1", "host", "user", "pass", 50, 1000)
+	ln1 := NewLocalNara("nara-1", testSoul("nara-1"), "host", "user", "pass", 50, 1000)
 	network := ln1.Network
 
 	// Fake an older start time so we're not in booting mode (uptime > 120s)
@@ -79,7 +79,7 @@ func TestIntegration_EventEmissionNoDuplicates(t *testing.T) {
 func TestIntegration_NoSelfObservationEvents(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
-	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", 50, 1000)
+	ln := NewLocalNara("test-nara", testSoul("test-nara"), "host", "user", "pass", 50, 1000)
 	network := ln.Network
 
 	// Try to record observation about ourselves (should be filtered)
@@ -111,7 +111,7 @@ func TestIntegration_SlimNewspapersInEventMode(t *testing.T) {
 	os.Setenv("USE_OBSERVATION_EVENTS", "true")
 	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
 
-	ln := NewLocalNara("test-nara", "test-soul", "", "", "", 50, 1000)
+	ln := NewLocalNara("test-nara", testSoul("test-nara"), "", "", "", 50, 1000)
 
 	// Add some observations to the local nara
 	obs1 := NaraObservation{
@@ -174,7 +174,7 @@ func TestIntegration_EventEmissionDuringTransitions(t *testing.T) {
 	os.Setenv("USE_OBSERVATION_EVENTS", "true")
 	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
 
-	ln := NewLocalNara("observer", "test-soul", "host", "user", "pass", 50, 1000)
+	ln := NewLocalNara("observer", testSoul("observer"), "host", "user", "pass", 50, 1000)
 	network := ln.Network
 
 	// Fake an older start time so we're not in booting mode (uptime > 120s)

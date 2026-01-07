@@ -13,7 +13,7 @@ func newNaraWithUptime(name string, uptime uint64) *Nara {
 }
 
 func TestConsensus_ClusteringWithUptime(t *testing.T) {
-	ln := NewLocalNara("me", "me-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 	target := "target"
 	network.importNara(NewNara(target))
@@ -39,7 +39,7 @@ func TestConsensus_ClusteringWithUptime(t *testing.T) {
 }
 
 func TestConsensus_WeakStrategyWhenNoAgreement(t *testing.T) {
-	ln := NewLocalNara("me", "me-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 	target := "target"
 	network.importNara(NewNara(target))
@@ -65,7 +65,7 @@ func TestConsensus_WeakStrategyWhenNoAgreement(t *testing.T) {
 }
 
 func TestConsensus_SmallDisagreement(t *testing.T) {
-	ln := NewLocalNara("me", "me-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 	target := "target"
 	network.importNara(NewNara(target))
@@ -86,7 +86,7 @@ func TestConsensus_SmallDisagreement(t *testing.T) {
 }
 
 func TestConsensus_OutlierIgnored(t *testing.T) {
-	ln := NewLocalNara("me", "me-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 	target := "target"
 	network.importNara(NewNara(target))
@@ -109,7 +109,7 @@ func TestConsensus_OutlierIgnored(t *testing.T) {
 }
 
 func TestConsensus_AgreementBeatsElder(t *testing.T) {
-	ln := NewLocalNara("me", "me-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 	target := "target"
 	network.importNara(NewNara(target))
@@ -140,7 +140,7 @@ func TestConsensus_AgreementBeatsElder(t *testing.T) {
 }
 
 func TestConsensus_ChangeOfMind(t *testing.T) {
-	ln := NewLocalNara("me", "me-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 	target := "target"
 	network.importNara(NewNara(target))
@@ -177,7 +177,7 @@ func TestConsensus_CoinFlipWhenClose(t *testing.T) {
 	// When no cluster has 2+ observers and top 2 are within 20% uptime,
 	// we flip a coin. This test just verifies it doesn't crash and returns
 	// one of the two values.
-	ln := NewLocalNara("me", "me-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 	target := "target"
 	network.importNara(NewNara(target))
@@ -199,7 +199,7 @@ func TestConsensus_CoinFlipWhenClose(t *testing.T) {
 
 func TestConsensus_StrongStrategyPreferred(t *testing.T) {
 	// Strategy 1 (Strong) should be preferred over single-observer clusters
-	ln := NewLocalNara("me", "me-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 	target := "target"
 	network.importNara(NewNara(target))
@@ -226,7 +226,7 @@ func TestConsensus_StrongStrategyPreferred(t *testing.T) {
 }
 
 func TestConsensus_NoChainingBug(t *testing.T) {
-	ln := NewLocalNara("me", "me-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 	target := "target"
 	network.importNara(NewNara(target))
@@ -254,7 +254,7 @@ func TestConsensus_NoChainingBug(t *testing.T) {
 }
 
 func TestObservations_OnlineTransitions(t *testing.T) {
-	ln := NewLocalNara("me", "me-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 	name := "target"
 

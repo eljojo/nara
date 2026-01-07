@@ -2,7 +2,6 @@ package nara
 
 import (
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -39,7 +38,9 @@ func TestIntegration_MultiNaraNetwork(t *testing.T) {
 
 	for i := 0; i < numNaras; i++ {
 		name := fmt.Sprintf("test-nara-%d", i)
-		soul := strings.Repeat(fmt.Sprintf("%d", i), 54) // Valid 54-char soul
+		hwFingerprint := []byte(fmt.Sprintf("test-hw-fingerprint-%d", i))
+		soulV1 := NativeSoulCustom(hwFingerprint, name)
+		soul := FormatSoul(soulV1) // Valid base58-encoded soul
 
 		// Create LocalNara with embedded MQTT broker address
 		ln := NewLocalNara(

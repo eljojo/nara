@@ -305,7 +305,7 @@ func TestNewJourneyObservationEvent(t *testing.T) {
 
 func TestSocialEvent_SignAndVerify(t *testing.T) {
 	// Create keypairs from test souls
-	soul := NativeSoulCustom("test-hw-fingerprint-1", "alice")
+	soul := NativeSoulCustom([]byte("test-hw-fingerprint-1"), "alice")
 	keypair := DeriveKeypair(soul)
 
 	// Create and sign an event
@@ -322,7 +322,7 @@ func TestSocialEvent_SignAndVerify(t *testing.T) {
 	}
 
 	// Verify fails with wrong public key
-	wrongSoul := NativeSoulCustom("different-hw-fingerprint", "bob")
+	wrongSoul := NativeSoulCustom([]byte("different-hw-fingerprint"), "bob")
 	wrongKeypair := DeriveKeypair(wrongSoul)
 	if event.Verify(wrongKeypair.PublicKey) {
 		t.Error("Expected signature to fail with wrong public key")
@@ -340,7 +340,7 @@ func TestSocialEvent_VerifyUnsigned(t *testing.T) {
 	event := NewTeaseEvent("alice", "bob", ReasonHighRestarts)
 	// Don't sign it
 
-	soul := NativeSoulCustom("test-hw-fingerprint-2", "alice")
+	soul := NativeSoulCustom([]byte("test-hw-fingerprint-2"), "alice")
 	keypair := DeriveKeypair(soul)
 
 	// Verify should return false for unsigned event
