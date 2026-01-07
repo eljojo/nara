@@ -48,9 +48,36 @@ func deobfuscate(enc []byte) string {
 func main() {
 	rand.Seed(time.Now().UnixNano())
 
-	mqttHostPtr := flag.String("mqtt-host", getEnv("MQTT_HOST", "tls://mqtt.nara.network:8883"), "mqtt server hostname")
-	mqttUserPtr := flag.String("mqtt-user", getEnv("MQTT_USER", deobfuscate(defaultUserEnc)), "mqtt server username")
-	mqttPassPtr := flag.String("mqtt-pass", getEnv("MQTT_PASS", deobfuscate(defaultPassEnc)), "mqtt server password")
+	// Check for --show-default-credentials before setting up flags
+	showCreds := hasArg("--show-default-credentials")
+
+	// Credential defaults: show real values only with --show-default-credentials
+	mqttHostDefault := ""
+	mqttUserDefault := ""
+	mqttPassDefault := ""
+	headscaleURLDefault := ""
+	authKeyDefault := ""
+	mqttHostDesc := "mqtt server hostname (ex \"tls://mqtt.example.com:8883\")"
+	mqttUserDesc := "mqtt server username"
+	mqttPassDesc := "mqtt server password"
+	headscaleURLDesc := "Headscale control server URL (ex \"https://headscale.example.com\")"
+	authKeyDesc := "Headscale auth key for automatic registration (ex \"abcdefghaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\")"
+	if showCreds {
+		mqttHostDefault = "tls://mqtt.nara.network:8883"
+		mqttUserDefault = deobfuscate(defaultUserEnc)
+		mqttPassDefault = deobfuscate(defaultPassEnc)
+		headscaleURLDefault = deobfuscate(defaultHeadscaleURLEnc)
+		authKeyDefault = deobfuscate(defaultHeadscaleKeyEnc)
+		mqttHostDesc = "mqtt server hostname"
+		mqttUserDesc = "mqtt server username"
+		mqttPassDesc = "mqtt server password"
+		headscaleURLDesc = "Headscale control server URL"
+		authKeyDesc = "Headscale auth key for automatic registration"
+	}
+
+	mqttHostPtr := flag.String("mqtt-host", getEnv("MQTT_HOST", mqttHostDefault), mqttHostDesc)
+	mqttUserPtr := flag.String("mqtt-user", getEnv("MQTT_USER", mqttUserDefault), mqttUserDesc)
+	mqttPassPtr := flag.String("mqtt-pass", getEnv("MQTT_PASS", mqttPassDefault), mqttPassDesc)
 	httpAddrPtr := flag.String("http-addr", getEnv("HTTP_ADDR", ""), "http server address (e.g. :8080)")
 	naraIdPtr := flag.String("nara-id", getEnv("NARA_ID", ""), "nara id")
 	soulPtr := flag.String("soul", getEnv("NARA_SOUL", ""), "nara soul to inherit identity")
@@ -62,11 +89,29 @@ func main() {
 	serveUiPtr := flag.Bool("serve-ui", false, "serve the web UI")
 	publicUrlPtr := flag.String("public-url", getEnv("PUBLIC_URL", ""), "public URL for this nara's web UI")
 	noMeshPtr := flag.Bool("no-mesh", false, "disable mesh networking via Headscale")
-	headscaleUrlPtr := flag.String("headscale-url", getEnv("HEADSCALE_URL", deobfuscate(defaultHeadscaleURLEnc)), "Headscale control server URL")
-	authKeyPtr := flag.String("authkey", getEnv("TS_AUTHKEY", deobfuscate(defaultHeadscaleKeyEnc)), "Headscale auth key for automatic registration")
+	headscaleUrlPtr := flag.String("headscale-url", getEnv("HEADSCALE_URL", headscaleURLDefault), headscaleURLDesc)
+	authKeyPtr := flag.String("authkey", getEnv("TS_AUTHKEY", authKeyDefault), authKeyDesc)
 	ledgerCapacityPtr := flag.Int("ledger-capacity", getEnvInt("LEDGER_CAPACITY", 80000), "max events in sync ledger")
+	flag.Bool("show-default-credentials", false, "show credentials used by the app by default")
 
 	flag.Parse()
+
+	// Apply real defaults for runtime if not set via env or flag
+	if *mqttHostPtr == "" {
+		*mqttHostPtr = "tls://mqtt.nara.network:8883"
+	}
+	if *mqttUserPtr == "" {
+		*mqttUserPtr = deobfuscate(defaultUserEnc)
+	}
+	if *mqttPassPtr == "" {
+		*mqttPassPtr = deobfuscate(defaultPassEnc)
+	}
+	if *headscaleUrlPtr == "" {
+		*headscaleUrlPtr = deobfuscate(defaultHeadscaleURLEnc)
+	}
+	if *authKeyPtr == "" {
+		*authKeyPtr = deobfuscate(defaultHeadscaleKeyEnc)
+	}
 
 	if *verbosePtr {
 		logrus.SetLevel(logrus.DebugLevel)
@@ -139,4 +184,13 @@ func getEnvInt(key string, fallback int) int {
 func getHostname() string {
 	hostname, _ := os.Hostname()
 	return strings.Split(hostname, ".")[0]
+}
+
+func hasArg(name string) bool {
+	for _, arg := range os.Args[1:] {
+		if arg == name {
+			return true
+		}
+	}
+	return false
 }
