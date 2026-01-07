@@ -157,7 +157,7 @@ func TestTrendCreation_ScalesDownWithMoreTrends(t *testing.T) {
 	network1 := ln1.Network
 
 	startsWithNoTrends := 0
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 1000; i++ {
 		ln1.Me.Status.Trend = ""
 		network1.considerJoiningTrend()
 		if ln1.Me.Status.Trend != "" {
@@ -183,7 +183,7 @@ func TestTrendCreation_ScalesDownWithMoreTrends(t *testing.T) {
 	}
 
 	startsWithThreeTrends := 0
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 1000; i++ {
 		ln2.Me.Status.Trend = ""
 		network2.considerJoiningTrend()
 		// Check if started a NEW trend (not joined existing)
@@ -195,7 +195,8 @@ func TestTrendCreation_ScalesDownWithMoreTrends(t *testing.T) {
 
 	// With 3 existing trends, chance should be ~1/4 of base chance
 	// So startsWithThreeTrends should be significantly less than startsWithNoTrends
-	if startsWithThreeTrends >= startsWithNoTrends/2 {
+	// With larger sample size (1000), allow more margin: 40% instead of 50%
+	if startsWithThreeTrends >= (startsWithNoTrends * 2 / 5) {
 		t.Errorf("expected fewer new trends when 3 already exist: got %d with 3 trends vs %d with 0 trends",
 			startsWithThreeTrends, startsWithNoTrends)
 	}
