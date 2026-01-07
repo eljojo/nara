@@ -2,6 +2,7 @@ package nara
 
 import (
 	"encoding/json"
+	"math/rand"
 	"net/http"
 	"sort"
 	"time"
@@ -454,20 +455,10 @@ func (network *Network) observationMaintenance() {
 				logrus.Printf("observation: %s has disappeared", name)
 				network.Buzz.increase(10)
 
-				// Record offline observation event (MISSING counts as offline)
-				// Don't emit events about ourselves
+				// Use delayed reporting to avoid redundant MISSING events from multiple observers
+				// "If no one says anything, I guess I'll say something about it"
 				if name != network.meName() && network.local.SyncLedger != nil {
-					if useObservationEvents() {
-						// Emit status-change observation event in event-primary mode
-						event := NewStatusChangeObservationEvent(network.meName(), name, "MISSING")
-						network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality)
-						logrus.Debugf("📊 Status-change observation event: %s → MISSING", name)
-					} else {
-						// Legacy mode
-						event := NewObservationEvent(network.meName(), name, ReasonOffline)
-						network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
-						logrus.Printf("observation: %s went offline (disappeared)", name)
-					}
+					go network.reportMissingWithDelay(name)
 				}
 			}
 		}
@@ -494,4 +485,49 @@ func (network *Network) observationMaintenance() {
 
 func (obs NaraObservation) isOnline() bool {
 	return obs.Online == "ONLINE"
+}
+
+// reportMissingWithDelay implements "if no one says anything, I guess I'll say something"
+// Waits a random delay, then checks if another observer already reported the subject as missing.
+// If yes, stays silent. If no, emits the MISSING event.
+// To read more, see: https://meshtastic.org/docs/overview/mesh-algo/#broadcasts-using-managed-flooding
+func (network *Network) reportMissingWithDelay(subject string) {
+	// Random delay 0-10 seconds to stagger reports
+	delay := time.Duration(rand.Intn(10)) * time.Second
+
+	select {
+	case <-time.After(delay):
+		// Continue to check and potentially report
+	case <-network.ctx.Done():
+		// Shutdown initiated, don't report
+		return
+	}
+
+	// Check if another observer already reported this subject as MISSING/offline
+	// Look for recent events (within last 15 seconds)
+	recentCutoff := time.Now().Add(-15 * time.Second).UnixNano()
+
+	events := network.local.SyncLedger.GetObservationEventsAbout(subject)
+	for _, e := range events {
+		// Check if this is a recent MISSING event from another observer
+		if e.Timestamp > recentCutoff &&
+			e.Observation != nil &&
+			e.Observation.Observer != network.meName() &&
+			(e.Observation.Type == "status-change" && e.Observation.OnlineState == "MISSING") {
+			logrus.Debugf("🤐 Not reporting %s MISSING - %s already reported it", subject, e.Observation.Observer)
+			return
+		}
+	}
+
+	// No one else reported it, so we'll report it
+	if useObservationEvents() {
+		event := NewStatusChangeObservationEvent(network.meName(), subject, "MISSING")
+		network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality)
+		logrus.Debugf("📊 Status-change observation event: %s → MISSING (after %v delay)", subject, delay)
+	} else {
+		// Legacy mode
+		event := NewObservationEvent(network.meName(), subject, ReasonOffline)
+		network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
+		logrus.Printf("observation: %s went offline (disappeared) after %v delay", subject, delay)
+	}
 }
