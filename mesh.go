@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -225,48 +224,10 @@ func cloneWorldMessage(msg *WorldMessage) *WorldMessage {
 	return &copy
 }
 
-// MeshConnection wraps a net.Conn for mesh protocol communication
-type MeshConnection struct {
-	conn    net.Conn
-	encoder *json.Encoder
-	decoder *json.Decoder
-}
-
-// NewMeshConnection wraps a connection for mesh communication
-func NewMeshConnection(conn net.Conn) *MeshConnection {
-	return &MeshConnection{
-		conn:    conn,
-		encoder: json.NewEncoder(conn),
-		decoder: json.NewDecoder(conn),
-	}
-}
-
-// SendWorldMessage sends a world message over the connection
-func (mc *MeshConnection) SendWorldMessage(msg *WorldMessage) error {
-	return mc.encoder.Encode(msg)
-}
-
-// ReceiveWorldMessage receives a world message from the connection
-func (mc *MeshConnection) ReceiveWorldMessage() (*WorldMessage, error) {
-	var msg WorldMessage
-	if err := mc.decoder.Decode(&msg); err != nil {
-		if err == io.EOF {
-			return nil, err
-		}
-		return nil, err
-	}
-	return &msg, nil
-}
-
-// Close closes the underlying connection
-func (mc *MeshConnection) Close() error {
-	return mc.conn.Close()
-}
-
-// TsnetMesh implements MeshTransport using Tailscale's tsnet for real peer-to-peer communication
+// TsnetMesh implements peer-to-peer communication using Tailscale's tsnet
+// World messages are sent via HTTP (using HTTPMeshTransport), not raw TCP
 type TsnetMesh struct {
 	server     *tsnet.Server // Exported via Server() method for HTTP client access
-	listener   net.Listener
 	inbox      chan *WorldMessage
 	closed     bool
 	mu         sync.Mutex
@@ -355,17 +316,8 @@ func (t *TsnetMesh) Start(ctx context.Context) error {
 	}
 	logrus.Infof("Tsnet connected! IP: %s", t.myIP)
 
-	// Start listening for incoming connections
-	listener, err := t.server.Listen("tcp", fmt.Sprintf(":%d", t.port))
-	if err != nil {
-		return fmt.Errorf("failed to listen: %w", err)
-	}
-	t.listener = listener
-
-	logrus.Infof("Listening for world messages on port %d", t.port)
-
-	// Accept connections in background
-	go t.acceptConnections()
+	// Note: HTTP server will be started separately via startMeshHttpServer()
+	// No need to listen for raw TCP connections - world messages use HTTP now
 
 	return nil
 }
@@ -375,81 +327,10 @@ func (t *TsnetMesh) IP() string {
 	return t.myIP
 }
 
-// acceptConnections handles incoming connections
-func (t *TsnetMesh) acceptConnections() {
-	for {
-		conn, err := t.listener.Accept()
-		if err != nil {
-			t.mu.Lock()
-			closed := t.closed
-			t.mu.Unlock()
-			if closed {
-				return
-			}
-			logrus.Warnf("Accept error: %v", err)
-			continue
-		}
-
-		go t.handleConnection(conn)
-	}
-}
-
-// handleConnection processes an incoming connection
-func (t *TsnetMesh) handleConnection(conn net.Conn) {
-	defer conn.Close()
-
-	mc := NewMeshConnection(conn)
-	msg, err := mc.ReceiveWorldMessage()
-	if err != nil {
-		if err != io.EOF {
-			logrus.Warnf("Failed to receive world message: %v", err)
-		}
-		return
-	}
-
-	t.mu.Lock()
-	closed := t.closed
-	t.mu.Unlock()
-
-	if closed {
-		return
-	}
-
-	select {
-	case t.inbox <- msg:
-	default:
-		logrus.Warn("World message inbox full, dropping message")
-	}
-}
-
-// Send sends a world message to another nara via tsnet
+// Send is deprecated - world messages now use HTTP via HTTPMeshTransport
+// This method returns an error as it's no longer supported
 func (t *TsnetMesh) Send(target string, msg *WorldMessage) error {
-	t.mu.Lock()
-	if t.closed {
-		t.mu.Unlock()
-		return errors.New("transport closed")
-	}
-	t.mu.Unlock()
-
-	// Dial the target nara
-	// tsnet hostnames are just the hostname part, tsnet handles the domain
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	logrus.Debugf("🕸️  Dialing %s:%d via tsnet mesh...", target, t.port)
-	conn, err := t.server.Dial(ctx, "tcp", fmt.Sprintf("%s:%d", target, t.port))
-	if err != nil {
-		return fmt.Errorf("failed to dial %s: %w", target, err)
-	}
-	defer conn.Close()
-
-	mc := NewMeshConnection(conn)
-	if err := mc.SendWorldMessage(msg); err != nil {
-		return fmt.Errorf("failed to send message: %w", err)
-	}
-
-	logrus.Debugf("🕸️  World message sent to %s", target)
-	return nil
+	return errors.New("deprecated: TsnetMesh.Send() no longer supported - use HTTPMeshTransport instead")
 }
 
 // Receive returns the channel for incoming world messages
@@ -466,10 +347,6 @@ func (t *TsnetMesh) Close() error {
 		return nil
 	}
 	t.closed = true
-
-	if t.listener != nil {
-		t.listener.Close()
-	}
 
 	close(t.inbox)
 
