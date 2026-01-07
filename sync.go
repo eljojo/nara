@@ -493,9 +493,9 @@ func NewSyncLedger(maxEvents int) *SyncLedger {
 
 // AddEvent adds an event if it's valid and not a duplicate
 func (l *SyncLedger) AddEvent(e SyncEvent) bool {
-	// Observation events get special compaction handling
+	// Observation events get special compaction handling (without deduplication)
 	if e.Service == ServiceObservation && e.Observation != nil {
-		return l.addObservationWithCompaction(e)
+		return l.addObservationWithCompaction(e, false)
 	}
 
 	l.mu.Lock()
@@ -779,35 +779,32 @@ func (l *SyncLedger) AddEventWithRateLimit(e SyncEvent) bool {
 // AddEventWithDedup adds an event after checking for content-based deduplication
 // For restart events, deduplicates by (subject, restart_num, start_time)
 func (l *SyncLedger) AddEventWithDedup(e SyncEvent) bool {
-	if e.Service == ServiceObservation && e.Observation != nil && e.Observation.Type == "restart" {
-		l.mu.RLock()
-		// Check if we already have this exact restart
+	// Deduplication is handled atomically inside addObservationWithCompaction
+	return l.addObservationWithCompaction(e, true)
+}
+
+// addObservationWithCompaction adds an observation event with per-pair compaction
+// Enforces max MaxObservationsPerPair per observer→subject pair
+// withDedup controls whether content-based deduplication should be applied
+// Caller must ensure e.Service == ServiceObservation && e.Observation != nil
+func (l *SyncLedger) addObservationWithCompaction(e SyncEvent, withDedup bool) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	// Content-based deduplication for restart events (only if requested)
+	// Check if we already have this exact restart (by subject, restart_num, start_time)
+	// This is checked FIRST to avoid even counting duplicates in per-pair limits
+	if withDedup && e.Observation != nil && e.Observation.Type == "restart" {
 		for _, existing := range l.Events {
 			if existing.Service == ServiceObservation && existing.Observation != nil &&
 				existing.Observation.Type == "restart" &&
 				existing.Observation.Subject == e.Observation.Subject &&
 				existing.Observation.RestartNum == e.Observation.RestartNum &&
 				existing.Observation.StartTime == e.Observation.StartTime {
-				l.mu.RUnlock()
 				return false // Duplicate restart event
 			}
 		}
-		l.mu.RUnlock()
 	}
-
-	// Not a duplicate, add with compaction
-	return l.addObservationWithCompaction(e)
-}
-
-// addObservationWithCompaction adds an observation event with per-pair compaction
-// Enforces max MaxObservationsPerPair per observer→subject pair
-func (l *SyncLedger) addObservationWithCompaction(e SyncEvent) bool {
-	if e.Service != ServiceObservation || e.Observation == nil {
-		return l.AddEvent(e)
-	}
-
-	l.mu.Lock()
-	defer l.mu.Unlock()
 
 	// Count existing observations for this observer→subject pair
 	var existingObs []struct {
@@ -956,7 +953,9 @@ func (l *SyncLedger) deriveStartTimeConsensus(observations []consensusObservatio
 		return wobs[i].value < wobs[j].value
 	})
 
-	// Build clusters (reusing observationCluster type from observations.go)
+	// Build clusters: group values within tolerance of cluster's first value
+	// This prevents "chaining" where [100, 159, 218] would incorrectly cluster
+	// (159-100<=60, 218-159<=60, but 218-100>60)
 	type cluster struct {
 		values      []int64
 		totalUptime uint64
@@ -971,9 +970,11 @@ func (l *SyncLedger) deriveStartTimeConsensus(observations []consensusObservatio
 
 	for i := 1; i < len(wobs); i++ {
 		if wobs[i].value-clusterStart <= tolerance {
+			// Within tolerance of cluster start - add to current cluster
 			currentCluster.values = append(currentCluster.values, wobs[i].value)
 			currentCluster.totalUptime += wobs[i].uptime
 		} else {
+			// Gap too large - start new cluster
 			clusters = append(clusters, currentCluster)
 			currentCluster = cluster{
 				values:      []int64{wobs[i].value},

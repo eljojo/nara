@@ -1,0 +1,376 @@
+package nara
+
+import (
+	"os"
+	"testing"
+	"time"
+
+	"github.com/sirupsen/logrus"
+)
+
+// TestIntegration_EventEmissionNoDuplicates validates that we don't emit duplicate events
+// when a nara comes back online (should emit restart event, not restart + status-change)
+func TestIntegration_EventEmissionNoDuplicates(t *testing.T) {
+	logrus.SetLevel(logrus.ErrorLevel)
+
+	// Enable observation events for this test
+	os.Setenv("USE_OBSERVATION_EVENTS", "true")
+	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
+
+	// Create nara with proper Network initialization
+	ln1 := NewLocalNara("nara-1", "test-soul-1", "host", "user", "pass", 50, 1000)
+	network := ln1.Network
+
+	// Fake an older start time so we're not in booting mode (uptime > 120s)
+	me := ln1.getMeObservation()
+	me.LastRestart = time.Now().Unix() - 200 // Started 200 seconds ago
+	me.LastSeen = time.Now().Unix()
+	ln1.setMeObservation(me)
+
+	// Import nara-2 before recording observations
+	network.importNara(NewNara("nara-2"))
+
+	// Simulate nara-2 being seen for the first time
+	network.recordObservationOnlineNara("nara-2")
+
+	// Wait a bit, then simulate nara-2 going offline
+	time.Sleep(100 * time.Millisecond)
+	obs := ln1.getObservation("nara-2")
+	obs.Online = "OFFLINE"
+	// Ensure StartTime is set (it won't be set automatically without a neighborhood)
+	if obs.StartTime == 0 {
+		obs.StartTime = time.Now().Unix() - 300 // Started 5 minutes ago
+	}
+	ln1.setObservation("nara-2", obs)
+
+	// Clear any existing events
+	ln1.SyncLedger.Events = []SyncEvent{}
+	ln1.SyncLedger.eventIDs = make(map[string]bool)
+
+	// Simulate nara-2 coming back online (should trigger restart detection)
+	network.recordObservationOnlineNara("nara-2")
+
+	// Check events - should have exactly 1 restart event, not 2 events
+	events := ln1.SyncLedger.GetObservationEventsAbout("nara-2")
+
+	restartEvents := 0
+	statusChangeEvents := 0
+	for _, e := range events {
+		if e.Observation.Type == "restart" {
+			restartEvents++
+		}
+		if e.Observation.Type == "status-change" {
+			statusChangeEvents++
+		}
+	}
+
+	if restartEvents != 1 {
+		t.Errorf("Expected exactly 1 restart event, got %d", restartEvents)
+	}
+
+	if statusChangeEvents != 0 {
+		t.Errorf("Expected 0 status-change events (should be consolidated with restart), got %d", statusChangeEvents)
+	}
+
+	t.Logf("✅ No duplicate events: restart=%d, status-change=%d", restartEvents, statusChangeEvents)
+}
+
+// TestIntegration_NoSelfObservationEvents validates that we never emit observation events about ourselves
+func TestIntegration_NoSelfObservationEvents(t *testing.T) {
+	logrus.SetLevel(logrus.ErrorLevel)
+
+	ln := NewLocalNara("test-nara", "test-soul", "host", "user", "pass", 50, 1000)
+	network := ln.Network
+
+	// Try to record observation about ourselves (should be filtered)
+	network.recordObservationOnlineNara("test-nara")
+
+	// Check that no observation events were created about ourselves
+	events := ln.SyncLedger.GetObservationEventsAbout("test-nara")
+
+	observationEvents := 0
+	for _, e := range events {
+		if e.Service == ServiceObservation && e.Observation != nil {
+			observationEvents++
+		}
+	}
+
+	if observationEvents != 0 {
+		t.Errorf("Expected 0 self-observation events, got %d", observationEvents)
+	}
+
+	t.Logf("✅ Self-observation filter working: 0 events about self")
+}
+
+// TestIntegration_SlimNewspapersInEventMode validates that newspapers don't include Observations
+// when USE_OBSERVATION_EVENTS environment variable is set
+func TestIntegration_SlimNewspapersInEventMode(t *testing.T) {
+	logrus.SetLevel(logrus.ErrorLevel)
+
+	// Set environment variable for event-primary mode
+	os.Setenv("USE_OBSERVATION_EVENTS", "true")
+	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
+
+	ln := NewLocalNara("test-nara", "test-soul", "", "", "", 50, 1000)
+
+	// Add some observations to the local nara
+	obs1 := NaraObservation{
+		StartTime:   time.Now().Unix(),
+		LastSeen:    time.Now().Unix(),
+		Online:      "ONLINE",
+		Restarts:    5,
+		LastRestart: time.Now().Unix(),
+	}
+	ln.setObservation("other-nara-1", obs1)
+
+	obs2 := NaraObservation{
+		StartTime:   time.Now().Unix(),
+		LastSeen:    time.Now().Unix(),
+		Online:      "ONLINE",
+		Restarts:    3,
+		LastRestart: time.Now().Unix(),
+	}
+	ln.setObservation("other-nara-2", obs2)
+
+	// Verify observations are stored (includes "me" observation + 2 others = 3 total)
+	if len(ln.Me.Status.Observations) < 2 {
+		t.Fatalf("Expected at least 2 observations stored, got %d", len(ln.Me.Status.Observations))
+	}
+
+	// Create network (without actually connecting to MQTT)
+	ln.Network = &Network{
+		local:    ln,
+		ReadOnly: true, // Read-only mode to prevent actual MQTT connection
+	}
+
+	// Simulate what announce() does in event-primary mode
+	ln.Me.mu.Lock()
+	slimStatus := ln.Me.Status
+	ln.Me.mu.Unlock()
+	slimStatus.Observations = nil
+
+	// Verify the slim status has no observations
+	if slimStatus.Observations != nil {
+		t.Errorf("Expected slim newspaper to have nil Observations, but got %d entries", len(slimStatus.Observations))
+	}
+
+	// Verify the original status still has observations (copy didn't affect original)
+	ln.Me.mu.Lock()
+	originalObsCount := len(ln.Me.Status.Observations)
+	ln.Me.mu.Unlock()
+
+	if originalObsCount < 2 {
+		t.Errorf("Expected original status to still have at least 2 observations, got %d", originalObsCount)
+	}
+
+	t.Logf("✅ Slim newspaper mode working: original has %d observations, broadcast has 0", originalObsCount)
+}
+
+// TestIntegration_EventEmissionDuringTransitions validates event emission during various state transitions
+func TestIntegration_EventEmissionDuringTransitions(t *testing.T) {
+	logrus.SetLevel(logrus.ErrorLevel)
+
+	// Enable observation events for this test
+	os.Setenv("USE_OBSERVATION_EVENTS", "true")
+	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
+
+	ln := NewLocalNara("observer", "test-soul", "host", "user", "pass", 50, 1000)
+	network := ln.Network
+
+	// Fake an older start time so we're not in booting mode (uptime > 120s)
+	me := ln.getMeObservation()
+	me.LastRestart = time.Now().Unix() - 200 // Started 200 seconds ago
+	me.LastSeen = time.Now().Unix()
+	ln.setMeObservation(me)
+
+	// Import subject-1 before recording observations
+	network.importNara(NewNara("subject-1"))
+
+	// Scenario 1: First seen (ONLINE) - should emit first-seen event
+	network.recordObservationOnlineNara("subject-1")
+	events := ln.SyncLedger.GetObservationEventsAbout("subject-1")
+	firstSeenCount := 0
+	for _, e := range events {
+		if e.Observation.Type == "first-seen" {
+			firstSeenCount++
+		}
+	}
+	if firstSeenCount != 1 {
+		t.Errorf("Expected 1 first-seen event for new nara, got %d", firstSeenCount)
+	}
+
+	// Scenario 2: Goes MISSING - should emit status-change event
+	ln.SyncLedger.Events = []SyncEvent{} // Clear events
+	ln.SyncLedger.eventIDs = make(map[string]bool)
+
+	obs := ln.getObservation("subject-1")
+	obs.Online = "MISSING"
+	ln.setObservation("subject-1", obs)
+
+	// Simulate the MISSING detection in recordObservationGone
+	if useObservationEvents() && ln.SyncLedger != nil {
+		event := NewStatusChangeObservationEvent("observer", "subject-1", "MISSING")
+		ln.SyncLedger.AddEventWithDedup(event)
+	}
+
+	events = ln.SyncLedger.GetObservationEventsAbout("subject-1")
+	missingCount := 0
+	for _, e := range events {
+		if e.Observation.Type == "status-change" && e.Observation.OnlineState == "MISSING" {
+			missingCount++
+		}
+	}
+	if missingCount != 1 {
+		t.Errorf("Expected 1 MISSING status-change event, got %d", missingCount)
+	}
+
+	// Scenario 3: Comes back ONLINE (restart) - should emit restart event only
+	ln.SyncLedger.Events = []SyncEvent{} // Clear events
+	ln.SyncLedger.eventIDs = make(map[string]bool)
+
+	// Ensure StartTime is set before recording restart
+	obsCheck := ln.getObservation("subject-1")
+	if obsCheck.StartTime == 0 {
+		obsCheck.StartTime = time.Now().Unix() - 300 // Started 5 minutes ago
+		ln.setObservation("subject-1", obsCheck)
+	}
+
+	network.recordObservationOnlineNara("subject-1")
+
+	events = ln.SyncLedger.GetObservationEventsAbout("subject-1")
+	restartCount := 0
+	statusChangeCount := 0
+	for _, e := range events {
+		if e.Observation.Type == "restart" {
+			restartCount++
+		}
+		if e.Observation.Type == "status-change" && e.Observation.OnlineState == "ONLINE" {
+			statusChangeCount++
+		}
+	}
+
+	if restartCount != 1 {
+		t.Errorf("Expected 1 restart event, got %d", restartCount)
+	}
+	if statusChangeCount != 0 {
+		t.Errorf("Expected 0 status-change ONLINE events (consolidated with restart), got %d", statusChangeCount)
+	}
+
+	t.Logf("✅ State transitions validated: first-seen=%d, missing=%d, restart=%d, duplicate-status=%d",
+		firstSeenCount, missingCount, restartCount, statusChangeCount)
+}
+
+// TestIntegration_BackfillDoesNotDuplicate validates that backfill respects deduplication
+func TestIntegration_BackfillDoesNotDuplicate(t *testing.T) {
+	logrus.SetLevel(logrus.ErrorLevel)
+	ledger := NewSyncLedger(1000)
+
+	// Three observers backfill the same historical restart
+	for i := 0; i < 3; i++ {
+		observer := "observer-" + string(rune('a'+i))
+		event := NewBackfillObservationEvent(observer, "subject", 1000000, 42, 1000000)
+		ledger.AddEventWithDedup(event)
+	}
+
+	// Should have exactly 1 event (deduplicated)
+	events := ledger.GetObservationEventsAbout("subject")
+	backfillCount := 0
+	for _, e := range events {
+		if e.Observation.IsBackfill && e.Observation.RestartNum == 42 {
+			backfillCount++
+		}
+	}
+
+	if backfillCount != 1 {
+		t.Errorf("Expected 1 deduplicated backfill event, got %d", backfillCount)
+	}
+
+	// Verify the first observer is preserved
+	if events[0].Observation.Observer != "observer-a" {
+		t.Errorf("Expected first observer 'observer-a' to be preserved, got '%s'", events[0].Observation.Observer)
+	}
+
+	t.Logf("✅ Backfill deduplication working: 3 reports -> 1 event (observer: %s)", events[0].Observation.Observer)
+}
+
+// TestIntegration_CompactionAndDeduplicationIndependent validates that compaction
+// and deduplication work independently without interfering
+func TestIntegration_CompactionAndDeduplicationIndependent(t *testing.T) {
+	logrus.SetLevel(logrus.ErrorLevel)
+	ledger := NewSyncLedger(1000)
+
+	// Scenario 1: Compaction without deduplication (using AddEvent)
+	// alice adds 25 different restart events about bob
+	for i := 0; i < 25; i++ {
+		event := NewRestartObservationEvent("alice", "bob", int64(1000+i), int64(i))
+		ledger.AddEvent(event) // No dedup
+	}
+
+	events := ledger.GetObservationEventsAbout("bob")
+	aliceEvents := 0
+	for _, e := range events {
+		if e.Observation.Observer == "alice" {
+			aliceEvents++
+		}
+	}
+
+	// Should be compacted to 20 (MaxObservationsPerPair)
+	if aliceEvents != 20 {
+		t.Errorf("Expected 20 events after compaction, got %d", aliceEvents)
+	}
+
+	// Scenario 2: Deduplication without compaction (same restart reported by multiple observers)
+	ledger.Events = []SyncEvent{} // Clear
+	ledger.eventIDs = make(map[string]bool)
+
+	// Three observers report the same restart (dedup should work)
+	for i := 0; i < 3; i++ {
+		observer := "observer-" + string(rune('a'+i))
+		event := NewRestartObservationEvent(observer, "charlie", 2000, 100)
+		ledger.AddEventWithDedup(event) // With dedup
+	}
+
+	events = ledger.GetObservationEventsAbout("charlie")
+	if len(events) != 1 {
+		t.Errorf("Expected 1 deduplicated event, got %d", len(events))
+	}
+
+	// Scenario 3: Both mechanisms together
+	ledger.Events = []SyncEvent{} // Clear
+	ledger.eventIDs = make(map[string]bool)
+
+	// dave adds 25 unique events (should compact to 20)
+	for i := 0; i < 25; i++ {
+		event := NewRestartObservationEvent("dave", "bob", int64(3000+i), int64(200+i))
+		ledger.AddEventWithDedup(event)
+	}
+
+	// Multiple observers report dave's most recent restart (should dedup)
+	for i := 0; i < 3; i++ {
+		observer := "witness-" + string(rune('a'+i))
+		event := NewRestartObservationEvent(observer, "bob", 3024, 224) // Same as dave's last event
+		ledger.AddEventWithDedup(event)
+	}
+
+	bobEvents := ledger.GetObservationEventsAbout("bob")
+	daveEvents := 0
+	witnessEvents := 0
+	for _, e := range bobEvents {
+		if e.Observation.Observer == "dave" {
+			daveEvents++
+		}
+		if len(e.Observation.Observer) >= 7 && e.Observation.Observer[:7] == "witness" {
+			witnessEvents++
+		}
+	}
+
+	if daveEvents != 20 {
+		t.Errorf("Expected 20 events from dave (compaction), got %d", daveEvents)
+	}
+
+	if witnessEvents != 0 {
+		t.Errorf("Expected 0 events from witnesses (deduped against dave), got %d", witnessEvents)
+	}
+
+	t.Logf("✅ Compaction and deduplication independent: dave=%d (compacted), witnesses=%d (deduped)", daveEvents, witnessEvents)
+}

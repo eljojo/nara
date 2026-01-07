@@ -331,11 +331,14 @@ func (network *Network) recordObservationOnlineNara(name string) {
 		}
 	}
 
+	// Track if we detected a restart (to avoid duplicate event emissions)
+	wasRestart := false
 	if !observation.isOnline() && observation.Online != "" {
 		observation.LastRestart = time.Now().Unix()
 		observation.Restarts = observation.Restarts + 1
 		logrus.Printf("observation: %s came back online", name)
 		network.Buzz.increase(3)
+		wasRestart = true
 
 		// Emit restart observation event in event-primary mode
 		if useObservationEvents() && !network.local.isBooting() && network.local.SyncLedger != nil && name != network.meName() {
@@ -350,9 +353,10 @@ func (network *Network) recordObservationOnlineNara(name string) {
 	network.local.setObservation(name, observation)
 
 	// Record observation event when state changes to ONLINE
-	// Only record if this is a state change (not first time seen or already online)
+	// Only emit status-change if this wasn't already handled by restart event
+	// This avoids duplicate events for the same transition
 	if name != network.meName() && !network.local.isBooting() && network.local.SyncLedger != nil {
-		if previousState != "" && previousState != "ONLINE" {
+		if previousState != "" && previousState != "ONLINE" && !wasRestart {
 			// Emit status-change observation event in event-primary mode
 			if useObservationEvents() {
 				event := NewStatusChangeObservationEvent(network.meName(), name, "ONLINE")
@@ -451,7 +455,8 @@ func (network *Network) observationMaintenance() {
 				network.Buzz.increase(10)
 
 				// Record offline observation event (MISSING counts as offline)
-				if network.local.SyncLedger != nil {
+				// Don't emit events about ourselves
+				if name != network.meName() && network.local.SyncLedger != nil {
 					if useObservationEvents() {
 						// Emit status-change observation event in event-primary mode
 						event := NewStatusChangeObservationEvent(network.meName(), name, "MISSING")

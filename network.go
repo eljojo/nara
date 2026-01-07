@@ -424,14 +424,19 @@ func (network *Network) announce() {
 
 	// In event-primary mode, broadcast slim newspapers without Observations
 	if useObservationEvents() {
-		// Create a copy of status without the Observations map
+		// Create a safe copy of status without the Observations map
+		network.local.Me.mu.Lock()
 		slimStatus := network.local.Me.Status
+		network.local.Me.mu.Unlock()
 		slimStatus.Observations = nil
 		network.postEvent(topic, slimStatus)
 		logrus.Debugf("📰 Slim newspaper broadcast (event-primary mode)")
 	} else {
 		// Traditional mode: include full observations
-		network.postEvent(topic, network.local.Me.Status)
+		network.local.Me.mu.Lock()
+		statusCopy := network.local.Me.Status
+		network.local.Me.mu.Unlock()
+		network.postEvent(topic, statusCopy)
 	}
 }
 
@@ -1221,12 +1226,13 @@ func (network *Network) backfillObservations() {
 	myName := network.meName()
 	backfillCount := 0
 
-	network.local.mu.Lock()
+	// Lock Me.mu to safely read Me.Status.Observations
+	network.local.Me.mu.Lock()
 	observations := make(map[string]NaraObservation)
 	for name, obs := range network.local.Me.Status.Observations {
 		observations[name] = obs
 	}
-	network.local.mu.Unlock()
+	network.local.Me.mu.Unlock()
 
 	logrus.Printf("📦 Checking if backfill needed for %d observations...", len(observations))
 
