@@ -1166,13 +1166,22 @@ func (network *Network) fetchSyncEventsFromMesh(client *http.Client, meshIP, nam
 	// Also verify the inner signature for extra assurance
 	if response.Signature != "" && !verified {
 		// Look up sender's public key from our neighborhood
-		if nara := network.Neighbourhood[name]; nara != nil && nara.Status.PublicKey != "" {
-			pubKey, err := ParsePublicKey(nara.Status.PublicKey)
-			if err == nil {
-				if response.VerifySignature(pubKey) {
-					verified = true
-				} else {
-					logrus.Warnf("📦 inner signature verification failed for %s", name)
+		// Note: Short-circuit evaluation ensures nara.Status is only accessed if nara != nil
+		network.local.mu.Lock()
+		nara := network.Neighbourhood[name]
+		network.local.mu.Unlock()
+		if nara != nil {
+			nara.mu.Lock()
+			publicKey := nara.Status.PublicKey
+			nara.mu.Unlock()
+			if publicKey != "" {
+				pubKey, err := ParsePublicKey(publicKey)
+				if err == nil {
+					if response.VerifySignature(pubKey) {
+						verified = true
+					} else {
+						logrus.Warnf("📦 inner signature verification failed for %s", name)
+					}
 				}
 			}
 		}
@@ -1476,6 +1485,9 @@ func (network *Network) socialMaintenance() {
 			if beforeCount != afterCount {
 				logrus.Printf("🗑️  pruned %d old events (now: %d)", beforeCount-afterCount, afterCount)
 			}
+
+			// Cleanup rate limiter to prevent unbounded map growth
+			network.local.SyncLedger.observationRL.Cleanup()
 		}
 
 		// Cleanup tease cooldowns

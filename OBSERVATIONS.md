@@ -199,13 +199,7 @@ Four layers protect against malicious or misconfigured naras:
 
 ## Migration Path
 
-### v0.3.0 - Dual Mode
-- Newspapers WITH observations + observation events coexist
-- Backfill mechanism available but optional
-- Consensus uses newspapers as primary, events as fallback
-- Zero breaking changes
-
-### v0.4.0 - Event Primary (CURRENT TARGET)
+### Current Mode
 - Feature flag: `USE_OBSERVATION_EVENTS=true`
 - On startup: backfill existing observations into events
 - Consensus switches to events-primary, newspapers-fallback
@@ -213,7 +207,7 @@ Four layers protect against malicious or misconfigured naras:
 - Newspaper frequency reduced (30-300s)
 - Network supports both old (newspaper) and new (event) modes simultaneously
 
-### Future v1.0.0 - Events Only
+### Future
 - Remove Observations map from NaraStatus struct entirely
 - Remove newspaper fallback from consensus
 - Events are sole source of truth
@@ -291,18 +285,3 @@ T=3h: Consensus runs on all nodes
   - Weighted clustering: most agree on 1137 restarts
   - Consensus: lisa.Restarts = 1137
 ```
-
-## Success Metrics
-
-**v0.4.0 (Event-Primary):**
-- Network traffic reduced by >90% vs v0.2.x ✓
-- Consensus accuracy maintained (>99% match with newspaper mode) ✓
-- Mixed version networks stable (v0.2.0 + v0.3.0 + v0.4.0 coexist) ✓
-- Background sync working (logs show periodic syncs) ✓
-- Newspapers slim (no Observations map, ~500 bytes) ✓
-- Can roll back by setting USE_OBSERVATION_EVENTS=false ✓
-
-**Future v1.0.0 (Events-Only):**
-- Network traffic: <100 KB/s at 5000 nodes
-- Zero Observations in newspapers (struct removed)
-- 5000 nodes + 50 abusers stable for 24h

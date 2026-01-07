@@ -26,9 +26,13 @@ const (
 
 // SyncEvent is the unified container for all syncable data across services
 // This is the fundamental unit of gossip in the nara network
+//
+// IMPORTANT: Timestamp is in NANOSECONDS (time.Now().UnixNano())
+// This provides high precision for event ordering and ID computation.
+// Contrast with ObservationEventPayload fields which use seconds.
 type SyncEvent struct {
 	ID        string `json:"id"`
-	Timestamp int64  `json:"ts"`
+	Timestamp int64  `json:"ts"`  // Unix timestamp in NANOSECONDS
 	Service   string `json:"svc"` // "social", "ping", "observation"
 
 	// Provenance - who created this event (optional but recommended)
@@ -104,6 +108,11 @@ func (p *PingObservation) GetTarget() string { return p.Target }
 
 // ObservationEventPayload records network state observations (restarts, status changes)
 // Used for distributed consensus on network state without O(N²) newspaper broadcasts
+//
+// NOTE: Time fields in this payload use SECONDS (Unix epoch), not nanoseconds.
+// This differs from SyncEvent.Timestamp which uses nanoseconds.
+// The reason is that observation data represents coarse-grained state changes
+// where second precision is sufficient.
 type ObservationEventPayload struct {
 	Observer   string `json:"observer"`              // who made the observation
 	Subject    string `json:"subject"`               // who is being observed
@@ -111,10 +120,10 @@ type ObservationEventPayload struct {
 	Importance int    `json:"importance"`            // 1=casual, 2=normal, 3=critical
 	IsBackfill bool   `json:"is_backfill,omitempty"` // true if grandfathering existing data
 
-	// Data specific to observation type
-	StartTime   int64  `json:"start_time,omitempty"`   // Unix timestamp when nara started (for restart/first-seen)
+	// Data specific to observation type (all timestamps in SECONDS)
+	StartTime   int64  `json:"start_time,omitempty"`   // Unix timestamp in SECONDS when nara started
 	RestartNum  int64  `json:"restart_num,omitempty"`  // Total restart count
-	LastRestart int64  `json:"last_restart,omitempty"` // Timestamp of most recent restart
+	LastRestart int64  `json:"last_restart,omitempty"` // Unix timestamp in SECONDS of most recent restart
 	OnlineState string `json:"online_state,omitempty"` // "ONLINE", "OFFLINE", "MISSING" (for status-change)
 	ClusterName string `json:"cluster_name,omitempty"` // Current cluster/barrio
 }
@@ -189,7 +198,14 @@ func (e *SyncEvent) Payload() Payload {
 	return nil
 }
 
-// ComputeID generates a deterministic ID from event content
+// ComputeID generates a deterministic ID from event content.
+//
+// IMPORTANT: Once ComputeID is called (typically in constructors), the event
+// should be treated as immutable. Modifying Timestamp, Service, or payload
+// fields after ID computation will cause the ID to become stale, leading to:
+// - Deduplication failures (same event may be stored multiple times)
+// - Signature verification failures
+// - Inconsistent event references across the network
 func (e *SyncEvent) ComputeID() {
 	hasher := sha256.New()
 	hasher.Write([]byte(fmt.Sprintf("%d:%s:", e.Timestamp, e.Service)))
@@ -469,6 +485,33 @@ func (r *ObservationRateLimit) CheckAndAdd(subject string, timestamp int64) bool
 	return true
 }
 
+// Cleanup removes stale entries from SubjectCounts to prevent unbounded growth.
+// Should be called periodically (e.g., every 5 minutes during maintenance).
+func (r *ObservationRateLimit) Cleanup() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	now := time.Now().Unix()
+	windowStart := now - r.WindowSec
+
+	for subject, timestamps := range r.SubjectCounts {
+		// Filter to only keep timestamps within the current window
+		var valid []int64
+		for _, ts := range timestamps {
+			if ts >= windowStart {
+				valid = append(valid, ts)
+			}
+		}
+
+		if len(valid) == 0 {
+			// No valid timestamps, remove the subject entirely
+			delete(r.SubjectCounts, subject)
+		} else {
+			r.SubjectCounts[subject] = valid
+		}
+	}
+}
+
 // MaxObservationsPerPair limits observation events per observer→subject pair
 const MaxObservationsPerPair = 20
 
@@ -491,7 +534,15 @@ func NewSyncLedger(maxEvents int) *SyncLedger {
 	}
 }
 
-// AddEvent adds an event if it's valid and not a duplicate
+// AddEvent adds an event if it's valid and not a duplicate (by ID).
+//
+// For observation events, use AddEventWithDedup() instead if you want
+// content-based deduplication (e.g., to prevent multiple observers from
+// creating duplicate restart events for the same restart occurrence).
+//
+// This method only deduplicates by event ID (hash of timestamp + content).
+// Two observers reporting the same restart will generate different IDs
+// (due to different timestamps) and both events will be stored.
 func (l *SyncLedger) AddEvent(e SyncEvent) bool {
 	// Observation events get special compaction handling (without deduplication)
 	if e.Service == ServiceObservation && e.Observation != nil {
@@ -776,8 +827,20 @@ func (l *SyncLedger) AddEventWithRateLimit(e SyncEvent) bool {
 	return l.AddEvent(e)
 }
 
-// AddEventWithDedup adds an event after checking for content-based deduplication
-// For restart events, deduplicates by (subject, restart_num, start_time)
+// AddEventWithDedup adds an event after checking for content-based deduplication.
+//
+// USE THIS METHOD when adding observation events where multiple observers might
+// report the same underlying occurrence (e.g., restarts). For restart events,
+// deduplicates by (subject, restart_num, start_time) - meaning if observer A
+// and observer B both report that nara X had restart #5 at time T, only one
+// event is stored.
+//
+// USE AddEvent() when:
+// - Adding non-observation events (social, ping)
+// - You intentionally want multiple reports of the same occurrence
+//
+// This distinction matters for consensus: we want diverse observations but
+// don't want to count the same restart twice when tallying.
 func (l *SyncLedger) AddEventWithDedup(e SyncEvent) bool {
 	// Deduplication is handled atomically inside addObservationWithCompaction
 	return l.addObservationWithCompaction(e, true)
@@ -1220,7 +1283,7 @@ type SyncRequest struct {
 type SyncResponse struct {
 	From      string      `json:"from"`
 	Events    []SyncEvent `json:"events"`
-	Timestamp int64       `json:"ts,omitempty"`  // When response was generated
+	Timestamp int64       `json:"ts,omitempty"`  // When response was generated (Unix SECONDS, not nanoseconds)
 	Signature string      `json:"sig,omitempty"` // Base64 Ed25519 signature
 }
 
