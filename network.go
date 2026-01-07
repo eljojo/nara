@@ -1516,6 +1516,7 @@ func (network *Network) socialMaintenance() {
 
 			// Log event store stats
 			serviceCounts := network.local.SyncLedger.GetEventCountsByService()
+			criticalCount := network.local.SyncLedger.GetCriticalEventCount()
 			var statsStr string
 			for service, count := range serviceCounts {
 				if statsStr != "" {
@@ -1524,9 +1525,9 @@ func (network *Network) socialMaintenance() {
 				statsStr += fmt.Sprintf("%s=%d", service, count)
 			}
 			if beforeCount != afterCount {
-				logrus.Printf("📊 event store: %d events (%s) - pruned %d", afterCount, statsStr, beforeCount-afterCount)
+				logrus.Printf("📊 event store: %d events (%s, critical=%d) - pruned %d", afterCount, statsStr, criticalCount, beforeCount-afterCount)
 			} else {
-				logrus.Printf("📊 event store: %d events (%s)", afterCount, statsStr)
+				logrus.Printf("📊 event store: %d events (%s, critical=%d)", afterCount, statsStr, criticalCount)
 			}
 
 			// Cleanup rate limiter to prevent unbounded map growth

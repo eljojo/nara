@@ -594,17 +594,9 @@ func (l *SyncLedger) AddEvent(e SyncEvent) bool {
 	l.Events = append(l.Events, e)
 	l.eventIDs[e.ID] = true
 
-	// Prune if over MaxEvents (drop oldest 10%)
+	// Prune if over MaxEvents using priority-based pruning
 	if l.MaxEvents > 0 && len(l.Events) > l.MaxEvents {
-		dropCount := l.MaxEvents / 10
-		if dropCount < 1 {
-			dropCount = 1
-		}
-		// Delete IDs of dropped events
-		for i := 0; i < dropCount; i++ {
-			delete(l.eventIDs, l.Events[i].ID)
-		}
-		l.Events = l.Events[dropCount:]
+		l.pruneUnlocked()
 	}
 
 	return true
@@ -1210,29 +1202,87 @@ func (l *SyncLedger) MergeEvents(events []SyncEvent) int {
 
 // --- Maintenance ---
 
-// Prune removes old events to stay within MaxEvents limit
+// eventPruningPriority returns the pruning priority for an event.
+// Lower numbers = more important (pruned last).
+// Priority 0 events are NEVER pruned (critical history).
+func eventPruningPriority(e SyncEvent) int {
+	// Critical (priority 0): restart and first-seen observations
+	// These establish nara identity and history - NEVER prune
+	if e.Service == ServiceObservation && e.Observation != nil {
+		switch e.Observation.Type {
+		case "restart", "first-seen":
+			return 0 // Never prune
+		case "status-change":
+			return 1 // High priority
+		}
+	}
+
+	// Medium priority (2): social events (teases, gossip)
+	if e.Service == ServiceSocial {
+		return 2
+	}
+
+	// Low priority (3): ping observations - ephemeral, can be recalculated
+	if e.Service == ServicePing {
+		return 3
+	}
+
+	// Default medium priority
+	return 2
+}
+
+// Prune removes old events to stay within MaxEvents limit.
+// Uses priority-based pruning: ping events are pruned first, then social events,
+// then status-change. Critical events (restart, first-seen) are NEVER pruned.
 func (l *SyncLedger) Prune() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.pruneUnlocked()
+}
 
+// pruneUnlocked is the internal pruning logic, called with lock already held.
+func (l *SyncLedger) pruneUnlocked() {
 	if len(l.Events) <= l.MaxEvents {
 		return
 	}
 
-	// Sort by timestamp (ascending)
+	// Sort by priority (higher number = prune first), then by timestamp (oldest first)
 	sort.Slice(l.Events, func(i, j int) bool {
-		return l.Events[i].Timestamp < l.Events[j].Timestamp
+		pi, pj := eventPruningPriority(l.Events[i]), eventPruningPriority(l.Events[j])
+		if pi != pj {
+			return pi > pj // Higher priority number = prune first
+		}
+		return l.Events[i].Timestamp < l.Events[j].Timestamp // Oldest first within same priority
 	})
 
-	// Keep only the most recent events
+	// Calculate how many to remove, but never remove priority 0 events
 	toRemove := len(l.Events) - l.MaxEvents
-	removed := l.Events[:toRemove]
-	l.Events = l.Events[toRemove:]
+	actualRemoved := 0
+
+	for i := 0; i < toRemove && i < len(l.Events); i++ {
+		if eventPruningPriority(l.Events[i]) == 0 {
+			// Stop - we've reached critical events
+			break
+		}
+		actualRemoved++
+	}
+
+	if actualRemoved == 0 {
+		return
+	}
+
+	removed := l.Events[:actualRemoved]
+	l.Events = l.Events[actualRemoved:]
 
 	// Update eventIDs map
 	for _, e := range removed {
 		delete(l.eventIDs, e.ID)
 	}
+
+	// Re-sort by timestamp for normal operation
+	sort.Slice(l.Events, func(i, j int) bool {
+		return l.Events[i].Timestamp < l.Events[j].Timestamp
+	})
 }
 
 // --- Ping-specific queries ---
@@ -1759,6 +1809,20 @@ func (l *SyncLedger) GetEventCountsByService() map[string]int {
 		counts[e.Service]++
 	}
 	return counts
+}
+
+// GetCriticalEventCount returns the number of critical (never-pruned) events
+func (l *SyncLedger) GetCriticalEventCount() int {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	count := 0
+	for _, e := range l.Events {
+		if eventPruningPriority(e) == 0 {
+			count++
+		}
+	}
+	return count
 }
 
 // GetRecentSocialEvents returns the N most recent social events
