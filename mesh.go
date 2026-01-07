@@ -249,6 +249,7 @@ type TsnetConfig struct {
 	AuthKey    string // Pre-auth key for automatic registration
 	StateDir   string // Directory for temp files like sockets (uses /tmp, no state written)
 	Port       int    // Port to listen on for world messages (default: DefaultMeshPort)
+	Verbose    bool   // Enable verbose Tailscale logging (use -vv flag)
 }
 
 // NewTsnetMesh creates a new tsnet-based mesh transport
@@ -279,6 +280,12 @@ func NewTsnetMesh(config TsnetConfig) (*TsnetMesh, error) {
 	// Use in-memory state store - no disk writes for state
 	stateStore := new(mem.Store)
 
+	// Tailscale logging: OFF by default, enabled only with -vv flag
+	tsnetLogf := func(format string, args ...any) {} // no-op by default
+	if config.Verbose {
+		tsnetLogf = func(format string, args ...any) { logrus.Debugf("[tsnet] "+format, args...) }
+	}
+
 	server := &tsnet.Server{
 		Hostname:   config.Hostname,
 		ControlURL: config.ControlURL,
@@ -286,7 +293,7 @@ func NewTsnetMesh(config TsnetConfig) (*TsnetMesh, error) {
 		Dir:        config.StateDir,
 		Store:      stateStore, // In-memory state, no disk persistence
 		Ephemeral:  true,       // Node removed from tailnet when it disconnects
-		Logf:       func(format string, args ...any) { logrus.Debugf("[tsnet] "+format, args...) },
+		Logf:       tsnetLogf,
 	}
 
 	mesh := &TsnetMesh{
