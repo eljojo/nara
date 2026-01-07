@@ -43,14 +43,10 @@ func NewWorldMessage(message string, originator string) *WorldMessage {
 
 // AddHop adds a new hop to the journey, signing the current state
 func (wm *WorldMessage) AddHop(nara string, keypair NaraKeypair, stamp string) error {
-	// Create the data to sign (all previous state + this nara)
-	toSign := wm.dataToSign(nara)
-	signature := keypair.Sign(toSign)
-
 	hop := WorldHop{
 		Nara:      nara,
 		Timestamp: time.Now().Unix(),
-		Signature: base64.StdEncoding.EncodeToString(signature),
+		Signature: keypair.SignBase64(wm.dataToSign(nara)),
 		Stamp:     stamp,
 	}
 

@@ -6,7 +6,7 @@ import (
 )
 
 func TestObservations_Record(t *testing.T) {
-	ln := NewLocalNara("me", "me-soul", "host", "user", "pass", -1)
+	ln := NewLocalNara("me", "me-soul", "host", "user", "pass", -1, 0)
 
 	obs := ln.getMeObservation()
 	obs.LastSeen = 100
@@ -19,7 +19,7 @@ func TestObservations_Record(t *testing.T) {
 }
 
 func TestObservations_Online(t *testing.T) {
-	ln := NewLocalNara("me", "me-soul", "host", "user", "pass", -1)
+	ln := NewLocalNara("me", "me-soul", "host", "user", "pass", -1, 0)
 	network := ln.Network
 	name := "other"
 	network.importNara(NewNara(name))

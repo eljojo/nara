@@ -20,7 +20,7 @@ type LocalNara struct {
 	Network         *Network
 	Soul            string
 	Keypair         NaraKeypair
-	SocialLedger    *SocialLedger
+	SyncLedger      *SyncLedger // Unified event store for all syncable data (social + ping + future types)
 	forceChattiness int
 	isRaspberryPi   bool
 	isNixOs         bool
@@ -55,14 +55,15 @@ type NaraStatus struct {
 	Personality  NaraPersonality
 	Version      string
 	PublicUrl    string
-	PublicKey    string // Base64-encoded Ed25519 public key
-	MeshEnabled  bool   // True if this nara is connected to the Headscale mesh
-	MeshIP       string // Tailscale IP for direct mesh communication (no DNS needed)
+	PublicKey    string             // Base64-encoded Ed25519 public key
+	MeshEnabled  bool               // True if this nara is connected to the Headscale mesh
+	MeshIP       string             // Tailscale IP for direct mesh communication (no DNS needed)
+	Coordinates  *NetworkCoordinate `json:"coordinates,omitempty"` // Vivaldi network coordinates
 	// remember to sync with setValuesFrom
 	// NOTE: Soul was removed - NEVER serialize private keys!
 }
 
-func NewLocalNara(name string, soul string, mqtt_host string, mqtt_user string, mqtt_pass string, forceChattiness int) *LocalNara {
+func NewLocalNara(name string, soul string, mqtt_host string, mqtt_user string, mqtt_pass string, forceChattiness int, ledgerCapacity int) *LocalNara {
 	logrus.Printf("📟 Booting nara: %s", name)
 
 	ln := &LocalNara{
@@ -75,6 +76,7 @@ func NewLocalNara(name string, soul string, mqtt_host string, mqtt_user string, 
 	}
 	ln.Me.Version = NaraVersion
 	ln.Me.Status.Version = NaraVersion
+	ln.Me.Status.Coordinates = NewNetworkCoordinate() // Initialize Vivaldi coordinates
 	// NOTE: Soul is NEVER set in Status - private keys must not be serialized!
 
 	// Derive Ed25519 keypair from soul
@@ -90,8 +92,11 @@ func NewLocalNara(name string, soul string, mqtt_host string, mqtt_user string, 
 
 	ln.seedPersonality()
 
-	// Initialize social ledger with personality (max 30,000 events ~= 10MB)
-	ln.SocialLedger = NewSocialLedger(ln.Me.Status.Personality, 30000)
+	// Initialize unified sync ledger for all service types (social + ping + future)
+	if ledgerCapacity <= 0 {
+		ledgerCapacity = 80000 // default
+	}
+	ln.SyncLedger = NewSyncLedger(ledgerCapacity)
 
 	ln.updateHostStats()
 
@@ -201,4 +206,7 @@ func (ns *NaraStatus) setValuesFrom(other NaraStatus) {
 	}
 	ns.MeshEnabled = other.MeshEnabled
 	ns.MeshIP = other.MeshIP
+	if other.Coordinates != nil {
+		ns.Coordinates = other.Coordinates
+	}
 }

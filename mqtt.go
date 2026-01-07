@@ -167,8 +167,22 @@ func (network *Network) newspaperHandler(client mqtt.Client, msg mqtt.Message) {
 }
 
 func subscribeMqtt(client mqtt.Client, topic string, handler func(client mqtt.Client, msg mqtt.Message)) {
-	if token := client.Subscribe(topic, 0, handler); token.Wait() && token.Error() != nil {
-		panic(token.Error())
+	maxRetries := 3
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		token := client.Subscribe(topic, 0, handler)
+		token.Wait()
+
+		if token.Error() == nil {
+			logrus.Debugf("Subscribed to %s", topic)
+			return
+		}
+
+		if attempt < maxRetries {
+			logrus.Warnf("Failed to subscribe to %s (attempt %d/%d): %v, retrying...", topic, attempt, maxRetries, token.Error())
+			time.Sleep(time.Duration(attempt) * time.Second)
+		} else {
+			logrus.Errorf("Failed to subscribe to %s after %d attempts: %v", topic, maxRetries, token.Error())
+		}
 	}
 }
 

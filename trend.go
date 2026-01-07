@@ -93,11 +93,11 @@ func (network *Network) considerStartingTrend(trends map[string]int, onlineCount
 	personality := network.local.Me.Status.Personality
 
 	// Base chance to start a trend (sociability-driven)
-	baseChance := personality.Sociability / 10
+	baseChance := float64(personality.Sociability) / 10.0
 
 	// The more trends exist, the less likely to start a new one
 	// Divide by (1 + numTrends) so: 0 trends = full chance, 1 trend = half, 2 = third, etc.
-	chance := baseChance / (1 + numTrends)
+	chance := baseChance / float64(1+numTrends)
 
 	// Contrarian boost: if there's a dominant mainstream trend, rebels might start underground
 	if numTrends > 0 && onlineCount > 0 {
@@ -117,12 +117,12 @@ func (network *Network) considerStartingTrend(trends map[string]int, onlineCount
 			// Contrarian factor: low agreeableness = more likely to rebel
 			contrarian := 100 - personality.Agreeableness
 			// Boost chance based on how mainstream things are and how contrarian we are
-			rebellionBoost := (contrarian * (mainstreamPct - 50)) / 100
-			chance += rebellionBoost / (1 + numTrends) // Still reduced by existing trend count
+			rebellionBoost := float64(contrarian*(mainstreamPct-50)) / 100.0
+			chance += rebellionBoost / float64(1+numTrends) // Still reduced by existing trend count
 		}
 	}
 
-	if rand.Intn(100) < chance {
+	if rand.Intn(100) < int(chance) {
 		newTrend := fmt.Sprintf("%s-style", network.meName())
 		emoji := TrendEmojis[rand.Intn(len(TrendEmojis))]
 

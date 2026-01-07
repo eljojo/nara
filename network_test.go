@@ -7,7 +7,7 @@ import (
 )
 
 func TestNetwork_ImportNara(t *testing.T) {
-	ln := NewLocalNara("me", "me-soul", "host", "user", "pass", -1)
+	ln := NewLocalNara("me", "me-soul", "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	other := NewNara("other")
@@ -29,7 +29,7 @@ func TestNetwork_ImportNara(t *testing.T) {
 }
 
 func TestNetwork_NaraOrdering(t *testing.T) {
-	ln := NewLocalNara("me", "me-soul", "host", "user", "pass", -1)
+	ln := NewLocalNara("me", "me-soul", "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	// Set me observation
@@ -62,7 +62,7 @@ func TestNetwork_NaraOrdering(t *testing.T) {
 }
 
 func TestNetwork_NeighbourhoodNames(t *testing.T) {
-	ln := NewLocalNara("me", "me-soul", "host", "user", "pass", -1)
+	ln := NewLocalNara("me", "me-soul", "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	network.importNara(NewNara("a"))
@@ -92,7 +92,7 @@ func TestNetwork_NeighbourhoodNames(t *testing.T) {
 func TestNara_SoulNotLeakedInJSON(t *testing.T) {
 	// Create a nara with a real soul (the kind that gets serialized over MQTT/HTTP)
 	soul := "8Qv9xR3kM7nL2pY5wJ4hT6fD1gS0aZ8cB3vN9mK7qE5rU2yX4iO6lP"
-	ln := NewLocalNara("testnara", soul, "host", "user", "pass", -1)
+	ln := NewLocalNara("testnara", soul, "host", "user", "pass", -1, 0)
 
 	// Serialize the Nara (this is what selfie() sends over MQTT)
 	naraJSON, err := json.Marshal(ln.Me)

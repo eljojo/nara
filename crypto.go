@@ -29,6 +29,11 @@ func (kp NaraKeypair) Sign(message []byte) []byte {
 	return ed25519.Sign(kp.PrivateKey, message)
 }
 
+// SignBase64 signs a message and returns the signature as a base64 string
+func (kp NaraKeypair) SignBase64(message []byte) string {
+	return base64.StdEncoding.EncodeToString(kp.Sign(message))
+}
+
 // FormatPublicKey encodes a public key as Base64 for transmission
 func FormatPublicKey(pub ed25519.PublicKey) string {
 	return base64.StdEncoding.EncodeToString(pub)

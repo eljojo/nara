@@ -1,12 +1,14 @@
 package nara
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
@@ -22,9 +24,98 @@ type MeshTransport interface {
 	// Send sends a message to a specific nara
 	Send(target string, msg *WorldMessage) error
 	// Receive returns a channel for incoming world messages
+	// Note: With HTTP transport, messages come via HTTP handler instead
 	Receive() <-chan *WorldMessage
 	// Close shuts down the transport
 	Close() error
+}
+
+// HTTPMeshTransport implements MeshTransport using HTTP over tsnet
+// This is the preferred transport - unified with other mesh HTTP endpoints
+type HTTPMeshTransport struct {
+	tsnetServer *tsnet.Server
+	network     *Network // For auth headers
+	port        int
+	inbox       chan *WorldMessage // Not used with HTTP (handler calls HandleIncoming directly)
+	closed      bool
+	mu          sync.Mutex
+}
+
+// NewHTTPMeshTransport creates a new HTTP-based mesh transport
+func NewHTTPMeshTransport(tsnetServer *tsnet.Server, network *Network, port int) *HTTPMeshTransport {
+	return &HTTPMeshTransport{
+		tsnetServer: tsnetServer,
+		network:     network,
+		port:        port,
+		inbox:       make(chan *WorldMessage, 10), // Small buffer, not really used
+	}
+}
+
+// Send sends a world message to another nara via HTTP POST
+func (t *HTTPMeshTransport) Send(target string, msg *WorldMessage) error {
+	t.mu.Lock()
+	if t.closed {
+		t.mu.Unlock()
+		return errors.New("transport closed")
+	}
+	t.mu.Unlock()
+
+	// Marshal the world message
+	jsonBody, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal world message: %w", err)
+	}
+
+	// Build request
+	url := fmt.Sprintf("http://%s:%d/world/relay", target, t.port)
+	req, err := http.NewRequest("POST", url, bytes.NewReader(jsonBody))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Add mesh authentication headers
+	if t.network != nil {
+		t.network.AddMeshAuthHeaders(req)
+	}
+
+	// Use tsnet HTTP client for routing through Tailscale
+	client := t.tsnetServer.HTTPClient()
+	client.Timeout = 30 * time.Second
+
+	logrus.Debugf("🌍 Sending world message to %s via HTTP", target)
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send world message to %s: %w", target, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("world relay to %s failed with status %d: %s", target, resp.StatusCode, string(body))
+	}
+
+	logrus.Debugf("🌍 World message sent to %s successfully", target)
+	return nil
+}
+
+// Receive returns the channel for incoming world messages
+// Note: With HTTP transport, messages are handled directly by httpWorldRelayHandler
+// This channel is kept for interface compatibility but not actively used
+func (t *HTTPMeshTransport) Receive() <-chan *WorldMessage {
+	return t.inbox
+}
+
+// Close shuts down the transport
+func (t *HTTPMeshTransport) Close() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if !t.closed {
+		t.closed = true
+		close(t.inbox)
+	}
+	return nil
 }
 
 // MockMeshNetwork simulates a mesh network for testing
@@ -174,7 +265,7 @@ func (mc *MeshConnection) Close() error {
 
 // TsnetMesh implements MeshTransport using Tailscale's tsnet for real peer-to-peer communication
 type TsnetMesh struct {
-	server     *tsnet.Server
+	server     *tsnet.Server // Exported via Server() method for HTTP client access
 	listener   net.Listener
 	inbox      chan *WorldMessage
 	closed     bool
@@ -185,13 +276,18 @@ type TsnetMesh struct {
 	stateStore *mem.Store // In-memory state store (no disk writes)
 }
 
+// Server returns the underlying tsnet.Server for HTTP client access
+func (t *TsnetMesh) Server() *tsnet.Server {
+	return t.server
+}
+
 // TsnetConfig holds configuration for creating a TsnetMesh
 type TsnetConfig struct {
 	Hostname   string // The nara's name (used as tsnet hostname)
 	ControlURL string // Headscale server URL (e.g., https://vpn.nara.network)
 	AuthKey    string // Pre-auth key for automatic registration
 	StateDir   string // Directory for temp files like sockets (uses /tmp, no state written)
-	Port       int    // Port to listen on for world messages (default: 7433)
+	Port       int    // Port to listen on for world messages (default: DefaultMeshPort)
 }
 
 // NewTsnetMesh creates a new tsnet-based mesh transport
@@ -211,7 +307,7 @@ func NewTsnetMesh(config TsnetConfig) (*TsnetMesh, error) {
 
 	// Default port
 	if config.Port == 0 {
-		config.Port = 7433 // NARA on phone keypad :)
+		config.Port = DefaultMeshPort
 	}
 
 	// Create temp directory (needed for unix sockets, etc.)
@@ -382,4 +478,43 @@ func (t *TsnetMesh) Close() error {
 	}
 
 	return nil
+}
+
+// Ping measures RTT to a peer nara via the mesh network
+// Uses HTTP GET to the /ping endpoint and returns the round-trip time
+// Note: TCP handshake time is included, which is correct for Vivaldi coordinates
+// (the handshake itself measures one network RTT)
+func (t *TsnetMesh) Ping(targetIP string, timeout time.Duration) (time.Duration, error) {
+	t.mu.Lock()
+	if t.closed {
+		t.mu.Unlock()
+		return 0, errors.New("transport closed")
+	}
+	t.mu.Unlock()
+
+	if targetIP == "" {
+		return 0, errors.New("target IP is required")
+	}
+
+	// Use tsnet's HTTP client
+	client := t.server.HTTPClient()
+	client.Timeout = timeout
+
+	// Build the ping URL (using mesh IP and mesh port)
+	url := fmt.Sprintf("http://%s:%d/ping", targetIP, DefaultMeshPort)
+
+	start := time.Now()
+	resp, err := client.Get(url)
+	if err != nil {
+		return 0, fmt.Errorf("ping failed: %w", err)
+	}
+	rtt := time.Since(start)
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return 0, fmt.Errorf("ping returned status %d", resp.StatusCode)
+	}
+
+	return rtt, nil
 }

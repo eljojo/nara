@@ -56,9 +56,11 @@ type PendingJourney struct {
 
 // JourneyCompletion is the lightweight MQTT signal for journey completion
 type JourneyCompletion struct {
-	JourneyID  string `json:"journey_id"`
-	Originator string `json:"originator"`
-	ReportedBy string `json:"reported_by"`
+	JourneyID  string     `json:"journey_id"`
+	Originator string     `json:"originator"`
+	ReportedBy string     `json:"reported_by"`
+	Message    string     `json:"message,omitempty"`
+	Hops       []WorldHop `json:"hops,omitempty"` // The attestation log
 }
 
 type NewspaperEvent struct {
@@ -124,10 +126,18 @@ func (network *Network) getMeshIPForNara(name string) string {
 
 func (network *Network) getMyClout() map[string]float64 {
 	// Get this nara's clout scores for other naras
-	if network.local.SocialLedger != nil {
-		return network.local.SocialLedger.DeriveClout(network.local.Soul)
+	if network.local.SyncLedger == nil {
+		return nil
 	}
-	return nil
+
+	baseClout := network.local.SyncLedger.DeriveClout(network.local.Soul, network.local.Me.Status.Personality)
+
+	// Apply proximity weighting (nearby naras have more influence)
+	network.local.Me.mu.Lock()
+	myCoords := network.local.Me.Status.Coordinates
+	network.local.Me.mu.Unlock()
+
+	return ApplyProximityToClout(baseClout, myCoords, network.getCoordinatesForPeer)
 }
 
 func (network *Network) getOnlineNaraNames() []string {
@@ -195,6 +205,44 @@ func (network *Network) getPublicKeyForNara(name string) []byte {
 	return pubKey
 }
 
+// VerifySyncEvent verifies a sync event's signature and logs warnings
+// Returns true if the event is valid (signed and verified, or unsigned but acceptable)
+// The event is always added regardless - verification is informational
+func (network *Network) VerifySyncEvent(e *SyncEvent) bool {
+	if !e.IsSigned() {
+		logrus.Debugf("Unsigned event %s from service %s (actor: %s)", e.ID[:8], e.Service, e.GetActor())
+		return true // Unsigned is acceptable, just log it
+	}
+
+	// Get the emitter's public key
+	pubKey := network.getPublicKeyForNara(e.Emitter)
+	if pubKey == nil {
+		logrus.Warnf("Cannot verify event %s: unknown emitter %s", e.ID[:8], e.Emitter)
+		return false // Signed but can't verify - suspicious
+	}
+
+	if !e.Verify(pubKey) {
+		logrus.Warnf("Invalid signature on event %s from %s", e.ID[:8], e.Emitter)
+		return false // Bad signature - suspicious
+	}
+
+	logrus.Debugf("Verified event %s from %s", e.ID[:8], e.Emitter)
+	return true
+}
+
+// MergeSyncEventsWithVerification merges events into SyncLedger after verifying signatures
+// Returns the number of events added and number that had verification warnings
+func (network *Network) MergeSyncEventsWithVerification(events []SyncEvent) (added int, warned int) {
+	for i := range events {
+		e := &events[i]
+		if !network.VerifySyncEvent(e) {
+			warned++
+		}
+	}
+	added = network.local.SyncLedger.MergeEvents(events)
+	return added, warned
+}
+
 func (network *Network) onWorldJourneyComplete(wm *WorldMessage) {
 	network.worldJourneysMu.Lock()
 	network.worldJourneys = append(network.worldJourneys, wm)
@@ -205,9 +253,9 @@ func (network *Network) onWorldJourneyComplete(wm *WorldMessage) {
 	network.worldJourneysMu.Unlock()
 
 	// Record journey-complete observation event
-	if network.local.SocialLedger != nil {
+	if network.local.SyncLedger != nil {
 		event := NewJourneyObservationEvent(network.meName(), wm.Originator, ReasonJourneyComplete, wm.ID)
-		network.local.SocialLedger.AddEvent(event)
+		network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
 	}
 
 	// Remove from pending journeys (we were the originator)
@@ -221,12 +269,22 @@ func (network *Network) onWorldJourneyComplete(wm *WorldMessage) {
 			JourneyID:  wm.ID,
 			Originator: wm.Originator,
 			ReportedBy: network.meName(),
+			Message:    wm.OriginalMessage,
+			Hops:       wm.Hops,
 		}
 		network.postEvent("nara/plaza/journey_complete", completion)
 	}
 
-	logrus.Printf("World journey complete! %s: %s", wm.Originator, wm.OriginalMessage)
-	logrus.Printf("observation: journey %s completed! (from %s)", wm.ID[:8], wm.Originator)
+	// Log journey completion with attestation chain
+	logrus.Infof("🌍 Journey complete! %s: \"%s\" (%d hops)", wm.Originator, wm.OriginalMessage, len(wm.Hops))
+	for i, hop := range wm.Hops {
+		sig := hop.Signature
+		if len(sig) > 12 {
+			sig = sig[:12] + "..."
+		}
+		t := time.Unix(hop.Timestamp, 0).Format("15:04:05")
+		logrus.Infof("🌍   %d. %s%s @ %s (sig: %s)", i+1, hop.Nara, hop.Stamp, t, sig)
+	}
 	network.Buzz.increase(10)
 }
 
@@ -243,9 +301,9 @@ func (network *Network) onWorldJourneyPassThrough(wm *WorldMessage) {
 	network.pendingJourneysMu.Unlock()
 
 	// Record journey-pass observation event
-	if network.local.SocialLedger != nil {
+	if network.local.SyncLedger != nil {
 		event := NewJourneyObservationEvent(network.meName(), wm.Originator, ReasonJourneyPass, wm.ID)
-		network.local.SocialLedger.AddEvent(event)
+		network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
 	}
 
 	logrus.Printf("observation: journey %s passed through (from %s)", wm.ID[:8], wm.Originator)
@@ -278,10 +336,18 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 					logrus.Errorf("Failed to start tsnet mesh: %v", err)
 				} else {
 					network.tsnetMesh = tsnetMesh
-					network.InitWorldJourney(tsnetMesh)
 					network.local.Me.Status.MeshEnabled = true
 					network.local.Me.Status.MeshIP = tsnetMesh.IP()
-					logrus.Infof("World journey using tsnet mesh (IP: %s)", tsnetMesh.IP())
+
+					// Start mesh HTTP server on tsnet interface (port 7433)
+					if err := network.startMeshHttpServer(tsnetMesh.Server()); err != nil {
+						logrus.Errorf("Failed to start mesh HTTP server: %v", err)
+					}
+
+					// Use HTTP-based transport for world messages (unified with other mesh HTTP)
+					httpTransport := NewHTTPMeshTransport(tsnetMesh.Server(), network, DefaultMeshPort)
+					network.InitWorldJourney(httpTransport)
+					logrus.Infof("🌍 World journey using HTTP over tsnet (IP: %s)", tsnetMesh.IP())
 				}
 			}
 		}
@@ -329,6 +395,9 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 
 	// Start journey timeout maintenance
 	go network.journeyTimeoutMaintenance()
+
+	// Start coordinate maintenance (Vivaldi pings)
+	go network.coordinateMaintenance()
 }
 
 func (network *Network) meName() string {
@@ -475,9 +544,9 @@ func (network *Network) handleChauEvent(nara Nara) {
 	network.local.setObservation(nara.Name, observation)
 
 	// Record offline observation event if state changed
-	if previousState == "ONLINE" && !network.local.isBooting() && network.local.SocialLedger != nil {
+	if previousState == "ONLINE" && !network.local.isBooting() && network.local.SyncLedger != nil {
 		event := NewObservationEvent(network.meName(), nara.Name, ReasonOffline)
-		network.local.SocialLedger.AddEvent(event)
+		network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
 		logrus.Printf("observation: %s went offline", nara.Name)
 	}
 
@@ -688,7 +757,7 @@ func (network *Network) handleSocialEvent(event SocialEvent) {
 	}
 
 	// Add to our ledger
-	if network.local.SocialLedger.AddEvent(event) {
+	if network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality) {
 		logrus.Printf("📢 %s teased %s: %s", event.Actor, event.Target, TeaseMessage(event.Reason, event.Actor, event.Target))
 		network.Buzz.increase(5)
 
@@ -747,8 +816,8 @@ func (network *Network) Tease(target, reason string) bool {
 	event := NewTeaseEvent(actor, target, reason)
 
 	// Add to our own ledger
-	if network.local.SocialLedger != nil {
-		network.local.SocialLedger.AddEvent(event)
+	if network.local.SyncLedger != nil {
+		network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
 	}
 
 	// Broadcast to network via MQTT
@@ -806,8 +875,13 @@ func (network *Network) checkAndTease(name string, previousState string, previou
 		}
 	}
 
-	// Random teasing (very low probability)
-	if ShouldRandomTease(network.local.Soul, name, time.Now().Unix(), personality) {
+	// Random teasing (very low probability, boosted for nearby naras)
+	// You notice and interact more with those in your barrio
+	proximityBoost := 1.0
+	if network.IsInMyBarrio(name) {
+		proximityBoost = 3.0 // 3x more likely to notice naras in same barrio
+	}
+	if ShouldRandomTeaseWithBoost(network.local.Soul, name, time.Now().Unix(), personality, proximityBoost) {
 		network.Tease(name, ReasonRandom)
 	}
 }
@@ -848,7 +922,7 @@ func (network *Network) handleLedgerRequest(req LedgerRequest) {
 	}
 
 	// Get events for requested subjects from our ledger
-	events := network.local.SocialLedger.GetEventsForSubjects(req.Subjects)
+	events := network.local.SyncLedger.GetSocialEventsForSubjects(req.Subjects)
 
 	// Respond directly to the requester
 	response := LedgerResponse{
@@ -868,8 +942,8 @@ func (network *Network) processLedgerResponses() {
 }
 
 func (network *Network) handleLedgerResponse(resp LedgerResponse) {
-	// Merge received events into our ledger
-	added := network.local.SocialLedger.MergeEvents(resp.Events)
+	// Merge received events into our ledger (with personality filtering)
+	added := network.local.SyncLedger.MergeSocialEventsFiltered(resp.Events, network.local.Me.Status.Personality)
 	if added > 0 {
 		logrus.Printf("📥 merged %d events from %s", added, resp.From)
 	}
@@ -909,21 +983,21 @@ func (network *Network) bootRecovery() {
 	network.bootRecoveryViaMQTT(online)
 }
 
+// BootRecoveryTargetEvents is the target number of events to fetch on boot
+const BootRecoveryTargetEvents = 10000
+
 // bootRecoveryViaMesh uses direct HTTP to sync events from neighbors
 func (network *Network) bootRecoveryViaMesh(online []string) {
 	// Get all known subjects (naras)
 	subjects := append(online, network.meName())
 
-	// Pick up to 5 mesh-enabled neighbors
+	// Collect ALL mesh-enabled neighbors (no limit)
 	var meshNeighbors []struct {
 		name string
 		ip   string
 	}
 
 	for _, name := range online {
-		if len(meshNeighbors) >= 5 {
-			break
-		}
 		ip := network.getMeshIPForNara(name)
 		if ip != "" {
 			meshNeighbors = append(meshNeighbors, struct {
@@ -940,67 +1014,123 @@ func (network *Network) bootRecoveryViaMesh(online []string) {
 	}
 
 	totalSlices := len(meshNeighbors)
-	logrus.Printf("📦 boot recovery via mesh: syncing from %d neighbors", totalSlices)
+	// Divide target across neighbors
+	eventsPerNeighbor := BootRecoveryTargetEvents / totalSlices
+	if eventsPerNeighbor < 100 {
+		eventsPerNeighbor = 100 // minimum events per neighbor
+	}
+
+	logrus.Printf("📦 boot recovery via mesh: syncing from %d neighbors (~%d events each)", totalSlices, eventsPerNeighbor)
 
 	// Query each neighbor with interleaved slicing
 	var totalMerged int
-	client := &http.Client{Timeout: 30 * time.Second}
+
+	// Use tsnet HTTP client to route through Tailscale
+	var client *http.Client
+	if network.tsnetMesh != nil {
+		client = network.tsnetMesh.Server().HTTPClient()
+		client.Timeout = 30 * time.Second
+	} else {
+		// Fallback (shouldn't happen if mesh is enabled)
+		client = &http.Client{Timeout: 30 * time.Second}
+	}
 
 	for i, neighbor := range meshNeighbors {
-		events := network.fetchEventsFromMesh(client, neighbor.ip, neighbor.name, subjects, i, totalSlices)
+		events, respVerified := network.fetchSyncEventsFromMesh(client, neighbor.ip, neighbor.name, subjects, i, totalSlices, eventsPerNeighbor)
 		if len(events) > 0 {
-			added := network.local.SocialLedger.MergeEvents(events)
+			// Merge into SyncLedger with per-event signature verification
+			added, warned := network.MergeSyncEventsWithVerification(events)
 			totalMerged += added
-			logrus.Printf("📦 mesh sync from %s: received %d events, merged %d", neighbor.name, len(events), added)
+			verifiedStr := ""
+			if respVerified && warned == 0 {
+				verifiedStr = " ✓"
+			} else if warned > 0 {
+				verifiedStr = fmt.Sprintf(" ⚠%d", warned)
+			}
+			logrus.Printf("📦 mesh sync from %s: received %d events, merged %d%s", neighbor.name, len(events), added, verifiedStr)
 		}
 	}
 
 	logrus.Printf("📦 boot recovery via mesh complete: merged %d events total", totalMerged)
 }
 
-// fetchEventsFromMesh fetches events from a neighbor via mesh HTTP
-func (network *Network) fetchEventsFromMesh(client *http.Client, meshIP, name string, subjects []string, sliceIndex, sliceTotal int) []SocialEvent {
+// fetchSyncEventsFromMesh fetches unified SyncEvents with signature verification
+func (network *Network) fetchSyncEventsFromMesh(client *http.Client, meshIP, name string, subjects []string, sliceIndex, sliceTotal, maxEvents int) ([]SyncEvent, bool) {
 	// Build request
-	reqBody := map[string]interface{}{
-		"from":        network.meName(),
-		"subjects":    subjects,
-		"since_time":  0, // get all events
-		"slice_index": sliceIndex,
-		"slice_total": sliceTotal,
+	reqBody := SyncRequest{
+		From:       network.meName(),
+		Subjects:   subjects,
+		SinceTime:  0, // get all events
+		SliceIndex: sliceIndex,
+		SliceTotal: sliceTotal,
+		MaxEvents:  maxEvents,
 	}
 
 	jsonBody, err := json.Marshal(reqBody)
 	if err != nil {
 		logrus.Warnf("📦 failed to marshal mesh sync request: %v", err)
-		return nil
+		return nil, false
 	}
 
 	// Make HTTP request to neighbor's mesh endpoint
-	// TODO: Make port configurable or discoverable
-	url := fmt.Sprintf("http://%s:7433/events/sync", meshIP) // TODO: use port from mesh.go
-	resp, err := client.Post(url, "application/json", bytes.NewReader(jsonBody))
+	url := fmt.Sprintf("http://%s:%d/events/sync", meshIP, DefaultMeshPort)
+	req, err := http.NewRequest("POST", url, bytes.NewReader(jsonBody))
+	if err != nil {
+		logrus.Warnf("📦 failed to create mesh sync request: %v", err)
+		return nil, false
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Add mesh authentication headers (Ed25519 signature)
+	network.AddMeshAuthHeaders(req)
+
+	resp, err := client.Do(req)
 	if err != nil {
 		logrus.Warnf("📦 mesh sync from %s failed: %v", name, err)
-		return nil
+		return nil, false
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusUnauthorized {
+		logrus.Warnf("📦 mesh sync from %s rejected our auth (they may not know us yet)", name)
+		return nil, false
+	}
+
 	if resp.StatusCode != http.StatusOK {
 		logrus.Warnf("📦 mesh sync from %s returned status %d", name, resp.StatusCode)
-		return nil
+		return nil, false
+	}
+
+	// Read and verify response body
+	body, verified := network.VerifyMeshResponseBody(resp)
+	if !verified {
+		logrus.Warnf("📦 mesh response from %s failed signature verification", name)
+		// Continue anyway - response might be valid but from a nara we don't know yet
 	}
 
 	// Parse response
-	var response struct {
-		From   string        `json:"from"`
-		Events []SocialEvent `json:"events"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+	var response SyncResponse
+	if err := json.Unmarshal(body, &response); err != nil {
 		logrus.Warnf("📦 failed to decode mesh sync response from %s: %v", name, err)
-		return nil
+		return nil, false
 	}
 
-	return response.Events
+	// Also verify the inner signature for extra assurance
+	if response.Signature != "" && !verified {
+		// Look up sender's public key from our neighborhood
+		if nara := network.Neighbourhood[name]; nara != nil && nara.Status.PublicKey != "" {
+			pubKey, err := ParsePublicKey(nara.Status.PublicKey)
+			if err == nil {
+				if response.VerifySignature(pubKey) {
+					verified = true
+				} else {
+					logrus.Warnf("📦 inner signature verification failed for %s", name)
+				}
+			}
+		}
+	}
+
+	return response.Events, verified
 }
 
 // bootRecoveryViaMQTT uses MQTT ledger requests to sync events (fallback)
@@ -1062,11 +1192,11 @@ func (network *Network) socialMaintenance() {
 	for {
 		<-ticker.C
 
-		// Prune the social ledger
-		if network.local.SocialLedger != nil {
-			beforeCount := network.local.SocialLedger.EventCount()
-			network.local.SocialLedger.Prune()
-			afterCount := network.local.SocialLedger.EventCount()
+		// Prune the sync ledger
+		if network.local.SyncLedger != nil {
+			beforeCount := network.local.SyncLedger.EventCount()
+			network.local.SyncLedger.Prune()
+			afterCount := network.local.SyncLedger.EventCount()
 
 			if beforeCount != afterCount {
 				logrus.Printf("🗑️  pruned %d old events (now: %d)", beforeCount-afterCount, afterCount)
@@ -1101,12 +1231,25 @@ func (network *Network) handleJourneyCompletion(completion JourneyCompletion) {
 	}
 
 	// Record journey-complete observation event (we heard it completed)
-	if network.local.SocialLedger != nil {
+	if network.local.SyncLedger != nil {
 		event := NewJourneyObservationEvent(network.meName(), pending.Originator, ReasonJourneyComplete, completion.JourneyID)
-		network.local.SocialLedger.AddEvent(event)
+		network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
 	}
 
-	logrus.Printf("observation: journey %s completed! (from %s, reported by %s)", completion.JourneyID[:8], pending.Originator, completion.ReportedBy)
+	// Log with attestation chain if available
+	if len(completion.Hops) > 0 {
+		logrus.Infof("🌍 Heard journey complete! %s: \"%s\" (%d hops, reported by %s)", pending.Originator, completion.Message, len(completion.Hops), completion.ReportedBy)
+		for i, hop := range completion.Hops {
+			sig := hop.Signature
+			if len(sig) > 12 {
+				sig = sig[:12] + "..."
+			}
+			t := time.Unix(hop.Timestamp, 0).Format("15:04:05")
+			logrus.Infof("🌍   %d. %s%s @ %s (sig: %s)", i+1, hop.Nara, hop.Stamp, t, sig)
+		}
+	} else {
+		logrus.Printf("observation: journey %s completed! (from %s, reported by %s)", completion.JourneyID[:8], pending.Originator, completion.ReportedBy)
+	}
 }
 
 // journeyTimeoutMaintenance checks for journeys that have timed out
@@ -1133,9 +1276,9 @@ func (network *Network) journeyTimeoutMaintenance() {
 
 		// Record timeout events for each timed out journey
 		for _, pending := range timedOut {
-			if network.local.SocialLedger != nil {
+			if network.local.SyncLedger != nil {
 				event := NewJourneyObservationEvent(network.meName(), pending.Originator, ReasonJourneyTimeout, pending.JourneyID)
-				network.local.SocialLedger.AddEvent(event)
+				network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
 			}
 
 			logrus.Printf("observation: journey %s timed out (from %s)", pending.JourneyID[:8], pending.Originator)

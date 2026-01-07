@@ -1,26 +1,57 @@
 # nara
 
-nara is an exploration on decentralized systems: it's an experimental network, a project without clear purpose, and a creative escape.
+nara is a framework for **distributed agents with collective memory**.
+
+it's a simulation where autonomous agents observe events, form opinions based on personality, and interact with each other. the network is a **collective hazy memory** - no single nara has the complete picture, but together they remember.
 
 you can [see it live](https://nara.network) ([backup/debug site](https://global-nara.eljojo.net))
 
-### what's a nara?
+## how it works
 
-a nara is a single entity, it's stateful but it has no persistence. sometimes I think of it as a tamagotchi.
+```
+┌───────────────────┬─────────────────────────────────────┐
+│    PUBLIC INFO    │           EVENT STORE               │
+│    (Newspaper)    │       (Collective Memory)           │
+├───────────────────┼─────────────────────────────────────┤
+│ Authority: ME     │ Authority: NOBODY                   │
+│ Audience: ALL     │ Audience: WHOEVER HEARD IT          │
+├───────────────────┼─────────────────────────────────────┤
+│ - my coordinates  │ - "A teased B"                      │
+│ - my flair/buzz   │ - "A completed a journey"           │
+│ - my public key   │ - "A came online"                   │
+└───────────────────┴─────────────────────────────────────┘
+```
 
-events are shared over [mqtt](https://en.wikipedia.org/wiki/MQTT) and nara observe them to form opinions. for example, by observing the network, nara can (independently) group in neighbourhoods based on their "vibes".
+**public info** is authoritative - you define your own status and broadcast it.
+**event store** is hearsay - things that happened, spread through gossip.
+
+events flow through the **plaza** (MQTT), where all naras watch in real-time. when a nara boots, it catches up by asking neighbors what it missed. then it watches live.
+
+```
+ledger (facts) → derivation function → opinions
+
+opinion = f(events, my_soul, my_personality)
+```
+
+the derivation is deterministic: same events + same personality = same opinions.
+
+---
+
+## what's a nara?
+
+a nara is a single entity, stateful but with no persistence. think of it as a tamagotchi.
 
 each nara has its own **personality** (Agreeableness, Sociability, and Chill), which dictates how it interacts with others, the trends it follows, and how it judges social interactions.
 
-### Identity: The Soul
+## identity: the soul
 
 every nara has a **soul** - a portable cryptographic identity (~54 chars, Base58) that bonds a nara to its name.
 
-- **Quirky Names**: unnamed naras get fun names like `stretchy-mushroom-421` (there are over 2.5 million possible name combinations!)
+- **Quirky Names**: unnamed naras get fun names like `stretchy-mushroom-421` (over 2.5 million combinations!)
 - **Gemstones** (💎, 🧿, 🏮): valid bond between soul and name
 - **Shadows** (👤): invalid bond - soul was minted for a different name
 
-souls are **portable** across machines. save your soul string to preserve identity:
+souls are **portable** across machines:
 
 ```bash
 # machine A
@@ -37,24 +68,11 @@ A soul is 40 bytes: a 32-byte seed (HKDF from hardware fingerprint) + 8-byte HMA
 
 </details>
 
-### Consensus: How Naras Agree
-
-naras observe each other and must handle disagreements (clock drift, stale data, competing opinions).
-
-**uptime-weighted clustering** resolves conflicts:
-1. Cluster observations within 60-second tolerance
-2. Pick winner via strategy hierarchy:
-   - **Strong**: 2+ agreeing observers beats raw uptime
-   - **Weak**: highest total uptime wins
-   - **Coin flip** 🪙: if top 2 clusters are within 20%, flip a coin
-
-longer-running naras are more credible - they've had time to converge on truth.
-
-### Social Dynamics
+## social dynamics
 
 naras don't just observe facts - they have **social interactions** that shape opinions over time.
 
-#### Teasing
+### teasing
 
 naras tease each other based on observed behavior:
 - high restart count ("nice uptime, butterfingers")
@@ -64,14 +82,14 @@ naras tease each other based on observed behavior:
 
 teasing is **public** - the whole network sees it happen.
 
-#### Clout and Reputation
+### clout and reputation
 
 each nara maintains **subjective opinions** about others. the same tease might be:
 - hilarious to a high-sociability nara
 - cringe to a high-chill nara
 - offensive to a high-agreeableness nara
 
-**clout** emerges from accumulated social interactions. but it's not global - every nara has their own view of who's cool and who's not.
+**clout** emerges from accumulated social interactions. but it's not global - every nara has their own view of who's cool.
 
 ```
 same event → different observers → different opinions
@@ -80,43 +98,31 @@ raccoon sees lily tease bart: "haha, good one" → lily gains clout
 zen-master sees lily tease bart: "unnecessary drama" → lily loses clout
 ```
 
-#### Collective Memory
+### collective memory
 
-the network has **memory that survives individual restarts**:
+the network **remembers** even when individual naras forget:
 
-- social events are stored in a local **ledger** (immutable facts)
+- events are stored in a local **ledger** (immutable facts)
 - when a nara restarts, it requests memories from neighbors
-- opinions are **derived** from the ledger, not stored directly
-- same events + same personality = same opinions (deterministic)
+- opinions are **derived** from events, not stored directly
 
-this means the network "remembers" even if individual naras forget.
+## fashion and trends
 
-#### Event Sourcing
+naras love to follow trends! they might start a new trend or join one started by their neighbors.
 
-opinions are computed, not stored:
+- **Following the Wave**: personality determines how likely a nara is to join a trend or get bored and leave
+- **Visualizing Fashion**: on the web dashboard, trends are color-coded so you can spot which naras are vibing together
 
-```
-ledger (facts) → derivation function → opinions
+---
 
-opinion = f(events, my_soul, my_personality)
-```
-
-the derivation function is deterministic: replay the same events and you get the same opinions. but different naras with different personalities derive different opinions from the same events.
-
-### Fashion and Trends
-
-nara love to follow trends! they might start a new trend or join one started by their neighbors.
-- **Following the Wave**: a nara's personality determines how likely it is to join a trend or how quickly it might get bored and leave.
-- **Visualizing Fashion**: on the web dashboard, you can see current trends listed. each trend is color-coded, making it easy to spot which naras are currently vibing together.
-
-### Usage
+## usage
 
 - `--name`: The name for your nara. If generic or missing, a quirky name is generated from the soul.
 - `--soul`: Provide a soul string to inherit an existing identity (Base58, ~54 chars).
 - `--read-only`: Connect to the network but do not send any messages.
 - `--serve-ui`: Serve the web UI at `/`.
 
-#### Docker Compose
+### docker compose
 
 ```yaml
 services:
@@ -133,9 +139,7 @@ services:
 
 for fleets of containers with auto-generated names (no `NARA_ID`), each container gets a unique identity based on its MAC address. if you redeploy and want to keep the same identity, save and restore `NARA_SOUL`.
 
-### NixOS Module
-
-You can also use the provided NixOS module by adding it to your `imports`:
+### NixOS module
 
 ```nix
 services.nara = {

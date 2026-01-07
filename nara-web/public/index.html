@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <title>nara</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.1/moment.min.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/d3@7/dist/d3.min.js"></script>
     <style>
     body {
       font-family: Helvetica Neue;
@@ -154,6 +155,100 @@
       pointer-events: none;
       overflow: hidden;
     }
+
+    /* Network Map Styles */
+    .network-map-container {
+      margin: 20px 0;
+      padding: 15px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      border: 1px solid #e9ecef;
+    }
+
+    .network-map-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .network-map-header h3 {
+      margin: 0;
+      font-size: 16px;
+      color: #333;
+    }
+
+    .network-map-toggle {
+      padding: 6px 12px;
+      background: #667eea;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    .network-map-toggle:hover {
+      background: #5a67d8;
+    }
+
+    .network-map svg {
+      background: #1a1a2e;
+      border-radius: 6px;
+    }
+
+    .network-map .node-circle {
+      stroke: #fff;
+      stroke-width: 1.5;
+    }
+
+    .network-map .node-circle.self {
+      stroke: #ffd700;
+      stroke-width: 3;
+    }
+
+    .network-map .node-label {
+      font-size: 10px;
+      fill: #fff;
+      text-anchor: middle;
+      pointer-events: none;
+    }
+
+    .network-map .node-tooltip {
+      position: absolute;
+      padding: 8px 12px;
+      background: rgba(0, 0, 0, 0.85);
+      color: white;
+      border-radius: 4px;
+      font-size: 12px;
+      pointer-events: none;
+      white-space: nowrap;
+      z-index: 100;
+    }
+
+    .network-map-legend {
+      display: flex;
+      gap: 15px;
+      margin-top: 10px;
+      font-size: 11px;
+      color: #666;
+    }
+
+    .network-map-legend span {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+
+    .legend-dot.online { background: #48bb78; }
+    .legend-dot.offline { background: #a0aec0; }
+    .legend-dot.self { background: #ffd700; border: 2px solid #fff; }
   </style>
   </head>
   <body>

@@ -1,14 +1,101 @@
 package nara
 
 import (
+	"bytes"
 	"embed"
 	"encoding/json"
 	"fmt"
-	"github.com/sirupsen/logrus"
+	"io"
 	"io/fs"
 	"net"
 	"net/http"
+	"sync"
+	"time"
+
+	"github.com/sirupsen/logrus"
 )
+
+// High-frequency endpoints that skip logging entirely
+var silentEndpoints = map[string]bool{
+	"/ping":    true,
+	"/metrics": true,
+}
+
+// pingLogger tracks recent pings for batched logging
+type pingLoggerState struct {
+	mu      sync.Mutex
+	count   int
+	pingers []string
+}
+
+var pingLogger = &pingLoggerState{}
+
+// loggingMiddleware wraps an http.HandlerFunc with request/response logging
+func (network *Network) loggingMiddleware(path string, handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+
+		// Try to identify the caller
+		caller := r.Header.Get("X-Nara-From")
+		if caller == "" {
+			caller = r.RemoteAddr
+		}
+
+		// For POST requests, peek at the body
+		var bodySummary string
+		if r.Method == "POST" && r.Body != nil {
+			bodyBytes, _ := io.ReadAll(r.Body)
+			r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes)) // restore body
+
+			// Summarize based on endpoint
+			if path == "/events/sync" {
+				var req SyncRequest
+				if json.Unmarshal(bodyBytes, &req) == nil {
+					bodySummary = fmt.Sprintf("from=%s since=%s services=%v max=%d",
+						req.From,
+						time.Unix(req.SinceTime, 0).Format("15:04:05"),
+						req.Services,
+						req.MaxEvents)
+				}
+			} else if len(bodyBytes) > 0 && len(bodyBytes) < 200 {
+				bodySummary = string(bodyBytes)
+			} else if len(bodyBytes) >= 200 {
+				bodySummary = fmt.Sprintf("(%d bytes)", len(bodyBytes))
+			}
+		}
+
+		// Wrap response writer to capture status
+		wrapped := &responseLogger{ResponseWriter: w, status: 200}
+		handler(wrapped, r)
+
+		duration := time.Since(start)
+
+		// Skip logging for high-frequency endpoints
+		if silentEndpoints[path] {
+			return
+		}
+
+		// Log the request
+		if bodySummary != "" {
+			logrus.Debugf("📨 %s %s from %s [%s] → %d (%v)",
+				r.Method, path, caller, bodySummary, wrapped.status, duration.Round(time.Millisecond))
+		} else {
+			logrus.Debugf("📨 %s %s from %s → %d (%v)",
+				r.Method, path, caller, wrapped.status, duration.Round(time.Millisecond))
+		}
+	}
+}
+
+// responseLogger wraps ResponseWriter to capture status code
+type responseLogger struct {
+	http.ResponseWriter
+	status int
+}
+
+func (rl *responseLogger) WriteHeader(code int) {
+	rl.status = code
+	rl.ResponseWriter.WriteHeader(code)
+}
 
 //go:embed nara-web/public/*
 var staticContent embed.FS
@@ -16,7 +103,7 @@ var staticContent embed.FS
 func (network *Network) startHttpServer(httpAddr string) error {
 	listen_interface := httpAddr
 	if listen_interface == "" {
-		listen_interface = ":0"
+		listen_interface = ":8080"
 	}
 
 	listener, err := net.Listen("tcp", listen_interface)
@@ -27,20 +114,61 @@ func (network *Network) startHttpServer(httpAddr string) error {
 	port := listener.Addr().(*net.TCPAddr).Port
 	logrus.Printf("Listening for HTTP on port %d", port)
 
-	http.HandleFunc("/api.json", network.httpApiJsonHandler)
-	http.HandleFunc("/narae.json", network.httpNaraeJsonHandler)
-	http.HandleFunc("/metrics", network.httpMetricsHandler)
-	http.HandleFunc("/status/", network.httpStatusJsonHandler)
-	http.HandleFunc("/events", network.httpEventsSSEHandler)
-	http.HandleFunc("/social/clout", network.httpCloutHandler)
-	http.HandleFunc("/social/recent", network.httpRecentEventsHandler)
-	http.HandleFunc("/world/start", network.httpWorldStartHandler)
-	http.HandleFunc("/world/journeys", network.httpWorldJourneysHandler)
-	http.HandleFunc("/events/sync", network.httpEventsSyncHandler)
-	publicFS, _ := fs.Sub(staticContent, "nara-web/public")
-	http.Handle("/", http.FileServer(http.FS(publicFS)))
+	// Create a mux for handlers (so we can reuse with mesh server)
+	mux := network.createHTTPMux(true) // includeUI = true
 
-	go http.Serve(listener, nil)
+	go http.Serve(listener, mux)
+	return nil
+}
+
+// createHTTPMux creates an HTTP mux with all handlers
+// includeUI: whether to include web UI handlers (false for mesh-only server)
+func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
+	mux := http.NewServeMux()
+
+	// Mesh endpoints - available on both local and mesh servers
+	// These require Ed25519 authentication (except /ping which needs to be fast)
+	mux.HandleFunc("/events/sync", network.loggingMiddleware("/events/sync", network.meshAuthMiddleware("/events/sync", network.httpEventsSyncHandler)))
+	mux.HandleFunc("/world/relay", network.loggingMiddleware("/world/relay", network.meshAuthMiddleware("/world/relay", network.httpWorldRelayHandler)))
+	mux.HandleFunc("/ping", network.loggingMiddleware("/ping", network.httpPingHandler)) // No auth - latency critical
+	mux.HandleFunc("/coordinates", network.loggingMiddleware("/coordinates", network.httpCoordinatesHandler))
+
+	if includeUI {
+		// Web UI endpoints - only on local server
+		mux.HandleFunc("/api.json", network.loggingMiddleware("/api.json", network.httpApiJsonHandler))
+		mux.HandleFunc("/narae.json", network.loggingMiddleware("/narae.json", network.httpNaraeJsonHandler))
+		mux.HandleFunc("/metrics", network.loggingMiddleware("/metrics", network.httpMetricsHandler))
+		mux.HandleFunc("/status/", network.loggingMiddleware("/status/", network.httpStatusJsonHandler))
+		mux.HandleFunc("/events", network.loggingMiddleware("/events", network.httpEventsSSEHandler))
+		mux.HandleFunc("/social/clout", network.loggingMiddleware("/social/clout", network.httpCloutHandler))
+		mux.HandleFunc("/social/recent", network.loggingMiddleware("/social/recent", network.httpRecentEventsHandler))
+		mux.HandleFunc("/social/teases", network.loggingMiddleware("/social/teases", network.httpTeaseCountsHandler))
+		mux.HandleFunc("/world/start", network.loggingMiddleware("/world/start", network.httpWorldStartHandler))
+		mux.HandleFunc("/world/journeys", network.loggingMiddleware("/world/journeys", network.httpWorldJourneysHandler))
+		mux.HandleFunc("/network/map", network.loggingMiddleware("/network/map", network.httpNetworkMapHandler))
+		mux.HandleFunc("/proximity", network.loggingMiddleware("/proximity", network.httpProximityHandler))
+		publicFS, _ := fs.Sub(staticContent, "nara-web/public")
+		mux.Handle("/", http.FileServer(http.FS(publicFS)))
+	}
+
+	return mux
+}
+
+// startMeshHttpServer starts an HTTP server on the tsnet interface for mesh communication
+func (network *Network) startMeshHttpServer(tsnetServer interface {
+	Listen(string, string) (net.Listener, error)
+}) error {
+	listener, err := tsnetServer.Listen("tcp", fmt.Sprintf(":%d", DefaultMeshPort))
+	if err != nil {
+		return fmt.Errorf("failed to listen on tsnet: %w", err)
+	}
+
+	logrus.Printf("🕸️  Mesh HTTP server listening on port %d (Tailscale interface)", DefaultMeshPort)
+
+	// Create a mux with mesh-only endpoints (no UI)
+	mux := network.createHTTPMux(false)
+
+	go http.Serve(listener, mux)
 	return nil
 }
 
@@ -181,8 +309,8 @@ func (network *Network) httpEventsSSEHandler(w http.ResponseWriter, r *http.Requ
 // Clout scores from this nara's perspective
 func (network *Network) httpCloutHandler(w http.ResponseWriter, r *http.Request) {
 	var clout map[string]float64
-	if network.local.SocialLedger != nil {
-		clout = network.local.SocialLedger.DeriveClout(network.local.Soul)
+	if network.local.SyncLedger != nil {
+		clout = network.local.SyncLedger.DeriveClout(network.local.Soul, network.local.Me.Status.Personality)
 	} else {
 		clout = make(map[string]float64)
 	}
@@ -199,8 +327,14 @@ func (network *Network) httpCloutHandler(w http.ResponseWriter, r *http.Request)
 // Recent social events
 func (network *Network) httpRecentEventsHandler(w http.ResponseWriter, r *http.Request) {
 	var events []SocialEvent
-	if network.local.SocialLedger != nil {
-		events = network.local.SocialLedger.GetRecentEvents(5)
+	if network.local.SyncLedger != nil {
+		// Convert SyncEvents to legacy SocialEvents
+		syncEvents := network.local.SyncLedger.GetRecentSocialEvents(5)
+		for _, se := range syncEvents {
+			if legacy := se.ToSocialEvent(); legacy != nil {
+				events = append(events, *legacy)
+			}
+		}
 	}
 
 	// Convert to JSON-friendly format
@@ -218,6 +352,42 @@ func (network *Network) httpRecentEventsHandler(w http.ResponseWriter, r *http.R
 	response := map[string]interface{}{
 		"server": network.meName(),
 		"events": eventList,
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(response)
+}
+
+// Tease counts - objective count of teases per actor (no personality influence)
+func (network *Network) httpTeaseCountsHandler(w http.ResponseWriter, r *http.Request) {
+	var counts map[string]int
+	if network.local.SyncLedger != nil {
+		counts = network.local.SyncLedger.GetTeaseCounts()
+	} else {
+		counts = make(map[string]int)
+	}
+
+	// Convert to sorted list for the response
+	type teaseCount struct {
+		Actor string `json:"actor"`
+		Count int    `json:"count"`
+	}
+	var teases []teaseCount
+	for actor, count := range counts {
+		teases = append(teases, teaseCount{Actor: actor, Count: count})
+	}
+	// Sort by count descending
+	for i := 0; i < len(teases); i++ {
+		for j := i + 1; j < len(teases); j++ {
+			if teases[j].Count > teases[i].Count {
+				teases[i], teases[j] = teases[j], teases[i]
+			}
+		}
+	}
+
+	response := map[string]interface{}{
+		"server": network.meName(),
+		"teases": teases,
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -291,6 +461,39 @@ func (network *Network) httpMetricsHandler(w http.ResponseWriter, r *http.Reques
 }
 
 // World Journey HTTP handlers
+
+// POST /world/relay - Receive and forward a world journey message
+// This is the main transport for world messages between naras
+func (network *Network) httpWorldRelayHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var wm WorldMessage
+	if err := json.NewDecoder(r.Body).Decode(&wm); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if network.worldHandler == nil {
+		http.Error(w, "World journey not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	// HandleIncoming verifies signatures, adds our hop, and forwards
+	if err := network.worldHandler.HandleIncoming(&wm); err != nil {
+		logrus.Warnf("🌍 World relay failed: %v", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"from":    network.meName(),
+	})
+}
 
 // POST /world/start - Start a new world journey
 func (network *Network) httpWorldStartHandler(w http.ResponseWriter, r *http.Request) {
@@ -381,21 +584,16 @@ func (network *Network) httpWorldJourneysHandler(w http.ResponseWriter, r *http.
 
 // Mesh Event Sync HTTP handlers
 
-// POST /events/sync - Sync events via mesh
+// POST /events/sync - Sync events via mesh (unified sync backbone)
 // Used by booting naras to recover event history from neighbors
+// Supports both social events and ping observations
 func (network *Network) httpEventsSyncHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	var req struct {
-		From       string   `json:"from"`        // requesting nara
-		Subjects   []string `json:"subjects"`    // which naras to get events about (empty = all)
-		SinceTime  int64    `json:"since_time"`  // events after this timestamp (0 = all)
-		SliceIndex int      `json:"slice_index"` // for interleaved distribution
-		SliceTotal int      `json:"slice_total"` // total slices
-	}
+	var req SyncRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -415,11 +613,17 @@ func (network *Network) httpEventsSyncHandler(w http.ResponseWriter, r *http.Req
 		req.SliceIndex = 0
 	}
 
-	// Get events from our ledger
-	const maxEvents = 1000
-	var events []SocialEvent
-	if network.local.SocialLedger != nil {
-		events = network.local.SocialLedger.GetEventsSyncSlice(
+	// Default max events if not specified
+	maxEvents := req.MaxEvents
+	if maxEvents <= 0 || maxEvents > 2000 {
+		maxEvents = 2000
+	}
+
+	// Get events from unified sync ledger
+	var events []SyncEvent
+	if network.local.SyncLedger != nil {
+		events = network.local.SyncLedger.GetEventsForSync(
+			req.Services,
 			req.Subjects,
 			req.SinceTime,
 			req.SliceIndex,
@@ -430,9 +634,133 @@ func (network *Network) httpEventsSyncHandler(w http.ResponseWriter, r *http.Req
 
 	logrus.Debugf("📦 mesh sync: sent %d events to %s (slice %d/%d)", len(events), req.From, req.SliceIndex+1, req.SliceTotal)
 
+	// Create signed response
+	response := NewSignedSyncResponse(network.meName(), events, network.local.Keypair)
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(response)
+}
+
+// Network Coordinate HTTP handlers
+
+// GET /ping - Lightweight latency probe for Vivaldi coordinates
+// Returns server timestamp and nara name for RTT measurement
+func (network *Network) httpPingHandler(w http.ResponseWriter, r *http.Request) {
+	// Track who's pinging us (with mutex for concurrent safety)
+	caller := r.Header.Get("X-Nara-From")
+	if caller == "" {
+		caller = r.RemoteAddr
+	}
+
+	pingLogger.mu.Lock()
+	pingLogger.pingers = append(pingLogger.pingers, caller)
+	pingLogger.count++
+	if pingLogger.count >= 10 {
+		logrus.Infof("🏓 received 10 pings from: %v", pingLogger.pingers)
+		pingLogger.count = 0
+		pingLogger.pingers = nil
+	}
+	pingLogger.mu.Unlock()
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"from":   network.meName(),
-		"events": events,
+		"t":    time.Now().UnixNano(),
+		"from": network.meName(),
 	})
+}
+
+// GET /coordinates - This nara's Vivaldi coordinates
+func (network *Network) httpCoordinatesHandler(w http.ResponseWriter, r *http.Request) {
+	network.local.Me.mu.Lock()
+	coords := network.local.Me.Status.Coordinates
+	network.local.Me.mu.Unlock()
+
+	response := map[string]interface{}{
+		"name":        network.meName(),
+		"coordinates": coords,
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(response)
+}
+
+// GET /network/map - All known nodes with coordinates for visualization
+func (network *Network) httpNetworkMapHandler(w http.ResponseWriter, r *http.Request) {
+	network.local.mu.Lock()
+	defer network.local.mu.Unlock()
+
+	var nodes []map[string]interface{}
+
+	// Add ourselves
+	network.local.Me.mu.Lock()
+	meCoords := network.local.Me.Status.Coordinates
+	network.local.Me.mu.Unlock()
+
+	nodes = append(nodes, map[string]interface{}{
+		"name":        network.meName(),
+		"coordinates": meCoords,
+		"online":      true,
+		"is_self":     true,
+	})
+
+	// Add all neighbours
+	for name, nara := range network.Neighbourhood {
+		nara.mu.Lock()
+		coords := nara.Status.Coordinates
+		nara.mu.Unlock()
+
+		obs := nara.getObservation(name)
+
+		// Get our RTT observation to this peer
+		myObs := network.local.getObservationLocked(name)
+
+		node := map[string]interface{}{
+			"name":        name,
+			"coordinates": coords,
+			"online":      obs.Online == "ONLINE",
+			"is_self":     false,
+		}
+
+		if myObs.LastPingRTT > 0 {
+			node["rtt_to_us"] = myObs.LastPingRTT
+		}
+		if myObs.AvgPingRTT > 0 {
+			node["avg_rtt"] = myObs.AvgPingRTT
+		}
+
+		nodes = append(nodes, node)
+	}
+
+	response := map[string]interface{}{
+		"nodes":  nodes,
+		"server": network.meName(),
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(response)
+}
+
+// httpProximityHandler returns this nara's barrio information
+// Naras in the same barrio (grid cell) share the same emoji and are considered "nearby"
+func (network *Network) httpProximityHandler(w http.ResponseWriter, r *http.Request) {
+	// Get my barrio info
+	myEmoji := network.GetMyBarrioEmoji()
+
+	// Find all naras in my barrio
+	var barrioMembers []string
+	for name := range network.Neighbourhood {
+		if network.IsInMyBarrio(name) {
+			barrioMembers = append(barrioMembers, name)
+		}
+	}
+
+	response := map[string]interface{}{
+		"server":         network.meName(),
+		"barrio_emoji":   myEmoji,
+		"barrio_members": barrioMembers,
+		"grid_size":      network.calculateGridSize(),
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(response)
 }
