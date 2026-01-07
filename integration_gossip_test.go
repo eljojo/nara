@@ -24,18 +24,22 @@ func TestIntegration_GossipOnlyMode(t *testing.T) {
 		me.LastSeen = time.Now().Unix()
 		ln.setMeObservation(me)
 
-		// Add all other naras as mesh neighbors (simulate mesh connectivity)
+		naras[i] = ln
+	}
+
+	// Set up mock mesh discovery: each nara knows about the others via manual setup
+	// (In a real scenario, this would happen via discoverMeshPeers() scanning IPs,
+	// but for this test we simulate the post-discovery state)
+	for i := 0; i < 5; i++ {
 		for j := 0; j < 5; j++ {
 			if i != j {
 				neighborName := "gossip-nara-" + string(rune('a'+j))
 				neighbor := NewNara(neighborName)
 				neighbor.Status.MeshIP = "100.64.0." + string(rune('1'+j)) // Fake mesh IPs
-				ln.Network.importNara(neighbor)
-				ln.setObservation(neighborName, NaraObservation{Online: "ONLINE"})
+				naras[i].Network.importNara(neighbor)
+				naras[i].setObservation(neighborName, NaraObservation{Online: "ONLINE"})
 			}
 		}
-
-		naras[i] = ln
 	}
 
 	// Nara 0 creates a social event
@@ -312,6 +316,102 @@ func createTestZine(ln *LocalNara) *Zine {
 		CreatedAt: time.Now().Unix(),
 		Events:    recentEvents,
 	}
+}
+
+// MockPeerDiscovery returns a predefined list of peers for testing
+type MockPeerDiscovery struct {
+	peers []DiscoveredPeer
+}
+
+func (m *MockPeerDiscovery) ScanForPeers(myIP string) []DiscoveredPeer {
+	return m.peers
+}
+
+// TestIntegration_MeshDiscovery validates the discovery mechanism using a mock strategy
+// This tests the actual discoverMeshPeers() production code path:
+//  1. Strategy pattern scans for peers (mocked: returns predefined list)
+//  2. Production code adds discovered peers to neighborhood
+//  3. Production code marks them as ONLINE
+//  4. Production code stores mesh IPs
+//  5. Bootstrap is skipped in test (requires real HTTP mesh)
+func TestIntegration_MeshDiscovery(t *testing.T) {
+	logrus.SetLevel(logrus.ErrorLevel)
+
+	// Create a nara that will discover peers
+	discoverer := NewLocalNara("discovery-nara-a", "test-soul", "", "", "", 50, 1000)
+	discoverer.Network.TransportMode = TransportGossip
+
+	// Verify no neighbors initially
+	if len(discoverer.Network.NeighbourhoodOnlineNames()) != 0 {
+		t.Fatalf("Expected 0 initial neighbors, got %d", len(discoverer.Network.NeighbourhoodOnlineNames()))
+	}
+
+	// Set up mock discovery that returns 2 peers
+	// This replaces the real TailscalePeerDiscovery which would scan 100.64.0.1-254
+	mockDiscovery := &MockPeerDiscovery{
+		peers: []DiscoveredPeer{
+			{Name: "discovery-nara-b", MeshIP: "100.64.0.2"},
+			{Name: "discovery-nara-c", MeshIP: "100.64.0.3"},
+		},
+	}
+	discoverer.Network.peerDiscovery = mockDiscovery
+
+	// Mock tsnetMesh so discoverMeshPeers doesn't bail early
+	// (In real code, this would be the actual tsnet mesh)
+	// Server() returns nil, so bootstrap will be skipped
+	discoverer.Network.tsnetMesh = &TsnetMesh{}
+
+	// Run discovery - this is the ACTUAL production code path
+	// The only mock is the strategy that returns peers
+	discoverer.Network.discoverMeshPeers()
+
+	// Verify neighbors were discovered
+	neighborNames := discoverer.Network.NeighbourhoodOnlineNames()
+	if len(neighborNames) != 2 {
+		t.Errorf("Expected 2 neighbors after discovery, got %d: %v", len(neighborNames), neighborNames)
+	}
+
+	// Verify the specific naras were discovered
+	expectedNeighbors := map[string]bool{
+		"discovery-nara-b": false,
+		"discovery-nara-c": false,
+	}
+	for _, name := range neighborNames {
+		if _, ok := expectedNeighbors[name]; ok {
+			expectedNeighbors[name] = true
+		}
+	}
+	for name, found := range expectedNeighbors {
+		if !found {
+			t.Errorf("Expected to discover %s but didn't", name)
+		}
+	}
+
+	// Verify mesh IPs were stored correctly
+	meshIPb := discoverer.Network.getMeshIPForNara("discovery-nara-b")
+	if meshIPb != "100.64.0.2" {
+		t.Errorf("Expected mesh IP 100.64.0.2 for discovery-nara-b, got %s", meshIPb)
+	}
+
+	meshIPc := discoverer.Network.getMeshIPForNara("discovery-nara-c")
+	if meshIPc != "100.64.0.3" {
+		t.Errorf("Expected mesh IP 100.64.0.3 for discovery-nara-c, got %s", meshIPc)
+	}
+
+	// Verify observations were created
+	obsB := discoverer.getObservation("discovery-nara-b")
+	if obsB.Online != "ONLINE" {
+		t.Errorf("Expected discovery-nara-b to be marked ONLINE, got %s", obsB.Online)
+	}
+
+	obsC := discoverer.getObservation("discovery-nara-c")
+	if obsC.Online != "ONLINE" {
+		t.Errorf("Expected discovery-nara-c to be marked ONLINE, got %s", obsC.Online)
+	}
+
+	t.Logf("✅ Mesh discovery: successfully discovered 2 peers using strategy pattern")
+	t.Logf("   - discovery-nara-b at %s", meshIPb)
+	t.Logf("   - discovery-nara-c at %s", meshIPc)
 }
 
 // Helper: selectGossipTargets selects random mesh neighbors for gossip

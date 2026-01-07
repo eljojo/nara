@@ -68,6 +68,8 @@ type Network struct {
 	tsnetMesh       *TsnetMesh         // Used when Headscale is configured
 	// Transport mode (MQTT, Gossip, or Hybrid)
 	TransportMode TransportMode
+	// Peer discovery strategy for gossip-only mode
+	peerDiscovery PeerDiscovery
 	// Pending journey tracking for timeout detection
 	pendingJourneys      map[string]*PendingJourney
 	pendingJourneysMu    sync.RWMutex
@@ -450,6 +452,11 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 					network.local.Me.Status.MeshEnabled = true
 					network.local.Me.Status.MeshIP = tsnetMesh.IP()
 
+					// Initialize peer discovery for gossip-only mode
+					network.peerDiscovery = &TailscalePeerDiscovery{
+						client: tsnetMesh.Server().HTTPClient(),
+					}
+
 					// Start mesh HTTP server on tsnet interface (port 7433)
 					if err := network.startMeshHttpServer(tsnetMesh.Server()); err != nil {
 						logrus.Errorf("Failed to start mesh HTTP server: %v", err)
@@ -517,6 +524,10 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 	// Start gossip protocol (P2P zine exchange)
 	if !network.ReadOnly && network.TransportMode != TransportMQTT {
 		go network.gossipForever()
+		// Start mesh peer discovery for gossip-only mode
+		if network.TransportMode == TransportGossip {
+			go network.meshDiscoveryForever()
+		}
 	}
 }
 
@@ -1683,6 +1694,170 @@ func (network *Network) selectGossipTargets() []string {
 	})
 
 	return shuffled[:targetCount]
+}
+
+// PeerDiscovery is a strategy for discovering mesh peers
+// Allows testing without real network scanning
+type PeerDiscovery interface {
+	// ScanForPeers returns a list of discovered peers with their IPs
+	ScanForPeers(myIP string) []DiscoveredPeer
+}
+
+// DiscoveredPeer represents a nara found via discovery
+type DiscoveredPeer struct {
+	Name   string
+	MeshIP string
+}
+
+// TailscalePeerDiscovery scans the Tailscale mesh subnet for peers
+type TailscalePeerDiscovery struct {
+	client *http.Client
+}
+
+// ScanForPeers scans 100.64.0.1-254 for naras responding to /ping
+func (d *TailscalePeerDiscovery) ScanForPeers(myIP string) []DiscoveredPeer {
+	var peers []DiscoveredPeer
+
+	// Scan mesh subnet (100.64.0.0/10 for Tailscale)
+	for i := 1; i <= 254; i++ {
+		ip := fmt.Sprintf("100.64.0.%d", i)
+
+		// Skip our own IP
+		if ip == myIP {
+			continue
+		}
+
+		// Try to ping this IP
+		url := fmt.Sprintf("http://%s:%d/ping", ip, DefaultMeshPort)
+		resp, err := d.client.Get(url)
+		if err != nil {
+			continue // Not a nara or unreachable
+		}
+		resp.Body.Close()
+
+		if resp.StatusCode == http.StatusOK {
+			// Decode to get the nara's name
+			var pingResp map[string]interface{}
+			resp, err := d.client.Get(url)
+			if err != nil {
+				continue
+			}
+			defer resp.Body.Close()
+
+			if err := json.NewDecoder(resp.Body).Decode(&pingResp); err != nil {
+				continue
+			}
+
+			naraName, ok := pingResp["from"].(string)
+			if !ok || naraName == "" {
+				continue
+			}
+
+			peers = append(peers, DiscoveredPeer{
+				Name:   naraName,
+				MeshIP: ip,
+			})
+		}
+	}
+
+	return peers
+}
+
+// discoverMeshPeers discovers peers and bootstraps from them
+// This replaces MQTT-based discovery in gossip-only mode
+func (network *Network) discoverMeshPeers() {
+	if network.tsnetMesh == nil || network.peerDiscovery == nil {
+		return
+	}
+
+	myIP := network.tsnetMesh.IP()
+	myName := network.meName()
+
+	// Scan for peers using strategy
+	peers := network.peerDiscovery.ScanForPeers(myIP)
+
+	discovered := 0
+	var newPeers []DiscoveredPeer
+
+	for _, peer := range peers {
+		// Skip self
+		if peer.Name == myName {
+			continue
+		}
+
+		// Check if we already know this nara
+		network.local.mu.Lock()
+		_, exists := network.Neighbourhood[peer.Name]
+		network.local.mu.Unlock()
+
+		if !exists {
+			// New peer - add to neighborhood
+			nara := NewNara(peer.Name)
+			nara.Status.MeshIP = peer.MeshIP
+			nara.Status.MeshEnabled = true
+			network.importNara(nara)
+			network.local.setObservation(peer.Name, NaraObservation{Online: "ONLINE"})
+
+			newPeers = append(newPeers, peer)
+			discovered++
+			logrus.Infof("📡 Discovered mesh peer: %s at %s", peer.Name, peer.MeshIP)
+		}
+	}
+
+	if discovered > 0 {
+		logrus.Printf("📡 Mesh discovery complete: found %d new peers", discovered)
+
+		// Bootstrap from discovered peers (like boot recovery but triggered by discovery)
+		network.bootstrapFromDiscoveredPeers(newPeers)
+	}
+}
+
+// bootstrapFromDiscoveredPeers fetches initial state from newly discovered peers
+// This is the gossip-only equivalent of boot recovery
+func (network *Network) bootstrapFromDiscoveredPeers(peers []DiscoveredPeer) {
+	if len(peers) == 0 {
+		return
+	}
+
+	// Check if we have a working mesh client before attempting bootstrap
+	// (prevents crashes in tests with mock meshes)
+	if network.tsnetMesh == nil || network.tsnetMesh.Server() == nil {
+		logrus.Debug("📦 Skipping bootstrap: no mesh client available")
+		return
+	}
+
+	// Convert peers to online names for boot recovery
+	peerNames := make([]string, len(peers))
+	for i, peer := range peers {
+		peerNames[i] = peer.Name
+	}
+
+	logrus.Printf("📦 Bootstrapping from %d discovered peers...", len(peers))
+
+	// Use existing boot recovery mechanism via mesh
+	// This will fetch events, sync ledgers, and seed ping RTTs
+	network.bootRecoveryViaMesh(peerNames)
+}
+
+// meshDiscoveryForever periodically scans for new mesh peers
+// Runs in gossip-only or hybrid mode to discover peers without MQTT
+func (network *Network) meshDiscoveryForever() {
+	// Initial discovery after mesh is ready
+	time.Sleep(35 * time.Second)
+	network.discoverMeshPeers()
+
+	// Periodic re-discovery (every 5 minutes)
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-network.ctx.Done():
+			return
+		case <-ticker.C:
+			network.discoverMeshPeers()
+		}
+	}
 }
 
 // gossipForever periodically exchanges zines with random mesh neighbors

@@ -53,7 +53,7 @@ func main() {
 
 	// Credential defaults and descriptions based on --show-default-credentials
 	creds := struct {
-		mqttHost, mqttUser, mqttPass, headscaleURL, authKey string
+		mqttHost, mqttUser, mqttPass, headscaleURL, authKey                     string
 		mqttHostDesc, mqttUserDesc, mqttPassDesc, headscaleURLDesc, authKeyDesc string
 	}{
 		mqttHostDesc:     "mqtt server hostname (ex \"tls://mqtt.example.com:8883\")",
@@ -94,6 +94,7 @@ func main() {
 	authKeyPtr := flag.String("authkey", getEnv("TS_AUTHKEY", creds.authKey), creds.authKeyDesc)
 	ledgerCapacityPtr := flag.Int("ledger-capacity", getEnvInt("LEDGER_CAPACITY", 80000), "max events in sync ledger")
 	flag.Bool("show-default-credentials", false, "show credentials used by the app by default")
+	transportModePtr := flag.String("transport", getEnv("TRANSPORT_MODE", "hybrid"), "transport mode: mqtt, gossip, or hybrid (default)")
 
 	flag.Parse()
 
@@ -128,6 +129,10 @@ func main() {
 	localNara := nara.NewLocalNara(identity.Name, soulStr, *mqttHostPtr, *mqttUserPtr, *mqttPassPtr, *forceChattinessPtr, *ledgerCapacityPtr)
 	localNara.Me.Status.PublicUrl = *publicUrlPtr
 
+	// Parse transport mode
+	transportMode := parseTransportMode(*transportModePtr)
+	logrus.Infof("🚀 Transport mode: %s", transportModeString(transportMode))
+
 	// Log identity status
 	if !identity.IsValidBond {
 		logrus.Warn("⚠️  Inauthentic: soul does not match name")
@@ -151,7 +156,7 @@ func main() {
 		logrus.Info("🕸️  Mesh disabled")
 	}
 
-	localNara.Start(*serveUiPtr, *readOnlyPtr, *httpAddrPtr, meshConfig)
+	localNara.Start(*serveUiPtr, *readOnlyPtr, *httpAddrPtr, meshConfig, transportMode)
 	if *showNeighboursPtr {
 		go localNara.PrintNeigbourhoodForever(*showNeighboursSpeedPtr)
 	}
@@ -195,4 +200,31 @@ func hasArg(name string) bool {
 		}
 	}
 	return false
+}
+
+func parseTransportMode(mode string) nara.TransportMode {
+	switch strings.ToLower(mode) {
+	case "mqtt":
+		return nara.TransportMQTT
+	case "gossip":
+		return nara.TransportGossip
+	case "hybrid":
+		return nara.TransportHybrid
+	default:
+		logrus.Warnf("Unknown transport mode '%s', defaulting to hybrid", mode)
+		return nara.TransportHybrid
+	}
+}
+
+func transportModeString(mode nara.TransportMode) string {
+	switch mode {
+	case nara.TransportMQTT:
+		return "mqtt"
+	case nara.TransportGossip:
+		return "gossip"
+	case nara.TransportHybrid:
+		return "hybrid"
+	default:
+		return "unknown"
+	}
 }

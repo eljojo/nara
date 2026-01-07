@@ -133,6 +133,35 @@ The transport layer automatically picks up events from SyncLedger and spreads th
 
 It's like some people use Twitter (MQTT - broadcast to all), some use Mastodon (gossip - federated P2P), and some use both - but they all see the same posts (SyncEvents).
 
+### Mesh Discovery (Gossip-Only Mode)
+
+In gossip-only mode (no MQTT), naras discover each other by scanning the mesh network:
+
+```
+Every 5 minutes:
+  1. Scan mesh subnet (100.64.0.1-254)
+  2. Try GET /ping on each IP
+  3. If successful, decode {"from": "nara-name", "t": timestamp}
+  4. Add discovered nara to neighborhood with mesh IP
+  5. Mark as ONLINE in observations
+```
+
+**Why IP scanning?**
+- No dependency on MQTT for discovery
+- Works in pure P2P networks
+- Automatically finds new naras joining the mesh
+- Minimal overhead (1 scan per 5 minutes)
+
+**Discovery flow:**
+1. Nara A boots in gossip-only mode
+2. After 35 seconds, runs initial mesh scan
+3. Discovers naras B, C, D via /ping responses
+4. Adds them to neighborhood with mesh IPs
+5. Starts gossiping zines with discovered neighbors
+6. Periodic re-scans every 5 minutes to find new peers
+
+**Note:** In hybrid mode, MQTT handles discovery and gossip is used only for event distribution. Discovery scans only run in pure gossip mode.
+
 ## Sync Protocol
 
 ### Boot Recovery (Getting Up to Speed)
