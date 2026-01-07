@@ -318,6 +318,12 @@ func (network *Network) onWorldJourneyPassThrough(wm *WorldMessage) {
 }
 
 func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetConfig) {
+	if useObservationEvents() {
+		logrus.Printf("📊 Observation events mode: ENABLED")
+	} else {
+		logrus.Printf("📊 Observation events mode: disabled (legacy newspaper-based)")
+	}
+
 	if serveUI {
 		err := network.startHttpServer(httpAddr)
 		if err != nil {
