@@ -1097,6 +1097,9 @@ func (network *Network) bootRecoveryViaMesh(online []string) {
 	}
 
 	logrus.Printf("📦 boot recovery via mesh complete: merged %d events total", totalMerged)
+
+	// Seed AvgPingRTT from recovered ping observations
+	network.seedAvgPingRTTFromHistory()
 }
 
 // fetchSyncEventsFromMesh fetches unified SyncEvents with signature verification
@@ -1226,6 +1229,54 @@ func (network *Network) RequestLedgerSync(neighbor string, subjects []string) {
 
 	topic := fmt.Sprintf("nara/ledger/%s/request", neighbor)
 	network.postEvent(topic, req)
+}
+
+// seedAvgPingRTTFromHistory initializes AvgPingRTT from historical ping observations
+// Called after boot recovery to seed exponential moving average with recovered data
+func (network *Network) seedAvgPingRTTFromHistory() {
+	if network.local.SyncLedger == nil {
+		return
+	}
+
+	// Get all ping observations from the ledger
+	allPings := network.local.SyncLedger.GetPingObservations()
+
+	// Group pings by target to seed our observations
+	// We use ALL pings (from any observer) to get initial RTT estimates
+	// This means we learn from the network: if B→C has 50ms RTT, we seed our C observation with that
+	myName := network.meName()
+	pingsByTarget := make(map[string][]float64)
+
+	for _, ping := range allPings {
+		// Skip pings TO us (we care about targets we might ping, not pings to us)
+		if ping.Target != myName {
+			pingsByTarget[ping.Target] = append(pingsByTarget[ping.Target], ping.RTT)
+		}
+	}
+
+	// Seed AvgPingRTT for each target
+	seededCount := 0
+	for target, rtts := range pingsByTarget {
+		obs := network.local.getObservation(target)
+
+		// Only seed if AvgPingRTT is not already set (0 means uninitialized)
+		if obs.AvgPingRTT == 0 && len(rtts) > 0 {
+			// Calculate simple average from historical pings
+			sum := 0.0
+			for _, rtt := range rtts {
+				sum += rtt
+			}
+			avg := sum / float64(len(rtts))
+
+			obs.AvgPingRTT = avg
+			network.local.setObservation(target, obs)
+			seededCount++
+		}
+	}
+
+	if seededCount > 0 {
+		logrus.Printf("📍 Seeded AvgPingRTT for %d targets from historical ping observations", seededCount)
+	}
 }
 
 // backfillObservations migrates existing observations to observation events
@@ -1378,6 +1429,7 @@ func (network *Network) performBackgroundSyncViaMesh(neighbor, ip string) {
 	// Filter for observation events from last 24h and merge with personality filtering
 	cutoff := time.Now().Add(-24 * time.Hour).Unix()
 	added := 0
+	hasPingEvents := false
 	for _, event := range events {
 		// Only process observation events from last 24h
 		if event.Service == ServiceObservation && event.Timestamp >= cutoff {
@@ -1386,11 +1438,23 @@ func (network *Network) performBackgroundSyncViaMesh(neighbor, ip string) {
 				added++
 			}
 		}
+		// Also check for ping events (no time filtering, they're always useful)
+		if event.Service == ServicePing {
+			if network.local.SyncLedger.AddEvent(event) {
+				added++
+				hasPingEvents = true
+			}
+		}
 	}
 
 	if added > 0 {
-		logrus.Debugf("🔄 Background sync: received %d observation events from %s (%d added)",
+		logrus.Debugf("🔄 Background sync: received %d events from %s (%d added)",
 			len(events), neighbor, added)
+
+		// If we received ping events, update AvgPingRTT from history
+		if hasPingEvents {
+			network.seedAvgPingRTTFromHistory()
+		}
 	}
 }
 

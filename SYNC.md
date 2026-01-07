@@ -175,6 +175,16 @@ This keeps the ping data diverse across the network:
 - 100 naras = max ~50,000 ping entries
 - 5000 naras = bounded by ledger max (50k events) and time-based pruning
 
+### AvgPingRTT Seeding from Historical Data
+
+When a nara restarts or receives ping observations from neighbors, it **seeds its exponential moving average (AvgPingRTT)** from historical ping data:
+
+1. **On boot recovery:** After syncing events from neighbors, calculate average RTT from recovered ping observations
+2. **During background sync:** When receiving ping events from neighbors, recalculate averages for targets with uninitialized AvgPingRTT
+3. **Only if uninitialized:** Seeding only happens when `AvgPingRTT == 0` (never overwrites existing values)
+
+This provides **immediate RTT estimates** without waiting for new pings, improving Vivaldi coordinate accuracy and proximity-based routing from the moment a nara comes online.
+
 ## Anti-Abuse Mechanisms
 
 The observation event system includes four layers of protection against malicious or misconfigured naras:

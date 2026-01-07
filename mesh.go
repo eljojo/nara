@@ -361,7 +361,7 @@ func (t *TsnetMesh) Close() error {
 // Uses HTTP GET to the /ping endpoint and returns the round-trip time
 // Note: TCP handshake time is included, which is correct for Vivaldi coordinates
 // (the handshake itself measures one network RTT)
-func (t *TsnetMesh) Ping(targetIP string, timeout time.Duration) (time.Duration, error) {
+func (t *TsnetMesh) Ping(targetIP string, from string, timeout time.Duration) (time.Duration, error) {
 	t.mu.Lock()
 	if t.closed {
 		t.mu.Unlock()
@@ -380,8 +380,15 @@ func (t *TsnetMesh) Ping(targetIP string, timeout time.Duration) (time.Duration,
 	// Build the ping URL (using mesh IP and mesh port)
 	url := fmt.Sprintf("http://%s:%d/ping", targetIP, DefaultMeshPort)
 
+	// Create request with X-Nara-From header
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create ping request: %w", err)
+	}
+	req.Header.Set("X-Nara-From", from)
+
 	start := time.Now()
-	resp, err := client.Get(url)
+	resp, err := client.Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("ping failed: %w", err)
 	}
