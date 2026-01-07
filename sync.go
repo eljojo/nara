@@ -329,17 +329,6 @@ func (l *SyncLedger) AddSocialEventFilteredLegacy(se SocialEvent, personality Na
 	return l.AddSocialEventFiltered(SyncEventFromSocialEvent(se), personality)
 }
 
-// MergeSocialEvents adds legacy SocialEvents from another source (for boot recovery/gossip)
-func (l *SyncLedger) MergeSocialEvents(events []SocialEvent) int {
-	added := 0
-	for _, se := range events {
-		if l.AddSocialEvent(se) {
-			added++
-		}
-	}
-	return added
-}
-
 // MergeSocialEventsFiltered adds legacy SocialEvents with personality filtering
 func (l *SyncLedger) MergeSocialEventsFiltered(events []SocialEvent, personality NaraPersonality) int {
 	added := 0
@@ -383,67 +372,6 @@ func (l *SyncLedger) AddPingObservation(observer, target string, rtt float64) bo
 // MaxPingsPerPair limits how many ping observations to keep per observer→target pair
 // This prevents the ledger from being saturated with stale ping data while keeping useful history
 const MaxPingsPerPair = 5
-
-// AddPingObservationWithReplace adds a ping observation, keeping only the last N per pair
-// This ensures diversity: keeps recent history but prevents unbounded growth
-func (l *SyncLedger) AddPingObservationWithReplace(observer, target string, rtt float64) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	// Count existing pings for this pair and collect them with indices
-	var existingPings []struct {
-		idx int
-		ts  int64
-		id  string
-	}
-	for i, e := range l.Events {
-		if e.Service == ServicePing && e.Ping != nil &&
-			e.Ping.Observer == observer && e.Ping.Target == target {
-			existingPings = append(existingPings, struct {
-				idx int
-				ts  int64
-				id  string
-			}{i, e.Timestamp, e.ID})
-		}
-	}
-
-	// If at or over limit, remove the oldest one(s)
-	if len(existingPings) >= MaxPingsPerPair {
-		// Find the oldest ping to remove
-		oldestIdx := 0
-		oldestTs := existingPings[0].ts
-		for i, p := range existingPings {
-			if p.ts < oldestTs {
-				oldestTs = p.ts
-				oldestIdx = i
-			}
-		}
-
-		// Remove the oldest ping
-		toRemove := existingPings[oldestIdx]
-		newEvents := make([]SyncEvent, 0, len(l.Events)-1)
-		for i, e := range l.Events {
-			if i != toRemove.idx {
-				newEvents = append(newEvents, e)
-			}
-		}
-		l.Events = newEvents
-		delete(l.eventIDs, toRemove.id)
-	}
-
-	// Now add the new ping
-	newEvent := NewPingSyncEvent(observer, target, rtt)
-	if !newEvent.IsValid() {
-		return false
-	}
-	if l.eventIDs[newEvent.ID] {
-		return false // shouldn't happen, but safety check
-	}
-
-	l.Events = append(l.Events, newEvent)
-	l.eventIDs[newEvent.ID] = true
-	return true
-}
 
 // AddSignedPingObservation adds a signed ping observation
 func (l *SyncLedger) AddSignedPingObservation(observer, target string, rtt float64, emitter string, keypair NaraKeypair) bool {
@@ -533,20 +461,6 @@ func (l *SyncLedger) GetEventsByService(service string) []SyncEvent {
 	for _, e := range l.Events {
 		if e.Service == service {
 			result = append(result, e)
-		}
-	}
-	return result
-}
-
-// GetSocialEvents returns all social events (converted to legacy format)
-func (l *SyncLedger) GetSocialEvents() []SocialEvent {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-
-	var result []SocialEvent
-	for _, e := range l.Events {
-		if se := e.ToSocialEvent(); se != nil {
-			result = append(result, *se)
 		}
 	}
 	return result

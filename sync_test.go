@@ -286,61 +286,6 @@ func TestSyncLedger_MaxEventsLimit(t *testing.T) {
 	}
 }
 
-// --- Ping Diversity ---
-
-func TestSyncLedger_PingDiversity_KeepsRecentHistory(t *testing.T) {
-	ledger := NewSyncLedger(1000)
-
-	// Add several pings A→B - should keep up to MaxPingsPerPair
-	for i := 0; i < MaxPingsPerPair; i++ {
-		if !ledger.AddPingObservationWithReplace("alice", "bob", float64(10+i)) {
-			t.Errorf("expected ping %d to be added", i)
-		}
-	}
-
-	// Should have exactly MaxPingsPerPair pings
-	pings := ledger.GetPingsBetween("alice", "bob")
-	if len(pings) != MaxPingsPerPair {
-		t.Errorf("expected %d pings between alice→bob, got %d", MaxPingsPerPair, len(pings))
-	}
-
-	// Add one more - should evict the oldest
-	ledger.AddPingObservationWithReplace("alice", "bob", 99.0)
-
-	pings = ledger.GetPingsBetween("alice", "bob")
-	if len(pings) != MaxPingsPerPair {
-		t.Errorf("expected still %d pings after overflow, got %d", MaxPingsPerPair, len(pings))
-	}
-
-	// The oldest (RTT=10.0) should have been evicted
-	for _, p := range pings {
-		if p.RTT == 10.0 {
-			t.Error("oldest ping (RTT=10.0) should have been evicted")
-		}
-	}
-
-	// The newest (RTT=99.0) should be present
-	found := false
-	for _, p := range pings {
-		if p.RTT == 99.0 {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Error("newest ping (RTT=99.0) should be present")
-	}
-
-	// Add ping B→A (different direction) - should be separate
-	ledger.AddPingObservationWithReplace("bob", "alice", 15.0)
-
-	// Should have MaxPingsPerPair + 1 total pings now
-	allPings := ledger.GetPingsBetween("alice", "bob")
-	if len(allPings) != MaxPingsPerPair+1 {
-		t.Errorf("expected %d pings (both directions), got %d", MaxPingsPerPair+1, len(allPings))
-	}
-}
-
 // --- Signed Responses ---
 
 func TestSyncResponse_Signing(t *testing.T) {

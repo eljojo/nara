@@ -1133,51 +1133,6 @@ func (network *Network) fetchSyncEventsFromMesh(client *http.Client, meshIP, nam
 	return response.Events, verified
 }
 
-// fetchEventsFromMesh fetches social events from a neighbor via mesh HTTP (legacy)
-func (network *Network) fetchEventsFromMesh(client *http.Client, meshIP, name string, subjects []string, sliceIndex, sliceTotal int) []SocialEvent {
-	// Build request
-	reqBody := map[string]interface{}{
-		"from":        network.meName(),
-		"subjects":    subjects,
-		"since_time":  0, // get all events
-		"slice_index": sliceIndex,
-		"slice_total": sliceTotal,
-	}
-
-	jsonBody, err := json.Marshal(reqBody)
-	if err != nil {
-		logrus.Warnf("📦 failed to marshal mesh sync request: %v", err)
-		return nil
-	}
-
-	// Make HTTP request to neighbor's mesh endpoint
-	// TODO: Make port configurable or discoverable
-	url := fmt.Sprintf("http://%s:%d/events/sync", meshIP, DefaultMeshPort)
-	resp, err := client.Post(url, "application/json", bytes.NewReader(jsonBody))
-	if err != nil {
-		logrus.Warnf("📦 mesh sync from %s failed: %v", name, err)
-		return nil
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		logrus.Warnf("📦 mesh sync from %s returned status %d", name, resp.StatusCode)
-		return nil
-	}
-
-	// Parse response
-	var response struct {
-		From   string        `json:"from"`
-		Events []SocialEvent `json:"events"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		logrus.Warnf("📦 failed to decode mesh sync response from %s: %v", name, err)
-		return nil
-	}
-
-	return response.Events
-}
-
 // bootRecoveryViaMQTT uses MQTT ledger requests to sync events (fallback)
 func (network *Network) bootRecoveryViaMQTT(online []string) {
 	// Get all known subjects (naras)
