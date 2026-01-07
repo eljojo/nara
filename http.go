@@ -677,7 +677,7 @@ func (network *Network) httpEventsSyncHandler(w http.ResponseWriter, r *http.Req
 		)
 	}
 
-	logrus.Debugf("📦 mesh sync: sent %d events to %s (slice %d/%d)", len(events), req.From, req.SliceIndex+1, req.SliceTotal)
+	logrus.Printf("📤 mesh sync to %s: sent %d events (slice %d/%d)", req.From, len(events), req.SliceIndex+1, req.SliceTotal)
 
 	// Create signed response
 	response := NewSignedSyncResponse(network.meName(), events, network.local.Keypair)

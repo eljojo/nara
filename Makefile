@@ -18,12 +18,12 @@ test:
 # Run nara with web UI on port 8080
 run: build
 	@echo "Starting nara on :8080..."
-	@./bin/nara -serve-ui -http-addr :8080
+	@./bin/nara -serve-ui -http-addr :8080 -verbose
 
 # Run second instance with nara-id nixos on port 8081
 run2: build
 	@echo "Starting nara (nixos) on :8081..."
-	@./bin/nara -serve-ui -http-addr :8081 -nara-id nixos
+	@./bin/nara -serve-ui -http-addr :8081 -nara-id nixos -verbose
 
 # Clean build artifacts
 clean:

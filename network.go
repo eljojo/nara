@@ -1128,6 +1128,7 @@ func (network *Network) fetchSyncEventsFromMesh(client *http.Client, meshIP, nam
 
 	// Make HTTP request to neighbor's mesh endpoint
 	url := fmt.Sprintf("http://%s:%d/events/sync", meshIP, DefaultMeshPort)
+	logrus.Debugf("🌐 HTTP POST %s (requesting %d events from %s)", url, maxEvents, name)
 	req, err := http.NewRequest("POST", url, bytes.NewReader(jsonBody))
 	if err != nil {
 		logrus.Warnf("📦 failed to create mesh sync request: %v", err)
@@ -1431,6 +1432,8 @@ func (network *Network) performBackgroundSync() {
 // Boot recovery (bootRecoveryViaMesh) syncs ALL events without filtering.
 // This background sync maintains eventual consistency for recent events.
 func (network *Network) performBackgroundSyncViaMesh(neighbor, ip string) {
+	logrus.Debugf("🔄 background sync: requesting events from %s (%s)", neighbor, ip)
+
 	// Use existing fetchSyncEventsFromMesh method with lightweight parameters
 	client := &http.Client{Timeout: 10 * time.Second}
 
@@ -1485,13 +1488,14 @@ func (network *Network) performBackgroundSyncViaMesh(neighbor, ip string) {
 	}
 
 	if added > 0 {
-		logrus.Debugf("🔄 Background sync: received %d events from %s (%d added)",
-			len(events), neighbor, added)
+		logrus.Printf("🔄 background sync from %s: received %d events, merged %d", neighbor, len(events), added)
 
 		// If we received ping events, update AvgPingRTT from history
 		if hasPingEvents {
 			network.seedAvgPingRTTFromHistory()
 		}
+	} else if len(events) > 0 {
+		logrus.Debugf("🔄 background sync from %s: received %d events (all duplicates)", neighbor, len(events))
 	}
 }
 
@@ -1510,8 +1514,19 @@ func (network *Network) socialMaintenance() {
 			network.local.SyncLedger.Prune()
 			afterCount := network.local.SyncLedger.EventCount()
 
+			// Log event store stats
+			serviceCounts := network.local.SyncLedger.GetEventCountsByService()
+			var statsStr string
+			for service, count := range serviceCounts {
+				if statsStr != "" {
+					statsStr += ", "
+				}
+				statsStr += fmt.Sprintf("%s=%d", service, count)
+			}
 			if beforeCount != afterCount {
-				logrus.Printf("🗑️  pruned %d old events (now: %d)", beforeCount-afterCount, afterCount)
+				logrus.Printf("📊 event store: %d events (%s) - pruned %d", afterCount, statsStr, beforeCount-afterCount)
+			} else {
+				logrus.Printf("📊 event store: %d events (%s)", afterCount, statsStr)
 			}
 
 			// Cleanup rate limiter to prevent unbounded map growth
