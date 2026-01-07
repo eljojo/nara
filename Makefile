@@ -1,4 +1,4 @@
-.PHONY: all build test run run2 clean
+.PHONY: all build test run run2 clean build-nix
 
 # Default target: build and test
 all: build test
@@ -30,3 +30,9 @@ clean:
 	@echo "Cleaning build artifacts..."
 	@rm -rf bin/
 	@echo "✓ Cleaned"
+
+# Build using Nix
+build-nix:
+	@echo "Building nara using Nix..."
+	@nix build .#nara
+	@echo "✓ Built nara using Nix"
