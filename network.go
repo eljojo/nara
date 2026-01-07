@@ -56,9 +56,11 @@ type PendingJourney struct {
 
 // JourneyCompletion is the lightweight MQTT signal for journey completion
 type JourneyCompletion struct {
-	JourneyID  string `json:"journey_id"`
-	Originator string `json:"originator"`
-	ReportedBy string `json:"reported_by"`
+	JourneyID  string     `json:"journey_id"`
+	Originator string     `json:"originator"`
+	ReportedBy string     `json:"reported_by"`
+	Message    string     `json:"message,omitempty"`
+	Hops       []WorldHop `json:"hops,omitempty"` // The attestation log
 }
 
 type NewspaperEvent struct {
@@ -229,12 +231,22 @@ func (network *Network) onWorldJourneyComplete(wm *WorldMessage) {
 			JourneyID:  wm.ID,
 			Originator: wm.Originator,
 			ReportedBy: network.meName(),
+			Message:    wm.OriginalMessage,
+			Hops:       wm.Hops,
 		}
 		network.postEvent("nara/plaza/journey_complete", completion)
 	}
 
-	logrus.Printf("World journey complete! %s: %s", wm.Originator, wm.OriginalMessage)
-	logrus.Printf("observation: journey %s completed! (from %s)", wm.ID[:8], wm.Originator)
+	// Log journey completion with attestation chain
+	logrus.Infof("🌍 Journey complete! %s: \"%s\" (%d hops)", wm.Originator, wm.OriginalMessage, len(wm.Hops))
+	for i, hop := range wm.Hops {
+		sig := hop.Signature
+		if len(sig) > 12 {
+			sig = sig[:12] + "..."
+		}
+		t := time.Unix(hop.Timestamp, 0).Format("15:04:05")
+		logrus.Infof("🌍   %d. %s%s @ %s (sig: %s)", i+1, hop.Nara, hop.Stamp, t, sig)
+	}
 	network.Buzz.increase(10)
 }
 
@@ -330,11 +342,6 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 	// Start boot recovery after a short delay to gather neighbors
 	if !network.ReadOnly {
 		go network.bootRecovery()
-	}
-
-	// Start continuous mesh sync for event propagation
-	if !network.ReadOnly {
-		go network.continuousMeshSync()
 	}
 
 	// Start garbage collection maintenance
@@ -823,10 +830,10 @@ func (network *Network) checkAndTease(name string, previousState string, previou
 	}
 
 	// Random teasing (very low probability, boosted for nearby naras)
-	// You notice and interact more with those in your proximity group
+	// You notice and interact more with those in your barrio
 	proximityBoost := 1.0
-	if network.IsInMyProximityGroup(name, ProximityGroupSize) {
-		proximityBoost = 3.0 // 3x more likely to notice nearby naras
+	if network.IsInMyBarrio(name) {
+		proximityBoost = 3.0 // 3x more likely to notice naras in same barrio
 	}
 	if ShouldRandomTeaseWithBoost(network.local.Soul, name, time.Now().Unix(), personality, proximityBoost) {
 		network.Tease(name, ReasonRandom)
@@ -1143,100 +1150,6 @@ func (network *Network) RequestLedgerSync(neighbor string, subjects []string) {
 	network.postEvent(topic, req)
 }
 
-// continuousMeshSync periodically syncs recent events with mesh neighbors
-// This ensures events propagate through the network even after boot recovery
-func (network *Network) continuousMeshSync() {
-	// Wait for boot recovery to complete first
-	time.Sleep(2 * time.Minute)
-
-	// Sync interval: 30-45 seconds (randomized to avoid thundering herd)
-	baseTicker := time.NewTicker(30 * time.Second)
-	defer baseTicker.Stop()
-
-	client := &http.Client{Timeout: 15 * time.Second}
-
-	for range baseTicker.C {
-		if network.tsnetMesh == nil {
-			continue // Only sync via mesh
-		}
-
-		// Get online mesh neighbors
-		online := network.NeighbourhoodNames()
-		var meshNeighbors []struct {
-			name string
-			ip   string
-		}
-
-		for _, name := range online {
-			ip := network.getMeshIPForNara(name)
-			if ip != "" {
-				meshNeighbors = append(meshNeighbors, struct {
-					name string
-					ip   string
-				}{name, ip})
-			}
-		}
-
-		if len(meshNeighbors) == 0 {
-			continue
-		}
-
-		// Pick ONE random neighbor for this sync
-		neighbor := meshNeighbors[time.Now().UnixNano()%int64(len(meshNeighbors))]
-
-		// Request events from last 5 minutes only
-		sinceTime := time.Now().Add(-5 * time.Minute).Unix()
-
-		// Build request
-		reqBody := SyncRequest{
-			From:       network.meName(),
-			SinceTime:  sinceTime,
-			SliceIndex: 0,
-			SliceTotal: 1,
-			MaxEvents:  500, // Limit for incremental sync
-		}
-
-		jsonBody, err := json.Marshal(reqBody)
-		if err != nil {
-			continue
-		}
-
-		url := fmt.Sprintf("http://%s:7433/events/sync", neighbor.ip)
-		resp, err := client.Post(url, "application/json", bytes.NewReader(jsonBody))
-		if err != nil {
-			continue
-		}
-
-		var response SyncResponse
-		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-			resp.Body.Close()
-			continue
-		}
-		resp.Body.Close()
-
-		if len(response.Events) > 0 {
-			// Verify signature if present
-			verified := false
-			if response.Signature != "" {
-				if nara := network.Neighbourhood[neighbor.name]; nara != nil && nara.Status.PublicKey != "" {
-					if pubKey, err := ParsePublicKey(nara.Status.PublicKey); err == nil {
-						verified = response.VerifySignature(pubKey)
-					}
-				}
-			}
-
-			added := network.local.SyncLedger.MergeEvents(response.Events)
-			if added > 0 {
-				verifiedStr := ""
-				if verified {
-					verifiedStr = " ✓"
-				}
-				logrus.Debugf("🔄 continuous sync from %s: +%d events%s", neighbor.name, added, verifiedStr)
-			}
-		}
-	}
-}
-
 // socialMaintenance periodically cleans up social data
 func (network *Network) socialMaintenance() {
 	// Run every 5 minutes
@@ -1290,7 +1203,20 @@ func (network *Network) handleJourneyCompletion(completion JourneyCompletion) {
 		network.local.SocialLedger.AddEvent(event)
 	}
 
-	logrus.Printf("observation: journey %s completed! (from %s, reported by %s)", completion.JourneyID[:8], pending.Originator, completion.ReportedBy)
+	// Log with attestation chain if available
+	if len(completion.Hops) > 0 {
+		logrus.Infof("🌍 Heard journey complete! %s: \"%s\" (%d hops, reported by %s)", pending.Originator, completion.Message, len(completion.Hops), completion.ReportedBy)
+		for i, hop := range completion.Hops {
+			sig := hop.Signature
+			if len(sig) > 12 {
+				sig = sig[:12] + "..."
+			}
+			t := time.Unix(hop.Timestamp, 0).Format("15:04:05")
+			logrus.Infof("🌍   %d. %s%s @ %s (sig: %s)", i+1, hop.Nara, hop.Stamp, t, sig)
+		}
+	} else {
+		logrus.Printf("observation: journey %s completed! (from %s, reported by %s)", completion.JourneyID[:8], pending.Originator, completion.ReportedBy)
+	}
 }
 
 // journeyTimeoutMaintenance checks for journeys that have timed out
