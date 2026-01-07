@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -22,6 +23,7 @@ var silentEndpoints = map[string]bool{
 
 // pingLogger tracks recent pings for batched logging
 type pingLoggerState struct {
+	mu      sync.Mutex
 	count   int
 	pingers []string
 }
@@ -101,7 +103,7 @@ var staticContent embed.FS
 func (network *Network) startHttpServer(httpAddr string) error {
 	listen_interface := httpAddr
 	if listen_interface == "" {
-		listen_interface = ":0"
+		listen_interface = ":8080"
 	}
 
 	listener, err := net.Listen("tcp", listen_interface)
@@ -533,20 +535,21 @@ func (network *Network) httpEventsSyncHandler(w http.ResponseWriter, r *http.Req
 // GET /ping - Lightweight latency probe for Vivaldi coordinates
 // Returns server timestamp and nara name for RTT measurement
 func (network *Network) httpPingHandler(w http.ResponseWriter, r *http.Request) {
-	// Track who's pinging us
+	// Track who's pinging us (with mutex for concurrent safety)
 	caller := r.Header.Get("X-Nara-From")
 	if caller == "" {
 		caller = r.RemoteAddr
 	}
+
+	pingLogger.mu.Lock()
 	pingLogger.pingers = append(pingLogger.pingers, caller)
 	pingLogger.count++
-
-	// Log every 10 pings
 	if pingLogger.count >= 10 {
 		logrus.Infof("🏓 received 10 pings from: %v", pingLogger.pingers)
 		pingLogger.count = 0
 		pingLogger.pingers = nil
 	}
+	pingLogger.mu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(map[string]interface{}{

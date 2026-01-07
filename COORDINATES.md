@@ -10,11 +10,13 @@ Each nara maintains a position in virtual 2D space plus a "height" component:
 
 ```
 NetworkCoordinate {
-    X, Y    float64  // Position in 2D space
-    Height  float64  // Handles asymmetric latency (non-Euclidean reality)
+    X, Y    float64  // Position in 2D space (units: milliseconds)
+    Height  float64  // Handles asymmetric latency (units: milliseconds)
     Error   float64  // Confidence (lower = more certain of position)
 }
 ```
+
+**Units**: Coordinates are in **milliseconds** (RTT space). The distance between two points represents predicted round-trip time. For example, if nara A is at (0, 0) and nara B is at (50, 0), the predicted RTT is ~50ms.
 
 The **predicted latency** between two naras is:
 ```

@@ -131,7 +131,7 @@ func (e *SyncEvent) GetTarget() string {
 // NewSocialSyncEvent creates a SyncEvent from social event data
 func NewSocialSyncEvent(eventType, actor, target, reason, witness string) SyncEvent {
 	e := SyncEvent{
-		Timestamp: time.Now().Unix(),
+		Timestamp: time.Now().UnixNano(),
 		Service:   ServiceSocial,
 		Social: &SocialEventPayload{
 			Type:    eventType,
@@ -148,7 +148,7 @@ func NewSocialSyncEvent(eventType, actor, target, reason, witness string) SyncEv
 // NewPingSyncEvent creates a SyncEvent from a ping observation
 func NewPingSyncEvent(observer, target string, rtt float64) SyncEvent {
 	e := SyncEvent{
-		Timestamp: time.Now().Unix(),
+		Timestamp: time.Now().UnixNano(),
 		Service:   ServicePing,
 		Ping: &PingObservation{
 			Observer: observer,
@@ -235,6 +235,19 @@ func (l *SyncLedger) AddEvent(e SyncEvent) bool {
 
 	l.Events = append(l.Events, e)
 	l.eventIDs[e.ID] = true
+
+	// Prune if over MaxEvents (drop oldest 10%)
+	if l.MaxEvents > 0 && len(l.Events) > l.MaxEvents {
+		dropCount := l.MaxEvents / 10
+		if dropCount < 1 {
+			dropCount = 1
+		}
+		// Delete IDs of dropped events
+		for i := 0; i < dropCount; i++ {
+			delete(l.eventIDs, l.Events[i].ID)
+		}
+		l.Events = l.Events[dropCount:]
+	}
 
 	return true
 }

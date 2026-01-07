@@ -136,9 +136,9 @@ func (network *Network) getGridBasedCluster(name string, gridSize float64) int {
 		return -1
 	}
 
-	// Round coordinates to grid cell
-	cellX := int64(math.Round(coords.X / gridSize))
-	cellY := int64(math.Round(coords.Y / gridSize))
+	// Floor coordinates to grid cell (more stable than Round at boundaries)
+	cellX := int64(math.Floor(coords.X / gridSize))
+	cellY := int64(math.Floor(coords.Y / gridSize))
 
 	// Hash the grid cell position to get a cluster index
 	return gridCellToClusterIndex(cellX, cellY)

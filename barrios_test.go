@@ -153,24 +153,24 @@ func TestGridBasedBarrios_SameCellSameCluster(t *testing.T) {
 	network := ln.Network
 
 	// Give ourselves coordinates clearly in a cell
-	// With default grid size of 50, coordinates 40-60 should all round to cell (1,1)
+	// With default grid size of 50 and Floor, all coords in [50,100) map to cell (1,1)
 	ln.Me.Status.Coordinates = NewNetworkCoordinate()
-	ln.Me.Status.Coordinates.X = 50 // Cell center
-	ln.Me.Status.Coordinates.Y = 50
+	ln.Me.Status.Coordinates.X = 60
+	ln.Me.Status.Coordinates.Y = 60
 	ln.Me.Status.Coordinates.Error = 0.1
 
-	// Create two naras in the same grid cell (all within same cell boundaries)
+	// Create two naras in the same grid cell (all within [50,100) range)
 	alice := NewNara("alice")
 	alice.Status.Coordinates = NewNetworkCoordinate()
-	alice.Status.Coordinates.X = 55 // Same cell as me
-	alice.Status.Coordinates.Y = 45
+	alice.Status.Coordinates.X = 70 // Same cell as me: Floor(70/50) = 1
+	alice.Status.Coordinates.Y = 80 // Floor(80/50) = 1
 	alice.Status.Coordinates.Error = 0.1
 	network.Neighbourhood["alice"] = alice
 
 	bob := NewNara("bob")
 	bob.Status.Coordinates = NewNetworkCoordinate()
-	bob.Status.Coordinates.X = 45 // Also same cell
-	bob.Status.Coordinates.Y = 55
+	bob.Status.Coordinates.X = 90 // Also same cell: Floor(90/50) = 1
+	bob.Status.Coordinates.Y = 65 // Floor(65/50) = 1
 	bob.Status.Coordinates.Error = 0.1
 	network.Neighbourhood["bob"] = bob
 
@@ -354,9 +354,10 @@ func TestIsInMyBarrio_MixedRollout(t *testing.T) {
 	network := ln.Network
 
 	// I have coordinates (new nara)
+	// With Floor and grid size 50, coords in [50,100) map to cell (1,1)
 	ln.Me.Status.Coordinates = NewNetworkCoordinate()
-	ln.Me.Status.Coordinates.X = 50
-	ln.Me.Status.Coordinates.Y = 50
+	ln.Me.Status.Coordinates.X = 60
+	ln.Me.Status.Coordinates.Y = 60
 	ln.Me.Status.Coordinates.Error = 0.1
 
 	// Old nara without coordinates
@@ -367,8 +368,8 @@ func TestIsInMyBarrio_MixedRollout(t *testing.T) {
 	// New nara with coordinates in same cell as me
 	newNara := NewNara("new-nara")
 	newNara.Status.Coordinates = NewNetworkCoordinate()
-	newNara.Status.Coordinates.X = 55
-	newNara.Status.Coordinates.Y = 45
+	newNara.Status.Coordinates.X = 75 // Same cell: Floor(75/50) = 1
+	newNara.Status.Coordinates.Y = 85 // Floor(85/50) = 1
 	newNara.Status.Coordinates.Error = 0.1
 	network.Neighbourhood["new-nara"] = newNara
 

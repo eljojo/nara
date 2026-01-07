@@ -191,7 +191,7 @@ type TsnetConfig struct {
 	ControlURL string // Headscale server URL (e.g., https://vpn.nara.network)
 	AuthKey    string // Pre-auth key for automatic registration
 	StateDir   string // Directory for temp files like sockets (uses /tmp, no state written)
-	Port       int    // Port to listen on for world messages (default: 7433)
+	Port       int    // Port to listen on for world messages (default: DefaultMeshPort)
 }
 
 // NewTsnetMesh creates a new tsnet-based mesh transport
@@ -211,7 +211,7 @@ func NewTsnetMesh(config TsnetConfig) (*TsnetMesh, error) {
 
 	// Default port
 	if config.Port == 0 {
-		config.Port = 7433 // NARA on phone keypad :)
+		config.Port = DefaultMeshPort
 	}
 
 	// Create temp directory (needed for unix sockets, etc.)
@@ -402,8 +402,8 @@ func (t *TsnetMesh) Ping(targetIP string, timeout time.Duration) (time.Duration,
 	client := t.server.HTTPClient()
 	client.Timeout = timeout
 
-	// Build the ping URL (using mesh IP directly, port 80 for HTTP)
-	url := fmt.Sprintf("http://%s/ping", targetIP)
+	// Build the ping URL (using mesh IP and mesh port)
+	url := fmt.Sprintf("http://%s:%d/ping", targetIP, DefaultMeshPort)
 
 	start := time.Now()
 	resp, err := client.Get(url)

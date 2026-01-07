@@ -1016,7 +1016,7 @@ func (network *Network) fetchSyncEventsFromMesh(client *http.Client, meshIP, nam
 	}
 
 	// Make HTTP request to neighbor's mesh endpoint
-	url := fmt.Sprintf("http://%s:7433/events/sync", meshIP)
+	url := fmt.Sprintf("http://%s:%d/events/sync", meshIP, DefaultMeshPort)
 	resp, err := client.Post(url, "application/json", bytes.NewReader(jsonBody))
 	if err != nil {
 		logrus.Warnf("📦 mesh sync from %s failed: %v", name, err)
@@ -1074,7 +1074,7 @@ func (network *Network) fetchEventsFromMesh(client *http.Client, meshIP, name st
 
 	// Make HTTP request to neighbor's mesh endpoint
 	// TODO: Make port configurable or discoverable
-	url := fmt.Sprintf("http://%s:7433/events/sync", meshIP) // TODO: use port from mesh.go
+	url := fmt.Sprintf("http://%s:%d/events/sync", meshIP, DefaultMeshPort)
 	resp, err := client.Post(url, "application/json", bytes.NewReader(jsonBody))
 	if err != nil {
 		logrus.Warnf("📦 mesh sync from %s failed: %v", name, err)

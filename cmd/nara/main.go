@@ -3,17 +3,17 @@ package main
 import (
 	"crypto/tls"
 	"flag"
+	"math/rand"
+	"net/http"
+	"os"
+	"runtime"
+	"strings"
+	"time"
+
 	"github.com/bugsnag/bugsnag-go"
 	"github.com/eljojo/nara"
 	"github.com/shirou/gopsutil/v3/host"
 	"github.com/sirupsen/logrus"
-	"math/rand"
-	"net/http"
-	"os"
-	"strings"
-	"time"
-
-	"runtime"
 )
 
 // ------------------------------------------------------------------
