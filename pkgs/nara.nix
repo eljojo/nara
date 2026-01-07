@@ -4,7 +4,7 @@ buildGoModule {
   pname = "nara";
   version = "latest";
   src = lib.cleanSource ../.;
-  vendorHash = "sha256-7YZH1gGKKXqlU6Wu+9vHayyzjdWEmRxXA4yjPYbQGhA=";
+  vendorHash = "sha256-MP9LZzBNPyw7erqEwccYsuMJkIMRU5cMGaX4fX3tHSQ=";
   subPackages = [ "cmd/nara" ];
 
   meta = with lib; {
