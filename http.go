@@ -400,6 +400,7 @@ func (network *Network) httpMetricsHandler(w http.ResponseWriter, r *http.Reques
 
 	var lines []string
 
+	// Per-nara metrics
 	lines = append(lines, "# HELP nara_info Basic string data from each Nara")
 	lines = append(lines, "# TYPE nara_info gauge")
 	lines = append(lines, "# HELP nara_online 1 if the Nara is ONLINE, else 0")
@@ -418,6 +419,8 @@ func (network *Network) httpMetricsHandler(w http.ResponseWriter, r *http.Reques
 	lines = append(lines, "# TYPE nara_uptime_seconds gauge")
 	lines = append(lines, "# HELP nara_restarts_total Restart count from the Nara")
 	lines = append(lines, "# TYPE nara_restarts_total counter")
+	lines = append(lines, "# HELP nara_personality Personality traits (0-100 scale)")
+	lines = append(lines, "# TYPE nara_personality gauge")
 
 	allNarae := network.getNarae()
 
@@ -429,6 +432,7 @@ func (network *Network) httpMetricsHandler(w http.ResponseWriter, r *http.Reques
 		buzz := nara.Status.Buzz
 		chattiness := nara.Status.Chattiness
 		uptime := nara.Status.HostStats.Uptime
+		personality := nara.Status.Personality
 		nara.mu.Unlock()
 
 		onlineValue := 0
@@ -452,7 +456,48 @@ func (network *Network) httpMetricsHandler(w http.ResponseWriter, r *http.Reques
 			lines = append(lines, fmt.Sprintf(`nara_uptime_seconds{name="%s"} %d`, nara.Name, uptime))
 		}
 		lines = append(lines, fmt.Sprintf(`nara_restarts_total{name="%s"} %d`, nara.Name, obs.Restarts))
+
+		// Personality traits
+		lines = append(lines, fmt.Sprintf(`nara_personality{name="%s",trait="chill"} %d`, nara.Name, personality.Chill))
+		lines = append(lines, fmt.Sprintf(`nara_personality{name="%s",trait="sociability"} %d`, nara.Name, personality.Sociability))
+		lines = append(lines, fmt.Sprintf(`nara_personality{name="%s",trait="agreeableness"} %d`, nara.Name, personality.Agreeableness))
 	}
+
+	// Sync ledger metrics (this server only)
+	if network.local.SyncLedger != nil {
+		lines = append(lines, "# HELP nara_events_total Total events in the sync ledger by service type")
+		lines = append(lines, "# TYPE nara_events_total gauge")
+
+		eventCounts := network.local.SyncLedger.GetEventCountsByService()
+		for service, count := range eventCounts {
+			lines = append(lines, fmt.Sprintf(`nara_events_total{service="%s"} %d`, service, count))
+		}
+
+		// Tease metrics
+		lines = append(lines, "# HELP nara_teases_given_total Teases given by each nara")
+		lines = append(lines, "# TYPE nara_teases_given_total counter")
+		lines = append(lines, "# HELP nara_teases_received_total Teases received by each nara")
+		lines = append(lines, "# TYPE nara_teases_received_total counter")
+
+		teasesGiven := network.local.SyncLedger.GetTeaseCounts()
+		for actor, count := range teasesGiven {
+			lines = append(lines, fmt.Sprintf(`nara_teases_given_total{name="%s"} %d`, actor, count))
+		}
+
+		teasesReceived := network.local.SyncLedger.GetTeaseCountsReceived()
+		for target, count := range teasesReceived {
+			lines = append(lines, fmt.Sprintf(`nara_teases_received_total{name="%s"} %d`, target, count))
+		}
+	}
+
+	// World journey metrics
+	lines = append(lines, "# HELP nara_journeys_completed_total Total completed world journeys")
+	lines = append(lines, "# TYPE nara_journeys_completed_total counter")
+
+	network.worldJourneysMu.RLock()
+	journeyCount := len(network.worldJourneys)
+	network.worldJourneysMu.RUnlock()
+	lines = append(lines, fmt.Sprintf(`nara_journeys_completed_total %d`, journeyCount))
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	for _, line := range lines {

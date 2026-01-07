@@ -1,6 +1,7 @@
 package nara
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -166,14 +167,10 @@ func TestTeaseMessage_Templates(t *testing.T) {
 			t.Errorf("No message template for reason '%s'", reason)
 		}
 		// Most messages should mention target (except random and some nice-number ones)
-		if reason != ReasonRandom && reason != ReasonNiceNumber && !containsSubstring(msg, "bob") {
+		if reason != ReasonRandom && reason != ReasonNiceNumber && !strings.Contains(msg, "bob") {
 			t.Errorf("Message for '%s' should mention target", reason)
 		}
 	}
-}
-
-func containsSubstring(s, substr string) bool {
-	return len(s) > 0 && len(substr) > 0 && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || containsSubstring(s[1:], substr)))
 }
 
 func TestTeaseCooldown(t *testing.T) {

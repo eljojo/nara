@@ -93,30 +93,53 @@ func TestConsensusEvents_UptimeWeighting(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	subject := "nara-target"
 
-	// NOTE: Uptime weighting is calculated from observer's actual uptime during consensus
-	// For this test, we'll just verify that consensus works with conflicting reports
-	// In production, observers with higher uptime (longer running) get more weight
-
-	// Observer A reports StartTime=1000
-	event1 := NewRestartObservationEvent("observer-a", subject, 1000, 5)
+	// Two observers with LOW uptime report StartTime=1000
+	// Total uptime for cluster 1000: 100 + 100 = 200
+	event1 := NewRestartObservationEventWithUptime("observer-a", subject, 1000, 5, 100)
+	event2 := NewRestartObservationEventWithUptime("observer-b", subject, 1000, 5, 100)
 	ledger.AddEvent(event1)
+	ledger.AddEvent(event2)
 
-	// Two other observers report StartTime=1001
-	for i := 0; i < 2; i++ {
-		observer := "observer-" + string(rune('b'+i))
-		event := NewRestartObservationEvent(observer, subject, 1001, 5)
-		ledger.AddEvent(event)
-	}
+	// One observer with HIGH uptime reports StartTime=2000 (different cluster)
+	// Total uptime for cluster 2000: 10000
+	event3 := NewRestartObservationEventWithUptime("observer-elder", subject, 2000, 5, 10000)
+	ledger.AddEvent(event3)
 
-	// Consensus should pick based on majority or weighted algorithm
+	// Even though 2 observers say 1000 vs 1 saying 2000,
+	// the high-uptime elder observer should win due to uptime weighting
+	// (Cluster with 2+ observers wins via Strategy 1, but they're in same cluster)
+	// Actually, 1000 and 2000 are in DIFFERENT clusters (diff > 60s tolerance)
+	// So this tests Strategy 2: single-observer clusters ranked by uptime
 	opinion := ledger.DeriveOpinionFromEvents(subject)
 
-	// Either outcome is acceptable depending on weighting
-	if opinion.StartTime != 1000 && opinion.StartTime != 1001 {
-		t.Errorf("Expected StartTime to be 1000 or 1001 (weighted consensus), got %d", opinion.StartTime)
+	// Cluster [1000, 1000] has 2 observers with total uptime 200
+	// Cluster [2000] has 1 observer with uptime 10000
+	// Strategy 1 (2+ observers) should pick cluster 1000
+	if opinion.StartTime != 1000 {
+		t.Errorf("Expected StartTime=1000 (cluster with 2 agreeing observers), got %d", opinion.StartTime)
 	}
+}
 
-	t.Logf("Weighted consensus result: StartTime=%d", opinion.StartTime)
+// Test consensus uptime weighting when no cluster has 2+ observers
+func TestConsensusEvents_UptimeWeighting_SingleObserverClusters(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+	subject := "nara-target"
+
+	// Three observers each report different times (all in separate clusters)
+	// The elder with highest uptime should win
+	event1 := NewRestartObservationEventWithUptime("observer-young", subject, 1000, 5, 100)
+	event2 := NewRestartObservationEventWithUptime("observer-middle", subject, 2000, 5, 500)
+	event3 := NewRestartObservationEventWithUptime("observer-elder", subject, 3000, 5, 10000)
+	ledger.AddEvent(event1)
+	ledger.AddEvent(event2)
+	ledger.AddEvent(event3)
+
+	// With no cluster having 2+ observers, Strategy 2 picks highest uptime
+	opinion := ledger.DeriveOpinionFromEvents(subject)
+
+	if opinion.StartTime != 3000 {
+		t.Errorf("Expected StartTime=3000 (highest uptime observer), got %d", opinion.StartTime)
+	}
 }
 
 // Test consensus with time tolerance clustering (±60s)

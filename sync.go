@@ -126,6 +126,9 @@ type ObservationEventPayload struct {
 	LastRestart int64  `json:"last_restart,omitempty"` // Unix timestamp in SECONDS of most recent restart
 	OnlineState string `json:"online_state,omitempty"` // "ONLINE", "OFFLINE", "MISSING" (for status-change)
 	ClusterName string `json:"cluster_name,omitempty"` // Current cluster/barrio
+
+	// Observer metadata for consensus weighting
+	ObserverUptime uint64 `json:"observer_uptime,omitempty"` // Observer's uptime in seconds (for consensus weighting)
 }
 
 // ContentString returns canonical string for hashing/signing
@@ -334,6 +337,27 @@ func NewRestartObservationEvent(observer, subject string, startTime, restartNum 
 			StartTime:   startTime,
 			RestartNum:  restartNum,
 			LastRestart: time.Now().Unix(),
+		},
+	}
+	e.ComputeID()
+	return e
+}
+
+// NewRestartObservationEventWithUptime creates a restart observation with explicit observer uptime
+// Used for uptime-weighted consensus where longer-running observers get more weight
+func NewRestartObservationEventWithUptime(observer, subject string, startTime, restartNum int64, observerUptime uint64) SyncEvent {
+	e := SyncEvent{
+		Timestamp: time.Now().UnixNano(),
+		Service:   ServiceObservation,
+		Observation: &ObservationEventPayload{
+			Observer:       observer,
+			Subject:        subject,
+			Type:           "restart",
+			Importance:     ImportanceCritical,
+			StartTime:      startTime,
+			RestartNum:     restartNum,
+			LastRestart:    time.Now().Unix(),
+			ObserverUptime: observerUptime,
 		},
 	}
 	e.ComputeID()
@@ -963,11 +987,16 @@ func (l *SyncLedger) DeriveOpinionFromEvents(subject string) OpinionData {
 
 		// Only use restart and first-seen events for consensus
 		if e.Observation.Type == "restart" || e.Observation.Type == "first-seen" {
+			// Use observer's uptime for weighting (default to 1 if not set)
+			uptime := e.Observation.ObserverUptime
+			if uptime == 0 {
+				uptime = 1
+			}
 			obs := consensusObservation{
 				startTime:   e.Observation.StartTime,
 				restartNum:  e.Observation.RestartNum,
 				lastRestart: e.Observation.LastRestart,
-				uptime:      1, // TODO: Could use observer's uptime for weighting
+				uptime:      uptime,
 			}
 			observations = append(observations, obs)
 		}
@@ -1702,6 +1731,32 @@ func (l *SyncLedger) GetTeaseCounts() map[string]int {
 		if e.Service == ServiceSocial && e.Social != nil && e.Social.Type == "tease" {
 			counts[e.Social.Actor]++
 		}
+	}
+	return counts
+}
+
+// GetTeaseCountsReceived returns count of teases received per target
+func (l *SyncLedger) GetTeaseCountsReceived() map[string]int {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	counts := make(map[string]int)
+	for _, e := range l.Events {
+		if e.Service == ServiceSocial && e.Social != nil && e.Social.Type == "tease" {
+			counts[e.Social.Target]++
+		}
+	}
+	return counts
+}
+
+// GetEventCountsByService returns event counts grouped by service type
+func (l *SyncLedger) GetEventCountsByService() map[string]int {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	counts := make(map[string]int)
+	for _, e := range l.Events {
+		counts[e.Service]++
 	}
 	return counts
 }

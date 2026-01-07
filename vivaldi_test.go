@@ -283,24 +283,6 @@ func TestDefaultVivaldiConfig(t *testing.T) {
 	}
 }
 
-// Tests for ping target selection
-
-func TestSelectPingTargets_PrioritizesNew(t *testing.T) {
-	// This will test the priority selection logic once implemented
-	// New naras (never pinged) should be prioritized
-	t.Skip("Implement after selectPingTargets is written")
-}
-
-func TestSelectPingTargets_RespectsMaxBudget(t *testing.T) {
-	// Even with many online naras, should only return up to budget
-	t.Skip("Implement after selectPingTargets is written")
-}
-
-func TestSelectPingTargets_PrioritizesHighError(t *testing.T) {
-	// Naras with uncertain positions should be prioritized
-	t.Skip("Implement after selectPingTargets is written")
-}
-
 func TestApplyProximityToClout(t *testing.T) {
 	// Test that proximity weighting works correctly
 	myCoords := &NetworkCoordinate{X: 0, Y: 0, Height: 0.01, Error: 0.1}
