@@ -1,17 +1,14 @@
 package main
 
 import (
-	"crypto/tls"
 	"flag"
 	"fmt"
 	"math/rand"
-	"net/http"
 	"os"
 	"runtime"
 	"strings"
 	"time"
 
-	"github.com/bugsnag/bugsnag-go"
 	"github.com/eljojo/nara"
 	"github.com/shirou/gopsutil/v3/host"
 	"github.com/sirupsen/logrus"
@@ -50,14 +47,6 @@ func deobfuscate(enc []byte) string {
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
-
-	bugsnag.Configure(bugsnag.Configuration{
-		APIKey:          "0bd8e595fccf5f1befe9151c3a32ea61",
-		ProjectPackages: []string{"main"},
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
-	})
 
 	mqttHostPtr := flag.String("mqtt-host", getEnv("MQTT_HOST", "tls://mqtt.nara.network:8883"), "mqtt server hostname")
 	mqttUserPtr := flag.String("mqtt-user", getEnv("MQTT_USER", deobfuscate(defaultUserEnc)), "mqtt server username")
