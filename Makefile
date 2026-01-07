@@ -1,0 +1,32 @@
+.PHONY: all build test run run2 clean
+
+# Default target: build and test
+all: build test
+
+# Build the nara binary
+build:
+	@echo "Building nara..."
+	@mkdir -p bin
+	@go build -mod=mod -o bin/nara cmd/nara/main.go
+	@echo "✓ Built bin/nara"
+
+# Run tests
+test:
+	@echo "Running tests..."
+	@go test -v ./...
+
+# Run nara with web UI on port 8080
+run: build
+	@echo "Starting nara on :8080..."
+	@./bin/nara -serve-ui -http-addr :8080
+
+# Run second instance with nara-id nixos on port 8081
+run2: build
+	@echo "Starting nara (nixos) on :8081..."
+	@./bin/nara -serve-ui -http-addr :8081 -nara-id nixos
+
+# Clean build artifacts
+clean:
+	@echo "Cleaning build artifacts..."
+	@rm -rf bin/
+	@echo "✓ Cleaned"
