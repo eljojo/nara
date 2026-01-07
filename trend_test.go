@@ -105,3 +105,133 @@ func TestTrendVersionCompatibility(t *testing.T) {
 		t.Errorf("expected modern nara to join legacy trend, got '%s'", ln.Me.Status.Trend)
 	}
 }
+
+func TestUndergroundTrend_ContrarianStartsWhenMainstreamDominates(t *testing.T) {
+	ln := NewLocalNara("rebel", "rebel-soul", "host", "user", "pass", -1)
+	ln.Me.Status.Personality.Agreeableness = 0   // maximum contrarian
+	ln.Me.Status.Personality.Sociability = 100   // high base chance
+	network := ln.Network
+
+	// Create a dominant mainstream trend (80% of network)
+	for i := 0; i < 8; i++ {
+		follower := NewNara("sheep" + string(rune('a'+i)))
+		follower.Status.Trend = "mainstream-style"
+		follower.Status.TrendEmoji = "🐑"
+		follower.Status.Version = NaraVersion
+		network.importNara(follower)
+		network.local.setObservation(follower.Name, NaraObservation{Online: "ONLINE"})
+	}
+
+	// Add 2 trendless naras (20% without trend)
+	for i := 0; i < 2; i++ {
+		bystander := NewNara("bystander" + string(rune('a'+i)))
+		bystander.Status.Version = NaraVersion
+		network.importNara(bystander)
+		network.local.setObservation(bystander.Name, NaraObservation{Online: "ONLINE"})
+	}
+
+	// With 80% mainstream and 0 agreeableness (100 contrarian), rebel should start underground
+	// Run multiple times since it's probabilistic
+	startedUnderground := false
+	for i := 0; i < 50; i++ {
+		ln.Me.Status.Trend = "" // reset
+		network.considerJoiningTrend()
+		if ln.Me.Status.Trend != "" && ln.Me.Status.Trend != "mainstream-style" {
+			startedUnderground = true
+			break
+		}
+	}
+
+	if !startedUnderground {
+		t.Errorf("expected contrarian to start underground trend against 80%% mainstream")
+	}
+}
+
+func TestTrendCreation_ScalesDownWithMoreTrends(t *testing.T) {
+	// Test that having more trends reduces the chance of starting new ones
+	// We test this by comparing behavior with 0 trends vs 3 trends
+
+	// Scenario 1: No trends exist - high sociability nara should start one easily
+	ln1 := NewLocalNara("pioneer", "pioneer-soul", "host", "user", "pass", -1)
+	ln1.Me.Status.Personality.Sociability = 100 // 10% base chance
+	network1 := ln1.Network
+
+	startsWithNoTrends := 0
+	for i := 0; i < 100; i++ {
+		ln1.Me.Status.Trend = ""
+		network1.considerJoiningTrend()
+		if ln1.Me.Status.Trend != "" {
+			startsWithNoTrends++
+		}
+	}
+
+	// Scenario 2: 3 trends exist - should be much harder to start a 4th
+	ln2 := NewLocalNara("latecomer", "latecomer-soul", "host", "user", "pass", -1)
+	ln2.Me.Status.Personality.Sociability = 100
+	ln2.Me.Status.Personality.Agreeableness = 0 // won't join existing trends
+	network2 := ln2.Network
+
+	// Add 3 existing trends with followers
+	trends := []string{"alpha-style", "beta-style", "gamma-style"}
+	for i, trend := range trends {
+		follower := NewNara("trendy" + string(rune('a'+i)))
+		follower.Status.Trend = trend
+		follower.Status.TrendEmoji = "✨"
+		follower.Status.Version = NaraVersion
+		network2.importNara(follower)
+		network2.local.setObservation(follower.Name, NaraObservation{Online: "ONLINE"})
+	}
+
+	startsWithThreeTrends := 0
+	for i := 0; i < 100; i++ {
+		ln2.Me.Status.Trend = ""
+		network2.considerJoiningTrend()
+		// Check if started a NEW trend (not joined existing)
+		if ln2.Me.Status.Trend != "" && ln2.Me.Status.Trend != "alpha-style" &&
+			ln2.Me.Status.Trend != "beta-style" && ln2.Me.Status.Trend != "gamma-style" {
+			startsWithThreeTrends++
+		}
+	}
+
+	// With 3 existing trends, chance should be ~1/4 of base chance
+	// So startsWithThreeTrends should be significantly less than startsWithNoTrends
+	if startsWithThreeTrends >= startsWithNoTrends/2 {
+		t.Errorf("expected fewer new trends when 3 already exist: got %d with 3 trends vs %d with 0 trends",
+			startsWithThreeTrends, startsWithNoTrends)
+	}
+}
+
+func TestTrendCreation_HighAgreeablenessJoinsInsteadOfStarting(t *testing.T) {
+	ln := NewLocalNara("agreeable", "agreeable-soul", "host", "user", "pass", -1)
+	ln.Me.Status.Personality.Agreeableness = 100 // very agreeable, will join not rebel
+	ln.Me.Status.Personality.Sociability = 100   // high sociability
+	network := ln.Network
+
+	// Create a dominant trend
+	for i := 0; i < 5; i++ {
+		follower := NewNara("member" + string(rune('a'+i)))
+		follower.Status.Trend = "popular-style"
+		follower.Status.TrendEmoji = "💫"
+		follower.Status.Version = NaraVersion
+		network.importNara(follower)
+		network.local.setObservation(follower.Name, NaraObservation{Online: "ONLINE"})
+	}
+
+	// Agreeable nara should join the existing trend, not start underground
+	joinedExisting := 0
+	startedNew := 0
+	for i := 0; i < 50; i++ {
+		ln.Me.Status.Trend = ""
+		network.considerJoiningTrend()
+		if ln.Me.Status.Trend == "popular-style" {
+			joinedExisting++
+		} else if ln.Me.Status.Trend != "" {
+			startedNew++
+		}
+	}
+
+	if startedNew > joinedExisting {
+		t.Errorf("expected agreeable nara to join existing trend more than starting new: joined=%d, started=%d",
+			joinedExisting, startedNew)
+	}
+}

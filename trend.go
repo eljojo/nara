@@ -49,32 +49,20 @@ func (network *Network) maintenanceStep() {
 
 func (network *Network) considerJoiningTrend() {
 	trends := make(map[string]int)
+	onlineCount := 0
 	network.local.mu.Lock()
 	for name, nara := range network.Neighbourhood {
 		if !network.local.getObservationLocked(name).isOnline() {
 			continue
 		}
+		onlineCount++
 		if nara.Status.Trend != "" {
 			trends[nara.Status.Trend]++
 		}
 	}
 	network.local.mu.Unlock()
 
-	if len(trends) == 0 {
-		// maybe start one?
-		if rand.Intn(100) < network.local.Me.Status.Personality.Sociability/10 {
-			newTrend := fmt.Sprintf("%s-style", network.meName())
-			emoji := TrendEmojis[rand.Intn(len(TrendEmojis))]
-
-			network.local.Me.Status.Trend = newTrend
-			network.local.Me.Status.TrendEmoji = emoji
-
-			logrus.Printf("✨ %s started a new trend: %s", network.meName(), newTrend)
-			network.Buzz.increase(5)
-		}
-		return
-	}
-
+	// Try to join an existing trend first
 	for trendName, count := range trends {
 		// find the emoji for this trend from someone who has it
 		emoji := "🕶️"
@@ -94,6 +82,59 @@ func (network *Network) considerJoiningTrend() {
 			network.Buzz.increase(3)
 			return
 		}
+	}
+
+	// Didn't join anything - maybe start something new?
+	network.considerStartingTrend(trends, onlineCount)
+}
+
+func (network *Network) considerStartingTrend(trends map[string]int, onlineCount int) {
+	numTrends := len(trends)
+	personality := network.local.Me.Status.Personality
+
+	// Base chance to start a trend (sociability-driven)
+	baseChance := personality.Sociability / 10
+
+	// The more trends exist, the less likely to start a new one
+	// Divide by (1 + numTrends) so: 0 trends = full chance, 1 trend = half, 2 = third, etc.
+	chance := baseChance / (1 + numTrends)
+
+	// Contrarian boost: if there's a dominant mainstream trend, rebels might start underground
+	if numTrends > 0 && onlineCount > 0 {
+		// Find the most popular trend
+		maxFollowers := 0
+		for _, count := range trends {
+			if count > maxFollowers {
+				maxFollowers = count
+			}
+		}
+
+		// How mainstream is the top trend? (percentage of online naras)
+		mainstreamPct := (maxFollowers * 100) / onlineCount
+
+		// If something is too mainstream (>50%), contrarians get restless
+		if mainstreamPct > 50 {
+			// Contrarian factor: low agreeableness = more likely to rebel
+			contrarian := 100 - personality.Agreeableness
+			// Boost chance based on how mainstream things are and how contrarian we are
+			rebellionBoost := (contrarian * (mainstreamPct - 50)) / 100
+			chance += rebellionBoost / (1 + numTrends) // Still reduced by existing trend count
+		}
+	}
+
+	if rand.Intn(100) < chance {
+		newTrend := fmt.Sprintf("%s-style", network.meName())
+		emoji := TrendEmojis[rand.Intn(len(TrendEmojis))]
+
+		network.local.Me.Status.Trend = newTrend
+		network.local.Me.Status.TrendEmoji = emoji
+
+		if numTrends == 0 {
+			logrus.Printf("✨ %s started a new trend: %s", network.meName(), newTrend)
+		} else {
+			logrus.Printf("🎸 %s started an underground trend: %s", network.meName(), newTrend)
+		}
+		network.Buzz.increase(5)
 	}
 }
 
