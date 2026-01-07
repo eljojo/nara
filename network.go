@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -388,6 +390,10 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 	// Start boot recovery after a short delay to gather neighbors
 	if !network.ReadOnly {
 		go network.bootRecovery()
+		// Run backfill after boot recovery completes
+		go network.backfillObservations()
+		// Start background sync for organic memory strengthening
+		go network.backgroundSync()
 	}
 
 	// Start garbage collection maintenance
@@ -404,18 +410,41 @@ func (network *Network) meName() string {
 	return network.local.Me.Name
 }
 
+// useObservationEvents returns true if event-driven observation mode is enabled
+func useObservationEvents() bool {
+	return os.Getenv("USE_OBSERVATION_EVENTS") == "true"
+}
+
 func (network *Network) announce() {
 	if network.ReadOnly {
 		return
 	}
 	topic := fmt.Sprintf("%s/%s", "nara/newspaper", network.meName())
 	network.recordObservationOnlineNara(network.meName())
-	network.postEvent(topic, network.local.Me.Status)
+
+	// In event-primary mode, broadcast slim newspapers without Observations
+	if useObservationEvents() {
+		// Create a copy of status without the Observations map
+		slimStatus := network.local.Me.Status
+		slimStatus.Observations = nil
+		network.postEvent(topic, slimStatus)
+		logrus.Debugf("📰 Slim newspaper broadcast (event-primary mode)")
+	} else {
+		// Traditional mode: include full observations
+		network.postEvent(topic, network.local.Me.Status)
+	}
 }
 
 func (network *Network) announceForever() {
 	for {
-		ts := network.local.chattinessRate(5, 55)
+		var ts int64
+		if useObservationEvents() {
+			// Event-primary mode: newspapers are lightweight heartbeats (30-300s)
+			ts = network.local.chattinessRate(30, 300)
+		} else {
+			// Traditional mode: newspapers contain observations (5-55s)
+			ts = network.local.chattinessRate(5, 55)
+		}
 		// logrus.Debugf("time between announces = %d", ts)
 		time.Sleep(time.Duration(ts) * time.Second)
 
@@ -1181,6 +1210,162 @@ func (network *Network) RequestLedgerSync(neighbor string, subjects []string) {
 
 	topic := fmt.Sprintf("nara/ledger/%s/request", neighbor)
 	network.postEvent(topic, req)
+}
+
+// backfillObservations migrates existing observations to observation events
+// This enables smooth transition from newspaper-based consensus to event-based
+func (network *Network) backfillObservations() {
+	// Wait for boot recovery to complete and gather some observations
+	time.Sleep(3 * time.Minute)
+
+	myName := network.meName()
+	backfillCount := 0
+
+	network.local.mu.Lock()
+	observations := make(map[string]NaraObservation)
+	for name, obs := range network.local.Me.Status.Observations {
+		observations[name] = obs
+	}
+	network.local.mu.Unlock()
+
+	logrus.Printf("📦 Checking if backfill needed for %d observations...", len(observations))
+
+	for naraName, obs := range observations {
+		if naraName == myName {
+			continue // Skip self
+		}
+
+		// Check if we already have observation events for this nara
+		existingEvents := network.local.SyncLedger.GetObservationEventsAbout(naraName)
+		if len(existingEvents) > 0 {
+			// Already have event-based data, skip backfill
+			continue
+		}
+
+		// No events exist, but we have newspaper-based knowledge
+		// Create backfill event if data is meaningful
+		if obs.StartTime > 0 && obs.Restarts >= 0 {
+			event := NewBackfillObservationEvent(
+				myName,
+				naraName,
+				obs.StartTime,
+				obs.Restarts,
+				obs.LastRestart,
+			)
+
+			// Add with full anti-abuse protections
+			added := network.local.SyncLedger.AddEventWithDedup(event)
+			if added {
+				backfillCount++
+				logrus.Debugf("📦 Backfilled observation for %s (start:%d, restarts:%d)",
+					naraName, obs.StartTime, obs.Restarts)
+			}
+		}
+	}
+
+	if backfillCount > 0 {
+		logrus.Printf("📦 Backfilled %d historical observations into event system", backfillCount)
+	} else {
+		logrus.Printf("📦 No backfill needed (events already present or no meaningful data)")
+	}
+}
+
+// backgroundSync performs lightweight periodic syncing to strengthen collective memory
+// Runs every ~30 minutes (±5min jitter) to catch up on missed critical events
+func (network *Network) backgroundSync() {
+	// Initial random delay (0-5 minutes) to spread startup load
+	initialDelay := time.Duration(rand.Intn(5)) * time.Minute
+	time.Sleep(initialDelay)
+
+	// Main sync loop: every 30 minutes ±5min jitter
+	for {
+		baseInterval := 30 * time.Minute
+		jitter := time.Duration(rand.Intn(10)-5) * time.Minute // -5 to +5 minutes
+		interval := baseInterval + jitter
+
+		time.Sleep(interval)
+
+		network.performBackgroundSync()
+	}
+}
+
+// performBackgroundSync executes a single background sync cycle
+func (network *Network) performBackgroundSync() {
+	// Get online neighbors
+	online := network.NeighbourhoodOnlineNames()
+	if len(online) == 0 {
+		logrus.Debug("🔄 Background sync: no neighbors online")
+		return
+	}
+
+	// Pick 1-2 random neighbors to query
+	numNeighbors := 1
+	if len(online) > 1 && rand.Float64() > 0.5 {
+		numNeighbors = 2
+	}
+
+	// Shuffle and pick neighbors
+	rand.Shuffle(len(online), func(i, j int) {
+		online[i], online[j] = online[j], online[i]
+	})
+
+	neighbors := online[:numNeighbors]
+
+	// Query each neighbor via mesh if available
+	for _, neighbor := range neighbors {
+		if network.tsnetMesh != nil {
+			ip := network.getMeshIPForNara(neighbor)
+			if ip != "" {
+				network.performBackgroundSyncViaMesh(neighbor, ip)
+			} else {
+				logrus.Debugf("🔄 Background sync: neighbor %s not mesh-enabled, skipping", neighbor)
+			}
+		} else {
+			// Could add MQTT fallback here if needed
+			logrus.Debug("🔄 Background sync: mesh not available, skipping")
+		}
+	}
+}
+
+// performBackgroundSyncViaMesh performs background sync with a specific neighbor via mesh
+func (network *Network) performBackgroundSyncViaMesh(neighbor, ip string) {
+	// Use existing fetchSyncEventsFromMesh method with lightweight parameters
+	// We want observation events from the last 24 hours, max 100 events
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	// Fetch observation events from this neighbor
+	events, success := network.fetchSyncEventsFromMesh(
+		client,
+		ip,
+		neighbor,
+		nil, // subjects: nil = all naras
+		0,   // sliceIndex: 0 for simple query
+		1,   // sliceTotal: 1 for simple query (no slicing)
+		100, // maxEvents: lightweight query
+	)
+
+	if !success {
+		logrus.Debugf("🔄 Background sync with %s failed", neighbor)
+		return
+	}
+
+	// Filter for observation events from last 24h and merge with personality filtering
+	cutoff := time.Now().Add(-24 * time.Hour).Unix()
+	added := 0
+	for _, event := range events {
+		// Only process observation events from last 24h
+		if event.Service == ServiceObservation && event.Timestamp >= cutoff {
+			// Apply personality-based filtering
+			if network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality) {
+				added++
+			}
+		}
+	}
+
+	if added > 0 {
+		logrus.Debugf("🔄 Background sync: received %d observation events from %s (%d added)",
+			len(events), neighbor, added)
+	}
 }
 
 // socialMaintenance periodically cleans up social data

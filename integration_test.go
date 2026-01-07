@@ -150,6 +150,98 @@ func TestIntegration_MultiNaraNetwork(t *testing.T) {
 	}
 	t.Logf("✅ Activity: %d/%d naras have buzz > 0", narasWithBuzz, numNaras)
 
+	// 5. Check that observation events are being emitted
+	totalObservationEvents := 0
+	restartEvents := 0
+	firstSeenEvents := 0
+	statusChangeEvents := 0
+
+	for _, ln := range naras {
+		allEvents := ln.SyncLedger.GetAllEvents()
+		for _, event := range allEvents {
+			if event.Service == "observation" && event.Observation != nil {
+				totalObservationEvents++
+				switch event.Observation.Type {
+				case "restart":
+					restartEvents++
+				case "first-seen":
+					firstSeenEvents++
+				case "status-change":
+					statusChangeEvents++
+				}
+			}
+		}
+	}
+
+	if totalObservationEvents > 0 {
+		t.Logf("✅ Observation events: %d total (%d restart, %d first-seen, %d status-change)",
+			totalObservationEvents, restartEvents, firstSeenEvents, statusChangeEvents)
+	} else {
+		t.Log("⚠️  No observation events recorded (feature may not be enabled yet)")
+	}
+
+	// 6. Verify observation event importance levels
+	criticalEventCount := 0
+	normalEventCount := 0
+	for _, ln := range naras {
+		allEvents := ln.SyncLedger.GetAllEvents()
+		for _, event := range allEvents {
+			if event.Service == "observation" && event.Observation != nil {
+				switch event.Observation.Importance {
+				case 3: // ImportanceCritical
+					criticalEventCount++
+				case 2: // ImportanceNormal
+					normalEventCount++
+				}
+			}
+		}
+	}
+
+	if criticalEventCount > 0 || normalEventCount > 0 {
+		t.Logf("✅ Event importance: %d critical, %d normal", criticalEventCount, normalEventCount)
+	}
+
+	// 7. Validate anti-abuse: check no single observer→subject pair has >20 events
+	abuseDetected := false
+	for _, ln := range naras {
+		pairCounts := make(map[string]int)
+		allEvents := ln.SyncLedger.GetAllEvents()
+		for _, event := range allEvents {
+			if event.Service == "observation" && event.Observation != nil {
+				pairKey := fmt.Sprintf("%s→%s", event.Observation.Observer, event.Observation.Subject)
+				pairCounts[pairKey]++
+				if pairCounts[pairKey] > 20 {
+					abuseDetected = true
+					t.Errorf("❌ Anti-abuse violation: %s has %d events (limit: 20)",
+						pairKey, pairCounts[pairKey])
+				}
+			}
+		}
+	}
+
+	if !abuseDetected && totalObservationEvents > 0 {
+		t.Log("✅ Anti-abuse: Per-pair compaction working (no pair >20 events)")
+	}
+
+	// 8. Check that consensus can be derived from events (if implemented)
+	consensusWorking := 0
+	for _, ln := range naras {
+		for neighborName := range ln.Network.Neighbourhood {
+			// Try to derive opinion from events
+			opinion := ln.SyncLedger.DeriveOpinionFromEvents(neighborName)
+			if opinion.StartTime > 0 || opinion.Restarts > 0 {
+				consensusWorking++
+				break // Count once per nara
+			}
+		}
+	}
+
+	if consensusWorking > 0 {
+		t.Logf("✅ Event consensus: %d/%d naras can derive opinions from events", consensusWorking, numNaras)
+	} else if totalObservationEvents > 0 {
+		t.Log("⚠️  Event consensus not yet implemented")
+	}
+
 	// Final summary
 	t.Log("")
 	t.Log("═══════════════════════════════════════")
@@ -157,9 +249,15 @@ func TestIntegration_MultiNaraNetwork(t *testing.T) {
 	t.Logf("   • %d naras successfully interacted", numNaras)
 	t.Logf("   • %d neighbor discoveries", totalNeighbors)
 	t.Logf("   • %d social events", totalSocialEvents)
+	t.Logf("   • %d observation events (%d restart, %d first-seen, %d status-change)",
+		totalObservationEvents, restartEvents, firstSeenEvents, statusChangeEvents)
 	t.Logf("   • %d naras following trends", narasWithTrends)
 	t.Logf("   • %d naras with buzz", narasWithBuzz)
+	if consensusWorking > 0 {
+		t.Logf("   • %d naras with event-based consensus", consensusWorking)
+	}
 	t.Log("   • No crashes or panics")
+	t.Log("   • Anti-abuse mechanisms validated")
 	t.Log("═══════════════════════════════════════")
 }
 

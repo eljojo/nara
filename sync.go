@@ -12,8 +12,16 @@ import (
 
 // Service types for the unified sync ledger
 const (
-	ServiceSocial = "social" // Social events (teases, observations, gossip)
-	ServicePing   = "ping"   // Ping/RTT measurements
+	ServiceSocial      = "social"      // Social events (teases, observations, gossip)
+	ServicePing        = "ping"        // Ping/RTT measurements
+	ServiceObservation = "observation" // Network state observations (restarts, status changes)
+)
+
+// Importance levels for observation events
+const (
+	ImportanceCasual   = 1 // Casual events (teasing) - filtered by personality
+	ImportanceNormal   = 2 // Normal events (status-change) - may be filtered by very chill naras
+	ImportanceCritical = 3 // Critical events (restart, first-seen) - NEVER filtered
 )
 
 // SyncEvent is the unified container for all syncable data across services
@@ -21,15 +29,16 @@ const (
 type SyncEvent struct {
 	ID        string `json:"id"`
 	Timestamp int64  `json:"ts"`
-	Service   string `json:"svc"` // "social", "ping", etc.
+	Service   string `json:"svc"` // "social", "ping", "observation"
 
 	// Provenance - who created this event (optional but recommended)
 	Emitter   string `json:"emitter,omitempty"` // nara name who created this event
 	Signature string `json:"sig,omitempty"`     // base64 Ed25519 signature (optional)
 
 	// Payloads - only one is set based on Service
-	Social *SocialEventPayload `json:"social,omitempty"`
-	Ping   *PingObservation    `json:"ping,omitempty"`
+	Social      *SocialEventPayload      `json:"social,omitempty"`
+	Ping        *PingObservation         `json:"ping,omitempty"`
+	Observation *ObservationEventPayload `json:"observation,omitempty"`
 }
 
 // Payload is the interface for service-specific event data
@@ -93,6 +102,80 @@ func (p *PingObservation) GetActor() string { return p.Observer }
 // GetTarget implements Payload
 func (p *PingObservation) GetTarget() string { return p.Target }
 
+// ObservationEventPayload records network state observations (restarts, status changes)
+// Used for distributed consensus on network state without O(N²) newspaper broadcasts
+type ObservationEventPayload struct {
+	Observer   string `json:"observer"`              // who made the observation
+	Subject    string `json:"subject"`               // who is being observed
+	Type       string `json:"type"`                  // "restart", "first-seen", "status-change"
+	Importance int    `json:"importance"`            // 1=casual, 2=normal, 3=critical
+	IsBackfill bool   `json:"is_backfill,omitempty"` // true if grandfathering existing data
+
+	// Data specific to observation type
+	StartTime   int64  `json:"start_time,omitempty"`   // Unix timestamp when nara started (for restart/first-seen)
+	RestartNum  int64  `json:"restart_num,omitempty"`  // Total restart count
+	LastRestart int64  `json:"last_restart,omitempty"` // Timestamp of most recent restart
+	OnlineState string `json:"online_state,omitempty"` // "ONLINE", "OFFLINE", "MISSING" (for status-change)
+	ClusterName string `json:"cluster_name,omitempty"` // Current cluster/barrio
+}
+
+// ContentString returns canonical string for hashing/signing
+// For restart events, includes (subject, restart_num, start_time) for deduplication
+func (p *ObservationEventPayload) ContentString() string {
+	if p.Type == "restart" {
+		// Restart events are deduplicated by content (same restart reported by multiple observers)
+		return fmt.Sprintf("%s:restart:%d:%d", p.Subject, p.RestartNum, p.StartTime)
+	}
+	// Other observation types include observer for uniqueness
+	return fmt.Sprintf("%s:%s:%s:%s:%d:%d", p.Observer, p.Subject, p.Type, p.OnlineState, p.StartTime, p.RestartNum)
+}
+
+// IsValid checks if the payload is well-formed
+func (p *ObservationEventPayload) IsValid() bool {
+	// Basic validation
+	if p.Observer == "" || p.Subject == "" || p.Type == "" {
+		return false
+	}
+
+	// Validate type
+	validTypes := map[string]bool{
+		"restart":       true,
+		"first-seen":    true,
+		"status-change": true,
+	}
+	if !validTypes[p.Type] {
+		return false
+	}
+
+	// Validate importance level
+	if p.Importance < ImportanceCasual || p.Importance > ImportanceCritical {
+		return false
+	}
+
+	// Type-specific validation
+	switch p.Type {
+	case "restart":
+		return p.StartTime > 0 && p.RestartNum >= 0
+	case "first-seen":
+		return p.StartTime > 0
+	case "status-change":
+		validStates := map[string]bool{
+			"ONLINE":  true,
+			"OFFLINE": true,
+			"MISSING": true,
+		}
+		return validStates[p.OnlineState]
+	}
+
+	return true
+}
+
+// GetActor implements Payload (Observer is the actor for observations)
+func (p *ObservationEventPayload) GetActor() string { return p.Observer }
+
+// GetTarget implements Payload (Subject is the target being observed)
+func (p *ObservationEventPayload) GetTarget() string { return p.Subject }
+
 // Payload returns the service-specific payload, or nil if none set
 func (e *SyncEvent) Payload() Payload {
 	switch e.Service {
@@ -100,6 +183,8 @@ func (e *SyncEvent) Payload() Payload {
 		return e.Social
 	case ServicePing:
 		return e.Ping
+	case ServiceObservation:
+		return e.Observation
 	}
 	return nil
 }
@@ -220,6 +305,79 @@ func NewSignedSocialSyncEvent(eventType, actor, target, reason, witness string, 
 	return e
 }
 
+// NewRestartObservationEvent creates a SyncEvent for a restart observation
+func NewRestartObservationEvent(observer, subject string, startTime, restartNum int64) SyncEvent {
+	e := SyncEvent{
+		Timestamp: time.Now().UnixNano(),
+		Service:   ServiceObservation,
+		Observation: &ObservationEventPayload{
+			Observer:    observer,
+			Subject:     subject,
+			Type:        "restart",
+			Importance:  ImportanceCritical,
+			StartTime:   startTime,
+			RestartNum:  restartNum,
+			LastRestart: time.Now().Unix(),
+		},
+	}
+	e.ComputeID()
+	return e
+}
+
+// NewFirstSeenObservationEvent creates a SyncEvent for first-seen observation
+func NewFirstSeenObservationEvent(observer, subject string, startTime int64) SyncEvent {
+	e := SyncEvent{
+		Timestamp: time.Now().UnixNano(),
+		Service:   ServiceObservation,
+		Observation: &ObservationEventPayload{
+			Observer:   observer,
+			Subject:    subject,
+			Type:       "first-seen",
+			Importance: ImportanceCritical,
+			StartTime:  startTime,
+		},
+	}
+	e.ComputeID()
+	return e
+}
+
+// NewStatusChangeObservationEvent creates a SyncEvent for status change observation
+func NewStatusChangeObservationEvent(observer, subject, onlineState string) SyncEvent {
+	e := SyncEvent{
+		Timestamp: time.Now().UnixNano(),
+		Service:   ServiceObservation,
+		Observation: &ObservationEventPayload{
+			Observer:    observer,
+			Subject:     subject,
+			Type:        "status-change",
+			Importance:  ImportanceNormal,
+			OnlineState: onlineState,
+		},
+	}
+	e.ComputeID()
+	return e
+}
+
+// NewBackfillObservationEvent creates a backfill event for migrating historical observations
+func NewBackfillObservationEvent(observer, subject string, startTime, restartNum, lastRestart int64) SyncEvent {
+	e := SyncEvent{
+		Timestamp: time.Now().UnixNano(),
+		Service:   ServiceObservation,
+		Observation: &ObservationEventPayload{
+			Observer:    observer,
+			Subject:     subject,
+			Type:        "restart",
+			Importance:  ImportanceCritical,
+			IsBackfill:  true,
+			StartTime:   startTime,
+			RestartNum:  restartNum,
+			LastRestart: lastRestart,
+		},
+	}
+	e.ComputeID()
+	return e
+}
+
 // NewSignedPingSyncEvent creates a signed SyncEvent for ping observations
 func NewSignedPingSyncEvent(observer, target string, rtt float64, emitter string, keypair NaraKeypair) SyncEvent {
 	e := NewPingSyncEvent(observer, target, rtt)
@@ -263,25 +421,83 @@ func (e *SyncEvent) ToSocialEvent() *SocialEvent {
 
 // --- SyncLedger: Unified ledger for all services ---
 
+// ObservationRateLimit tracks events per subject for rate limiting
+type ObservationRateLimit struct {
+	SubjectCounts map[string][]int64 // subject → timestamps of events
+	WindowSec     int64              // Time window in seconds
+	MaxEvents     int                // Max events per subject per window
+	mu            sync.Mutex
+}
+
+// NewObservationRateLimit creates a new rate limiter
+func NewObservationRateLimit() *ObservationRateLimit {
+	return &ObservationRateLimit{
+		SubjectCounts: make(map[string][]int64),
+		WindowSec:     300, // 5 minutes
+		MaxEvents:     10,  // max 10 events per subject per 5 min
+	}
+}
+
+// CheckAndAdd checks if an event would exceed rate limit, and adds it if not
+// Returns true if the event is allowed, false if rate limit exceeded
+func (r *ObservationRateLimit) CheckAndAdd(subject string, timestamp int64) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	windowStart := timestamp - r.WindowSec
+
+	// Get existing timestamps for this subject
+	timestamps := r.SubjectCounts[subject]
+
+	// Filter out events outside the current window
+	var validTimestamps []int64
+	for _, ts := range timestamps {
+		if ts >= windowStart {
+			validTimestamps = append(validTimestamps, ts)
+		}
+	}
+
+	// Check if we're at the limit
+	if len(validTimestamps) >= r.MaxEvents {
+		return false // Rate limit exceeded
+	}
+
+	// Add this event
+	validTimestamps = append(validTimestamps, timestamp)
+	r.SubjectCounts[subject] = validTimestamps
+
+	return true
+}
+
+// MaxObservationsPerPair limits observation events per observer→subject pair
+const MaxObservationsPerPair = 20
+
 // SyncLedger stores all syncable events with deduplication and sync support
 type SyncLedger struct {
-	Events    []SyncEvent
-	MaxEvents int
-	eventIDs  map[string]bool
-	mu        sync.RWMutex
+	Events        []SyncEvent
+	MaxEvents     int
+	eventIDs      map[string]bool
+	observationRL *ObservationRateLimit // Rate limiter for observation events
+	mu            sync.RWMutex
 }
 
 // NewSyncLedger creates a new unified sync ledger
 func NewSyncLedger(maxEvents int) *SyncLedger {
 	return &SyncLedger{
-		Events:    make([]SyncEvent, 0),
-		MaxEvents: maxEvents,
-		eventIDs:  make(map[string]bool),
+		Events:        make([]SyncEvent, 0),
+		MaxEvents:     maxEvents,
+		eventIDs:      make(map[string]bool),
+		observationRL: NewObservationRateLimit(),
 	}
 }
 
 // AddEvent adds an event if it's valid and not a duplicate
 func (l *SyncLedger) AddEvent(e SyncEvent) bool {
+	// Observation events get special compaction handling
+	if e.Service == ServiceObservation && e.Observation != nil {
+		return l.addObservationWithCompaction(e)
+	}
+
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -492,6 +708,320 @@ func (l *SyncLedger) GetEventsInvolving(name string) []SyncEvent {
 		}
 	}
 	return result
+}
+
+// GetAllEvents returns all events (for testing/validation)
+func (l *SyncLedger) GetAllEvents() []SyncEvent {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	result := make([]SyncEvent, len(l.Events))
+	copy(result, l.Events)
+	return result
+}
+
+// GetObservationEventsAbout returns all observation events about a specific subject
+func (l *SyncLedger) GetObservationEventsAbout(subject string) []SyncEvent {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	var result []SyncEvent
+	for _, e := range l.Events {
+		if e.Service == ServiceObservation && e.Observation != nil && e.Observation.Subject == subject {
+			result = append(result, e)
+		}
+	}
+	return result
+}
+
+// AddEventFiltered adds an event with personality-based filtering
+// Critical importance events (3) are NEVER filtered
+// Normal importance events (2) may be filtered by very chill naras (>85)
+// Casual importance events (1) are filtered based on personality
+func (l *SyncLedger) AddEventFiltered(e SyncEvent, personality NaraPersonality) bool {
+	// Observation events: check importance
+	if e.Service == ServiceObservation && e.Observation != nil {
+		// Critical events NEVER filtered
+		if e.Observation.Importance == ImportanceCritical {
+			return l.AddEvent(e)
+		}
+
+		// Normal events: filter by very chill naras
+		if e.Observation.Importance == ImportanceNormal {
+			if personality.Chill > 85 {
+				return false // Too chill to care about status changes
+			}
+			return l.AddEvent(e)
+		}
+
+		// Casual events: apply personality filtering
+		// (Implementation can be expanded based on requirements)
+	}
+
+	// Default: add the event
+	return l.AddEvent(e)
+}
+
+// AddEventWithRateLimit adds an event after checking rate limits
+// For observation events, enforces max 10 events per subject per 5 minutes
+func (l *SyncLedger) AddEventWithRateLimit(e SyncEvent) bool {
+	if e.Service == ServiceObservation && e.Observation != nil {
+		// Check rate limit
+		timestamp := e.Timestamp / 1e9 // Convert nanoseconds to seconds
+		if !l.observationRL.CheckAndAdd(e.Observation.Subject, timestamp) {
+			return false // Rate limit exceeded
+		}
+	}
+
+	return l.AddEvent(e)
+}
+
+// AddEventWithDedup adds an event after checking for content-based deduplication
+// For restart events, deduplicates by (subject, restart_num, start_time)
+func (l *SyncLedger) AddEventWithDedup(e SyncEvent) bool {
+	if e.Service == ServiceObservation && e.Observation != nil && e.Observation.Type == "restart" {
+		l.mu.RLock()
+		// Check if we already have this exact restart
+		for _, existing := range l.Events {
+			if existing.Service == ServiceObservation && existing.Observation != nil &&
+				existing.Observation.Type == "restart" &&
+				existing.Observation.Subject == e.Observation.Subject &&
+				existing.Observation.RestartNum == e.Observation.RestartNum &&
+				existing.Observation.StartTime == e.Observation.StartTime {
+				l.mu.RUnlock()
+				return false // Duplicate restart event
+			}
+		}
+		l.mu.RUnlock()
+	}
+
+	// Not a duplicate, add with compaction
+	return l.addObservationWithCompaction(e)
+}
+
+// addObservationWithCompaction adds an observation event with per-pair compaction
+// Enforces max MaxObservationsPerPair per observer→subject pair
+func (l *SyncLedger) addObservationWithCompaction(e SyncEvent) bool {
+	if e.Service != ServiceObservation || e.Observation == nil {
+		return l.AddEvent(e)
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	// Count existing observations for this observer→subject pair
+	var existingObs []struct {
+		idx int
+		ts  int64
+		id  string
+	}
+	for i, existing := range l.Events {
+		if existing.Service == ServiceObservation && existing.Observation != nil &&
+			existing.Observation.Observer == e.Observation.Observer &&
+			existing.Observation.Subject == e.Observation.Subject {
+			existingObs = append(existingObs, struct {
+				idx int
+				ts  int64
+				id  string
+			}{i, existing.Timestamp, existing.ID})
+		}
+	}
+
+	// If at or over limit, remove the oldest one(s)
+	if len(existingObs) >= MaxObservationsPerPair {
+		oldestIdx := 0
+		oldestTs := existingObs[0].ts
+		for i, obs := range existingObs {
+			if obs.ts < oldestTs {
+				oldestTs = obs.ts
+				oldestIdx = i
+			}
+		}
+
+		toRemove := existingObs[oldestIdx]
+		newEvents := make([]SyncEvent, 0, len(l.Events)-1)
+		for i, existing := range l.Events {
+			if i != toRemove.idx {
+				newEvents = append(newEvents, existing)
+			}
+		}
+		l.Events = newEvents
+		delete(l.eventIDs, toRemove.id)
+	}
+
+	// Validate and add the new event
+	if e.ID == "" {
+		e.ComputeID()
+	}
+	if !e.IsValid() {
+		return false
+	}
+	if l.eventIDs[e.ID] {
+		return false
+	}
+
+	l.Events = append(l.Events, e)
+	l.eventIDs[e.ID] = true
+	return true
+}
+
+// --- Consensus from Events ---
+
+// OpinionData holds derived consensus values for a subject
+type OpinionData struct {
+	StartTime   int64
+	Restarts    int64
+	LastRestart int64
+}
+
+// consensusObservation holds observation data for consensus calculations
+type consensusObservation struct {
+	startTime   int64
+	restartNum  int64
+	lastRestart int64
+	uptime      uint64
+}
+
+// DeriveOpinionFromEvents derives consensus about a subject from observation events
+// Uses the same uptime-weighted clustering algorithm as newspaper-based consensus
+func (l *SyncLedger) DeriveOpinionFromEvents(subject string) OpinionData {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	const tolerance int64 = 60 // seconds - handles clock drift
+
+	// Collect restart and first-seen events for this subject
+	var observations []consensusObservation
+
+	for _, e := range l.Events {
+		if e.Service != ServiceObservation || e.Observation == nil {
+			continue
+		}
+		if e.Observation.Subject != subject {
+			continue
+		}
+
+		// Only use restart and first-seen events for consensus
+		if e.Observation.Type == "restart" || e.Observation.Type == "first-seen" {
+			obs := consensusObservation{
+				startTime:   e.Observation.StartTime,
+				restartNum:  e.Observation.RestartNum,
+				lastRestart: e.Observation.LastRestart,
+				uptime:      1, // TODO: Could use observer's uptime for weighting
+			}
+			observations = append(observations, obs)
+		}
+	}
+
+	if len(observations) == 0 {
+		return OpinionData{} // No consensus data available
+	}
+
+	// Derive StartTime using clustering
+	startTime := l.deriveStartTimeConsensus(observations, tolerance)
+
+	// Derive Restarts (use highest restart count)
+	restarts := l.deriveRestartsConsensus(observations)
+
+	// Derive LastRestart (most recent)
+	lastRestart := l.deriveLastRestartConsensus(observations)
+
+	return OpinionData{
+		StartTime:   startTime,
+		Restarts:    restarts,
+		LastRestart: lastRestart,
+	}
+}
+
+func (l *SyncLedger) deriveStartTimeConsensus(observations []consensusObservation, tolerance int64) int64 {
+	// Convert to weighted observations
+	type weightedObs struct {
+		value  int64
+		uptime uint64
+	}
+
+	var wobs []weightedObs
+	for _, obs := range observations {
+		if obs.startTime > 0 {
+			wobs = append(wobs, weightedObs{value: obs.startTime, uptime: obs.uptime})
+		}
+	}
+
+	if len(wobs) == 0 {
+		return 0
+	}
+
+	// Sort by value for clustering
+	sort.Slice(wobs, func(i, j int) bool {
+		return wobs[i].value < wobs[j].value
+	})
+
+	// Build clusters (reusing observationCluster type from observations.go)
+	type cluster struct {
+		values      []int64
+		totalUptime uint64
+	}
+
+	var clusters []cluster
+	currentCluster := cluster{
+		values:      []int64{wobs[0].value},
+		totalUptime: wobs[0].uptime,
+	}
+	clusterStart := wobs[0].value
+
+	for i := 1; i < len(wobs); i++ {
+		if wobs[i].value-clusterStart <= tolerance {
+			currentCluster.values = append(currentCluster.values, wobs[i].value)
+			currentCluster.totalUptime += wobs[i].uptime
+		} else {
+			clusters = append(clusters, currentCluster)
+			currentCluster = cluster{
+				values:      []int64{wobs[i].value},
+				totalUptime: wobs[i].uptime,
+			}
+			clusterStart = wobs[i].value
+		}
+	}
+	clusters = append(clusters, currentCluster)
+
+	// Sort clusters by total uptime (descending)
+	sort.Slice(clusters, func(i, j int) bool {
+		return clusters[i].totalUptime > clusters[j].totalUptime
+	})
+
+	// Strategy 1: Pick cluster with >= 2 observers and highest uptime
+	for _, c := range clusters {
+		if len(c.values) >= 2 {
+			return c.values[len(c.values)/2]
+		}
+	}
+
+	// Strategy 2: Just pick highest uptime cluster
+	return clusters[0].values[len(clusters[0].values)/2]
+}
+
+func (l *SyncLedger) deriveRestartsConsensus(observations []consensusObservation) int64 {
+	// For restart counts, just pick the highest value (most recent knowledge)
+	maxRestarts := int64(0)
+	for _, obs := range observations {
+		if obs.restartNum > maxRestarts {
+			maxRestarts = obs.restartNum
+		}
+	}
+
+	return maxRestarts
+}
+
+func (l *SyncLedger) deriveLastRestartConsensus(observations []consensusObservation) int64 {
+	// Pick the most recent LastRestart timestamp
+	maxLastRestart := int64(0)
+	for _, obs := range observations {
+		if obs.lastRestart > maxLastRestart {
+			maxLastRestart = obs.lastRestart
+		}
+	}
+
+	return maxLastRestart
 }
 
 // --- Sync/Gossip Support ---

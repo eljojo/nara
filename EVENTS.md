@@ -13,9 +13,33 @@ Instead of storing computed state, naras store the **events** that led to that s
 
 ## Event Types
 
-### Observation Events
+### Network State Observations (`service: "observation"`)
 
-Events recorded when a nara directly observes something:
+Critical events for distributed consensus on network state. These events replace newspaper broadcasts for tracking restarts and online status.
+
+| Type | Description | Importance | Purpose |
+|------|-------------|------------|---------|
+| `restart` | Detected a nara restarted | Critical (3) | Consensus on StartTime, restart count |
+| `first-seen` | First time observing a nara | Critical (3) | Seeds StartTime consensus |
+| `status-change` | Online/Offline transition | Normal (2) | Real-time network awareness |
+
+**Importance Levels:**
+- **Critical (3):** Never filtered by personality, essential for consensus
+- **Normal (2):** Can be filtered by very chill naras (>85)
+- **Casual (1):** Filtered based on personality preferences
+
+**Anti-Abuse:**
+- Max 20 observation events per observer→subject pair
+- Max 10 events about same subject per 5-minute window
+- Restart content deduplication (same restart reported by multiple observers = 1 event)
+- Global pruning respects importance (critical events survive longest)
+
+**Backfill Events:**
+Events with `is_backfill: true` represent historical knowledge being converted to events during migration from newspapers. They participate in consensus like any other observation event.
+
+### Legacy Observation Events (`service: "social"`)
+
+Events recorded when a nara directly observes something (social service):
 
 | Reason | Description | Clout Impact |
 |--------|-------------|--------------|
@@ -39,15 +63,50 @@ Events from social interactions (teasing):
 
 ## Event Structure
 
+### SyncEvent (Universal Container)
+
 ```go
-type SocialEvent struct {
+type SyncEvent struct {
     ID        string // SHA256 hash for deduplication
-    Timestamp int64  // Unix timestamp
-    Type      string // "observation", "tease", "observed", "gossip"
-    Actor     string // Who recorded/did it
-    Target    string // Who it's about
-    Reason    string // Why (see tables above)
-    Witness   string // Who reported it (for journey events: journey ID)
+    Timestamp int64  // Unix nanoseconds
+    Service   string // "social", "ping", or "observation"
+    Emitter   string // Who created this (optional, for signing)
+    Signature string // Ed25519 signature (optional)
+
+    // Payloads - exactly one is set based on Service
+    Social      *SocialEventPayload      // For service="social"
+    Ping        *PingObservation          // For service="ping"
+    Observation *ObservationEventPayload  // For service="observation"
+}
+```
+
+### ObservationEventPayload (Network State)
+
+```go
+type ObservationEventPayload struct {
+    Observer    string // Who made the observation
+    Subject     string // Who is being observed
+    Type        string // "restart", "first-seen", "status-change"
+    Importance  int    // 1=casual, 2=normal, 3=critical
+    IsBackfill  bool   // True if grandfathering existing data
+
+    // Data specific to observation type
+    StartTime   int64  // For restart/first-seen
+    RestartNum  int64  // Restart counter
+    OnlineState string // "ONLINE", "OFFLINE", "MISSING"
+    ClusterName string // Current cluster
+}
+```
+
+### SocialEventPayload (Legacy)
+
+```go
+type SocialEventPayload struct {
+    Type    string // "observation", "tease", "observed", "gossip"
+    Actor   string // Who recorded/did it
+    Target  string // Who it's about
+    Reason  string // Why (see tables above)
+    Witness string // Who reported it (for journey events: journey ID)
 }
 ```
 
@@ -55,6 +114,12 @@ type SocialEvent struct {
 
 Not all naras keep all events. Personality affects what's meaningful:
 
+**Importance-Based Filtering (Observation Events):**
+- **Critical importance (3)**: NEVER filtered - essential for consensus (restarts, first-seen, backfill)
+- **Normal importance (2)**: May be filtered by very chill naras (>85) - status changes
+- **Casual importance (1)**: Filtered based on personality - routine social events
+
+**Legacy Social Event Filtering:**
 - **Very chill (>85)**: Skip routine online/offline events
 - **Low sociability (<30)**: Skip journey-pass/complete events
 - **Everyone**: Keeps journey-timeout (reliability matters)
