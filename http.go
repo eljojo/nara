@@ -114,26 +114,60 @@ func (network *Network) startHttpServer(httpAddr string) error {
 	port := listener.Addr().(*net.TCPAddr).Port
 	logrus.Printf("Listening for HTTP on port %d", port)
 
-	// Register handlers with logging middleware
-	http.HandleFunc("/api.json", network.loggingMiddleware("/api.json", network.httpApiJsonHandler))
-	http.HandleFunc("/narae.json", network.loggingMiddleware("/narae.json", network.httpNaraeJsonHandler))
-	http.HandleFunc("/metrics", network.loggingMiddleware("/metrics", network.httpMetricsHandler))
-	http.HandleFunc("/status/", network.loggingMiddleware("/status/", network.httpStatusJsonHandler))
-	http.HandleFunc("/events", network.loggingMiddleware("/events", network.httpEventsSSEHandler))
-	http.HandleFunc("/social/clout", network.loggingMiddleware("/social/clout", network.httpCloutHandler))
-	http.HandleFunc("/social/recent", network.loggingMiddleware("/social/recent", network.httpRecentEventsHandler))
-	http.HandleFunc("/world/start", network.loggingMiddleware("/world/start", network.httpWorldStartHandler))
-	http.HandleFunc("/world/journeys", network.loggingMiddleware("/world/journeys", network.httpWorldJourneysHandler))
-	// Mesh endpoints - require Ed25519 authentication (except /ping which needs to be fast)
-	http.HandleFunc("/events/sync", network.loggingMiddleware("/events/sync", network.meshAuthMiddleware("/events/sync", network.httpEventsSyncHandler)))
-	http.HandleFunc("/ping", network.loggingMiddleware("/ping", network.httpPingHandler)) // No auth - latency critical
-	http.HandleFunc("/coordinates", network.loggingMiddleware("/coordinates", network.httpCoordinatesHandler))
-	http.HandleFunc("/network/map", network.loggingMiddleware("/network/map", network.httpNetworkMapHandler))
-	http.HandleFunc("/proximity", network.loggingMiddleware("/proximity", network.httpProximityHandler))
-	publicFS, _ := fs.Sub(staticContent, "nara-web/public")
-	http.Handle("/", http.FileServer(http.FS(publicFS)))
+	// Create a mux for handlers (so we can reuse with mesh server)
+	mux := network.createHTTPMux(true) // includeUI = true
 
-	go http.Serve(listener, nil)
+	go http.Serve(listener, mux)
+	return nil
+}
+
+// createHTTPMux creates an HTTP mux with all handlers
+// includeUI: whether to include web UI handlers (false for mesh-only server)
+func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
+	mux := http.NewServeMux()
+
+	// Mesh endpoints - available on both local and mesh servers
+	// These require Ed25519 authentication (except /ping which needs to be fast)
+	mux.HandleFunc("/events/sync", network.loggingMiddleware("/events/sync", network.meshAuthMiddleware("/events/sync", network.httpEventsSyncHandler)))
+	mux.HandleFunc("/world/relay", network.loggingMiddleware("/world/relay", network.meshAuthMiddleware("/world/relay", network.httpWorldRelayHandler)))
+	mux.HandleFunc("/ping", network.loggingMiddleware("/ping", network.httpPingHandler)) // No auth - latency critical
+	mux.HandleFunc("/coordinates", network.loggingMiddleware("/coordinates", network.httpCoordinatesHandler))
+
+	if includeUI {
+		// Web UI endpoints - only on local server
+		mux.HandleFunc("/api.json", network.loggingMiddleware("/api.json", network.httpApiJsonHandler))
+		mux.HandleFunc("/narae.json", network.loggingMiddleware("/narae.json", network.httpNaraeJsonHandler))
+		mux.HandleFunc("/metrics", network.loggingMiddleware("/metrics", network.httpMetricsHandler))
+		mux.HandleFunc("/status/", network.loggingMiddleware("/status/", network.httpStatusJsonHandler))
+		mux.HandleFunc("/events", network.loggingMiddleware("/events", network.httpEventsSSEHandler))
+		mux.HandleFunc("/social/clout", network.loggingMiddleware("/social/clout", network.httpCloutHandler))
+		mux.HandleFunc("/social/recent", network.loggingMiddleware("/social/recent", network.httpRecentEventsHandler))
+		mux.HandleFunc("/world/start", network.loggingMiddleware("/world/start", network.httpWorldStartHandler))
+		mux.HandleFunc("/world/journeys", network.loggingMiddleware("/world/journeys", network.httpWorldJourneysHandler))
+		mux.HandleFunc("/network/map", network.loggingMiddleware("/network/map", network.httpNetworkMapHandler))
+		mux.HandleFunc("/proximity", network.loggingMiddleware("/proximity", network.httpProximityHandler))
+		publicFS, _ := fs.Sub(staticContent, "nara-web/public")
+		mux.Handle("/", http.FileServer(http.FS(publicFS)))
+	}
+
+	return mux
+}
+
+// startMeshHttpServer starts an HTTP server on the tsnet interface for mesh communication
+func (network *Network) startMeshHttpServer(tsnetServer interface {
+	Listen(string, string) (net.Listener, error)
+}) error {
+	listener, err := tsnetServer.Listen("tcp", fmt.Sprintf(":%d", DefaultMeshPort))
+	if err != nil {
+		return fmt.Errorf("failed to listen on tsnet: %w", err)
+	}
+
+	logrus.Printf("🕸️  Mesh HTTP server listening on port %d (Tailscale interface)", DefaultMeshPort)
+
+	// Create a mux with mesh-only endpoints (no UI)
+	mux := network.createHTTPMux(false)
+
+	go http.Serve(listener, mux)
 	return nil
 }
 
@@ -384,6 +418,39 @@ func (network *Network) httpMetricsHandler(w http.ResponseWriter, r *http.Reques
 }
 
 // World Journey HTTP handlers
+
+// POST /world/relay - Receive and forward a world journey message
+// This is the main transport for world messages between naras
+func (network *Network) httpWorldRelayHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var wm WorldMessage
+	if err := json.NewDecoder(r.Body).Decode(&wm); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if network.worldHandler == nil {
+		http.Error(w, "World journey not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	// HandleIncoming verifies signatures, adds our hop, and forwards
+	if err := network.worldHandler.HandleIncoming(&wm); err != nil {
+		logrus.Warnf("🌍 World relay failed: %v", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"from":    network.meName(),
+	})
+}
 
 // POST /world/start - Start a new world journey
 func (network *Network) httpWorldStartHandler(w http.ResponseWriter, r *http.Request) {

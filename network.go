@@ -298,10 +298,18 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 					logrus.Errorf("Failed to start tsnet mesh: %v", err)
 				} else {
 					network.tsnetMesh = tsnetMesh
-					network.InitWorldJourney(tsnetMesh)
 					network.local.Me.Status.MeshEnabled = true
 					network.local.Me.Status.MeshIP = tsnetMesh.IP()
-					logrus.Infof("World journey using tsnet mesh (IP: %s)", tsnetMesh.IP())
+
+					// Start mesh HTTP server on tsnet interface (port 7433)
+					if err := network.startMeshHttpServer(tsnetMesh.Server()); err != nil {
+						logrus.Errorf("Failed to start mesh HTTP server: %v", err)
+					}
+
+					// Use HTTP-based transport for world messages (unified with other mesh HTTP)
+					httpTransport := NewHTTPMeshTransport(tsnetMesh.Server(), network, DefaultMeshPort)
+					network.InitWorldJourney(httpTransport)
+					logrus.Infof("🌍 World journey using HTTP over tsnet (IP: %s)", tsnetMesh.IP())
 				}
 			}
 		}
@@ -978,7 +986,16 @@ func (network *Network) bootRecoveryViaMesh(online []string) {
 
 	// Query each neighbor with interleaved slicing
 	var totalMerged int
-	client := &http.Client{Timeout: 30 * time.Second}
+
+	// Use tsnet HTTP client to route through Tailscale
+	var client *http.Client
+	if network.tsnetMesh != nil {
+		client = network.tsnetMesh.Server().HTTPClient()
+		client.Timeout = 30 * time.Second
+	} else {
+		// Fallback (shouldn't happen if mesh is enabled)
+		client = &http.Client{Timeout: 30 * time.Second}
+	}
 
 	for i, neighbor := range meshNeighbors {
 		events, verified := network.fetchSyncEventsFromMesh(client, neighbor.ip, neighbor.name, subjects, i, totalSlices, eventsPerNeighbor)
