@@ -205,6 +205,44 @@ func (network *Network) getPublicKeyForNara(name string) []byte {
 	return pubKey
 }
 
+// VerifySyncEvent verifies a sync event's signature and logs warnings
+// Returns true if the event is valid (signed and verified, or unsigned but acceptable)
+// The event is always added regardless - verification is informational
+func (network *Network) VerifySyncEvent(e *SyncEvent) bool {
+	if !e.IsSigned() {
+		logrus.Debugf("Unsigned event %s from service %s (actor: %s)", e.ID[:8], e.Service, e.GetActor())
+		return true // Unsigned is acceptable, just log it
+	}
+
+	// Get the emitter's public key
+	pubKey := network.getPublicKeyForNara(e.Emitter)
+	if pubKey == nil {
+		logrus.Warnf("Cannot verify event %s: unknown emitter %s", e.ID[:8], e.Emitter)
+		return false // Signed but can't verify - suspicious
+	}
+
+	if !e.Verify(pubKey) {
+		logrus.Warnf("Invalid signature on event %s from %s", e.ID[:8], e.Emitter)
+		return false // Bad signature - suspicious
+	}
+
+	logrus.Debugf("Verified event %s from %s", e.ID[:8], e.Emitter)
+	return true
+}
+
+// MergeSyncEventsWithVerification merges events into SyncLedger after verifying signatures
+// Returns the number of events added and number that had verification warnings
+func (network *Network) MergeSyncEventsWithVerification(events []SyncEvent) (added int, warned int) {
+	for i := range events {
+		e := &events[i]
+		if !network.VerifySyncEvent(e) {
+			warned++
+		}
+	}
+	added = network.local.SyncLedger.MergeEvents(events)
+	return added, warned
+}
+
 func (network *Network) onWorldJourneyComplete(wm *WorldMessage) {
 	network.worldJourneysMu.Lock()
 	network.worldJourneys = append(network.worldJourneys, wm)
@@ -998,14 +1036,16 @@ func (network *Network) bootRecoveryViaMesh(online []string) {
 	}
 
 	for i, neighbor := range meshNeighbors {
-		events, verified := network.fetchSyncEventsFromMesh(client, neighbor.ip, neighbor.name, subjects, i, totalSlices, eventsPerNeighbor)
+		events, respVerified := network.fetchSyncEventsFromMesh(client, neighbor.ip, neighbor.name, subjects, i, totalSlices, eventsPerNeighbor)
 		if len(events) > 0 {
-			// Merge into SyncLedger (unified event store)
-			added := network.local.SyncLedger.MergeEvents(events)
+			// Merge into SyncLedger with per-event signature verification
+			added, warned := network.MergeSyncEventsWithVerification(events)
 			totalMerged += added
 			verifiedStr := ""
-			if verified {
+			if respVerified && warned == 0 {
 				verifiedStr = " ✓"
+			} else if warned > 0 {
+				verifiedStr = fmt.Sprintf(" ⚠%d", warned)
 			}
 			logrus.Printf("📦 mesh sync from %s: received %d events, merged %d%s", neighbor.name, len(events), added, verifiedStr)
 		}

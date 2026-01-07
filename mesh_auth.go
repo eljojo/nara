@@ -46,12 +46,11 @@ const (
 func MeshAuthRequest(name string, keypair NaraKeypair, method, path string) http.Header {
 	timestamp := time.Now().UnixMilli()
 	message := fmt.Sprintf("%s%d%s%s", name, timestamp, method, path)
-	signature := keypair.Sign([]byte(message))
 
 	headers := http.Header{}
 	headers.Set(HeaderNaraName, name)
 	headers.Set(HeaderNaraTimestamp, strconv.FormatInt(timestamp, 10))
-	headers.Set(HeaderNaraSignature, base64.StdEncoding.EncodeToString(signature))
+	headers.Set(HeaderNaraSignature, keypair.SignBase64([]byte(message)))
 	return headers
 }
 
@@ -60,12 +59,11 @@ func MeshAuthResponse(name string, keypair NaraKeypair, body []byte) http.Header
 	timestamp := time.Now().UnixMilli()
 	bodyHash := sha256.Sum256(body)
 	message := fmt.Sprintf("%s%d%s", name, timestamp, base64.StdEncoding.EncodeToString(bodyHash[:]))
-	signature := keypair.Sign([]byte(message))
 
 	headers := http.Header{}
 	headers.Set(HeaderNaraName, name)
 	headers.Set(HeaderNaraTimestamp, strconv.FormatInt(timestamp, 10))
-	headers.Set(HeaderNaraSignature, base64.StdEncoding.EncodeToString(signature))
+	headers.Set(HeaderNaraSignature, keypair.SignBase64([]byte(message)))
 	return headers
 }
 

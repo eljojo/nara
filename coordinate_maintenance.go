@@ -166,8 +166,12 @@ func (network *Network) pingAndUpdateCoordinates(targetName string, config Vival
 
 	// Record to unified sync ledger for network-wide propagation
 	// Uses replace strategy: one ping per observer→target pair
+	// Sign the event so others can verify it came from us
 	if network.local.SyncLedger != nil {
-		network.local.SyncLedger.AddPingObservationWithReplace(network.meName(), targetName, rttMs)
+		network.local.SyncLedger.AddSignedPingObservationWithReplace(
+			network.meName(), targetName, rttMs,
+			network.meName(), network.local.Keypair,
+		)
 	}
 }
 

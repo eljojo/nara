@@ -1,6 +1,7 @@
 package nara
 
 import (
+	"crypto/ed25519"
 	"encoding/json"
 	"testing"
 	"time"
@@ -557,5 +558,161 @@ func TestSyncEvent_LegacyConversion(t *testing.T) {
 	pingEvent := NewPingSyncEvent("alice", "bob", 10.0)
 	if pingEvent.ToSocialEvent() != nil {
 		t.Error("expected nil for ping event ToSocialEvent")
+	}
+}
+
+func TestSyncEvent_SignAndVerify(t *testing.T) {
+	// Create a keypair
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	keypair := NaraKeypair{PrivateKey: priv, PublicKey: pub}
+
+	// Test signing a social event
+	event := NewSocialSyncEvent("tease", "alice", "bob", "high-restarts", "")
+	if event.IsSigned() {
+		t.Error("event should not be signed initially")
+	}
+
+	event.Sign("alice", keypair)
+
+	if !event.IsSigned() {
+		t.Error("event should be signed after Sign()")
+	}
+	if event.Emitter != "alice" {
+		t.Errorf("expected emitter alice, got %s", event.Emitter)
+	}
+	if event.Signature == "" {
+		t.Error("expected signature to be set")
+	}
+
+	// Verify with correct key
+	if !event.Verify(pub) {
+		t.Error("expected signature to verify with correct key")
+	}
+
+	// Verify with wrong key
+	pub2, _, _ := ed25519.GenerateKey(nil)
+	if event.Verify(pub2) {
+		t.Error("expected signature to fail with wrong key")
+	}
+}
+
+func TestSyncEvent_SignedConstructors(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	keypair := NaraKeypair{PrivateKey: priv, PublicKey: pub}
+
+	// Test signed social event constructor
+	social := NewSignedSocialSyncEvent("tease", "alice", "bob", "reason", "", "alice", keypair)
+	if !social.IsSigned() {
+		t.Error("NewSignedSocialSyncEvent should create signed event")
+	}
+	if social.Emitter != "alice" {
+		t.Errorf("expected emitter alice, got %s", social.Emitter)
+	}
+	if !social.Verify(pub) {
+		t.Error("signed social event should verify")
+	}
+
+	// Test signed ping event constructor
+	ping := NewSignedPingSyncEvent("alice", "bob", 42.5, "alice", keypair)
+	if !ping.IsSigned() {
+		t.Error("NewSignedPingSyncEvent should create signed event")
+	}
+	if ping.Emitter != "alice" {
+		t.Errorf("expected emitter alice, got %s", ping.Emitter)
+	}
+	if !ping.Verify(pub) {
+		t.Error("signed ping event should verify")
+	}
+}
+
+func TestSyncEvent_VerifyUnsigned(t *testing.T) {
+	pub, _, _ := ed25519.GenerateKey(nil)
+
+	// Unsigned event should return false for Verify (not panic)
+	event := NewSocialSyncEvent("tease", "alice", "bob", "reason", "")
+	if event.IsSigned() {
+		t.Error("unsigned event should report IsSigned() = false")
+	}
+	if event.Verify(pub) {
+		t.Error("unsigned event should return false for Verify")
+	}
+}
+
+func TestSyncEvent_TamperedSignature(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	keypair := NaraKeypair{PrivateKey: priv, PublicKey: pub}
+
+	// Create and sign an event
+	event := NewSignedSocialSyncEvent("tease", "alice", "bob", "reason", "", "alice", keypair)
+
+	// Tamper with the event content
+	event.Social.Reason = "tampered"
+
+	// Signature should no longer verify
+	if event.Verify(pub) {
+		t.Error("tampered event should fail verification")
+	}
+}
+
+func TestSyncLedger_AddSignedPingObservation(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	keypair := NaraKeypair{PrivateKey: priv, PublicKey: pub}
+
+	ledger := NewSyncLedger(100)
+
+	// Add signed ping observation
+	if !ledger.AddSignedPingObservation("alice", "bob", 42.5, "alice", keypair) {
+		t.Error("expected AddSignedPingObservation to succeed")
+	}
+
+	// Verify the event was added and is signed
+	events := ledger.GetEventsByService(ServicePing)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 ping event, got %d", len(events))
+	}
+
+	if !events[0].IsSigned() {
+		t.Error("added event should be signed")
+	}
+	if !events[0].Verify(pub) {
+		t.Error("added event should verify")
+	}
+}
+
+func TestSyncLedger_AddSignedPingObservationWithReplace(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	keypair := NaraKeypair{PrivateKey: priv, PublicKey: pub}
+
+	ledger := NewSyncLedger(100)
+
+	// Add MaxPingsPerPair + 1 signed pings
+	for i := 0; i < MaxPingsPerPair+1; i++ {
+		if !ledger.AddSignedPingObservationWithReplace("alice", "bob", float64(10+i), "alice", keypair) {
+			t.Errorf("expected AddSignedPingObservationWithReplace to succeed for ping %d", i)
+		}
+	}
+
+	// Should still have only MaxPingsPerPair pings
+	pings := ledger.GetPingObservations()
+	if len(pings) != MaxPingsPerPair {
+		t.Errorf("expected %d pings, got %d", MaxPingsPerPair, len(pings))
+	}
+
+	// All should be signed
+	events := ledger.GetEventsByService(ServicePing)
+	for _, e := range events {
+		if !e.IsSigned() {
+			t.Error("all ping events should be signed")
+		}
+		if !e.Verify(pub) {
+			t.Error("all ping events should verify")
+		}
+	}
+
+	// Latest ping should be the newest value (10 + MaxPingsPerPair)
+	latest := ledger.GetLatestPingTo("bob")
+	expectedRTT := float64(10 + MaxPingsPerPair)
+	if latest.RTT != expectedRTT {
+		t.Errorf("expected latest RTT %.1f, got %.1f", expectedRTT, latest.RTT)
 	}
 }
