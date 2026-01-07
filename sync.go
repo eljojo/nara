@@ -103,25 +103,13 @@ func (e *SyncEvent) Payload() Payload {
 	}
 	return nil
 }
-func (e *SyncEvent) payloadContentString() string {
-	switch e.Service {
-	case ServiceSocial:
-		if e.Social != nil {
-			return e.Social.ContentString()
-		}
-	case ServicePing:
-		if e.Ping != nil {
-			return e.Ping.ContentString()
-		}
-	}
-	return ""
-}
-
 // ComputeID generates a deterministic ID from event content
 func (e *SyncEvent) ComputeID() {
 	hasher := sha256.New()
 	hasher.Write([]byte(fmt.Sprintf("%d:%s:", e.Timestamp, e.Service)))
-	hasher.Write([]byte(e.payloadContentString()))
+	if p := e.Payload(); p != nil {
+		hasher.Write([]byte(p.ContentString()))
+	}
 	hash := hasher.Sum(nil)
 	e.ID = fmt.Sprintf("%x", hash[:16])
 }
@@ -131,15 +119,8 @@ func (e *SyncEvent) IsValid() bool {
 	if e.Service == "" || e.Timestamp == 0 {
 		return false
 	}
-
-	switch e.Service {
-	case ServiceSocial:
-		return e.Social != nil && e.Social.IsValid()
-	case ServicePing:
-		return e.Ping != nil && e.Ping.IsValid()
-	default:
-		return false // Unknown service
-	}
+	p := e.Payload()
+	return p != nil && p.IsValid()
 }
 
 // IsSigned returns true if this event has a signature
@@ -152,7 +133,9 @@ func (e *SyncEvent) IsSigned() bool {
 func (e *SyncEvent) signableData() []byte {
 	hasher := sha256.New()
 	hasher.Write([]byte(fmt.Sprintf("%s:%d:%s:%s:", e.ID, e.Timestamp, e.Service, e.Emitter)))
-	hasher.Write([]byte(e.payloadContentString()))
+	if p := e.Payload(); p != nil {
+		hasher.Write([]byte(p.ContentString()))
+	}
 	return hasher.Sum(nil)
 }
 
@@ -181,30 +164,16 @@ func (e *SyncEvent) Verify(publicKey ed25519.PublicKey) bool {
 
 // GetActor returns the primary actor of this event (for filtering)
 func (e *SyncEvent) GetActor() string {
-	switch e.Service {
-	case ServiceSocial:
-		if e.Social != nil {
-			return e.Social.Actor
-		}
-	case ServicePing:
-		if e.Ping != nil {
-			return e.Ping.Observer
-		}
+	if p := e.Payload(); p != nil {
+		return p.GetActor()
 	}
 	return ""
 }
 
 // GetTarget returns the target of this event (for filtering)
 func (e *SyncEvent) GetTarget() string {
-	switch e.Service {
-	case ServiceSocial:
-		if e.Social != nil {
-			return e.Social.Target
-		}
-	case ServicePing:
-		if e.Ping != nil {
-			return e.Ping.Target
-		}
+	if p := e.Payload(); p != nil {
+		return p.GetTarget()
 	}
 	return ""
 }
