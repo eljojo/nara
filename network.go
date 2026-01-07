@@ -69,12 +69,59 @@ type JourneyCompletion struct {
 }
 
 type NewspaperEvent struct {
-	From   string
-	Status NaraStatus
+	From      string
+	Status    NaraStatus
+	Signature string // Base64-encoded signature of the status JSON
+}
+
+// SignNewspaper creates a signed newspaper event
+func (network *Network) SignNewspaper(status NaraStatus) NewspaperEvent {
+	event := NewspaperEvent{
+		From:   network.meName(),
+		Status: status,
+	}
+	// Sign the JSON-serialized status
+	statusJSON, _ := json.Marshal(status)
+	event.Signature = network.local.Keypair.SignBase64(statusJSON)
+	return event
+}
+
+// VerifyNewspaper verifies a newspaper event signature
+func (event *NewspaperEvent) Verify(publicKey []byte) bool {
+	if event.Signature == "" {
+		return false
+	}
+	statusJSON, err := json.Marshal(event.Status)
+	if err != nil {
+		return false
+	}
+	return VerifySignatureBase64(publicKey, statusJSON, event.Signature)
 }
 
 type HeyThereEvent struct {
-	From string
+	From      string
+	PublicKey string // Base64-encoded Ed25519 public key
+	MeshIP    string // Tailscale IP for mesh communication
+	Signature string // Base64-encoded signature of "hey_there:{From}:{PublicKey}:{MeshIP}"
+}
+
+// Sign signs the HeyThereEvent with the given keypair
+func (h *HeyThereEvent) Sign(kp NaraKeypair) {
+	message := fmt.Sprintf("hey_there:%s:%s:%s", h.From, h.PublicKey, h.MeshIP)
+	h.Signature = kp.SignBase64([]byte(message))
+}
+
+// Verify verifies the HeyThereEvent signature against the embedded public key
+func (h *HeyThereEvent) Verify() bool {
+	if h.PublicKey == "" || h.Signature == "" {
+		return false
+	}
+	pubKey, err := ParsePublicKey(h.PublicKey)
+	if err != nil {
+		return false
+	}
+	message := fmt.Sprintf("hey_there:%s:%s:%s", h.From, h.PublicKey, h.MeshIP)
+	return VerifySignatureBase64(pubKey, []byte(message), h.Signature)
 }
 
 func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Network {
@@ -440,14 +487,16 @@ func (network *Network) announce() {
 		slimStatus := network.local.Me.Status
 		network.local.Me.mu.Unlock()
 		slimStatus.Observations = nil
-		network.postEvent(topic, slimStatus)
-		logrus.Debugf("📰 Slim newspaper broadcast (event-primary mode)")
+		signedEvent := network.SignNewspaper(slimStatus)
+		network.postEvent(topic, signedEvent)
+		logrus.Debugf("📰 Slim newspaper broadcast (event-primary mode, signed)")
 	} else {
 		// Traditional mode: include full observations
 		network.local.Me.mu.Lock()
 		statusCopy := network.local.Me.Status
 		network.local.Me.mu.Unlock()
-		network.postEvent(topic, statusCopy)
+		signedEvent := network.SignNewspaper(statusCopy)
+		network.postEvent(topic, signedEvent)
 	}
 }
 
@@ -483,11 +532,40 @@ func (network *Network) processNewspaperEvents() {
 func (network *Network) handleNewspaperEvent(event NewspaperEvent) {
 	logrus.Debugf("newspaperHandler update from %s", event.From)
 
+	// Verify signature if present
+	if event.Signature != "" {
+		// Get public key - try from event status first, then from known neighbor
+		var pubKey []byte
+		if event.Status.PublicKey != "" {
+			var err error
+			pubKey, err = ParsePublicKey(event.Status.PublicKey)
+			if err != nil {
+				logrus.Warnf("🚨 Invalid public key in newspaper from %s", event.From)
+				return
+			}
+		} else {
+			// Try to get from known neighbor
+			pubKey = network.getPublicKeyForNara(event.From)
+		}
+
+		if pubKey != nil && !event.Verify(pubKey) {
+			logrus.Warnf("🚨 Invalid signature on newspaper from %s", event.From)
+			return
+		}
+	}
+
 	network.local.mu.Lock()
 	nara, present := network.Neighbourhood[event.From]
 	network.local.mu.Unlock()
 	if present {
 		nara.mu.Lock()
+		// Warn if public key changed
+		if event.Status.PublicKey != "" && nara.Status.PublicKey != "" && nara.Status.PublicKey != event.Status.PublicKey {
+			logrus.Warnf("⚠️  Public key changed for %s! Old: %s..., New: %s...",
+				event.From,
+				truncateKey(nara.Status.PublicKey),
+				truncateKey(event.Status.PublicKey))
+		}
 		nara.Status.setValuesFrom(event.Status)
 		nara.mu.Unlock()
 	} else {
@@ -524,8 +602,46 @@ func (network *Network) processHeyThereEvents() {
 }
 
 func (network *Network) handleHeyThereEvent(heyThere HeyThereEvent) {
+	// Verify signature if present
+	if heyThere.Signature != "" {
+		if !heyThere.Verify() {
+			logrus.Warnf("🚨 Invalid signature on hey_there from %s", heyThere.From)
+			return
+		}
+	}
+
 	logrus.Printf("%s says: hey there!", heyThere.From)
 	network.recordObservationOnlineNara(heyThere.From)
+
+	// Store PublicKey and MeshIP from the hey_there event
+	if heyThere.PublicKey != "" || heyThere.MeshIP != "" {
+		network.local.mu.Lock()
+		nara, present := network.Neighbourhood[heyThere.From]
+		network.local.mu.Unlock()
+
+		if present {
+			nara.mu.Lock()
+			// Warn if public key changed
+			if heyThere.PublicKey != "" && nara.Status.PublicKey != "" && nara.Status.PublicKey != heyThere.PublicKey {
+				logrus.Warnf("⚠️  Public key changed for %s! Old: %s..., New: %s...",
+					heyThere.From,
+					truncateKey(nara.Status.PublicKey),
+					truncateKey(heyThere.PublicKey))
+			}
+			if heyThere.PublicKey != "" {
+				nara.Status.PublicKey = heyThere.PublicKey
+			}
+			if heyThere.MeshIP != "" {
+				nara.Status.MeshIP = heyThere.MeshIP
+				nara.Status.MeshEnabled = true
+			}
+			nara.mu.Unlock()
+			logrus.Debugf("📝 Updated %s: PublicKey=%s..., MeshIP=%s",
+				heyThere.From,
+				truncateKey(heyThere.PublicKey),
+				heyThere.MeshIP)
+		}
+	}
 
 	// artificially slow down so if two naras boot at the same time they both get the message
 	if !network.ReadOnly {
@@ -533,6 +649,14 @@ func (network *Network) handleHeyThereEvent(heyThere HeyThereEvent) {
 		network.selfie()
 	}
 	network.Buzz.increase(1)
+}
+
+// truncateKey returns first 8 chars of a key for logging
+func truncateKey(key string) string {
+	if len(key) > 8 {
+		return key[:8]
+	}
+	return key
 }
 
 func (network *Network) heyThere() {
@@ -547,7 +671,12 @@ func (network *Network) heyThere() {
 	network.LastHeyThere = time.Now().Unix()
 
 	topic := "nara/plaza/hey_there"
-	heyThere := &HeyThereEvent{From: network.meName()}
+	heyThere := &HeyThereEvent{
+		From:      network.meName(),
+		PublicKey: network.local.Me.Status.PublicKey,
+		MeshIP:    network.local.Me.Status.MeshIP,
+	}
+	heyThere.Sign(network.local.Keypair)
 	network.postEvent(topic, heyThere)
 	network.selfie()
 	logrus.Printf("%s: 👋", heyThere.From)
@@ -807,6 +936,15 @@ func (network *Network) handleSocialEvent(event SocialEvent) {
 		return
 	}
 
+	// Verify signature if present
+	if event.Signature != "" {
+		pubKey := network.getPublicKeyForNara(event.Actor)
+		if pubKey != nil && !event.Verify(pubKey) {
+			logrus.Warnf("🚨 Invalid signature on tease from %s", event.Actor)
+			return
+		}
+	}
+
 	// Add to our ledger
 	if network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality) {
 		logrus.Printf("📢 %s teased %s: %s", event.Actor, event.Target, TeaseMessage(event.Reason, event.Actor, event.Target))
@@ -863,8 +1001,9 @@ func (network *Network) Tease(target, reason string) bool {
 		return false
 	}
 
-	// Create and broadcast the event
+	// Create, sign, and broadcast the event
 	event := NewTeaseEvent(actor, target, reason)
+	event.Sign(network.local.Keypair)
 
 	// Add to our own ledger
 	if network.local.SyncLedger != nil {
