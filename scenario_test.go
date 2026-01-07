@@ -62,7 +62,7 @@ func TestScenario_VibeShift(t *testing.T) {
 	}
 
 	// 8. Simulate Nara B leaving (Chau)
-	network.handleChauEvent(Nara{Name: "B"})
+	network.handleChauEvent(ChauEvent{From: "B"})
 	obsB = network.local.getObservation("B")
 	if obsB.Online != "OFFLINE" {
 		t.Errorf("expected B to be OFFLINE, got %s", obsB.Online)

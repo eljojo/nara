@@ -116,3 +116,54 @@ func TestNewspaperEvent_VerifyUnsigned(t *testing.T) {
 		t.Error("Expected Verify to return false for unsigned event")
 	}
 }
+
+func TestChauEvent_SignAndVerify(t *testing.T) {
+	// Create a keypair from a test soul
+	soul := NativeSoulCustom([]byte("test-hw-chau-1"), "alice")
+	keypair := DeriveKeypair(soul)
+
+	// Create and sign a chau event
+	event := &ChauEvent{
+		From:      "alice",
+		PublicKey: FormatPublicKey(keypair.PublicKey),
+	}
+	event.Sign(keypair)
+
+	if event.Signature == "" {
+		t.Error("Expected signature to be set after signing")
+	}
+
+	// Verify should succeed
+	if !event.Verify() {
+		t.Error("Expected signature to verify")
+	}
+
+	// Tamper with the event - should fail
+	tamperedEvent := *event
+	tamperedEvent.From = "bob"
+	if tamperedEvent.Verify() {
+		t.Error("Expected tampered event to fail verification")
+	}
+
+	// Wrong signature - should fail
+	wrongEvent := &ChauEvent{
+		From:      "alice",
+		PublicKey: FormatPublicKey(keypair.PublicKey),
+		Signature: "invalid-signature",
+	}
+	if wrongEvent.Verify() {
+		t.Error("Expected invalid signature to fail verification")
+	}
+}
+
+func TestChauEvent_VerifyUnsigned(t *testing.T) {
+	event := &ChauEvent{
+		From:      "alice",
+		PublicKey: "",
+	}
+
+	// Should return false for unsigned event
+	if event.Verify() {
+		t.Error("Expected Verify to return false for unsigned event")
+	}
+}

@@ -65,13 +65,13 @@ func (network *Network) selfieHandler(client mqtt.Client, msg mqtt.Message) {
 }
 
 func (network *Network) chauHandler(client mqtt.Client, msg mqtt.Message) {
-	nara := NewNara("")
-	if err := json.Unmarshal(msg.Payload(), nara); err != nil {
+	event := ChauEvent{}
+	if err := json.Unmarshal(msg.Payload(), &event); err != nil {
 		logrus.Debugf("chauHandler: invalid JSON: %v", err)
 		return
 	}
 
-	network.chauInbox <- *nara
+	network.chauInbox <- event
 }
 
 func (network *Network) socialHandler(client mqtt.Client, msg mqtt.Message) {

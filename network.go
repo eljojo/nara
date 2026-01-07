@@ -25,7 +25,7 @@ type Network struct {
 	Mqtt                mqtt.Client
 	heyThereInbox       chan HeyThereEvent
 	newspaperInbox      chan NewspaperEvent
-	chauInbox           chan Nara
+	chauInbox           chan ChauEvent
 	selfieInbox         chan Nara
 	socialInbox         chan SocialEvent
 	ledgerRequestInbox  chan LedgerRequest
@@ -124,11 +124,36 @@ func (h *HeyThereEvent) Verify() bool {
 	return VerifySignatureBase64(pubKey, []byte(message), h.Signature)
 }
 
+type ChauEvent struct {
+	From      string
+	PublicKey string // Base64-encoded Ed25519 public key
+	Signature string // Base64-encoded signature of "chau:{From}:{PublicKey}"
+}
+
+// Sign signs the ChauEvent with the given keypair
+func (c *ChauEvent) Sign(kp NaraKeypair) {
+	message := fmt.Sprintf("chau:%s:%s", c.From, c.PublicKey)
+	c.Signature = kp.SignBase64([]byte(message))
+}
+
+// Verify verifies the ChauEvent signature against the embedded public key
+func (c *ChauEvent) Verify() bool {
+	if c.PublicKey == "" || c.Signature == "" {
+		return false
+	}
+	pubKey, err := ParsePublicKey(c.PublicKey)
+	if err != nil {
+		return false
+	}
+	message := fmt.Sprintf("chau:%s:%s", c.From, c.PublicKey)
+	return VerifySignatureBase64(pubKey, []byte(message), c.Signature)
+}
+
 func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Network {
 	network := &Network{local: localNara}
 	network.Neighbourhood = make(map[string]*Nara)
 	network.heyThereInbox = make(chan HeyThereEvent)
-	network.chauInbox = make(chan Nara)
+	network.chauInbox = make(chan ChauEvent)
 	network.selfieInbox = make(chan Nara)
 	network.newspaperInbox = make(chan NewspaperEvent)
 	network.socialInbox = make(chan SocialEvent, 100)
@@ -705,32 +730,50 @@ func (network *Network) processChauEvents() {
 	}
 }
 
-func (network *Network) handleChauEvent(nara Nara) {
-	if nara.Name == network.meName() || nara.Name == "" {
+func (network *Network) handleChauEvent(event ChauEvent) {
+	if event.From == network.meName() || event.From == "" {
 		return
 	}
 
-	network.local.mu.Lock()
-	existingNara, present := network.Neighbourhood[nara.Name]
-	network.local.mu.Unlock()
-	if present {
-		existingNara.setValuesFrom(nara)
+	// Verify signature if present
+	if event.Signature != "" && event.PublicKey != "" {
+		if !event.Verify() {
+			logrus.Warnf("⚠️  chau from %s has invalid signature, ignoring", event.From)
+			return
+		}
 	}
 
-	observation := network.local.getObservation(nara.Name)
+	network.local.mu.Lock()
+	existingNara, present := network.Neighbourhood[event.From]
+	network.local.mu.Unlock()
+
+	// Check for public key changes
+	if present && existingNara.Status.PublicKey != "" && event.PublicKey != "" {
+		if existingNara.Status.PublicKey != event.PublicKey {
+			logrus.Warnf("⚠️  PUBLIC KEY CHANGED for %s! old=%s new=%s",
+				event.From, truncateKey(existingNara.Status.PublicKey), truncateKey(event.PublicKey))
+		}
+	}
+
+	// Update the nara's public key if provided
+	if present && event.PublicKey != "" {
+		existingNara.Status.PublicKey = event.PublicKey
+	}
+
+	observation := network.local.getObservation(event.From)
 	previousState := observation.Online
 	observation.Online = "OFFLINE"
 	observation.LastSeen = time.Now().Unix()
-	network.local.setObservation(nara.Name, observation)
+	network.local.setObservation(event.From, observation)
 
 	// Record offline observation event if state changed
 	if previousState == "ONLINE" && !network.local.isBooting() && network.local.SyncLedger != nil {
-		event := NewObservationEvent(network.meName(), nara.Name, ReasonOffline)
-		network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
-		logrus.Printf("observation: %s went offline", nara.Name)
+		obsEvent := NewObservationEvent(network.meName(), event.From, ReasonOffline)
+		network.local.SyncLedger.AddSocialEventFilteredLegacy(obsEvent, network.local.Me.Status.Personality)
+		logrus.Printf("observation: %s went offline", event.From)
 	}
 
-	logrus.Printf("%s: chau!", nara.Name)
+	logrus.Printf("%s: chau!", event.From)
 	network.Buzz.increase(2)
 }
 
@@ -746,7 +789,12 @@ func (network *Network) Chau() {
 	observation.LastSeen = time.Now().Unix()
 	network.local.setMeObservation(observation)
 
-	network.postEvent(topic, network.local.Me)
+	chauEvent := &ChauEvent{
+		From:      network.meName(),
+		PublicKey: network.local.Me.Status.PublicKey,
+	}
+	chauEvent.Sign(network.local.Keypair)
+	network.postEvent(topic, chauEvent)
 }
 
 func (network *Network) oldestNaraBarrio() Nara {
