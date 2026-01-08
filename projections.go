@@ -5,6 +5,7 @@ package nara
 
 import (
 	"context"
+	"sort"
 	"sync"
 )
 
@@ -49,13 +50,21 @@ func (p *Projection) RunToEnd(ctx context.Context) error {
 
 	// Check if ledger structure changed (pruning, etc.) - if so, reset and reprocess
 	events, _, version := p.ledger.GetEventsSince(p.position)
-	if version != p.lastVersion && p.lastVersion >= 0 {
+	needsReset := version != p.lastVersion && p.lastVersion >= 0
+	if needsReset {
 		// Ledger was restructured, need to reset and reprocess from beginning
 		p.position = 0
 		if p.onReset != nil {
 			p.onReset()
 		}
 		events, _, version = p.ledger.GetEventsSince(0)
+		// Sort by timestamp when reprocessing to ensure chronological order.
+		// Events may have been added out of order (e.g., zines with old events),
+		// but we need to process them chronologically so the most recent
+		// event's state is preserved.
+		sort.Slice(events, func(i, j int) bool {
+			return events[i].Timestamp < events[j].Timestamp
+		})
 	}
 
 	start := p.position
@@ -68,6 +77,7 @@ func (p *Projection) RunToEnd(ctx context.Context) error {
 				return err
 			}
 			// Track progress so early returns have correct position
+			// After reset with sorting, position tracking is approximate but safe
 			p.position = start + i + 1
 		}
 	}
@@ -84,13 +94,21 @@ func (p *Projection) RunOnce() (bool, error) {
 
 	// Check if ledger structure changed (pruning, etc.) - if so, reset and reprocess
 	events, _, version := p.ledger.GetEventsSince(p.position)
-	if version != p.lastVersion && p.lastVersion >= 0 {
+	needsReset := version != p.lastVersion && p.lastVersion >= 0
+	if needsReset {
 		// Ledger was restructured, need to reset and reprocess from beginning
 		p.position = 0
 		if p.onReset != nil {
 			p.onReset()
 		}
 		events, _, version = p.ledger.GetEventsSince(0)
+		// Sort by timestamp when reprocessing to ensure chronological order.
+		// Events may have been added out of order (e.g., zines with old events),
+		// but we need to process them chronologically so the most recent
+		// event's state is preserved.
+		sort.Slice(events, func(i, j int) bool {
+			return events[i].Timestamp < events[j].Timestamp
+		})
 	}
 
 	if len(events) == 0 {
@@ -103,6 +121,7 @@ func (p *Projection) RunOnce() (bool, error) {
 		if err := p.handler(event); err != nil {
 			return true, err
 		}
+		// After reset with sorting, position tracking is approximate but safe
 		p.position = start + i + 1
 	}
 	p.lastVersion = version

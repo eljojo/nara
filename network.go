@@ -3469,6 +3469,11 @@ func (network *Network) performBackgroundSyncViaMesh(neighbor, ip string) {
 		if hasPingEvents {
 			network.seedAvgPingRTTFromHistory()
 		}
+
+		// Trigger projection update for new events
+		if network.local.Projections != nil {
+			network.local.Projections.Trigger()
+		}
 	} else if len(events) > 0 {
 		logrus.Debugf("🔄 background sync from %s: received %d events (all duplicates)", neighbor, len(events))
 	}
@@ -3677,4 +3682,7 @@ func (network *Network) emitSeenEvent(subject, via string) {
 
 	event := NewSeenSyncEvent(me, subject, via, network.local.Keypair)
 	network.local.SyncLedger.AddEvent(event)
+	if network.local.Projections != nil {
+		network.local.Projections.Trigger()
+	}
 }

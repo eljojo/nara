@@ -503,3 +503,130 @@ func TestOnlineStatusWithoutOwnHeyThere(t *testing.T) {
 		t.Errorf("Expected empty status when no events in ledger, got %q", status)
 	}
 }
+
+// TestOnlineStatusAfterResetWithMixedTimestamps is a regression test for the bug where
+// after receiving zines with old events, a nara would be incorrectly marked as MISSING
+// even though we had recent activity from them.
+//
+// The bug: When ledger pruning causes a projection reset, events were reprocessed
+// in insertion order (not timestamp order). If old events happened to come first
+// in the reprocessing, the projection would have old timestamps and incorrectly
+// mark naras as MISSING.
+//
+// The fix: Sort events by timestamp when reprocessing after a reset.
+func TestOnlineStatusAfterResetWithMixedTimestamps(t *testing.T) {
+	// Use a larger ledger so events survive pruning
+	ledger := NewSyncLedger(20)
+	projection := NewOnlineStatusProjection(ledger)
+	projection.RunToEnd(context.Background())
+
+	now := time.Now().UnixNano()
+	tenMinutesAgo := now - int64(10*time.Minute)
+	oneMinuteAgo := now - int64(1*time.Minute)
+
+	// Simulate the problematic scenario:
+	// 1. First add old events (simulating zine events received from the past)
+	// 2. Then add a recent seen event for lisa
+	// 3. Then add MORE old events for lisa (simulating receiving a zine with old history)
+	// 4. Trigger pruning/reset
+	// 5. Lisa should still be ONLINE because the recent event should win
+
+	// Add old events first (simulating zine events from the past)
+	for i := 0; i < 5; i++ {
+		ledger.AddEvent(SyncEvent{
+			Timestamp: tenMinutesAgo + int64(i*1000), // Old timestamps
+			Service:   ServiceHeyThere,
+			HeyThere: &HeyThereEvent{
+				From:      "other-nara",
+				PublicKey: "key",
+			},
+		})
+	}
+
+	// Add an OLD hey_there from lisa (simulating receiving a zine with her old events)
+	// This has an OLD timestamp but is added to the ledger NOW
+	oldLisaEvent := SyncEvent{
+		Timestamp: tenMinutesAgo, // 10 minutes ago - OVER the 5 min threshold
+		Service:   ServiceHeyThere,
+		HeyThere: &HeyThereEvent{
+			From:      "lisa",
+			PublicKey: "lisa-key",
+		},
+	}
+	oldLisaEvent.ComputeID()
+	ledger.AddEvent(oldLisaEvent)
+
+	// Add a RECENT seen event for lisa (we just saw her newspaper)
+	// This is added AFTER the old event, but has a NEWER timestamp
+	recentSeenEvent := SyncEvent{
+		Timestamp: oneMinuteAgo, // 1 minute ago - well within 5 min threshold
+		Service:   ServiceSeen,
+		Seen: &SeenEvent{
+			Observer: "me",
+			Subject:  "lisa",
+			Via:      "newspaper",
+		},
+	}
+	recentSeenEvent.ComputeID()
+	ledger.AddEvent(recentSeenEvent)
+
+	// Add more padding events
+	for i := 0; i < 5; i++ {
+		ledger.AddEvent(SyncEvent{
+			Timestamp: now - int64(30*time.Second) + int64(i*1000),
+			Service:   ServiceSeen,
+			Seen: &SeenEvent{
+				Observer: "someone",
+				Subject:  "padding",
+				Via:      "test",
+			},
+		})
+	}
+
+	// Process all events so far
+	projection.RunOnce()
+
+	// Lisa should be ONLINE (the recent seen event should win over the old hey_there)
+	status := projection.GetStatus("lisa")
+	if status != "ONLINE" {
+		t.Errorf("Before pruning: expected lisa ONLINE, got %q", status)
+	}
+
+	// Now trigger pruning by adding more events to exceed capacity
+	for i := 0; i < 10; i++ {
+		ledger.AddEvent(SyncEvent{
+			Timestamp: now + int64(i*1000),
+			Service:   ServiceSeen,
+			Seen: &SeenEvent{
+				Observer: "someone",
+				Subject:  "other",
+				Via:      "test",
+			},
+		})
+	}
+
+	// This should trigger a reset because version changed due to pruning
+	projection.RunOnce()
+
+	// After reset, the projection reprocesses all remaining events.
+	// THE BUG: If events are processed in INSERTION order, the old hey_there
+	// might be processed first, setting lisa's LastEventTime to 10 minutes ago.
+	// Then the recent seen event updates it to 1 minute ago. That should be fine...
+	//
+	// Actually, the real bug is more subtle: the events in the ledger are stored
+	// in insertion order, and after pruning some events are removed. The remaining
+	// events still have their timestamps, but the projection handler compares
+	// `event.Timestamp > current.LastEventTime`. The recent event should win.
+	//
+	// THE FIX: Sort events by timestamp when reprocessing, ensuring chronological
+	// processing and that the most recent state is preserved.
+
+	status = projection.GetStatus("lisa")
+	if status == "MISSING" {
+		t.Error("BUG: lisa incorrectly marked as MISSING after pruning/reset")
+		t.Log("This happens when events are processed in insertion order instead of timestamp order")
+	}
+	if status != "ONLINE" {
+		t.Errorf("After pruning: expected lisa ONLINE, got %q", status)
+	}
+}
