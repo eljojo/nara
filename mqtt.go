@@ -24,10 +24,10 @@ func (network *Network) mqttOnConnectHandler() mqtt.OnConnectHandler {
 func (network *Network) subscribeHandlers(client mqtt.Client) {
 	subscribeMqtt(client, "nara/plaza/hey_there", network.heyThereHandler)
 	subscribeMqtt(client, "nara/plaza/chau", network.chauHandler)
+	subscribeMqtt(client, "nara/plaza/howdy", network.howdyHandler)
 	subscribeMqtt(client, "nara/plaza/social", network.socialHandler)
 	subscribeMqtt(client, "nara/plaza/journey_complete", network.journeyCompleteHandler)
 	subscribeMqtt(client, "nara/newspaper/#", network.newspaperHandler)
-	subscribeMqtt(client, "nara/selfies/#", network.selfieHandler)
 
 	// Subscribe to ledger requests and responses for this nara
 	ledgerRequestTopic := fmt.Sprintf("nara/ledger/%s/request", network.meName())
@@ -50,18 +50,19 @@ func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 	network.heyThereInbox <- *heyThere
 }
 
-func (network *Network) selfieHandler(client mqtt.Client, msg mqtt.Message) {
-	nara := NewNara("")
-	if err := json.Unmarshal(msg.Payload(), nara); err != nil {
-		logrus.Infof("selfieHandler: invalid JSON: %v", err)
+func (network *Network) howdyHandler(client mqtt.Client, msg mqtt.Message) {
+	howdy := &HowdyEvent{}
+	if err := json.Unmarshal(msg.Payload(), howdy); err != nil {
+		logrus.Debugf("howdyHandler: invalid JSON: %v", err)
 		return
 	}
 
-	if nara.Name == network.meName() || nara.Name == "" {
+	// Ignore our own howdy messages
+	if howdy.From == network.meName() || howdy.From == "" {
 		return
 	}
 
-	network.selfieInbox <- *nara
+	network.howdyInbox <- *howdy
 }
 
 func (network *Network) chauHandler(client mqtt.Client, msg mqtt.Message) {

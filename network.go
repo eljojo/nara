@@ -11,6 +11,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"sort"
 	"sync"
 	"time"
 
@@ -57,14 +58,17 @@ type Network struct {
 	Neighbourhood       map[string]*Nara
 	Buzz                *Buzz
 	LastHeyThere        int64
-	LastSelfie          int64
 	skippingEvents      bool
 	local               *LocalNara
 	Mqtt                mqtt.Client
 	heyThereInbox       chan HeyThereEvent
 	newspaperInbox      chan NewspaperEvent
 	chauInbox           chan ChauEvent
-	selfieInbox         chan Nara
+	howdyInbox          chan HowdyEvent
+	howdyCoordinators   sync.Map // map[string]*howdyCoordinator - tracks pending howdy responses
+	startTimeVotes      []startTimeVote
+	startTimeVotesMu    sync.Mutex
+	startTimeApplied    bool // true once we've applied consensus
 	socialInbox         chan SocialEvent
 	ledgerRequestInbox  chan LedgerRequest
 	ledgerResponseInbox chan LedgerResponse
@@ -200,12 +204,51 @@ func (c *ChauEvent) Verify() bool {
 	return VerifySignatureBase64(pubKey, []byte(message), c.Signature)
 }
 
+// NeighborInfo contains information about a neighbor to share in howdy responses
+type NeighborInfo struct {
+	Name        string
+	PublicKey   string
+	MeshIP      string
+	Observation NaraObservation // What I know about this neighbor
+}
+
+// HowdyEvent is sent in response to hey_there to help with discovery and start time recovery
+type HowdyEvent struct {
+	From      string          // Who's sending this howdy
+	To        string          // Who this is in response to (hey_there sender)
+	Seq       int             // Sequence number (1-10) for coordination
+	You       NaraObservation // What I know about you (includes StartTime!)
+	Neighbors []NeighborInfo  // ~10 other naras you should know about
+	Me        NaraStatus      // My own status
+	Signature string          // Ed25519 signature
+}
+
+// Sign signs the HowdyEvent with the given keypair
+func (h *HowdyEvent) Sign(kp NaraKeypair) {
+	// Sign a deterministic representation of the event
+	message := fmt.Sprintf("howdy:%s:%s:%d", h.From, h.To, h.Seq)
+	h.Signature = kp.SignBase64([]byte(message))
+}
+
+// Verify verifies the HowdyEvent signature against the public key in Me.PublicKey
+func (h *HowdyEvent) Verify() bool {
+	if h.Me.PublicKey == "" || h.Signature == "" {
+		return false
+	}
+	pubKey, err := ParsePublicKey(h.Me.PublicKey)
+	if err != nil {
+		return false
+	}
+	message := fmt.Sprintf("howdy:%s:%s:%d", h.From, h.To, h.Seq)
+	return VerifySignatureBase64(pubKey, []byte(message), h.Signature)
+}
+
 func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Network {
 	network := &Network{local: localNara}
 	network.Neighbourhood = make(map[string]*Nara)
 	network.heyThereInbox = make(chan HeyThereEvent)
 	network.chauInbox = make(chan ChauEvent)
-	network.selfieInbox = make(chan Nara)
+	network.howdyInbox = make(chan HowdyEvent, 50)
 	network.newspaperInbox = make(chan NewspaperEvent)
 	network.socialInbox = make(chan SocialEvent, 100)
 	network.ledgerRequestInbox = make(chan LedgerRequest, 50)
@@ -532,7 +575,7 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 		go network.announceForever()
 	}
 	go network.processHeyThereEvents()
-	go network.processSelfieEvents()
+	go network.processHowdyEvents()
 	go network.processChauEvents()
 	go network.processNewspaperEvents()
 	go network.processSocialEvents()
@@ -692,18 +735,142 @@ func (network *Network) handleNewspaperEvent(event NewspaperEvent) {
 	network.recordObservationOnlineNara(event.From)
 }
 
-func (network *Network) processSelfieEvents() {
+func (network *Network) processHowdyEvents() {
 	for {
-		network.handleSelfieEvent(<-network.selfieInbox)
+		network.handleHowdyEvent(<-network.howdyInbox)
 	}
 }
 
-func (network *Network) handleSelfieEvent(nara Nara) {
-	network.importNara(&nara)
-	logrus.Debugf("%s just took a selfie", nara.Name)
-	network.recordObservationOnlineNara(nara.Name)
+func (network *Network) handleHowdyEvent(howdy HowdyEvent) {
+	// Log observed howdy
+	logrus.Infof("👀 Observed howdy: %s → %s (seq=%d, neighbors=%d)", howdy.From, howdy.To, howdy.Seq, len(howdy.Neighbors))
+
+	// Notify coordinator that we saw a howdy (for self-selection)
+	network.onHowdySeen(howdy)
+
+	// Verify signature
+	if !howdy.Verify() {
+		logrus.Debugf("howdy from %s failed signature verification", howdy.From)
+		return
+	}
+
+	// 1. Import the sender (so we know about them)
+	sender := NewNara(howdy.From)
+	sender.Status = howdy.Me
+	network.importNara(sender)
+	network.recordObservationOnlineNara(howdy.From)
+
+	// 2. If this howdy is for us, process it fully
+	if howdy.To == network.meName() {
+		logrus.Infof("📬 Received howdy for me from %s (seq=%d, neighbors=%d)", howdy.From, howdy.Seq, len(howdy.Neighbors))
+
+		// Apply their observation about us (includes StartTime!)
+		network.collectStartTimeVote(howdy.You, howdy.Me.HostStats.Uptime)
+
+		// 3. Import the neighbors they shared
+		for _, neighbor := range howdy.Neighbors {
+			n := NewNara(neighbor.Name)
+			n.Status.PublicKey = neighbor.PublicKey
+			n.Status.MeshIP = neighbor.MeshIP
+			if neighbor.MeshIP != "" {
+				n.Status.MeshEnabled = true
+			}
+			network.importNara(n)
+			// Store their observation about this neighbor
+			network.mergeExternalObservation(neighbor.Name, neighbor.Observation)
+		}
+	}
 
 	network.Buzz.increase(1)
+}
+
+// startTimeVote represents a vote for our start time from another nara
+type startTimeVote struct {
+	value  int64
+	uptime uint64
+}
+
+// collectStartTimeVote collects a vote about our start time from a howdy response
+func (network *Network) collectStartTimeVote(obs NaraObservation, senderUptime uint64) {
+	// Skip if no start time info
+	if obs.StartTime == 0 {
+		return
+	}
+
+	network.startTimeVotesMu.Lock()
+	defer network.startTimeVotesMu.Unlock()
+
+	// Skip if we've already applied consensus
+	if network.startTimeApplied {
+		return
+	}
+
+	// Skip if we already have a start time
+	myObs := network.local.getMeObservation()
+	if myObs.StartTime > 0 {
+		network.startTimeApplied = true
+		return
+	}
+
+	network.startTimeVotes = append(network.startTimeVotes, startTimeVote{
+		value:  obs.StartTime,
+		uptime: senderUptime,
+	})
+
+	// If we have enough votes (e.g., 3), apply consensus
+	if len(network.startTimeVotes) >= 3 {
+		network.applyStartTimeConsensus()
+	}
+}
+
+// applyStartTimeConsensus applies consensus to determine our start time
+// Must be called with startTimeVotesMu held
+func (network *Network) applyStartTimeConsensus() {
+	if network.startTimeApplied || len(network.startTimeVotes) == 0 {
+		return
+	}
+
+	// Convert to consensusValue format
+	var values []consensusValue
+	for _, vote := range network.startTimeVotes {
+		values = append(values, consensusValue{
+			value:  vote.value,
+			weight: vote.uptime,
+		})
+	}
+
+	// Use existing consensus algorithm
+	const tolerance int64 = 60 // seconds, handles clock drift
+	result := consensusByUptime(values, tolerance, false)
+
+	if result > 0 {
+		obs := network.local.getMeObservation()
+		obs.StartTime = result
+		network.local.setMeObservation(obs)
+		network.startTimeApplied = true
+		logrus.Infof("🕰️ Recovered start time via howdy consensus: %d (from %d votes)", result, len(network.startTimeVotes))
+	}
+}
+
+// mergeExternalObservation merges an external observation into our local observations
+func (network *Network) mergeExternalObservation(name string, external NaraObservation) {
+	obs := network.local.getObservation(name)
+
+	// Update fields if they provide more information
+	if external.StartTime > 0 && obs.StartTime == 0 {
+		obs.StartTime = external.StartTime
+	}
+	if external.LastSeen > obs.LastSeen {
+		obs.LastSeen = external.LastSeen
+	}
+	if external.Restarts > obs.Restarts {
+		obs.Restarts = external.Restarts
+	}
+	if external.LastRestart > obs.LastRestart {
+		obs.LastRestart = external.LastRestart
+	}
+
+	network.local.setObservation(name, obs)
 }
 
 func (network *Network) processHeyThereEvents() {
@@ -754,17 +921,168 @@ func (network *Network) handleHeyThereEvent(heyThere HeyThereEvent) {
 		}
 	}
 
-	// artificially slow down so if two naras boot at the same time they both get the message
+	// Start howdy coordinator with self-selection timer
+	// The coordinator uses random delays (0-3s) to spread responses
 	if !network.ReadOnly {
-		if !network.testSkipHeyThereSleep {
-			time.Sleep(1 * time.Second)
-		}
-		// Announce ourselves so the new nara can discover us quickly
-		// This replaces the old selfie() behavior
-		network.announce()
-		network.selfie()
+		network.startHowdyCoordinator(heyThere.From)
 	}
 	network.Buzz.increase(1)
+}
+
+// howdyCoordinator tracks howdy responses for a given hey_there
+type howdyCoordinator struct {
+	target         string          // who said hey_there
+	seen           int             // how many howdys we've seen for this target
+	mentionedNaras map[string]bool // naras already mentioned in other howdys
+	timer          *time.Timer
+	responded      bool
+	mu             sync.Mutex
+}
+
+// startHowdyCoordinator begins the self-selection process to potentially respond with howdy
+func (network *Network) startHowdyCoordinator(to string) {
+	if network.ReadOnly {
+		return
+	}
+
+	coord := &howdyCoordinator{
+		target:         to,
+		mentionedNaras: make(map[string]bool),
+	}
+	network.howdyCoordinators.Store(to, coord)
+
+	// Initial random delay: 0-3 seconds
+	delay := time.Duration(rand.Intn(3000)) * time.Millisecond
+	coord.timer = time.AfterFunc(delay, func() {
+		network.maybeRespondWithHowdy(coord)
+	})
+
+	// Clean up after 30 seconds
+	time.AfterFunc(30*time.Second, func() {
+		network.howdyCoordinators.Delete(to)
+	})
+}
+
+// maybeRespondWithHowdy sends a howdy if we haven't already and <10 have been sent
+func (network *Network) maybeRespondWithHowdy(coord *howdyCoordinator) {
+	coord.mu.Lock()
+	defer coord.mu.Unlock()
+
+	if coord.responded || coord.seen >= 10 {
+		return
+	}
+	coord.responded = true
+	coord.seen++
+
+	// Select neighbors to share
+	neighbors := network.selectNeighborsForHowdy(coord.target, coord.mentionedNaras)
+
+	network.local.Me.mu.Lock()
+	meStatus := network.local.Me.Status
+	network.local.Me.mu.Unlock()
+
+	event := &HowdyEvent{
+		From:      network.meName(),
+		To:        coord.target,
+		Seq:       coord.seen,
+		You:       network.local.getObservation(coord.target),
+		Neighbors: neighbors,
+		Me:        meStatus,
+	}
+	event.Sign(network.local.Keypair)
+	network.postEvent("nara/plaza/howdy", event)
+
+	logrus.Infof("👋 Sent howdy to %s (seq=%d, neighbors=%d)", coord.target, coord.seen, len(neighbors))
+}
+
+// onHowdySeen updates the coordinator when we see another nara's howdy
+func (network *Network) onHowdySeen(howdy HowdyEvent) {
+	if val, ok := network.howdyCoordinators.Load(howdy.To); ok {
+		coord := val.(*howdyCoordinator)
+		coord.mu.Lock()
+		coord.seen++
+
+		// Track which naras have been mentioned so we don't duplicate
+		coord.mentionedNaras[howdy.From] = true
+		for _, neighbor := range howdy.Neighbors {
+			coord.mentionedNaras[neighbor.Name] = true
+		}
+
+		if coord.seen >= 10 && coord.timer != nil {
+			coord.timer.Stop() // Don't bother responding
+		}
+		coord.mu.Unlock()
+	}
+}
+
+// selectNeighborsForHowdy selects up to 10 neighbors to share in a howdy response
+// Priority: online naras first (not already mentioned), then offline if needed
+func (network *Network) selectNeighborsForHowdy(exclude string, alreadyMentioned map[string]bool) []NeighborInfo {
+	const maxNeighbors = 10
+
+	type naraWithLastSeen struct {
+		name     string
+		lastSeen int64
+		online   bool
+	}
+
+	var candidates []naraWithLastSeen
+
+	network.local.mu.Lock()
+	for _, nara := range network.Neighbourhood {
+		// Skip self, target, and already mentioned
+		if nara.Name == network.meName() || nara.Name == exclude {
+			continue
+		}
+		if alreadyMentioned[nara.Name] {
+			continue
+		}
+
+		obs := network.local.getObservationLocked(nara.Name)
+		candidates = append(candidates, naraWithLastSeen{
+			name:     nara.Name,
+			lastSeen: obs.LastSeen,
+			online:   obs.isOnline(),
+		})
+	}
+	network.local.mu.Unlock()
+
+	// Sort: online first, then by least-recently-active (oldest LastSeen first)
+	sort.Slice(candidates, func(i, j int) bool {
+		// Online naras come first
+		if candidates[i].online != candidates[j].online {
+			return candidates[i].online
+		}
+		// Then sort by LastSeen (ascending = least recently active first)
+		return candidates[i].lastSeen < candidates[j].lastSeen
+	})
+
+	// Take up to maxNeighbors
+	if len(candidates) > maxNeighbors {
+		candidates = candidates[:maxNeighbors]
+	}
+
+	// Build result
+	var result []NeighborInfo
+	network.local.mu.Lock()
+	for _, c := range candidates {
+		nara, ok := network.Neighbourhood[c.name]
+		if !ok {
+			continue
+		}
+		nara.mu.Lock()
+		info := NeighborInfo{
+			Name:        nara.Name,
+			PublicKey:   nara.Status.PublicKey,
+			MeshIP:      nara.Status.MeshIP,
+			Observation: network.local.getObservationLocked(nara.Name),
+		}
+		nara.mu.Unlock()
+		result = append(result, info)
+	}
+	network.local.mu.Unlock()
+
+	return result
 }
 
 // truncateKey returns first 8 chars of a key for logging
@@ -794,25 +1112,9 @@ func (network *Network) heyThere() {
 	}
 	heyThere.Sign(network.local.Keypair)
 	network.postEvent(topic, heyThere)
-	network.selfie()
 	logrus.Printf("%s: 👋", heyThere.From)
 
 	network.Buzz.increase(2)
-}
-
-func (network *Network) selfie() {
-	if network.ReadOnly {
-		return
-	}
-	ts := int64(5) // seconds
-	network.recordObservationOnlineNara(network.meName())
-	if (time.Now().Unix() - network.LastSelfie) <= ts {
-		return
-	}
-	network.LastSelfie = time.Now().Unix()
-
-	topic := "nara/selfies/" + network.meName()
-	network.postEvent(topic, network.local.Me)
 }
 
 func (network *Network) processChauEvents() {

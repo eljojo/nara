@@ -124,33 +124,36 @@ func TestNara_SoulNotLeakedInJSON(t *testing.T) {
 	}
 }
 
-// TestHeyThere_TriggersAnnounce verifies that receiving a hey_there event
-// causes the nara to announce itself (post its newspaper).
-// This is a regression test for the selfie removal - without this behavior,
-// naras would take much longer to discover each other after boot.
-func TestHeyThere_TriggersAnnounce(t *testing.T) {
+// TestHeyThere_StartsHowdyCoordinator verifies that receiving a hey_there event
+// causes the nara to start a howdy coordinator to potentially respond.
+// This is the howdy protocol - up to 10 naras self-select to respond with howdy.
+func TestHeyThere_StartsHowdyCoordinator(t *testing.T) {
 	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	// Configure for testing:
-	// - NOT ReadOnly so announce() actually runs
+	// - NOT ReadOnly so howdy coordinator is started
 	// - TransportGossip so postEvent skips MQTT (no real network needed)
-	// - testSkipHeyThereSleep to avoid 1s delay in tests
 	network.ReadOnly = false
 	network.TransportMode = TransportGossip
-	network.testSkipHeyThereSleep = true
 
-	// Verify initial state
-	if network.testAnnounceCount != 0 {
-		t.Fatalf("expected initial announce count to be 0, got %d", network.testAnnounceCount)
+	// Verify initial state - no howdy coordinators
+	var initialCount int
+	network.howdyCoordinators.Range(func(_, _ interface{}) bool {
+		initialCount++
+		return true
+	})
+	if initialCount != 0 {
+		t.Fatalf("expected initial howdy coordinator count to be 0, got %d", initialCount)
 	}
 
 	// Simulate receiving a hey_there from another nara
 	network.handleHeyThereEvent(HeyThereEvent{From: "newcomer"})
 
-	// Verify that announce() was called
-	if network.testAnnounceCount != 1 {
-		t.Errorf("expected announce count to be 1 after hey_there, got %d", network.testAnnounceCount)
+	// Verify that a howdy coordinator was started
+	_, exists := network.howdyCoordinators.Load("newcomer")
+	if !exists {
+		t.Errorf("expected howdy coordinator to be started for 'newcomer'")
 	}
 
 	// Verify the newcomer was recorded as online
@@ -160,21 +163,21 @@ func TestHeyThere_TriggersAnnounce(t *testing.T) {
 	}
 }
 
-// TestHeyThere_ReadOnlySkipsAnnounce verifies that ReadOnly mode
-// prevents announcement (as expected for read-only naras).
-func TestHeyThere_ReadOnlySkipsAnnounce(t *testing.T) {
+// TestHeyThere_ReadOnlySkipsHowdy verifies that ReadOnly mode
+// prevents starting a howdy coordinator (as expected for read-only naras).
+func TestHeyThere_ReadOnlySkipsHowdy(t *testing.T) {
 	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 
-	// ReadOnly mode should skip announce
+	// ReadOnly mode should skip howdy coordinator
 	network.ReadOnly = true
-	network.testSkipHeyThereSleep = true
 
 	network.handleHeyThereEvent(HeyThereEvent{From: "newcomer"})
 
-	// announce() should NOT have been called
-	if network.testAnnounceCount != 0 {
-		t.Errorf("expected announce count to be 0 in ReadOnly mode, got %d", network.testAnnounceCount)
+	// Howdy coordinator should NOT have been started
+	_, exists := network.howdyCoordinators.Load("newcomer")
+	if exists {
+		t.Errorf("expected no howdy coordinator in ReadOnly mode")
 	}
 
 	// But the newcomer should still be recorded as online
