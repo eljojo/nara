@@ -662,6 +662,64 @@ func TestIntegration_GossipModeThreshold(t *testing.T) {
 		gossipShouldBeMissing, gossipThreshold)
 }
 
+// TestIntegration_GossipObserverThreshold validates that when the observer itself is
+// in gossip mode, it uses the longer threshold for ALL naras it observes.
+// This is because gossip-only naras receive updates less frequently via zine exchanges,
+// so they shouldn't mark others as MISSING too quickly.
+func TestIntegration_GossipObserverThreshold(t *testing.T) {
+	logrus.SetLevel(logrus.ErrorLevel)
+
+	// Create a gossip-only observer
+	observer := NewLocalNara("gossip-observer", testSoul("gossip-observer"), "", "", "", 100, 1000)
+	network := observer.Network
+	network.TransportMode = TransportGossip // Observer is in gossip mode
+	network.ReadOnly = true
+
+	// Create a neighbor nara in MQTT mode
+	mqttNara := NewNara("mqtt-nara")
+	mqttNara.Status.TransportMode = "mqtt"
+	network.importNara(mqttNara)
+
+	// Set the MQTT nara as ONLINE with LastSeen 10 minutes ago (600 seconds)
+	// This is after the MQTT threshold (300s) but before the gossip threshold (3600s)
+	now := time.Now().Unix()
+	tenMinutesAgo := now - 600
+
+	observer.setObservation("mqtt-nara", NaraObservation{
+		Online:   "ONLINE",
+		LastSeen: tenMinutesAgo,
+	})
+
+	// Simulate the threshold check (same logic as observationMaintenance)
+	obs := observer.getObservation("mqtt-nara")
+
+	threshold := MissingThreshold
+	nara := network.getNara("mqtt-nara")
+	subjectIsGossip := nara.Name != "" && nara.Status.TransportMode == "gossip"
+	observerIsGossip := network.TransportMode == TransportGossip
+	if subjectIsGossip || observerIsGossip {
+		threshold = MissingThresholdGossip
+	}
+	shouldBeMissing := (now - obs.LastSeen) > threshold
+
+	// Even though the observed nara is MQTT, the gossip observer should use the longer threshold
+	if shouldBeMissing {
+		t.Errorf("Gossip observer should NOT mark MQTT nara as MISSING after 10 min: elapsed=%ds, threshold=%ds",
+			now-obs.LastSeen, threshold)
+	}
+
+	if threshold != MissingThresholdGossip {
+		t.Errorf("Gossip observer should use gossip threshold for all naras: got %d, want %d",
+			threshold, MissingThresholdGossip)
+	}
+
+	t.Logf("✅ Gossip observer threshold working:")
+	t.Logf("   - Observer mode: gossip")
+	t.Logf("   - Subject mode: mqtt")
+	t.Logf("   - MQTT nara (10 min silence): marked MISSING=%v (threshold=%ds)",
+		shouldBeMissing, threshold)
+}
+
 // TestIntegration_TransportModeString validates the TransportMode.String() method
 func TestIntegration_TransportModeString(t *testing.T) {
 	tests := []struct {

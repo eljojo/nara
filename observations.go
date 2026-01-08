@@ -407,10 +407,14 @@ func (network *Network) observationMaintenance() {
 			}
 
 			// mark missing after threshold seconds of no updates
-			// Use longer threshold for gossip-mode naras (they update less frequently)
+			// Use longer threshold when:
+			// 1. The observed nara is in gossip mode (they update less frequently)
+			// 2. We (the observer) are in gossip mode (we receive updates less frequently)
 			threshold := MissingThreshold
 			nara := network.getNara(name)
-			if nara.Name != "" && nara.Status.TransportMode == "gossip" {
+			subjectIsGossip := nara.Name != "" && nara.Status.TransportMode == "gossip"
+			observerIsGossip := network.TransportMode == TransportGossip
+			if subjectIsGossip || observerIsGossip {
 				threshold = MissingThresholdGossip
 			}
 
