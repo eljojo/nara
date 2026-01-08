@@ -3,6 +3,9 @@ package nara
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math/rand"
@@ -14,6 +17,27 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/sirupsen/logrus"
 )
+
+// TransportMode determines how events spread through the network
+type TransportMode int
+
+const (
+	// TransportMQTT uses only MQTT broadcast (traditional mode)
+	TransportMQTT TransportMode = iota
+	// TransportGossip uses only P2P zine exchange (pure mesh)
+	TransportGossip
+	// TransportHybrid uses both MQTT and gossip (default, most resilient)
+	TransportHybrid
+)
+
+// Zine is a batch of recent events passed hand-to-hand between naras
+// Like underground zines at punk shows, these spread organically through mesh network
+type Zine struct {
+	From      string      `json:"from"`       // Publisher nara
+	CreatedAt int64       `json:"created_at"` // Unix timestamp
+	Events    []SyncEvent `json:"events"`     // Recent events (last ~5 minutes)
+	Signature string      `json:"signature"`  // Cryptographic signature for authenticity
+}
 
 type Network struct {
 	Neighbourhood       map[string]*Nara
@@ -42,6 +66,10 @@ type Network struct {
 	worldMesh       *MockMeshNetwork   // Used when no tsnet configured
 	worldTransport  *MockMeshTransport // Used when no tsnet configured
 	tsnetMesh       *TsnetMesh         // Used when Headscale is configured
+	// Transport mode (MQTT, Gossip, or Hybrid)
+	TransportMode TransportMode
+	// Peer discovery strategy for gossip-only mode
+	peerDiscovery PeerDiscovery
 	// Pending journey tracking for timeout detection
 	pendingJourneys      map[string]*PendingJourney
 	pendingJourneysMu    sync.RWMutex
@@ -49,6 +77,13 @@ type Network struct {
 	// Graceful shutdown
 	ctx        context.Context
 	cancelFunc context.CancelFunc
+	// Startup sequencing: operations must complete in order
+	bootRecoveryDone  chan struct{}
+	formOpinionsDone  chan struct{}
+	// Test hooks (only used in tests)
+	testHTTPClient *http.Client      // Override HTTP client for testing
+	testMeshURLs   map[string]string // Override mesh URLs for testing (nara name -> URL)
+	testTeaseDelay *time.Duration    // Override tease delay for testing (nil = use default 0-5s random)
 }
 
 // PendingJourney tracks a journey we participated in, waiting for completion
@@ -168,6 +203,9 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	network.journeyCompleteInbox = make(chan JourneyCompletion, 50)
 	// Initialize context for graceful shutdown
 	network.ctx, network.cancelFunc = context.WithCancel(context.Background())
+	// Initialize startup sequencing channels
+	network.bootRecoveryDone = make(chan struct{})
+	network.formOpinionsDone = make(chan struct{})
 	network.Mqtt = initializeMQTT(network.mqttOnConnectHandler(), network.meName(), host, user, pass)
 	return network
 }
@@ -249,7 +287,7 @@ func (network *Network) getOnlineNaraNames() []string {
 	}
 
 	if requireMesh && skippedCount > 0 {
-		logrus.Debugf("🕸️  World journey: %d mesh-enabled naras, skipped %d non-mesh naras", len(names)-1, skippedCount)
+		logrus.Infof("🕸️  World journey: %d mesh-enabled naras, skipped %d non-mesh naras", len(names)-1, skippedCount)
 	}
 
 	return names
@@ -289,7 +327,7 @@ func (network *Network) getPublicKeyForNara(name string) []byte {
 // The event is always added regardless - verification is informational
 func (network *Network) VerifySyncEvent(e *SyncEvent) bool {
 	if !e.IsSigned() {
-		logrus.Debugf("Unsigned event %s from service %s (actor: %s)", e.ID[:8], e.Service, e.GetActor())
+		logrus.Tracef("Unsigned event %s from service %s (actor: %s)", e.ID[:8], e.Service, e.GetActor())
 		return true // Unsigned is acceptable, just log it
 	}
 
@@ -305,7 +343,7 @@ func (network *Network) VerifySyncEvent(e *SyncEvent) bool {
 		return false // Bad signature - suspicious
 	}
 
-	logrus.Debugf("Verified event %s from %s", e.ID[:8], e.Emitter)
+	logrus.Tracef("Verified event %s from %s", e.ID[:8], e.Emitter)
 	return true
 }
 
@@ -403,8 +441,13 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 		}
 	}
 
-	if token := network.Mqtt.Connect(); token.Wait() && token.Error() != nil {
-		logrus.Fatalf("MQTT connection error: %v", token.Error())
+	// Only connect to MQTT if not in gossip-only mode
+	if network.TransportMode != TransportGossip {
+		if token := network.Mqtt.Connect(); token.Wait() && token.Error() != nil {
+			logrus.Fatalf("MQTT connection error: %v", token.Error())
+		}
+	} else {
+		logrus.Info("📡 Gossip-only mode: MQTT disabled")
 	}
 
 	// Initialize world journey handler
@@ -424,6 +467,13 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 					network.local.Me.Status.MeshEnabled = true
 					network.local.Me.Status.MeshIP = tsnetMesh.IP()
 
+					// Initialize peer discovery for gossip-only mode
+					peerDiscoveryClient := tsnetMesh.Server().HTTPClient()
+					peerDiscoveryClient.Timeout = 2 * time.Second // Short timeout for scanning
+					network.peerDiscovery = &TailscalePeerDiscovery{
+						client: peerDiscoveryClient,
+					}
+
 					// Start mesh HTTP server on tsnet interface (port 7433)
 					if err := network.startMeshHttpServer(tsnetMesh.Server()); err != nil {
 						logrus.Errorf("Failed to start mesh HTTP server: %v", err)
@@ -433,6 +483,12 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 					httpTransport := NewHTTPMeshTransport(tsnetMesh.Server(), network, DefaultMeshPort)
 					network.InitWorldJourney(httpTransport)
 					logrus.Infof("🌍 World journey using HTTP over tsnet (IP: %s)", tsnetMesh.IP())
+
+					// In gossip-only mode, discover peers immediately (don't wait 30s)
+					if network.TransportMode == TransportGossip {
+						logrus.Info("📡 Gossip mode: discovering peers immediately...")
+						network.discoverMeshPeers()
+					}
 				}
 			}
 		}
@@ -477,6 +533,10 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 		go network.backfillObservations()
 		// Start background sync for organic memory strengthening
 		go network.backgroundSync()
+	} else {
+		// In ReadOnly mode, close startup channels so formOpinion/backfill don't block
+		close(network.bootRecoveryDone)
+		close(network.formOpinionsDone)
 	}
 
 	// Start garbage collection maintenance
@@ -487,6 +547,15 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 
 	// Start coordinate maintenance (Vivaldi pings)
 	go network.coordinateMaintenance()
+
+	// Start gossip protocol (P2P zine exchange)
+	if !network.ReadOnly && network.TransportMode != TransportMQTT {
+		go network.gossipForever()
+		// Start mesh peer discovery for gossip-only mode
+		if network.TransportMode == TransportGossip {
+			go network.meshDiscoveryForever()
+		}
+	}
 }
 
 func (network *Network) meName() string {
@@ -514,7 +583,7 @@ func (network *Network) announce() {
 		slimStatus.Observations = nil
 		signedEvent := network.SignNewspaper(slimStatus)
 		network.postEvent(topic, signedEvent)
-		logrus.Debugf("📰 Slim newspaper broadcast (event-primary mode, signed)")
+		logrus.Infof("📰 Slim newspaper broadcast (event-primary mode, signed)")
 	} else {
 		// Traditional mode: include full observations
 		network.local.Me.mu.Lock()
@@ -661,7 +730,7 @@ func (network *Network) handleHeyThereEvent(heyThere HeyThereEvent) {
 				nara.Status.MeshEnabled = true
 			}
 			nara.mu.Unlock()
-			logrus.Debugf("📝 Updated %s: PublicKey=%s..., MeshIP=%s",
+			logrus.Infof("📝 Updated %s: PublicKey=%s..., MeshIP=%s",
 				heyThere.From,
 				truncateKey(heyThere.PublicKey),
 				heyThere.MeshIP)
@@ -1071,8 +1140,67 @@ func (network *Network) Tease(target, reason string) bool {
 	return true
 }
 
+// TeaseWithDelay implements "if no one says anything, I guess I'll say something" for teasing.
+// Waits a random delay, then checks if another nara already teased the target for the same reason.
+// If yes, stays silent. If no, proceeds with the tease.
+// This prevents 10 naras all teasing someone at the exact same moment.
+func (network *Network) TeaseWithDelay(target, reason string) {
+	if network.ReadOnly {
+		return
+	}
+
+	// Random delay 0-5 seconds to stagger teases (overridable for testing)
+	var delay time.Duration
+	if network.testTeaseDelay != nil {
+		delay = *network.testTeaseDelay
+	} else {
+		delay = time.Duration(rand.Intn(5)) * time.Second
+	}
+
+	select {
+	case <-time.After(delay):
+		// Continue to check and potentially tease
+	case <-network.ctx.Done():
+		// Shutdown initiated, don't tease
+		return
+	}
+
+	// Check if another nara already teased this target for this reason recently
+	if network.hasRecentTeaseFor(target, reason) {
+		logrus.Debugf("🤐 Not teasing %s (%s) - someone else already did", target, reason)
+		return
+	}
+
+	// No one else teased, so we'll do it
+	network.Tease(target, reason)
+}
+
+// hasRecentTeaseFor checks if there's a recent tease for the target+reason from any nara
+func (network *Network) hasRecentTeaseFor(target, reason string) bool {
+	if network.local.SyncLedger == nil {
+		return false
+	}
+
+	// Look for teases in the last 30 seconds
+	recentCutoff := time.Now().Add(-30 * time.Second).UnixNano()
+
+	events := network.local.SyncLedger.GetSocialEventsAbout(target)
+	for _, e := range events {
+		if e.Timestamp > recentCutoff &&
+			e.Social != nil &&
+			e.Social.Type == "tease" &&
+			e.Social.Reason == reason &&
+			e.Social.Actor != network.meName() {
+			return true
+		}
+	}
+
+	return false
+}
+
 // checkAndTease evaluates teasing triggers for a given nara.
-// Tease() handles cooldown atomically via TryTease, so no separate CanTease checks needed.
+// Uses TeaseWithDelay for triggered teases to implement "if no one says anything, I'll say something"
+// This prevents all naras from piling on with the same tease at the same moment.
 func (network *Network) checkAndTease(name string, previousState string, previousTrend string) {
 	if network.ReadOnly || name == network.meName() {
 		return
@@ -1081,40 +1209,36 @@ func (network *Network) checkAndTease(name string, previousState string, previou
 	obs := network.local.getObservation(name)
 	personality := network.local.Me.Status.Personality
 
-	// Check restart-based teasing
+	// Check restart-based teasing (uses delay to avoid pile-on)
 	if ShouldTeaseForRestarts(obs, personality) {
-		if network.Tease(name, ReasonHighRestarts) {
-			return // one tease at a time
-		}
+		go network.TeaseWithDelay(name, ReasonHighRestarts)
+		return // one tease trigger at a time
 	}
 
-	// Check nice number teasing (naras appreciate good looking numbers)
+	// Check nice number teasing (uses delay to avoid pile-on)
 	if ShouldTeaseForNiceNumber(obs.Restarts, personality) {
-		if network.Tease(name, ReasonNiceNumber) {
-			return
-		}
+		go network.TeaseWithDelay(name, ReasonNiceNumber)
+		return
 	}
 
-	// Check comeback teasing
+	// Check comeback teasing (uses delay to avoid pile-on)
 	if ShouldTeaseForComeback(obs, previousState, personality) {
-		if network.Tease(name, ReasonComeback) {
-			return
-		}
+		go network.TeaseWithDelay(name, ReasonComeback)
+		return
 	}
 
-	// Check trend abandon teasing
+	// Check trend abandon teasing (uses delay to avoid pile-on)
 	if previousTrend != "" {
 		trendPopularity := network.trendPopularity(previousTrend)
 		nara := network.getNara(name)
 		if ShouldTeaseForTrendAbandon(previousTrend, nara.Status.Trend, trendPopularity, personality) {
-			if network.Tease(name, ReasonTrendAbandon) {
-				return
-			}
+			go network.TeaseWithDelay(name, ReasonTrendAbandon)
+			return
 		}
 	}
 
 	// Random teasing (very low probability, boosted for nearby naras)
-	// You notice and interact more with those in your barrio
+	// Random teases don't need delay since they're already probabilistic and rare
 	proximityBoost := 1.0
 	if network.IsInMyBarrio(name) {
 		proximityBoost = 3.0 // 3x more likely to notice naras in same barrio
@@ -1170,7 +1294,7 @@ func (network *Network) handleLedgerRequest(req LedgerRequest) {
 
 	topic := fmt.Sprintf("nara/ledger/%s/response", req.From)
 	network.postEvent(topic, response)
-	logrus.Debugf("📤 sent %d events to %s", len(events), req.From)
+	logrus.Infof("📤 sent %d events to %s", len(events), req.From)
 }
 
 func (network *Network) processLedgerResponses() {
@@ -1187,15 +1311,37 @@ func (network *Network) handleLedgerResponse(resp LedgerResponse) {
 	}
 }
 
+// getNeighborsForBootRecovery returns online neighbors, triggering mesh discovery first if needed.
+// In gossip-only mode, we must discover peers via mesh since there's no MQTT to populate neighbors.
+func (network *Network) getNeighborsForBootRecovery() []string {
+	// In gossip-only mode, discover peers via mesh first
+	if network.TransportMode == TransportGossip {
+		logrus.Debugf("📡 Boot recovery: gossip mode, checking mesh discovery conditions (tsnetMesh=%v, peerDiscovery=%v)",
+			network.tsnetMesh != nil, network.peerDiscovery != nil)
+		if network.tsnetMesh != nil && network.peerDiscovery != nil {
+			logrus.Info("📡 Boot recovery: triggering mesh discovery...")
+			network.discoverMeshPeers()
+		}
+	}
+	return network.NeighbourhoodOnlineNames()
+}
+
 // bootRecovery requests social events from neighbors after boot
 func (network *Network) bootRecovery() {
+	// Signal completion when done (allows formOpinion to proceed)
+	defer func() {
+		close(network.bootRecoveryDone)
+		logrus.Debug("📦 boot recovery complete, signaling formOpinion to proceed")
+	}()
+
 	// Wait for initial neighbor discovery
 	time.Sleep(30 * time.Second)
 
 	// Retry up to 3 times with backoff if no neighbors found
 	var online []string
 	for attempt := 0; attempt < 3; attempt++ {
-		online = network.NeighbourhoodOnlineNames()
+		// Use helper that triggers mesh discovery in gossip-only mode
+		online = network.getNeighborsForBootRecovery()
 		if len(online) > 0 {
 			break
 		}
@@ -1315,7 +1461,7 @@ func (network *Network) fetchSyncEventsFromMesh(client *http.Client, meshIP, nam
 
 	// Make HTTP request to neighbor's mesh endpoint
 	url := fmt.Sprintf("http://%s:%d/events/sync", meshIP, DefaultMeshPort)
-	logrus.Debugf("🌐 HTTP POST %s (requesting %d events from %s)", url, maxEvents, name)
+	logrus.Infof("🌐 HTTP POST %s (requesting %d events from %s)", url, maxEvents, name)
 	req, err := http.NewRequest("POST", url, bytes.NewReader(jsonBody))
 	if err != nil {
 		logrus.Warnf("📦 failed to create mesh sync request: %v", err)
@@ -1415,7 +1561,7 @@ func (network *Network) bootRecoveryViaMQTT(online []string) {
 
 		topic := fmt.Sprintf("nara/ledger/%s/request", neighbor)
 		network.postEvent(topic, req)
-		logrus.Debugf("📦 requested events about %d subjects from %s", len(partition), neighbor)
+		logrus.Infof("📦 requested events about %d subjects from %s", len(partition), neighbor)
 	}
 }
 
@@ -1485,8 +1631,17 @@ func (network *Network) seedAvgPingRTTFromHistory() {
 // backfillObservations migrates existing observations to observation events
 // This enables smooth transition from newspaper-based consensus to event-based
 func (network *Network) backfillObservations() {
-	// Wait for boot recovery to complete and gather some observations
-	time.Sleep(3 * time.Minute)
+	// Wait for formOpinion to complete (which already waits for boot recovery)
+	// Use select to handle both normal operation and direct test calls
+	if network.formOpinionsDone != nil {
+		select {
+		case <-network.formOpinionsDone:
+			// formOpinion completed
+		case <-time.After(5 * time.Minute):
+			// Safety timeout - shouldn't hit this in normal operation
+			logrus.Warn("⚠️ backfillObservations: timeout waiting for formOpinion")
+		}
+	}
 
 	myName := network.meName()
 	backfillCount := 0
@@ -1528,7 +1683,7 @@ func (network *Network) backfillObservations() {
 			added := network.local.SyncLedger.AddEventWithDedup(event)
 			if added {
 				backfillCount++
-				logrus.Debugf("📦 Backfilled observation for %s (start:%d, restarts:%d)",
+				logrus.Infof("📦 Backfilled observation for %s (start:%d, restarts:%d)",
 					naraName, obs.StartTime, obs.Restarts)
 			}
 		}
@@ -1538,6 +1693,445 @@ func (network *Network) backfillObservations() {
 		logrus.Printf("📦 Backfilled %d historical observations into event system", backfillCount)
 	} else {
 		logrus.Printf("📦 No backfill needed (events already present or no meaningful data)")
+	}
+}
+
+// createZine creates a zine (batch of recent events) to share with neighbors
+// Returns nil if no events to share or if SyncLedger unavailable
+func (network *Network) createZine() *Zine {
+	if network.local.SyncLedger == nil {
+		return nil
+	}
+
+	// Get events from last 5 minutes
+	cutoff := time.Now().Add(-5 * time.Minute).UnixNano()
+	allEvents := network.local.SyncLedger.GetAllEvents()
+
+	var recentEvents []SyncEvent
+	for _, e := range allEvents {
+		if e.Timestamp >= cutoff {
+			recentEvents = append(recentEvents, e)
+		}
+	}
+
+	if len(recentEvents) == 0 {
+		return nil // Nothing to share
+	}
+
+	zine := &Zine{
+		From:      network.meName(),
+		CreatedAt: time.Now().Unix(),
+		Events:    recentEvents,
+	}
+
+	// Sign the zine for authenticity
+	sig, err := signZine(zine, network.local.Keypair)
+	if err != nil {
+		logrus.Warnf("📰 Failed to sign zine: %v", err)
+		return nil
+	}
+	zine.Signature = sig
+
+	return zine
+}
+
+// signZine computes the signature for a zine
+func signZine(z *Zine, keypair NaraKeypair) (string, error) {
+	if len(keypair.PrivateKey) == 0 {
+		return "", fmt.Errorf("no private key available")
+	}
+
+	// Create signing data (from + timestamp + event IDs)
+	hasher := sha256.New()
+	hasher.Write([]byte(fmt.Sprintf("%s:%d:", z.From, z.CreatedAt)))
+	for _, e := range z.Events {
+		hasher.Write([]byte(e.ID))
+	}
+
+	signingData := hasher.Sum(nil)
+	return keypair.SignBase64(signingData), nil
+}
+
+// verifyZine verifies a zine's signature
+func verifyZine(z *Zine, publicKey ed25519.PublicKey) bool {
+	if z.Signature == "" || len(publicKey) == 0 {
+		return false
+	}
+
+	// Recompute signing data
+	hasher := sha256.New()
+	hasher.Write([]byte(fmt.Sprintf("%s:%d:", z.From, z.CreatedAt)))
+	for _, e := range z.Events {
+		hasher.Write([]byte(e.ID))
+	}
+
+	signingData := hasher.Sum(nil)
+
+	// Decode signature
+	sig, err := base64.StdEncoding.DecodeString(z.Signature)
+	if err != nil {
+		return false
+	}
+
+	return ed25519.Verify(publicKey, signingData, sig)
+}
+
+// selectGossipTargets selects random mesh-enabled neighbors for gossip
+// Returns 3-5 random online naras with mesh connectivity
+func (network *Network) selectGossipTargets() []string {
+	online := network.NeighbourhoodOnlineNames()
+
+	// Filter to mesh-enabled only (or test URLs if in test mode)
+	var meshEnabled []string
+	for _, name := range online {
+		if network.testMeshURLs != nil {
+			// In test mode, use testMeshURLs
+			if network.testMeshURLs[name] != "" {
+				meshEnabled = append(meshEnabled, name)
+			}
+		} else if network.getMeshIPForNara(name) != "" {
+			meshEnabled = append(meshEnabled, name)
+		}
+	}
+
+	if len(meshEnabled) == 0 {
+		return nil
+	}
+
+	// Select 3-5 random targets (or all if fewer available)
+	targetCount := 3 + rand.Intn(3) // Random between 3-5
+	if targetCount > len(meshEnabled) {
+		targetCount = len(meshEnabled)
+	}
+
+	// Shuffle and take first N
+	shuffled := make([]string, len(meshEnabled))
+	copy(shuffled, meshEnabled)
+	rand.Shuffle(len(shuffled), func(i, j int) {
+		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+	})
+
+	return shuffled[:targetCount]
+}
+
+// PeerDiscovery is a strategy for discovering mesh peers
+// Allows testing without real network scanning
+type PeerDiscovery interface {
+	// ScanForPeers returns a list of discovered peers with their IPs
+	ScanForPeers(myIP string) []DiscoveredPeer
+}
+
+// DiscoveredPeer represents a nara found via discovery
+type DiscoveredPeer struct {
+	Name   string
+	MeshIP string
+}
+
+// TailscalePeerDiscovery scans the Tailscale mesh subnet for peers
+type TailscalePeerDiscovery struct {
+	client *http.Client
+}
+
+// ScanForPeers scans 100.64.0.1-254 for naras responding to /ping (parallelized)
+func (d *TailscalePeerDiscovery) ScanForPeers(myIP string) []DiscoveredPeer {
+	logrus.Debugf("📡 Starting parallel peer scan (myIP=%s)", myIP)
+
+	var peers []DiscoveredPeer
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	// Use a semaphore to limit concurrent requests (avoid overwhelming the network)
+	const maxConcurrent = 50
+	sem := make(chan struct{}, maxConcurrent)
+
+	// Scan mesh subnet (100.64.0.0/10 for Tailscale)
+	for i := 1; i <= 254; i++ {
+		ip := fmt.Sprintf("100.64.0.%d", i)
+
+		// Skip our own IP
+		if ip == myIP {
+			continue
+		}
+
+		wg.Add(1)
+		sem <- struct{}{} // Acquire semaphore
+
+		go func(ip string) {
+			defer wg.Done()
+			defer func() { <-sem }() // Release semaphore
+
+			// Try to ping this IP
+			url := fmt.Sprintf("http://%s:%d/ping", ip, DefaultMeshPort)
+			resp, err := d.client.Get(url)
+			if err != nil {
+				return // Not a nara or unreachable
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				resp.Body.Close()
+				return
+			}
+
+			// Decode to get the nara's name
+			var pingResp map[string]interface{}
+			if err := json.NewDecoder(resp.Body).Decode(&pingResp); err != nil {
+				resp.Body.Close()
+				return
+			}
+			resp.Body.Close()
+
+			naraName, ok := pingResp["from"].(string)
+			if !ok || naraName == "" {
+				return
+			}
+
+			mu.Lock()
+			peers = append(peers, DiscoveredPeer{
+				Name:   naraName,
+				MeshIP: ip,
+			})
+			mu.Unlock()
+		}(ip)
+	}
+
+	wg.Wait()
+	logrus.Debugf("📡 Parallel peer scan complete: found %d peers", len(peers))
+	return peers
+}
+
+// discoverMeshPeers discovers peers and bootstraps from them
+// This replaces MQTT-based discovery in gossip-only mode
+func (network *Network) discoverMeshPeers() {
+	if network.tsnetMesh == nil {
+		return
+	}
+
+	myName := network.meName()
+	logrus.Debugf("📡 Mesh discovery starting: myName=%s", myName)
+
+	// Try Status API first (instant, no network scanning)
+	var peers []DiscoveredPeer
+	ctx, cancel := context.WithTimeout(network.ctx, 5*time.Second)
+	defer cancel()
+
+	tsnetPeers, err := network.tsnetMesh.Peers(ctx)
+	if err != nil {
+		logrus.Debugf("📡 Status API failed, falling back to IP scan: %v", err)
+		// Fall back to IP scanning if Status API fails
+		if network.peerDiscovery != nil {
+			peers = network.peerDiscovery.ScanForPeers(network.tsnetMesh.IP())
+		}
+	} else {
+		// Convert TsnetPeer to DiscoveredPeer
+		for _, p := range tsnetPeers {
+			peers = append(peers, DiscoveredPeer{Name: p.Name, MeshIP: p.IP})
+		}
+		logrus.Infof("📡 Got %d peers from tsnet Status API (instant!)", len(peers))
+	}
+
+	discovered := 0
+	var newPeers []DiscoveredPeer
+
+	for _, peer := range peers {
+		// Skip self
+		if peer.Name == myName {
+			continue
+		}
+
+		// Check if we already know this nara
+		network.local.mu.Lock()
+		_, exists := network.Neighbourhood[peer.Name]
+		network.local.mu.Unlock()
+
+		if !exists {
+			// New peer - add to neighborhood
+			nara := NewNara(peer.Name)
+			nara.Status.MeshIP = peer.MeshIP
+			nara.Status.MeshEnabled = true
+			network.importNara(nara)
+			network.local.setObservation(peer.Name, NaraObservation{Online: "ONLINE"})
+
+			newPeers = append(newPeers, peer)
+			discovered++
+			logrus.Infof("📡 Discovered mesh peer: %s at %s", peer.Name, peer.MeshIP)
+		}
+	}
+
+	if discovered > 0 {
+		logrus.Printf("📡 Mesh discovery complete: found %d new peers", discovered)
+
+		// Bootstrap from discovered peers (like boot recovery but triggered by discovery)
+		network.bootstrapFromDiscoveredPeers(newPeers)
+	}
+}
+
+// bootstrapFromDiscoveredPeers fetches initial state from newly discovered peers
+// This is the gossip-only equivalent of boot recovery
+func (network *Network) bootstrapFromDiscoveredPeers(peers []DiscoveredPeer) {
+	if len(peers) == 0 {
+		return
+	}
+
+	// Check if we have a working mesh client before attempting bootstrap
+	// (prevents crashes in tests with mock meshes)
+	if network.tsnetMesh == nil || network.tsnetMesh.Server() == nil {
+		logrus.Debug("📦 Skipping bootstrap: no mesh client available")
+		return
+	}
+
+	// Convert peers to online names for boot recovery
+	peerNames := make([]string, len(peers))
+	for i, peer := range peers {
+		peerNames[i] = peer.Name
+	}
+
+	logrus.Printf("📦 Bootstrapping from %d discovered peers...", len(peers))
+
+	// Use existing boot recovery mechanism via mesh
+	// This will fetch events, sync ledgers, and seed ping RTTs
+	network.bootRecoveryViaMesh(peerNames)
+}
+
+// meshDiscoveryForever periodically scans for new mesh peers
+// Runs in gossip-only or hybrid mode to discover peers without MQTT
+func (network *Network) meshDiscoveryForever() {
+	// Initial discovery after mesh is ready
+	time.Sleep(35 * time.Second)
+	network.discoverMeshPeers()
+
+	// Periodic re-discovery (every 5 minutes)
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-network.ctx.Done():
+			return
+		case <-ticker.C:
+			network.discoverMeshPeers()
+		}
+	}
+}
+
+// gossipForever periodically exchanges zines with random mesh neighbors
+// Runs in background, spreading events organically through the network
+func (network *Network) gossipForever() {
+	// Wait for mesh to be ready
+	time.Sleep(30 * time.Second)
+
+	for {
+		select {
+		case <-network.ctx.Done():
+			return
+		case <-time.After(network.gossipInterval()):
+			if network.ReadOnly || network.tsnetMesh == nil {
+				continue
+			}
+
+			// Skip if in MQTT-only mode
+			if network.TransportMode == TransportMQTT {
+				continue
+			}
+
+			network.performGossipRound()
+		}
+	}
+}
+
+// gossipInterval returns the time to wait between gossip rounds
+// Personality-based: 30-300 seconds, similar to chattiness
+func (network *Network) gossipInterval() time.Duration {
+	baseInterval := network.local.chattinessRate(30, 300)
+	return time.Duration(baseInterval) * time.Second
+}
+
+// performGossipRound creates a zine and exchanges it with random neighbors
+func (network *Network) performGossipRound() {
+	// Create our zine
+	zine := network.createZine()
+	if zine == nil {
+		logrus.Infof("📰 No events to gossip")
+		return
+	}
+
+	// Select targets
+	targets := network.selectGossipTargets()
+	if len(targets) == 0 {
+		logrus.Infof("📰 No gossip targets available")
+		return
+	}
+
+	logrus.Infof("📰 Gossiping with %d neighbors (zine has %d events)", len(targets), len(zine.Events))
+
+	// Exchange zines with each target
+	for _, targetName := range targets {
+		go network.exchangeZine(targetName, zine)
+	}
+}
+
+// exchangeZine sends our zine to a neighbor and receives theirs back
+func (network *Network) exchangeZine(targetName string, myZine *Zine) {
+	// Determine URL - use test override if available
+	var url string
+	if network.testMeshURLs != nil {
+		url = network.testMeshURLs[targetName]
+		if url == "" {
+			return
+		}
+		url = url + "/gossip/zine"
+	} else {
+		meshIP := network.getMeshIPForNara(targetName)
+		if meshIP == "" {
+			return
+		}
+		url = fmt.Sprintf("http://%s:%d/gossip/zine", meshIP, DefaultMeshPort)
+	}
+
+	// Encode our zine
+	zineBytes, err := json.Marshal(myZine)
+	if err != nil {
+		logrus.Warnf("📰 Failed to encode zine for %s: %v", targetName, err)
+		return
+	}
+
+	// Use test client if available, otherwise use tsnet client
+	var client *http.Client
+	if network.testHTTPClient != nil {
+		client = network.testHTTPClient
+	} else {
+		client = network.tsnetMesh.Server().HTTPClient()
+	}
+
+	resp, err := client.Post(url, "application/json", bytes.NewBuffer(zineBytes))
+	if err != nil {
+		logrus.Infof("📰 Failed to exchange zine with %s: %v", targetName, err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		logrus.Infof("📰 Zine exchange with %s failed: status %d", targetName, resp.StatusCode)
+		return
+	}
+
+	// Decode their zine
+	var theirZine Zine
+	if err := json.NewDecoder(resp.Body).Decode(&theirZine); err != nil {
+		logrus.Warnf("📰 Failed to decode zine from %s: %v", targetName, err)
+		return
+	}
+
+	// Verify signature
+	pubKey := network.getPublicKeyForNara(targetName)
+	if len(pubKey) > 0 && !verifyZine(&theirZine, pubKey) {
+		logrus.Warnf("📰 Invalid zine signature from %s, rejecting", targetName)
+		return
+	}
+
+	// Merge their events into our ledger
+	added, _ := network.MergeSyncEventsWithVerification(theirZine.Events)
+	if added > 0 {
+		logrus.Infof("📰 Merged %d events from %s's zine", added, targetName)
 	}
 }
 
@@ -1619,7 +2213,7 @@ func (network *Network) performBackgroundSync() {
 // Boot recovery (bootRecoveryViaMesh) syncs ALL events without filtering.
 // This background sync maintains eventual consistency for recent events.
 func (network *Network) performBackgroundSyncViaMesh(neighbor, ip string) {
-	logrus.Debugf("🔄 background sync: requesting events from %s (%s)", neighbor, ip)
+	logrus.Infof("🔄 background sync: requesting events from %s (%s)", neighbor, ip)
 
 	// Use existing fetchSyncEventsFromMesh method with lightweight parameters
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -1636,7 +2230,7 @@ func (network *Network) performBackgroundSyncViaMesh(neighbor, ip string) {
 	)
 
 	if !success {
-		logrus.Debugf("🔄 Background sync with %s failed", neighbor)
+		logrus.Infof("🔄 Background sync with %s failed", neighbor)
 		return
 	}
 

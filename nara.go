@@ -120,8 +120,9 @@ func NewNara(name string) *Nara {
 	return nara
 }
 
-func (ln *LocalNara) Start(serveUI bool, readOnly bool, httpAddr string, meshConfig *TsnetConfig) {
+func (ln *LocalNara) Start(serveUI bool, readOnly bool, httpAddr string, meshConfig *TsnetConfig, transportMode TransportMode) {
 	ln.Network.ReadOnly = readOnly
+	ln.Network.TransportMode = transportMode
 	if serveUI {
 		logrus.Printf("💻 Serving UI")
 	}

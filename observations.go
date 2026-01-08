@@ -12,6 +12,17 @@ import (
 
 const BlueJayURL = "https://nara.network/narae.json"
 
+// MissingThreshold is the duration without updates before a nara is marked MISSING.
+// This must be long enough to account for:
+// - Variable posting intervals (naras post every 10-30 seconds, but can go quieter)
+// - Network delays and occasional missed messages
+// - Brief quiet periods that don't indicate actual offline status
+// 5 minutes (300s) is chosen because:
+// - Naras normally post every 30s, so 300s = 10 missed posts
+// - This avoids false positives for quiet but online naras
+// - Actual crashes/network issues will exceed this within reasonable time
+const MissingThreshold int64 = 300 // seconds
+
 var OpinionDelayOverride time.Duration = 0
 
 type NaraObservation struct {
@@ -70,6 +81,31 @@ func (nara *Nara) setObservation(name string, observation NaraObservation) {
 }
 
 func (network *Network) formOpinion() {
+	// Signal completion when done (allows backfillObservations to proceed)
+	defer func() {
+		if network.formOpinionsDone != nil {
+			select {
+			case <-network.formOpinionsDone:
+				// Already closed
+			default:
+				close(network.formOpinionsDone)
+				logrus.Debug("👀 opinions formed, signaling backfill to proceed")
+			}
+		}
+	}()
+
+	// Wait for boot recovery to complete first (so we have data to form opinions on)
+	// Use select to handle both normal operation and direct test calls
+	if network.bootRecoveryDone != nil {
+		select {
+		case <-network.bootRecoveryDone:
+			logrus.Debug("🕵️  boot recovery done, now starting opinion timer")
+		case <-time.After(100 * time.Millisecond):
+			// In tests or direct calls, don't wait forever
+			logrus.Debug("🕵️  boot recovery channel not signaled, proceeding (likely test/direct call)")
+		}
+	}
+
 	if OpinionDelayOverride > 0 {
 		logrus.Printf("🕵️  forming opinions (overridden) in %v...", OpinionDelayOverride)
 		time.Sleep(OpinionDelayOverride)
@@ -306,7 +342,7 @@ func (network *Network) recordObservationOnlineNara(name string) {
 		if useObservationEvents() && !network.local.isBooting() && network.local.SyncLedger != nil {
 			event := NewFirstSeenObservationEvent(network.meName(), name, time.Now().Unix())
 			network.local.SyncLedger.AddEventWithDedup(event)
-			logrus.Debugf("📊 First-seen observation event: %s", name)
+			logrus.Infof("📊 First-seen observation event: %s", name)
 		}
 	}
 
@@ -345,7 +381,7 @@ func (network *Network) recordObservationOnlineNara(name string) {
 		if useObservationEvents() && !network.local.isBooting() && network.local.SyncLedger != nil && name != network.meName() {
 			event := NewRestartObservationEvent(network.meName(), name, observation.StartTime, observation.Restarts)
 			network.local.SyncLedger.AddEventWithDedup(event)
-			logrus.Debugf("📊 Restart observation event: %s (restart #%d)", name, observation.Restarts)
+			logrus.Infof("📊 Restart observation event: %s (restart #%d)", name, observation.Restarts)
 		}
 	}
 
@@ -362,7 +398,7 @@ func (network *Network) recordObservationOnlineNara(name string) {
 			if useObservationEvents() {
 				event := NewStatusChangeObservationEvent(network.meName(), name, "ONLINE")
 				network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality)
-				logrus.Debugf("📊 Status-change observation event: %s → ONLINE", name)
+				logrus.Infof("📊 Status-change observation event: %s → ONLINE", name)
 			} else {
 				// Legacy: State changed from MISSING/OFFLINE to ONLINE
 				event := NewObservationEvent(network.meName(), name, ReasonOnline)
@@ -448,8 +484,8 @@ func (network *Network) observationMaintenance() {
 				continue
 			}
 
-			// mark missing after 100 seconds of no updates
-			if (now-observation.LastSeen) > 100 && !network.skippingEvents && !network.local.isBooting() {
+			// mark missing after MissingThreshold seconds of no updates
+			if (now-observation.LastSeen) > MissingThreshold && !network.skippingEvents && !network.local.isBooting() {
 				observation.Online = "MISSING"
 				network.local.setObservation(name, observation)
 				logrus.Printf("observation: %s has disappeared", name)
@@ -523,7 +559,7 @@ func (network *Network) reportMissingWithDelay(subject string) {
 	if useObservationEvents() {
 		event := NewStatusChangeObservationEvent(network.meName(), subject, "MISSING")
 		network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality)
-		logrus.Debugf("📊 Status-change observation event: %s → MISSING (after %v delay)", subject, delay)
+		logrus.Infof("📊 Status-change observation event: %s → MISSING (after %v delay)", subject, delay)
 	} else {
 		// Legacy mode
 		event := NewObservationEvent(network.meName(), subject, ReasonOffline)

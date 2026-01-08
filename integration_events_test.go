@@ -1,7 +1,9 @@
 package nara
 
 import (
+	"fmt"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -373,4 +375,205 @@ func TestIntegration_CompactionAndDeduplicationIndependent(t *testing.T) {
 	}
 
 	t.Logf("✅ Compaction and deduplication independent: dave=%d (compacted), witnesses=%d (deduped)", daveEvents, witnessEvents)
+}
+
+// TestIntegration_MissingDetectionNotTooSensitive validates that naras posting infrequently
+// (but still within normal bounds) don't get marked as MISSING prematurely.
+// This test exposes the bug where a 100-second threshold caused naras to be marked
+// MISSING and then teased for "coming back" when they were never actually offline.
+func TestIntegration_MissingDetectionNotTooSensitive(t *testing.T) {
+	logrus.SetLevel(logrus.ErrorLevel)
+
+	// Enable observation events for this test
+	os.Setenv("USE_OBSERVATION_EVENTS", "true")
+	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
+
+	ln1 := NewLocalNara("observer", testSoul("observer"), "", "", "", 50, 1000)
+	network := ln1.Network
+
+	// Not booting
+	me := ln1.getMeObservation()
+	me.LastRestart = time.Now().Unix() - 300
+	me.LastSeen = time.Now().Unix()
+	ln1.setMeObservation(me)
+
+	// Import a neighbor
+	network.importNara(NewNara("quiet-nara"))
+
+	// Quiet-nara is seen for the first time
+	network.recordObservationOnlineNara("quiet-nara")
+
+	// Verify initial state is ONLINE
+	obs := ln1.getObservation("quiet-nara")
+	if obs.Online != "ONLINE" {
+		t.Fatalf("Expected quiet-nara to be ONLINE initially, got %s", obs.Online)
+	}
+	initialRestarts := obs.Restarts
+
+	// Simulate 2 minutes passing without an update (normal quiet period)
+	// This should NOT trigger MISSING - 2 minutes is a reasonable posting interval
+	obs.LastSeen = time.Now().Unix() - 120 // 2 minutes ago
+	ln1.setObservation("quiet-nara", obs)
+
+	// Run maintenance (this is what would mark them as MISSING if threshold is too low)
+	// We run it in a loop to simulate the maintenance ticker
+	now := time.Now().Unix()
+	ln1.Me.mu.Lock()
+	for name, observation := range ln1.Me.Status.Observations {
+		if !observation.isOnline() {
+			continue
+		}
+		// This is the check from observationMaintenance() - uses MissingThreshold constant
+		if (now - observation.LastSeen) > MissingThreshold {
+			observation.Online = "MISSING"
+			ln1.Me.Status.Observations[name] = observation
+		}
+	}
+	ln1.Me.mu.Unlock()
+
+	// Check if quiet-nara was incorrectly marked as MISSING
+	obs = ln1.getObservation("quiet-nara")
+	markedMissing := obs.Online == "MISSING"
+
+	// If marked missing, simulate the nara posting again
+	if markedMissing {
+		// Record them coming online again (this triggers "came back online" logic)
+		ln1.SyncLedger.Events = []SyncEvent{}
+		ln1.SyncLedger.eventIDs = make(map[string]bool)
+		network.recordObservationOnlineNara("quiet-nara")
+	}
+
+	// Get the final state
+	obs = ln1.getObservation("quiet-nara")
+
+	// Count restart observation events emitted
+	restartEvents := 0
+	for _, e := range ln1.SyncLedger.GetAllEvents() {
+		if e.Observation != nil && e.Observation.Type == "restart" && e.Observation.Subject == "quiet-nara" {
+			restartEvents++
+		}
+	}
+
+	// THE BUG: With threshold=100s, a nara that was quiet for 120s gets:
+	// 1. Marked as MISSING (wrong - they're just quiet)
+	// 2. When they post, counted as a restart (wrong - they never restarted)
+	// 3. Teased for "coming back" (wrong - they never left)
+
+	if markedMissing {
+		t.Errorf("BUG: quiet-nara was marked MISSING after only 2 minutes of silence - threshold is too sensitive")
+	}
+
+	if obs.Restarts > initialRestarts {
+		t.Errorf("BUG: quiet-nara's restart count was incremented (from %d to %d) even though they never restarted - just posted infrequently",
+			initialRestarts, obs.Restarts)
+	}
+
+	if restartEvents > 0 {
+		t.Errorf("BUG: %d restart events were emitted for quiet-nara even though they never restarted", restartEvents)
+	}
+
+	t.Logf("Missing detection sensitivity test complete")
+}
+
+// TestIntegration_TeasingDeduplication validates that when multiple naras see the same
+// event triggering a tease, only one of them actually teases (the others see it already happened).
+func TestIntegration_TeasingDeduplication(t *testing.T) {
+	logrus.SetLevel(logrus.ErrorLevel)
+
+	// Create 3 naras that share a sync ledger (simulating they're all seeing the same events)
+	sharedLedger := NewSyncLedger(1000)
+
+	naras := make([]*LocalNara, 3)
+	// Different delays for each nara: 10ms, 50ms, 100ms
+	// This simulates the staggered timing that happens in production
+	delays := []time.Duration{10 * time.Millisecond, 50 * time.Millisecond, 100 * time.Millisecond}
+
+	for i := 0; i < 3; i++ {
+		name := fmt.Sprintf("observer-%d", i)
+		ln := NewLocalNara(name, testSoul(name), "", "", "", 50, 1000)
+		ln.SyncLedger = sharedLedger
+		ln.Network.TeaseState = NewTeaseState()
+		// Set deterministic delay for testing
+		delay := delays[i]
+		ln.Network.testTeaseDelay = &delay
+
+		// Not booting
+		me := ln.getMeObservation()
+		me.LastRestart = time.Now().Unix() - 300
+		me.LastSeen = time.Now().Unix()
+		ln.setMeObservation(me)
+
+		naras[i] = ln
+	}
+
+	target := "comeback-nara"
+
+	// Count teases before
+	countTeasesBefore := 0
+	for _, e := range sharedLedger.GetSocialEventsAbout(target) {
+		if e.Social != nil && e.Social.Type == "tease" && e.Social.Reason == ReasonComeback {
+			countTeasesBefore++
+		}
+	}
+
+	// All 3 naras see the same triggering event and try to tease concurrently
+	// Use a WaitGroup to wait for all goroutines to complete
+	var wg sync.WaitGroup
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			naras[idx].Network.TeaseWithDelay(target, ReasonComeback)
+		}(i)
+	}
+
+	// Wait for all teasing attempts to complete
+	wg.Wait()
+
+	// Count teases after - should be exactly 1 (the first nara to finish their delay wins)
+	teaseCount := 0
+	for _, e := range sharedLedger.GetSocialEventsAbout(target) {
+		if e.Social != nil && e.Social.Type == "tease" && e.Social.Reason == ReasonComeback {
+			teaseCount++
+		}
+	}
+
+	newTeases := teaseCount - countTeasesBefore
+
+	// THE KEY ASSERTION: Only 1 tease should have been added, not 3
+	if newTeases != 1 {
+		t.Errorf("Expected exactly 1 tease (first nara wins), got %d teases", newTeases)
+		t.Log("Without deduplication, all 3 naras would tease simultaneously")
+	}
+
+	// Find which nara actually teased (the one with shortest delay wins)
+	var teaser string
+	for _, e := range sharedLedger.GetSocialEventsAbout(target) {
+		if e.Social != nil && e.Social.Type == "tease" && e.Social.Reason == ReasonComeback {
+			teaser = e.Social.Actor
+			break
+		}
+	}
+
+	// Verify hasRecentTeaseFor: naras who DIDN'T tease should see it, the teaser won't (it's their own)
+	for i := 0; i < 3; i++ {
+		hasRecent := naras[i].Network.hasRecentTeaseFor(target, ReasonComeback)
+		isTeaser := naras[i].Network.meName() == teaser
+		if isTeaser && hasRecent {
+			t.Errorf("observer-%d (the teaser) should NOT see their own tease via hasRecentTeaseFor", i)
+		}
+		if !isTeaser && !hasRecent {
+			t.Errorf("observer-%d should see the tease from %s", i, teaser)
+		}
+	}
+
+	// Verify different reason is NOT blocked
+	for i := 0; i < 3; i++ {
+		hasRecent := naras[i].Network.hasRecentTeaseFor(target, ReasonHighRestarts)
+		if hasRecent {
+			t.Errorf("observer-%d should NOT see a tease for different reason", i)
+		}
+	}
+
+	t.Logf("Teasing deduplication: 3 naras tried to tease, only %d actually did", newTeases)
 }

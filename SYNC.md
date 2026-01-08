@@ -77,6 +77,142 @@ Status broadcasts - current state, not history.
 - `nara/newspaper/{name}` - periodic status updates
 - Contains current flair, buzz, coordinates, etc.
 
+### Zines (P2P Gossip)
+Hand-to-hand event distribution - **the underground press**.
+
+A **zine** is a small batch of recent events (~5 minutes worth) passed directly between naras via mesh HTTP. Like underground zines passed hand-to-hand at punk shows, these spread organically through the network without central coordination.
+
+```
+Every 30-300 seconds (personality-based):
+  1. Create zine from recent events
+  2. Pick 3-5 random mesh neighbors
+  3. POST /gossip/zine with your zine
+  4. Receive their zine in response (bidirectional!)
+  5. Merge new events into SyncLedger
+```
+
+**Why Zines?**
+- **O(log N) bandwidth**: Epidemic spread instead of O(N²) broadcast
+- **Decentralized**: No MQTT broker bottleneck
+- **Redundant paths**: Multiple naras carrying same news
+- **Organic propagation**: Events spread like rumors, not announcements
+
+**Transport Modes:**
+
+Naras can operate in different modes, like preferring different social networks:
+
+- **MQTT Mode** (Traditional): Newspapers broadcast to all via MQTT plaza
+  - High bandwidth but guaranteed delivery
+  - Good for small networks (<100 naras)
+
+- **Gossip Mode** (P2P-only): Zines spread hand-to-hand via mesh
+  - Logarithmic bandwidth scaling
+  - Requires mesh connectivity
+  - Best for large networks (>1000 naras)
+
+- **Hybrid Mode** (Default): Both MQTT and Gossip simultaneously
+  - MQTT for discovery + time-critical announcements
+  - Gossip for bulk event distribution
+  - Most resilient option
+
+**Applications stay transport-agnostic:**
+```go
+// Publishing - same code regardless of transport
+network.local.SyncLedger.AddEvent(event)
+
+// Subscribing - events arrive via MQTT or gossip, app doesn't care
+events := network.local.SyncLedger.GetEvents()
+```
+
+The transport layer automatically picks up events from SyncLedger and spreads them. Apps never call transport-specific functions like `publishToMQTT()` or `gossipEvent()`.
+
+**Mixed networks work seamlessly:**
+- MQTT-only naras can coexist with gossip-only naras
+- Hybrid naras bridge the two worlds
+- Events deduplicated automatically (same event via multiple paths)
+
+It's like some people use Twitter (MQTT - broadcast to all), some use Mastodon (gossip - federated P2P), and some use both - but they all see the same posts (SyncEvents).
+
+### Mesh Discovery (Gossip-Only Mode)
+
+In gossip-only mode (no MQTT), naras discover each other by scanning the mesh network:
+
+```
+Every 5 minutes:
+  1. Scan mesh subnet (100.64.0.1-254)
+  2. Try GET /ping on each IP
+  3. If successful, decode {"from": "nara-name", "t": timestamp}
+  4. Add discovered nara to neighborhood with mesh IP
+  5. Mark as ONLINE in observations
+```
+
+**Why IP scanning?**
+- No dependency on MQTT for discovery
+- Works in pure P2P networks
+- Automatically finds new naras joining the mesh
+- Minimal overhead (1 scan per 5 minutes)
+
+**Discovery flow:**
+1. Nara A boots in gossip-only mode
+2. After 35 seconds, runs initial mesh scan
+3. Discovers naras B, C, D via /ping responses
+4. Adds them to neighborhood with mesh IPs
+5. Starts gossiping zines with discovered neighbors
+6. Periodic re-scans every 5 minutes to find new peers
+
+**Note:** In hybrid mode, MQTT handles discovery and gossip is used only for event distribution. Discovery scans only run in pure gossip mode.
+
+## Sync Mechanism Comparison
+
+Nara uses three complementary sync mechanisms that form a layered system. Each serves a different purpose and operates at different frequencies:
+
+| Mechanism | Frequency | Time Window | Purpose |
+|-----------|-----------|-------------|---------|
+| **Boot Recovery** | Once at startup | All available (up to 10k events) | Catch up after being offline |
+| **Zine Gossip** | Every 30-300s | Last 5 minutes | Rapid organic event propagation |
+| **Background Sync** | Every ~30 min | Last 24 hours | Fill gaps from personality filtering |
+
+### Why Three Mechanisms?
+
+Each mechanism handles a different failure mode:
+
+1. **Boot Recovery** solves the cold-start problem. A nara waking up after hours or days needs bulk data fast—10,000 events from multiple neighbors, interleaved to avoid duplicates.
+
+2. **Zine Gossip** provides continuous, low-latency propagation. Events spread epidemically (O(log N) hops to reach all naras) without central coordination. But zines only carry the last 5 minutes of events, so they can't recover from longer outages.
+
+3. **Background Sync** acts as a safety net. Personality filtering means some naras drop events they find uninteresting. A high-chill nara might ignore a tease, but that tease could be important context for clout calculations. Background sync queries specifically for observation events (restarts, first-seen, status-change) with importance ≥2, ensuring critical events survive personality filtering.
+
+### When Each Runs
+
+```
+Boot:
+  └─→ Boot Recovery (bulk sync from neighbors)
+       └─→ Zine Gossip starts (every 30-300s based on chattiness)
+            └─→ Background Sync kicks in (every ~30 min)
+```
+
+### Bandwidth Characteristics
+
+At 5000 nodes:
+
+| Mechanism | Network Load | Notes |
+|-----------|--------------|-------|
+| Boot Recovery | Burst at startup | ~10k events per booting nara |
+| Zine Gossip | ~83 KB/s total | O(log N) epidemic spread |
+| Background Sync | ~250 req/min | ~1 request per nara every 6 min |
+
+Compare to the old newspaper broadcast system: 68MB/s - 1GB/s at scale.
+
+### Failure Scenarios
+
+| Scenario | Which Mechanism Helps |
+|----------|----------------------|
+| Nara offline for hours | Boot Recovery |
+| Network partition heals | Background Sync |
+| Missed event due to personality filter | Background Sync |
+| Real-time event propagation | Zine Gossip |
+| New nara joins network | Boot Recovery + Mesh Discovery |
+
 ## Sync Protocol
 
 ### Boot Recovery (Getting Up to Speed)

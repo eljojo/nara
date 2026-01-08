@@ -95,10 +95,13 @@ func TestConsensusEvents_UptimeWeighting(t *testing.T) {
 
 	// Two observers with LOW uptime report StartTime=1000
 	// Total uptime for cluster 1000: 100 + 100 = 200
+	// Note: Sleep between events to ensure unique timestamps (restart events dedupe by content+timestamp)
 	event1 := NewRestartObservationEventWithUptime("observer-a", subject, 1000, 5, 100)
-	event2 := NewRestartObservationEventWithUptime("observer-b", subject, 1000, 5, 100)
 	ledger.AddEvent(event1)
+	time.Sleep(time.Microsecond) // Ensure different nanosecond timestamp
+	event2 := NewRestartObservationEventWithUptime("observer-b", subject, 1000, 5, 100)
 	ledger.AddEvent(event2)
+	time.Sleep(time.Microsecond)
 
 	// One observer with HIGH uptime reports StartTime=2000 (different cluster)
 	// Total uptime for cluster 2000: 10000

@@ -135,7 +135,7 @@ func (network *Network) pingAndUpdateCoordinates(targetName string, config Vival
 	// Ping the peer
 	rtt, err := network.tsnetMesh.Ping(meshIP, network.meName(), 5*time.Second)
 	if err != nil {
-		logrus.Debugf("📍 Ping to %s failed: %v", targetName, err)
+		logrus.Infof("📍 Ping to %s failed: %v", targetName, err)
 		return
 	}
 

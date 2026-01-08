@@ -77,10 +77,10 @@ func (network *Network) loggingMiddleware(path string, handler http.HandlerFunc)
 
 		// Log the request
 		if bodySummary != "" {
-			logrus.Debugf("📨 %s %s from %s [%s] → %d (%v)",
+			logrus.Infof("📨 %s %s from %s [%s] → %d (%v)",
 				r.Method, path, caller, bodySummary, wrapped.status, duration.Round(time.Millisecond))
 		} else {
-			logrus.Debugf("📨 %s %s from %s → %d (%v)",
+			logrus.Infof("📨 %s %s from %s → %d (%v)",
 				r.Method, path, caller, wrapped.status, duration.Round(time.Millisecond))
 		}
 	}
@@ -129,6 +129,7 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 	// Mesh endpoints - available on both local and mesh servers
 	// These require Ed25519 authentication (except /ping which needs to be fast)
 	mux.HandleFunc("/events/sync", network.loggingMiddleware("/events/sync", network.meshAuthMiddleware("/events/sync", network.httpEventsSyncHandler)))
+	mux.HandleFunc("/gossip/zine", network.loggingMiddleware("/gossip/zine", network.meshAuthMiddleware("/gossip/zine", network.httpGossipZineHandler)))
 	mux.HandleFunc("/world/relay", network.loggingMiddleware("/world/relay", network.meshAuthMiddleware("/world/relay", network.httpWorldRelayHandler)))
 	mux.HandleFunc("/ping", network.loggingMiddleware("/ping", network.httpPingHandler)) // No auth - latency critical
 	mux.HandleFunc("/coordinates", network.loggingMiddleware("/coordinates", network.httpCoordinatesHandler))
@@ -684,6 +685,61 @@ func (network *Network) httpEventsSyncHandler(w http.ResponseWriter, r *http.Req
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(response)
+}
+
+// POST /gossip/zine - Bidirectional zine exchange for P2P event gossip
+// Receives a zine, merges events, returns our zine
+func (network *Network) httpGossipZineHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Decode incoming zine
+	var theirZine Zine
+	if err := json.NewDecoder(r.Body).Decode(&theirZine); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Validate basic fields
+	if theirZine.From == "" {
+		http.Error(w, "from is required", http.StatusBadRequest)
+		return
+	}
+
+	// Verify signature if we know their public key
+	pubKey := network.getPublicKeyForNara(theirZine.From)
+	if len(pubKey) > 0 && !verifyZine(&theirZine, pubKey) {
+		logrus.Warnf("📰 Invalid zine signature from %s, rejecting", theirZine.From)
+		http.Error(w, "Invalid signature", http.StatusForbidden)
+		return
+	}
+
+	// Merge their events into our ledger
+	added, warned := network.MergeSyncEventsWithVerification(theirZine.Events)
+	if added > 0 {
+		logrus.Debugf("📰 Received zine from %s: merged %d events (%d warned)", theirZine.From, added, warned)
+	}
+
+	// Create our zine to send back (bidirectional exchange)
+	myZine := network.createZine()
+	if myZine == nil {
+		// Even if we have no events, send empty signed zine
+		myZine = &Zine{
+			From:      network.meName(),
+			CreatedAt: time.Now().Unix(),
+			Events:    []SyncEvent{},
+		}
+		// Sign the empty zine for consistency
+		if sig, err := signZine(myZine, network.local.Keypair); err == nil {
+			myZine.Signature = sig
+		}
+	}
+
+	// Return our zine
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(myZine)
 }
 
 // Network Coordinate HTTP handlers

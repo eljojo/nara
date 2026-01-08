@@ -39,7 +39,7 @@ func (network *Network) subscribeHandlers(client mqtt.Client) {
 func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 	heyThere := &HeyThereEvent{}
 	if err := json.Unmarshal(msg.Payload(), heyThere); err != nil {
-		logrus.Debugf("heyThereHandler: invalid JSON: %v", err)
+		logrus.Infof("heyThereHandler: invalid JSON: %v", err)
 		return
 	}
 
@@ -53,7 +53,7 @@ func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 func (network *Network) selfieHandler(client mqtt.Client, msg mqtt.Message) {
 	nara := NewNara("")
 	if err := json.Unmarshal(msg.Payload(), nara); err != nil {
-		logrus.Debugf("selfieHandler: invalid JSON: %v", err)
+		logrus.Infof("selfieHandler: invalid JSON: %v", err)
 		return
 	}
 
@@ -67,7 +67,7 @@ func (network *Network) selfieHandler(client mqtt.Client, msg mqtt.Message) {
 func (network *Network) chauHandler(client mqtt.Client, msg mqtt.Message) {
 	event := ChauEvent{}
 	if err := json.Unmarshal(msg.Payload(), &event); err != nil {
-		logrus.Debugf("chauHandler: invalid JSON: %v", err)
+		logrus.Infof("chauHandler: invalid JSON: %v", err)
 		return
 	}
 
@@ -77,7 +77,7 @@ func (network *Network) chauHandler(client mqtt.Client, msg mqtt.Message) {
 func (network *Network) socialHandler(client mqtt.Client, msg mqtt.Message) {
 	event := SocialEvent{}
 	if err := json.Unmarshal(msg.Payload(), &event); err != nil {
-		logrus.Debugf("socialHandler: invalid JSON: %v", err)
+		logrus.Infof("socialHandler: invalid JSON: %v", err)
 		return
 	}
 
@@ -97,7 +97,7 @@ func (network *Network) socialHandler(client mqtt.Client, msg mqtt.Message) {
 func (network *Network) ledgerRequestHandler(client mqtt.Client, msg mqtt.Message) {
 	req := LedgerRequest{}
 	if err := json.Unmarshal(msg.Payload(), &req); err != nil {
-		logrus.Debugf("ledgerRequestHandler: invalid JSON: %v", err)
+		logrus.Infof("ledgerRequestHandler: invalid JSON: %v", err)
 		return
 	}
 
@@ -112,7 +112,7 @@ func (network *Network) ledgerRequestHandler(client mqtt.Client, msg mqtt.Messag
 func (network *Network) ledgerResponseHandler(client mqtt.Client, msg mqtt.Message) {
 	resp := LedgerResponse{}
 	if err := json.Unmarshal(msg.Payload(), &resp); err != nil {
-		logrus.Debugf("ledgerResponseHandler: invalid JSON: %v", err)
+		logrus.Infof("ledgerResponseHandler: invalid JSON: %v", err)
 		return
 	}
 
@@ -127,7 +127,7 @@ func (network *Network) ledgerResponseHandler(client mqtt.Client, msg mqtt.Messa
 func (network *Network) journeyCompleteHandler(client mqtt.Client, msg mqtt.Message) {
 	completion := JourneyCompletion{}
 	if err := json.Unmarshal(msg.Payload(), &completion); err != nil {
-		logrus.Debugf("journeyCompleteHandler: invalid JSON: %v", err)
+		logrus.Infof("journeyCompleteHandler: invalid JSON: %v", err)
 		return
 	}
 
@@ -159,7 +159,7 @@ func (network *Network) newspaperHandler(client mqtt.Client, msg mqtt.Message) {
 
 	var status NaraStatus
 	if err := json.Unmarshal(msg.Payload(), &status); err != nil {
-		logrus.Debugf("newspaperHandler: invalid JSON: %v", err)
+		logrus.Infof("newspaperHandler: invalid JSON: %v", err)
 		return
 	}
 
@@ -187,6 +187,11 @@ func subscribeMqtt(client mqtt.Client, topic string, handler func(client mqtt.Cl
 }
 
 func (network *Network) postEvent(topic string, event interface{}) {
+	// Skip MQTT in gossip-only mode
+	if network.TransportMode == TransportGossip {
+		return
+	}
+
 	logrus.Debugf("posting on %s", topic)
 
 	network.local.mu.Lock() // TODO: this sucks, remove ASAP
@@ -201,6 +206,10 @@ func (network *Network) postEvent(topic string, event interface{}) {
 }
 
 func (network *Network) disconnectMQTT() {
+	// Skip if MQTT was never connected (gossip-only mode)
+	if network.TransportMode == TransportGossip {
+		return
+	}
 	network.Mqtt.Disconnect(100)
 	logrus.Printf("Disconnected from MQTT")
 }

@@ -18,6 +18,12 @@ import (
 	"tailscale.com/tsnet"
 )
 
+// TsnetPeer represents a peer discovered from the tsnet Status API
+type TsnetPeer struct {
+	Name string // Hostname (e.g., "blue-jay")
+	IP   string // Tailscale IP (e.g., "100.64.0.93")
+}
+
 // MeshTransport defines the interface for mesh network communication
 type MeshTransport interface {
 	// Send sends a message to a specific nara
@@ -82,7 +88,7 @@ func (t *HTTPMeshTransport) Send(target string, msg *WorldMessage) error {
 	client := t.tsnetServer.HTTPClient()
 	client.Timeout = 30 * time.Second
 
-	logrus.Debugf("🌍 Sending world message to %s via HTTP", target)
+	logrus.Infof("🌍 Sending world message to %s via HTTP", target)
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send world message to %s: %w", target, err)
@@ -94,7 +100,7 @@ func (t *HTTPMeshTransport) Send(target string, msg *WorldMessage) error {
 		return fmt.Errorf("world relay to %s failed with status %d: %s", target, resp.StatusCode, string(body))
 	}
 
-	logrus.Debugf("🌍 World message sent to %s successfully", target)
+	logrus.Infof("🌍 World message sent to %s successfully", target)
 	return nil
 }
 
@@ -332,6 +338,44 @@ func (t *TsnetMesh) Start(ctx context.Context) error {
 // IP returns the tailscale IP address of this mesh node
 func (t *TsnetMesh) IP() string {
 	return t.myIP
+}
+
+// Peers returns the list of peers from the tsnet Status API
+// This is much faster than scanning IPs since tsnet already knows its peers
+func (t *TsnetMesh) Peers(ctx context.Context) ([]TsnetPeer, error) {
+	if t.server == nil {
+		return nil, errors.New("tsnet server not initialized")
+	}
+
+	lc, err := t.server.LocalClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get local client: %w", err)
+	}
+
+	status, err := lc.Status(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get status: %w", err)
+	}
+
+	var peers []TsnetPeer
+	for _, peer := range status.Peer {
+		// Skip peers without IPs
+		if len(peer.TailscaleIPs) == 0 {
+			continue
+		}
+		// Use hostname (without domain suffix)
+		name := peer.HostName
+		if name == "" {
+			continue
+		}
+		peers = append(peers, TsnetPeer{
+			Name: name,
+			IP:   peer.TailscaleIPs[0].String(),
+		})
+	}
+
+	logrus.Debugf("📡 Got %d peers from tsnet Status API", len(peers))
+	return peers, nil
 }
 
 // Send is deprecated - world messages now use HTTP via HTTPMeshTransport

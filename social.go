@@ -113,7 +113,7 @@ func TeaseResonates(event SocialEvent, observerSoul string, observerPersonality 
 // NewTeaseEvent creates a new tease social event
 func NewTeaseEvent(actor, target, reason string) SocialEvent {
 	event := SocialEvent{
-		Timestamp: time.Now().Unix(),
+		Timestamp: time.Now().UnixNano(),
 		Type:      "tease",
 		Actor:     actor,
 		Target:    target,
@@ -127,7 +127,7 @@ func NewTeaseEvent(actor, target, reason string) SocialEvent {
 // Type is "observation" for system observations (online/offline, etc.)
 func NewObservationEvent(actor, target, reason string) SocialEvent {
 	event := SocialEvent{
-		Timestamp: time.Now().Unix(),
+		Timestamp: time.Now().UnixNano(),
 		Type:      "observation",
 		Actor:     actor,
 		Target:    target,
@@ -141,7 +141,7 @@ func NewObservationEvent(actor, target, reason string) SocialEvent {
 // The journeyID is stored in the Witness field for tracking
 func NewJourneyObservationEvent(observer, journeyOriginator, reason string, journeyID string) SocialEvent {
 	event := SocialEvent{
-		Timestamp: time.Now().Unix(),
+		Timestamp: time.Now().UnixNano(),
 		Type:      "observation",
 		Actor:     observer,
 		Target:    journeyOriginator,
