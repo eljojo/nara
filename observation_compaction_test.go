@@ -34,11 +34,16 @@ func TestObservationCompaction_UnderLimit(t *testing.T) {
 	}
 }
 
-// Test that adding the 21st event evicts the oldest
+// Test that adding the 21st event evicts the oldest (when checkpoint exists)
+// Note: Without a checkpoint, restart events are preserved to avoid losing history
 func TestObservationCompaction_OverLimit(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	observer := "nara-a"
 	subject := "nara-b"
+
+	// First add a checkpoint so compaction of restart events is allowed
+	checkpoint := NewCheckpointEvent(subject, time.Now().Unix()-3600, time.Now().Unix()-86400, 0, 0)
+	ledger.AddEvent(checkpoint)
 
 	// Add 21 events with distinct restart numbers
 	for i := 0; i < 21; i++ {
@@ -237,11 +242,15 @@ func TestObservationCompaction_ExactLimit(t *testing.T) {
 	}
 }
 
-// Test heavy compaction (adding 100 events, keeping only 20)
+// Test heavy compaction (adding 100 events, keeping only 20 when checkpoint exists)
 func TestObservationCompaction_HeavyLoad(t *testing.T) {
 	ledger := NewSyncLedger(2000)
 	observer := "nara-a"
 	subject := "nara-b"
+
+	// First add a checkpoint so compaction of restart events is allowed
+	checkpoint := NewCheckpointEvent(subject, time.Now().Unix()-3600, time.Now().Unix()-86400, 0, 0)
+	ledger.AddEvent(checkpoint)
 
 	// Add 100 events
 	for i := 0; i < 100; i++ {
@@ -321,11 +330,15 @@ func TestObservationCompaction_PreservesImportance(t *testing.T) {
 	}
 }
 
-// Test compaction with backfill events
+// Test compaction with backfill events (after checkpoint exists)
 func TestObservationCompaction_WithBackfill(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	observer := "nara-a"
 	subject := "nara-b"
+
+	// First add a checkpoint so compaction of restart events is allowed
+	checkpoint := NewCheckpointEvent(subject, time.Now().Unix()-3600, time.Now().Unix()-86400, 0, 0)
+	ledger.AddEvent(checkpoint)
 
 	// Add 15 backfill events
 	for i := 0; i < 15; i++ {

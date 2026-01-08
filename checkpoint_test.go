@@ -715,6 +715,124 @@ func TestCheckpoint_DeclineSignature(t *testing.T) {
 	}
 }
 
+// Test that restart events are NOT pruned when no checkpoint exists
+// This ensures we don't lose historical restart data before it's checkpointed
+func TestCheckpoint_RestartEventsPreservedWithoutCheckpoint(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+	subject := "lisa"
+	observer := "homer"
+
+	// Add 25 restart events (more than MaxObservationsPerPair = 20)
+	for i := 0; i < 25; i++ {
+		startTime := int64(1704067200 + i*100) // Unique start times
+		event := NewRestartObservationEvent(observer, subject, startTime, int64(i+1))
+		ledger.AddEvent(event)
+	}
+
+	// All 25 should still be there since no checkpoint exists
+	restartCount := ledger.DeriveRestartCount(subject)
+	if restartCount != 25 {
+		t.Errorf("Expected 25 restarts to be preserved (no checkpoint), got %d", restartCount)
+	}
+
+	// Count actual restart events
+	count := 0
+	for _, e := range ledger.Events {
+		if e.Service == ServiceObservation && e.Observation != nil &&
+			e.Observation.Subject == subject && e.Observation.Type == "restart" {
+			count++
+		}
+	}
+	if count < 25 {
+		t.Errorf("Expected at least 25 restart events preserved, got %d", count)
+	}
+}
+
+// Test that restart events CAN be pruned AFTER a checkpoint exists
+func TestCheckpoint_RestartEventsPrunedAfterCheckpoint(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+	subject := "lisa"
+	observer := "homer"
+	checkpointTime := int64(1704067200)
+
+	// First add a checkpoint
+	checkpoint := NewCheckpointEvent(subject, checkpointTime, 1624066568, 10, 1000)
+	keypair := generateTestKeypair()
+	checkpoint.AddCheckpointAttester("attester1", keypair)
+	checkpoint.AddCheckpointAttester("attester2", generateTestKeypair())
+	ledger.AddEvent(checkpoint)
+
+	// Now add 25 restart events after the checkpoint
+	for i := 0; i < 25; i++ {
+		startTime := checkpointTime + int64(i+1)*100 // After checkpoint
+		event := NewRestartObservationEvent(observer, subject, startTime, int64(11+i))
+		ledger.AddEvent(event)
+	}
+
+	// With checkpoint existing, compaction should prune to 20
+	count := 0
+	for _, e := range ledger.Events {
+		if e.Service == ServiceObservation && e.Observation != nil &&
+			e.Observation.Observer == observer && e.Observation.Subject == subject {
+			count++
+		}
+	}
+	if count > MaxObservationsPerPair {
+		t.Errorf("Expected at most %d observation events after compaction, got %d", MaxObservationsPerPair, count)
+	}
+
+	// But derived restart count should still be correct: 10 (checkpoint) + remaining unique StartTimes
+	restartCount := ledger.DeriveRestartCount(subject)
+	// We should have checkpoint(10) + some number of new restarts
+	if restartCount < 10 {
+		t.Errorf("Expected at least checkpoint restarts (10), got %d", restartCount)
+	}
+}
+
+// Test that status-change events are pruned first (before restart events)
+func TestCheckpoint_StatusChangeEventsPrunedFirst(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+	subject := "lisa"
+	observer := "homer"
+
+	// Add 15 restart events
+	for i := 0; i < 15; i++ {
+		startTime := int64(1704067200 + i*100)
+		event := NewRestartObservationEvent(observer, subject, startTime, int64(i+1))
+		ledger.AddEvent(event)
+	}
+
+	// Add 10 status-change events (total 25, over limit of 20)
+	for i := 0; i < 10; i++ {
+		event := NewStatusChangeObservationEvent(observer, subject, "ONLINE")
+		event.Timestamp = int64(1704067200+i*50) * 1e9
+		ledger.AddEvent(event)
+	}
+
+	// All 15 restart events should be preserved
+	restartCount := 0
+	statusCount := 0
+	for _, e := range ledger.Events {
+		if e.Service == ServiceObservation && e.Observation != nil &&
+			e.Observation.Observer == observer && e.Observation.Subject == subject {
+			if e.Observation.Type == "restart" {
+				restartCount++
+			} else if e.Observation.Type == "status-change" {
+				statusCount++
+			}
+		}
+	}
+
+	if restartCount != 15 {
+		t.Errorf("Expected all 15 restart events preserved, got %d", restartCount)
+	}
+
+	// Status-change events should have been pruned to make room
+	if statusCount > 5 {
+		t.Errorf("Expected status-change events to be pruned (got %d), restarts should be preserved", statusCount)
+	}
+}
+
 // Test validating a checkpoint proposal before signing
 func TestCheckpoint_ValidateProposalBeforeSigning(t *testing.T) {
 	ledger := NewSyncLedger(1000)
