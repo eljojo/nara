@@ -263,6 +263,124 @@ func TestIntegration_MultiNaraNetwork(t *testing.T) {
 	t.Log("═══════════════════════════════════════")
 }
 
+// TestIntegration_HeyThereDiscovery is a regression test for the selfie removal.
+// It verifies that two naras can discover each other quickly when one sends hey_there
+// and the other responds with an announce (newspaper).
+// Before the fix, naras would take much longer to discover each other after boot.
+func TestIntegration_HeyThereDiscovery(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	// Start embedded MQTT broker
+	broker := startEmbeddedBroker(t)
+	defer broker.Close()
+
+	// Give broker time to start
+	time.Sleep(200 * time.Millisecond)
+
+	t.Log("🧪 Testing hey_there → announce discovery mechanism")
+
+	// Create two naras
+	createNara := func(name string) *LocalNara {
+		hwFingerprint := []byte(fmt.Sprintf("test-hw-fingerprint-%s", name))
+		soulV1 := NativeSoulCustom(hwFingerprint, name)
+		soul := FormatSoul(soulV1)
+
+		ln := NewLocalNara(
+			name,
+			soul,
+			"tcp://127.0.0.1:11883",
+			"", "",
+			-1,   // auto chattiness
+			1000, // ledger capacity
+		)
+		return ln
+	}
+
+	alice := createNara("alice")
+	bob := createNara("bob")
+
+	// Start Alice first
+	go alice.Start(false, false, "", nil, TransportMQTT)
+	t.Log("✅ Started alice")
+
+	// Give Alice time to connect and send her initial hey_there
+	time.Sleep(500 * time.Millisecond)
+
+	// Verify Alice doesn't know Bob yet
+	alice.Network.local.mu.Lock()
+	_, aliceKnowsBob := alice.Network.Neighbourhood["bob"]
+	alice.Network.local.mu.Unlock()
+	if aliceKnowsBob {
+		t.Error("❌ Alice shouldn't know Bob yet")
+	}
+
+	// Start Bob - he will send hey_there, and Alice should respond with announce
+	go bob.Start(false, false, "", nil, TransportMQTT)
+	t.Log("✅ Started bob")
+
+	// Wait for discovery - should be fast now (< 5 seconds)
+	// Before the fix, this would take much longer (waiting for periodic newspapers)
+	discoveryDeadline := 5 * time.Second
+	discoveryStart := time.Now()
+	discovered := false
+
+	for time.Since(discoveryStart) < discoveryDeadline {
+		// Check if Bob knows Alice
+		bob.Network.local.mu.Lock()
+		_, bobKnowsAlice := bob.Network.Neighbourhood["alice"]
+		bob.Network.local.mu.Unlock()
+
+		// Check if Alice knows Bob
+		alice.Network.local.mu.Lock()
+		_, aliceKnowsBob = alice.Network.Neighbourhood["bob"]
+		alice.Network.local.mu.Unlock()
+
+		if bobKnowsAlice && aliceKnowsBob {
+			discovered = true
+			break
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	discoveryDuration := time.Since(discoveryStart)
+
+	// Cleanup
+	alice.Network.disconnectMQTT()
+	bob.Network.disconnectMQTT()
+	time.Sleep(200 * time.Millisecond)
+
+	// Validate results
+	if !discovered {
+		// Check what each knows
+		bob.Network.local.mu.Lock()
+		_, bobKnowsAlice := bob.Network.Neighbourhood["alice"]
+		bob.Network.local.mu.Unlock()
+
+		alice.Network.local.mu.Lock()
+		_, aliceKnowsBob = alice.Network.Neighbourhood["bob"]
+		alice.Network.local.mu.Unlock()
+
+		t.Errorf("❌ Discovery failed within %v deadline. Bob knows Alice: %v, Alice knows Bob: %v",
+			discoveryDeadline, bobKnowsAlice, aliceKnowsBob)
+	} else {
+		t.Logf("✅ Mutual discovery completed in %v (deadline was %v)", discoveryDuration, discoveryDeadline)
+	}
+
+	// The discovery should be fast - if it takes more than 3 seconds, something might be wrong
+	if discoveryDuration > 3*time.Second {
+		t.Logf("⚠️  Discovery took %v - this seems slow, may indicate the hey_there→announce fix isn't working", discoveryDuration)
+	}
+
+	t.Log("═══════════════════════════════════════")
+	t.Log("🎉 HEY_THERE DISCOVERY TEST PASSED")
+	t.Logf("   • Two naras discovered each other in %v", discoveryDuration)
+	t.Log("   • hey_there → announce mechanism working")
+	t.Log("═══════════════════════════════════════")
+}
+
 // startEmbeddedBroker starts an in-memory MQTT broker for testing
 func startEmbeddedBroker(t *testing.T) *mqttserver.Server {
 	server := mqttserver.New(nil)

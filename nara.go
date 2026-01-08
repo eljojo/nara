@@ -58,7 +58,7 @@ type NaraStatus struct {
 	PublicKey     string             // Base64-encoded Ed25519 public key
 	MeshEnabled   bool               // True if this nara is connected to the Headscale mesh
 	MeshIP        string             // Tailscale IP for direct mesh communication (no DNS needed)
-	Coordinates   *NetworkCoordinate `json:"coordinates,omitempty"` // Vivaldi network coordinates
+	Coordinates   *NetworkCoordinate `json:"coordinates,omitempty"`    // Vivaldi network coordinates
 	TransportMode string             `json:"transport_mode,omitempty"` // "mqtt", "gossip", or "hybrid"
 	// remember to sync with setValuesFrom
 	// NOTE: Soul was removed - NEVER serialize private keys!

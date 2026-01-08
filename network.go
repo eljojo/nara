@@ -93,9 +93,11 @@ type Network struct {
 	bootRecoveryDone chan struct{}
 	formOpinionsDone chan struct{}
 	// Test hooks (only used in tests)
-	testHTTPClient *http.Client      // Override HTTP client for testing
-	testMeshURLs   map[string]string // Override mesh URLs for testing (nara name -> URL)
-	testTeaseDelay *time.Duration    // Override tease delay for testing (nil = use default 0-5s random)
+	testHTTPClient        *http.Client      // Override HTTP client for testing
+	testMeshURLs          map[string]string // Override mesh URLs for testing (nara name -> URL)
+	testTeaseDelay        *time.Duration    // Override tease delay for testing (nil = use default 0-5s random)
+	testAnnounceCount     int               // Counter for announce() calls (for testing)
+	testSkipHeyThereSleep bool              // Skip the 1s sleep in handleHeyThereEvent (for testing)
 }
 
 // PendingJourney tracks a journey we participated in, waiting for completion
@@ -581,6 +583,7 @@ func (network *Network) announce() {
 	if network.ReadOnly {
 		return
 	}
+	network.testAnnounceCount++ // Track for testing
 	topic := fmt.Sprintf("%s/%s", "nara/newspaper", network.meName())
 	network.recordObservationOnlineNara(network.meName())
 
@@ -735,7 +738,12 @@ func (network *Network) handleHeyThereEvent(heyThere HeyThereEvent) {
 
 	// artificially slow down so if two naras boot at the same time they both get the message
 	if !network.ReadOnly {
-		time.Sleep(1 * time.Second)
+		if !network.testSkipHeyThereSleep {
+			time.Sleep(1 * time.Second)
+		}
+		// Announce ourselves so the new nara can discover us quickly
+		// This replaces the old selfie() behavior
+		network.announce()
 	}
 	network.Buzz.increase(1)
 }
