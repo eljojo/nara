@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"math/rand"
 	"net/http"
-	"sort"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -203,18 +202,6 @@ func (network *Network) fetchOpinionsFromBlueJay() {
 	}
 }
 
-// weightedObservation pairs a value with the observer's uptime (credibility weight)
-type weightedObservation struct {
-	value  int64
-	uptime uint64
-}
-
-// observationCluster groups similar observations and tracks total credibility
-type observationCluster struct {
-	values      []int64
-	totalUptime uint64
-}
-
 // findStartingTimeFromNeighbourhoodForNara uses uptime-weighted clustering consensus
 // with a hierarchy of strategies from strictest to most permissive:
 //
@@ -227,7 +214,7 @@ type observationCluster struct {
 func (network *Network) findStartingTimeFromNeighbourhoodForNara(name string) int64 {
 	const tolerance int64 = 60 // seconds - handles clock drift
 
-	var observations []weightedObservation
+	var observations []consensusValue
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
 
@@ -238,88 +225,14 @@ func (network *Network) findStartingTimeFromNeighbourhoodForNara(name string) in
 			if uptime == 0 {
 				uptime = 1 // minimum weight
 			}
-			observations = append(observations, weightedObservation{
+			observations = append(observations, consensusValue{
 				value:  obs.StartTime,
-				uptime: uptime,
+				weight: uptime,
 			})
 		}
 	}
 
-	if len(observations) == 0 {
-		return 0
-	}
-
-	// Sort by value for clustering
-	sort.Slice(observations, func(i, j int) bool {
-		return observations[i].value < observations[j].value
-	})
-
-	// Build clusters: group values within tolerance of cluster's first value
-	// This prevents "chaining" where [100, 159, 218] would incorrectly cluster
-	// (159-100<=60, 218-159<=60, but 218-100>60)
-	var clusters []observationCluster
-	currentCluster := observationCluster{
-		values:      []int64{observations[0].value},
-		totalUptime: observations[0].uptime,
-	}
-	clusterStart := observations[0].value
-
-	for i := 1; i < len(observations); i++ {
-		obs := observations[i]
-
-		if obs.value-clusterStart <= tolerance {
-			// Within tolerance of cluster start - add to current cluster
-			currentCluster.values = append(currentCluster.values, obs.value)
-			currentCluster.totalUptime += obs.uptime
-		} else {
-			// Gap too large - start new cluster
-			clusters = append(clusters, currentCluster)
-			currentCluster = observationCluster{
-				values:      []int64{obs.value},
-				totalUptime: obs.uptime,
-			}
-			clusterStart = obs.value
-		}
-	}
-	clusters = append(clusters, currentCluster)
-
-	// Sort clusters by total uptime (descending)
-	sort.Slice(clusters, func(i, j int) bool {
-		return clusters[i].totalUptime > clusters[j].totalUptime
-	})
-
-	// Strategy 1 (Strong): cluster with >= 2 observers and highest uptime
-	for _, cluster := range clusters {
-		if len(cluster.values) >= 2 {
-			return cluster.values[len(cluster.values)/2]
-		}
-	}
-
-	// Strategy 2 & 3: No cluster has 2+ observers
-	// Check if we should flip a coin between top candidates
-	if len(clusters) >= 2 {
-		first := clusters[0]
-		second := clusters[1]
-
-		// If top 2 are within 20% of each other, flip a coin
-		threshold := first.totalUptime * 80 / 100
-		if second.totalUptime >= threshold {
-			// 🪙 Coin flip time!
-			coin := time.Now().UnixNano() % 2
-			if coin == 0 {
-				logrus.Printf("🪙 coin flip! chose %d over %d (both had ~%d uptime)",
-					first.values[0], second.values[0], first.totalUptime)
-				return first.values[len(first.values)/2]
-			} else {
-				logrus.Printf("🪙 coin flip! chose %d over %d (both had ~%d uptime)",
-					second.values[0], first.values[0], second.totalUptime)
-				return second.values[len(second.values)/2]
-			}
-		}
-	}
-
-	// Strategy 2 (Weak): just pick highest uptime cluster
-	return clusters[0].values[len(clusters[0].values)/2]
+	return consensusByUptime(observations, tolerance, true)
 }
 
 func (network *Network) recordObservationOnlineNara(name string) {
@@ -365,6 +278,10 @@ func (network *Network) recordObservationOnlineNara(name string) {
 		}
 		if lastRestart > 0 && name != network.meName() {
 			observation.LastRestart = lastRestart
+		}
+
+		if observation.StartTime == 0 || observation.Restarts == 0 || observation.LastRestart == 0 {
+			network.applyEventConsensusIfMissing(name, &observation)
 		}
 
 		if observation.StartTime == 0 && name == network.meName() && !network.local.isBooting() {
@@ -533,6 +450,23 @@ func (network *Network) observationMaintenance() {
 
 func (obs NaraObservation) isOnline() bool {
 	return obs.Online == "ONLINE"
+}
+
+func (network *Network) applyEventConsensusIfMissing(name string, observation *NaraObservation) {
+	if network.local.SyncLedger == nil {
+		return
+	}
+
+	opinion := network.local.SyncLedger.DeriveOpinionFromEvents(name)
+	if observation.StartTime == 0 && opinion.StartTime > 0 {
+		observation.StartTime = opinion.StartTime
+	}
+	if observation.Restarts == 0 && opinion.Restarts > 0 {
+		observation.Restarts = opinion.Restarts
+	}
+	if observation.LastRestart == 0 && name != network.meName() && opinion.LastRestart > 0 {
+		observation.LastRestart = opinion.LastRestart
+	}
 }
 
 // reportMissingWithDelay implements "if no one says anything, I guess I'll say something"

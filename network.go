@@ -2275,6 +2275,8 @@ func (network *Network) backgroundSync() {
 
 // performBackgroundSync executes a single background sync cycle
 func (network *Network) performBackgroundSync() {
+	network.recoverSelfStartTimeFromMesh()
+
 	// Get online neighbors
 	online := network.NeighbourhoodOnlineNames()
 	if len(online) == 0 {
@@ -2308,6 +2310,86 @@ func (network *Network) performBackgroundSync() {
 			// Could add MQTT fallback here if needed
 			logrus.Debug("🔄 Background sync: mesh not available, skipping")
 		}
+	}
+}
+
+func (network *Network) recoverSelfStartTimeFromMesh() {
+	if network.local.SyncLedger == nil || network.tsnetMesh == nil || network.local.isBooting() {
+		return
+	}
+
+	obs := network.local.getMeObservation()
+	if obs.StartTime > 0 {
+		return
+	}
+
+	online := network.NeighbourhoodOnlineNames()
+	if len(online) == 0 {
+		return
+	}
+
+	// Ask a few neighbors for their opinions about our start time.
+	rand.Shuffle(len(online), func(i, j int) {
+		online[i], online[j] = online[j], online[i]
+	})
+
+	targetCount := len(online)
+	if targetCount > 3 {
+		targetCount = 3
+	}
+
+	client := network.tsnetMesh.Server().HTTPClient()
+	client.Timeout = 10 * time.Second
+	subjects := []string{network.meName()}
+	totalAdded := 0
+
+	for _, neighbor := range online[:targetCount] {
+		ip := network.getMeshIPForNara(neighbor)
+		if ip == "" {
+			continue
+		}
+
+		events, respVerified := network.fetchSyncEventsFromMesh(client, ip, neighbor, subjects, 0, 1, 500)
+		if len(events) == 0 {
+			continue
+		}
+
+		filtered := make([]SyncEvent, 0, len(events))
+		for _, event := range events {
+			if event.Service != ServiceObservation || event.Observation == nil {
+				continue
+			}
+			if event.Observation.Subject != network.meName() {
+				continue
+			}
+			filtered = append(filtered, event)
+		}
+
+		if len(filtered) == 0 {
+			continue
+		}
+
+		added, warned := network.MergeSyncEventsWithVerification(filtered)
+		totalAdded += added
+		verifiedStr := ""
+		if respVerified && warned == 0 {
+			verifiedStr = " ✓"
+		} else if warned > 0 {
+			verifiedStr = fmt.Sprintf(" ⚠%d", warned)
+		}
+		logrus.Printf("📦 start time recovery from %s: received %d events, merged %d%s", neighbor, len(filtered), added, verifiedStr)
+	}
+
+	if totalAdded == 0 {
+		return
+	}
+
+	updated := network.local.getMeObservation()
+	before := updated.StartTime
+	network.applyEventConsensusIfMissing(network.meName(), &updated)
+	if updated.StartTime > 0 && updated.StartTime != before {
+		network.local.setObservation(network.meName(), updated)
+		logrus.Printf("🕰️ recovered start time for %s via mesh opinions: %d", network.meName(), updated.StartTime)
 	}
 }
 

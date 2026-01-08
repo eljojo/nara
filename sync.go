@@ -1015,74 +1015,13 @@ func (l *SyncLedger) DeriveOpinionFromEvents(subject string) OpinionData {
 }
 
 func (l *SyncLedger) deriveStartTimeConsensus(observations []consensusObservation, tolerance int64) int64 {
-	// Convert to weighted observations
-	type weightedObs struct {
-		value  int64
-		uptime uint64
-	}
-
-	var wobs []weightedObs
+	var wobs []consensusValue
 	for _, obs := range observations {
 		if obs.startTime > 0 {
-			wobs = append(wobs, weightedObs{value: obs.startTime, uptime: obs.uptime})
+			wobs = append(wobs, consensusValue{value: obs.startTime, weight: obs.uptime})
 		}
 	}
-
-	if len(wobs) == 0 {
-		return 0
-	}
-
-	// Sort by value for clustering
-	sort.Slice(wobs, func(i, j int) bool {
-		return wobs[i].value < wobs[j].value
-	})
-
-	// Build clusters: group values within tolerance of cluster's first value
-	// This prevents "chaining" where [100, 159, 218] would incorrectly cluster
-	// (159-100<=60, 218-159<=60, but 218-100>60)
-	type cluster struct {
-		values      []int64
-		totalUptime uint64
-	}
-
-	var clusters []cluster
-	currentCluster := cluster{
-		values:      []int64{wobs[0].value},
-		totalUptime: wobs[0].uptime,
-	}
-	clusterStart := wobs[0].value
-
-	for i := 1; i < len(wobs); i++ {
-		if wobs[i].value-clusterStart <= tolerance {
-			// Within tolerance of cluster start - add to current cluster
-			currentCluster.values = append(currentCluster.values, wobs[i].value)
-			currentCluster.totalUptime += wobs[i].uptime
-		} else {
-			// Gap too large - start new cluster
-			clusters = append(clusters, currentCluster)
-			currentCluster = cluster{
-				values:      []int64{wobs[i].value},
-				totalUptime: wobs[i].uptime,
-			}
-			clusterStart = wobs[i].value
-		}
-	}
-	clusters = append(clusters, currentCluster)
-
-	// Sort clusters by total uptime (descending)
-	sort.Slice(clusters, func(i, j int) bool {
-		return clusters[i].totalUptime > clusters[j].totalUptime
-	})
-
-	// Strategy 1: Pick cluster with >= 2 observers and highest uptime
-	for _, c := range clusters {
-		if len(c.values) >= 2 {
-			return c.values[len(c.values)/2]
-		}
-	}
-
-	// Strategy 2: Just pick highest uptime cluster
-	return clusters[0].values[len(clusters[0].values)/2]
+	return consensusByUptime(wobs, tolerance, true)
 }
 
 func (l *SyncLedger) deriveRestartsConsensus(observations []consensusObservation) int64 {
