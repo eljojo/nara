@@ -722,6 +722,9 @@ func (network *Network) httpGossipZineHandler(w http.ResponseWriter, r *http.Req
 		logrus.Debugf("📰 Received zine from %s: merged %d events (%d warned)", theirZine.From, added, warned)
 	}
 
+	// Mark sender as online - receiving a zine proves they're reachable
+	network.recordObservationOnlineNara(theirZine.From)
+
 	// Create our zine to send back (bidirectional exchange)
 	myZine := network.createZine()
 	if myZine == nil {

@@ -1978,7 +1978,7 @@ func (network *Network) discoverMeshPeers() {
 			nara.Status.MeshEnabled = true
 			nara.Status.PublicKey = peer.PublicKey
 			network.importNara(nara)
-			network.local.setObservation(peer.Name, NaraObservation{Online: "ONLINE"})
+			network.recordObservationOnlineNara(peer.Name) // Properly sets both Online and LastSeen
 			discovered++
 			if peer.PublicKey != "" {
 				logrus.Infof("📡 Discovered mesh peer: %s at %s (🔑)", peer.Name, peer.MeshIP)
@@ -2232,6 +2232,9 @@ func (network *Network) exchangeZine(targetName string, myZine *Zine) {
 	if added > 0 {
 		logrus.Infof("📰 Merged %d events from %s's zine", added, targetName)
 	}
+
+	// Mark peer as online - successful zine exchange proves they're reachable
+	network.recordObservationOnlineNara(targetName)
 }
 
 // backgroundSync performs lightweight periodic syncing to strengthen collective memory

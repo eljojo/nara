@@ -681,3 +681,84 @@ func TestIntegration_TransportModeString(t *testing.T) {
 		}
 	}
 }
+
+// TestIntegration_MeshPeerDiscoverySetsLastSeen validates that when a peer is discovered
+// via mesh, both Online and LastSeen are set properly.
+// BUG: discoverMeshPeers was using setObservation with Online="ONLINE" but no LastSeen,
+// causing naras to show as online but with stale "Last Ping" times in the UI.
+// FIX: discoverMeshPeers should use recordObservationOnlineNara instead.
+func TestIntegration_MeshPeerDiscoverySetsLastSeen(t *testing.T) {
+	logrus.SetLevel(logrus.ErrorLevel)
+
+	// Create a local nara
+	ln := NewLocalNara("test-nara", testSoul("test"), "", "", "", 100, 1000)
+	network := ln.Network
+	network.ReadOnly = true
+
+	// Simulate what discoverMeshPeers does when it finds a new peer
+	peerName := "mesh-peer"
+	nara := NewNara(peerName)
+	nara.Status.MeshIP = "100.64.0.5"
+	nara.Status.MeshEnabled = true
+	nara.Status.PublicKey = "testkey123"
+	network.importNara(nara)
+
+	// Simulate mesh peer discovery - this must set LastSeen properly
+	// The buggy pattern was: ln.setObservation(peerName, NaraObservation{Online: "ONLINE"})
+	// The fix is to use recordObservationOnlineNara instead
+	beforeTime := time.Now().Unix()
+
+	// This simulates what discoverMeshPeers should do after the fix
+	network.recordObservationOnlineNara(peerName)
+
+	afterTime := time.Now().Unix()
+
+	// Verify the observation
+	obs := ln.getObservation(peerName)
+
+	// Online should be set
+	if obs.Online != "ONLINE" {
+		t.Errorf("Peer should be ONLINE, got %q", obs.Online)
+	}
+
+	// LastSeen MUST be set to current time, not 0
+	// This was the bug - setObservation with just Online left LastSeen at 0
+	if obs.LastSeen == 0 {
+		t.Error("BUG: LastSeen is 0 - mesh peer discovery must set LastSeen properly")
+	}
+
+	// LastSeen should be within the time window
+	if obs.LastSeen < beforeTime || obs.LastSeen > afterTime {
+		t.Errorf("LastSeen should be between %d and %d, got %d",
+			beforeTime, afterTime, obs.LastSeen)
+	}
+
+	t.Logf("✅ Mesh peer discovery properly sets LastSeen: %d", obs.LastSeen)
+}
+
+// TestIntegration_DirectObservationSetMissingLastSeen demonstrates the bug pattern
+// where setting observation with just Online leaves LastSeen at 0.
+func TestIntegration_DirectObservationSetMissingLastSeen(t *testing.T) {
+	logrus.SetLevel(logrus.ErrorLevel)
+
+	ln := NewLocalNara("test-nara", testSoul("test"), "", "", "", 100, 1000)
+
+	// This is the buggy pattern that was in discoverMeshPeers
+	peerName := "buggy-peer"
+	ln.setObservation(peerName, NaraObservation{Online: "ONLINE"})
+
+	obs := ln.getObservation(peerName)
+
+	// Online is set
+	if obs.Online != "ONLINE" {
+		t.Errorf("Expected ONLINE, got %q", obs.Online)
+	}
+
+	// But LastSeen is NOT set - this is the bug!
+	// Any code using this pattern should use recordObservationOnlineNara instead
+	if obs.LastSeen != 0 {
+		t.Errorf("This test documents the bug: expected LastSeen=0 with direct setObservation, got %d", obs.LastSeen)
+	}
+
+	t.Log("⚠️  Direct setObservation with only Online leaves LastSeen=0 - use recordObservationOnlineNara instead")
+}
