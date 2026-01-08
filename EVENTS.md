@@ -69,7 +69,7 @@ Events from social interactions (teasing):
 type SyncEvent struct {
     ID        string // SHA256 hash for deduplication
     Timestamp int64  // Unix nanoseconds
-    Service   string // "social", "ping", or "observation"
+    Service   string // "social", "ping", "observation", or "checkpoint"
     Emitter   string // Who created this (optional, for signing)
     Signature string // Ed25519 signature (optional)
 
@@ -77,6 +77,7 @@ type SyncEvent struct {
     Social      *SocialEventPayload      // For service="social"
     Ping        *PingObservation          // For service="ping"
     Observation *ObservationEventPayload  // For service="observation"
+    Checkpoint  *CheckpointEventPayload   // For service="checkpoint"
 }
 ```
 
@@ -109,6 +110,30 @@ type SocialEventPayload struct {
     Witness string // Who reported it (for journey events: journey ID)
 }
 ```
+
+### CheckpointEventPayload (Historical Snapshot)
+
+Checkpoints are multi-party attested snapshots of historical state. They anchor restart counts and uptime from before proper event tracking began.
+
+```go
+type CheckpointEventPayload struct {
+    Subject     string   // Who this checkpoint is about
+    AsOfTime    int64    // Unix timestamp (seconds) when snapshot was taken
+    FirstSeen   int64    // When network first saw this nara
+    Restarts    int64    // Historical restart count at checkpoint time
+    TotalUptime int64    // Total verified online seconds at checkpoint time
+    Importance  int      // Always Critical (3) - never pruned
+
+    // Multi-party attestation
+    Attesters   []string // Nara names who attest to this data
+    Signatures  []string // Base64 Ed25519 signatures from attesters
+}
+```
+
+**Key properties:**
+- **Never pruned**: Checkpoints are critical events that survive all pruning
+- **Multi-signed**: Requires multiple high-uptime naras to attest
+- **Historical anchor**: Allows deriving restart count as `checkpoint.Restarts + count(new restarts)`
 
 ## Personality Filtering
 
@@ -231,12 +256,28 @@ Wait for completion signal...
             Bad vibe (-0.3 clout)
 ```
 
-## Future: Snapshots
+## Checkpoint Events (Historical Snapshots)
 
-For efficiency, we may introduce snapshot events:
+Checkpoint events capture historical state with multi-party attestation:
 
-1. Capture current computed state as a "snapshot event"
-2. From that point, keep full event stream
-3. To reconstruct time T: apply snapshot + events up to T
+1. High-uptime naras agree on historical data (restart count, uptime, first-seen time)
+2. They sign a checkpoint event containing this snapshot
+3. Deriving current state: `checkpoint.value + count(events after checkpoint)`
 
-This allows bounded storage while preserving history.
+**Feature flags:**
+- `USE_CHECKPOINTS=true`: Enable reading checkpoint events
+- `USE_CHECKPOINT_CREATION=true`: Participate in creating checkpoints
+- `MIN_CHECKPOINT_ATTESTERS`: Minimum signatures required (default: 2)
+
+**Migration path:**
+```
+Phase 1: Backfill events spread historical knowledge
+    ↓
+Phase 2: High-uptime naras create checkpoints from backfill data
+    ↓
+Phase 3: Checkpoints become the permanent historical anchor
+    ↓
+Future: Restart count = checkpoint.Restarts + unique StartTimes after checkpoint
+```
+
+This allows bounded storage while preserving accurate historical data.

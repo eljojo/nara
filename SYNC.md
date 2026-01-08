@@ -18,19 +18,19 @@ The nara network is a **collective hazy memory**. No single nara has the complet
 ┌─────────────────────────────────────────────────────────────────┐
 │                    SyncLedger (Event Store)                     │
 │                                                                 │
-│  Events: [social, social, ping, social, ping, ...]             │
+│  Events: [observation, checkpoint, ping, social, ...]          │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
                               │
-                    ┌─────────┼─────────┐
-                    ▼         ▼         ▼
-              ┌──────────┐ ┌──────┐ ┌──────────┐
-              │ Clout    │ │ RTT  │ │ Future   │
-              │Projection│ │Matrix│ │Projection│
-              └──────────┘ └──────┘ └──────────┘
+                    ┌─────────┼─────────┬──────────┐
+                    ▼         ▼         ▼          ▼
+              ┌──────────┐ ┌──────┐ ┌─────────┐ ┌─────────┐
+              │ Clout    │ │ RTT  │ │ Restart │ │ Uptime  │
+              │Projection│ │Matrix│ │  Count  │ │  Total  │
+              └──────────┘ └──────┘ └─────────┘ └─────────┘
 ```
 
-The `SyncLedger` is the unified event store. It holds all syncable events regardless of type. **Projections** are derived views computed from events - like clout scores (who's respected) or the RTT matrix (network latency map).
+The `SyncLedger` is the unified event store. It holds all syncable events regardless of type. **Projections** are derived views computed from events - like clout scores (who's respected), the RTT matrix (network latency map), or restart counts (checkpoint + unique StartTimes).
 
 ## Event Types
 
@@ -57,6 +57,18 @@ Network latency measurements:
 - **rtt**: Round-trip time in milliseconds
 
 Ping observations are community-driven. When nara A pings nara B, that measurement spreads through the network. Other naras can use this data to build their own picture of network topology.
+
+### Checkpoint Events (`service: "checkpoint"`)
+Multi-party attested historical snapshots:
+- **subject**: Who the checkpoint is about
+- **as_of_time**: When the snapshot was taken
+- **first_seen**: When network first saw this nara
+- **restarts**: Historical restart count at checkpoint time
+- **total_uptime**: Verified online seconds at checkpoint time
+- **attesters**: High-uptime naras who vouch for this data
+- **signatures**: Ed25519 signatures from attesters
+
+Checkpoints anchor historical data that predates event-based tracking. They're **never pruned** and require multiple attesters for trust. Restart count is derived as: `checkpoint.Restarts + count(unique StartTimes after checkpoint)`
 
 ## Transport Layer
 
@@ -590,3 +602,45 @@ Lightweight latency probe for Vivaldi coordinates.
   "from": "responder-name"
 }
 ```
+
+### POST /checkpoint/sign
+
+Request a signature for a checkpoint proposal. Only available when `USE_CHECKPOINT_CREATION=true`.
+
+**Request:**
+```json
+{
+  "proposal": {
+    "subject": "lisa",
+    "as_of_time": 1704067200,
+    "first_seen": 1624066568,
+    "restarts": 47,
+    "total_uptime": 23456789,
+    "importance": 3
+  },
+  "requester": "homer"
+}
+```
+
+**Response (approved):**
+```json
+{
+  "attester": "marge",
+  "signature": "base64-ed25519-signature",
+  "approved": true
+}
+```
+
+**Response (declined):**
+```json
+{
+  "attester": "marge",
+  "approved": false,
+  "reason": "restart count mismatch: proposal has 100, we have 47"
+}
+```
+
+The recipient validates the proposal against their local data before signing. Validation fails if:
+- Restart count differs by more than ±5
+- FirstSeen time differs by more than ±60 seconds
+- Recipient doesn't qualify as high-uptime attester (≥7 days uptime)

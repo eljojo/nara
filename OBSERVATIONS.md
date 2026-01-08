@@ -119,12 +119,72 @@ Nara boots with event mode enabled:
     }
 ```
 
+### Checkpoint Events
+
+Checkpoint events are multi-party attested snapshots of historical state. They provide a more robust "historical anchor" than backfill events by requiring multiple high-uptime naras to sign off on the data.
+
+**When created:**
+- During migration from backfill to proper event-based tracking
+- When high-uptime naras agree on historical data for a subject
+- Feature flag: `USE_CHECKPOINTS=true` to enable reading, `USE_CHECKPOINT_CREATION=true` to participate in creating
+
+**Purpose:**
+- Permanent anchor for historical restart counts and uptime
+- Multi-party attestation provides stronger guarantees than single-observer backfill
+- Allows deriving restart count as: `checkpoint.Restarts + count(unique StartTimes after checkpoint)`
+
+**Structure:**
+```json
+{
+  "service": "checkpoint",
+  "checkpoint": {
+    "subject": "lisa",
+    "as_of_time": 1704067200,
+    "first_seen": 1624066568,
+    "restarts": 47,
+    "total_uptime": 23456789,
+    "importance": 3,
+    "attesters": ["homer", "marge", "bart"],
+    "signatures": ["sig1", "sig2", "sig3"]
+  }
+}
+```
+
+**Checkpoint Creation Flow:**
+1. High-uptime nara identifies subject with backfill but no checkpoint
+2. Nara prepares proposal from local data (deriving restart count, uptime)
+3. Nara signs the proposal itself
+4. Nara requests signatures from other high-uptime naras via `POST /checkpoint/sign`
+5. Each recipient validates proposal against their data
+6. If data matches (±5 restarts tolerance), recipient signs and returns signature
+7. Once enough signatures collected (MIN_CHECKPOINT_ATTESTERS), checkpoint is stored
+
+**High-Uptime Eligibility:**
+- Must be ONLINE
+- Must have ≥7 days of uptime (DefaultMinCheckpointUptime)
+- OR be in top 20% of naras by uptime (DefaultCheckpointTopPercentile)
+
+**Deriving Restart Count:**
+```
+Total Restarts = checkpoint.Restarts + count(unique StartTimes after checkpoint.AsOfTime)
+
+Priority order:
+1. Checkpoint (if exists) - strongest guarantee
+2. Backfill (if exists) - single observer historical data
+3. Count events - no historical baseline
+```
+
+**Configuration:**
+- `MIN_CHECKPOINT_ATTESTERS`: Minimum signatures required (default: 2)
+- `USE_CHECKPOINTS`: Enable reading checkpoint events
+- `USE_CHECKPOINT_CREATION`: Enable participating in checkpoint creation
+
 ## Importance Levels
 
 ### Critical (3)
-**Never filtered** by personality - essential for consensus.
+**Never filtered** by personality - essential for consensus. **Never pruned.**
 
-Events: restart, first-seen, backfill
+Events: restart, first-seen, backfill, checkpoint
 
 ### Normal (2)
 **May be filtered** by very chill naras (>85).
@@ -200,7 +260,7 @@ Four layers protect against malicious or misconfigured naras:
 
 ## Migration Path
 
-### Current Mode
+### Phase 1: Backfill (Current)
 - Feature flag: `USE_OBSERVATION_EVENTS=true`
 - On startup: backfill existing observations into events
 - Consensus switches to events-primary, newspapers-fallback
@@ -208,10 +268,17 @@ Four layers protect against malicious or misconfigured naras:
 - Newspaper frequency reduced (30-300s)
 - Network supports both old (newspaper) and new (event) modes simultaneously
 
-### Future
+### Phase 2: Checkpoints
+- Feature flags: `USE_CHECKPOINTS=true`, `USE_CHECKPOINT_CREATION=true`
+- High-uptime naras create multi-signed checkpoint events
+- Checkpoint takes precedence over backfill for restart counting
+- Historical data anchored with stronger guarantees
+
+### Phase 3: Event-Only (Future)
 - Remove Observations map from NaraStatus struct entirely
 - Remove newspaper fallback from consensus
 - Events are sole source of truth
+- Restart count derived from checkpoint + unique StartTimes
 
 ## Background Sync
 

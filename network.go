@@ -10,8 +10,10 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"os"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1470,10 +1472,43 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 	if !network.ReadOnly && network.stashService != nil {
 		go network.stashMaintenance()
 	}
+
+	// Start checkpoint maintenance (multi-party attestation)
+	if !network.ReadOnly {
+		go network.checkpointMaintenance()
+	}
 }
 
 func (network *Network) meName() string {
 	return network.local.Me.Name
+}
+
+// useObservationEvents returns true if event-driven observation mode is enabled
+func useObservationEvents() bool {
+	return os.Getenv("USE_OBSERVATION_EVENTS") == "true"
+}
+
+// useCheckpoints returns true if checkpoint events are enabled for reading
+// Checkpoints provide multi-party attested snapshots of historical state
+func useCheckpoints() bool {
+	return os.Getenv("USE_CHECKPOINTS") == "true"
+}
+
+// useCheckpointCreation returns true if this nara should participate in creating checkpoints
+// Separate from useCheckpoints() so we can enable reading checkpoints before enabling creation
+func useCheckpointCreation() bool {
+	return os.Getenv("USE_CHECKPOINT_CREATION") == "true"
+}
+
+// getMinCheckpointAttesters returns the minimum number of attesters required for a checkpoint
+// to be considered valid for consensus. Default is 2.
+func getMinCheckpointAttesters() int {
+	if val := os.Getenv("MIN_CHECKPOINT_ATTESTERS"); val != "" {
+		if n, err := strconv.Atoi(val); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 2 // Default: require at least 2 attesters
 }
 
 func (network *Network) announce() {
