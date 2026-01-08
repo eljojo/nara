@@ -80,6 +80,7 @@ type Network struct {
 	// Test hooks (only used in tests)
 	testHTTPClient *http.Client      // Override HTTP client for testing
 	testMeshURLs   map[string]string // Override mesh URLs for testing (nara name -> URL)
+	testTeaseDelay *time.Duration    // Override tease delay for testing (nil = use default 0-5s random)
 }
 
 // PendingJourney tracks a journey we participated in, waiting for completion
@@ -1116,8 +1117,67 @@ func (network *Network) Tease(target, reason string) bool {
 	return true
 }
 
+// TeaseWithDelay implements "if no one says anything, I guess I'll say something" for teasing.
+// Waits a random delay, then checks if another nara already teased the target for the same reason.
+// If yes, stays silent. If no, proceeds with the tease.
+// This prevents 10 naras all teasing someone at the exact same moment.
+func (network *Network) TeaseWithDelay(target, reason string) {
+	if network.ReadOnly {
+		return
+	}
+
+	// Random delay 0-5 seconds to stagger teases (overridable for testing)
+	var delay time.Duration
+	if network.testTeaseDelay != nil {
+		delay = *network.testTeaseDelay
+	} else {
+		delay = time.Duration(rand.Intn(5)) * time.Second
+	}
+
+	select {
+	case <-time.After(delay):
+		// Continue to check and potentially tease
+	case <-network.ctx.Done():
+		// Shutdown initiated, don't tease
+		return
+	}
+
+	// Check if another nara already teased this target for this reason recently
+	if network.hasRecentTeaseFor(target, reason) {
+		logrus.Debugf("🤐 Not teasing %s (%s) - someone else already did", target, reason)
+		return
+	}
+
+	// No one else teased, so we'll do it
+	network.Tease(target, reason)
+}
+
+// hasRecentTeaseFor checks if there's a recent tease for the target+reason from any nara
+func (network *Network) hasRecentTeaseFor(target, reason string) bool {
+	if network.local.SyncLedger == nil {
+		return false
+	}
+
+	// Look for teases in the last 30 seconds
+	recentCutoff := time.Now().Add(-30 * time.Second).UnixNano()
+
+	events := network.local.SyncLedger.GetSocialEventsAbout(target)
+	for _, e := range events {
+		if e.Timestamp > recentCutoff &&
+			e.Social != nil &&
+			e.Social.Type == "tease" &&
+			e.Social.Reason == reason &&
+			e.Social.Actor != network.meName() {
+			return true
+		}
+	}
+
+	return false
+}
+
 // checkAndTease evaluates teasing triggers for a given nara.
-// Tease() handles cooldown atomically via TryTease, so no separate CanTease checks needed.
+// Uses TeaseWithDelay for triggered teases to implement "if no one says anything, I'll say something"
+// This prevents all naras from piling on with the same tease at the same moment.
 func (network *Network) checkAndTease(name string, previousState string, previousTrend string) {
 	if network.ReadOnly || name == network.meName() {
 		return
@@ -1126,40 +1186,36 @@ func (network *Network) checkAndTease(name string, previousState string, previou
 	obs := network.local.getObservation(name)
 	personality := network.local.Me.Status.Personality
 
-	// Check restart-based teasing
+	// Check restart-based teasing (uses delay to avoid pile-on)
 	if ShouldTeaseForRestarts(obs, personality) {
-		if network.Tease(name, ReasonHighRestarts) {
-			return // one tease at a time
-		}
+		go network.TeaseWithDelay(name, ReasonHighRestarts)
+		return // one tease trigger at a time
 	}
 
-	// Check nice number teasing (naras appreciate good looking numbers)
+	// Check nice number teasing (uses delay to avoid pile-on)
 	if ShouldTeaseForNiceNumber(obs.Restarts, personality) {
-		if network.Tease(name, ReasonNiceNumber) {
-			return
-		}
+		go network.TeaseWithDelay(name, ReasonNiceNumber)
+		return
 	}
 
-	// Check comeback teasing
+	// Check comeback teasing (uses delay to avoid pile-on)
 	if ShouldTeaseForComeback(obs, previousState, personality) {
-		if network.Tease(name, ReasonComeback) {
-			return
-		}
+		go network.TeaseWithDelay(name, ReasonComeback)
+		return
 	}
 
-	// Check trend abandon teasing
+	// Check trend abandon teasing (uses delay to avoid pile-on)
 	if previousTrend != "" {
 		trendPopularity := network.trendPopularity(previousTrend)
 		nara := network.getNara(name)
 		if ShouldTeaseForTrendAbandon(previousTrend, nara.Status.Trend, trendPopularity, personality) {
-			if network.Tease(name, ReasonTrendAbandon) {
-				return
-			}
+			go network.TeaseWithDelay(name, ReasonTrendAbandon)
+			return
 		}
 	}
 
 	// Random teasing (very low probability, boosted for nearby naras)
-	// You notice and interact more with those in your barrio
+	// Random teases don't need delay since they're already probabilistic and rare
 	proximityBoost := 1.0
 	if network.IsInMyBarrio(name) {
 		proximityBoost = 3.0 // 3x more likely to notice naras in same barrio
