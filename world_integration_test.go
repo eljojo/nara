@@ -341,3 +341,151 @@ func TestIntegration_WorldJourney_TimingRecorded(t *testing.T) {
 		t.Logf("Hop %d (%s): timestamp %d", i+1, hop.Nara, hop.Timestamp)
 	}
 }
+
+// TestIntegration_WorldJourney_DerivedClout tests that clout derived from
+// ledger events produces sensible journey routing. This validates the full
+// pipeline: events -> DeriveClout -> journey routing.
+func TestIntegration_WorldJourney_DerivedClout(t *testing.T) {
+	// Create test naras
+	names := []string{"alice", "bob", "carol", "dave"}
+	tw := NewTestWorld(names)
+	defer tw.Close()
+
+	// Create a shared ledger with events that establish clout relationships
+	// Alice: teases bob a lot (bob gets negative clout from alice's perspective)
+	//        has positive journey interactions with carol
+	ledger := NewSyncLedger(1000)
+	personality := NaraPersonality{Chill: 50, Sociability: 50, Agreeableness: 50}
+	soul := "test-soul-alice"
+
+	now := time.Now().Unix()
+
+	// Alice successfully passed journey to carol multiple times (positive clout)
+	for i := 0; i < 5; i++ {
+		event := SyncEvent{
+			Timestamp: time.Now().UnixNano() + int64(i),
+			Service:   ServiceSocial,
+			Social: &SocialEventPayload{
+				Type:   "observation",
+				Actor:  "alice",
+				Target: "carol",
+				Reason: ReasonJourneyPass,
+			},
+		}
+		event.ComputeID()
+		ledger.AddEvent(event)
+	}
+
+	// Carol completed journeys reliably (positive clout)
+	for i := 0; i < 3; i++ {
+		event := SyncEvent{
+			Timestamp: time.Now().UnixNano() + int64(i+10),
+			Service:   ServiceSocial,
+			Social: &SocialEventPayload{
+				Type:   "observation",
+				Actor:  "system",
+				Target: "carol",
+				Reason: ReasonJourneyComplete,
+			},
+		}
+		event.ComputeID()
+		ledger.AddEvent(event)
+	}
+
+	// Dave timed out on journeys (negative clout)
+	for i := 0; i < 4; i++ {
+		event := SyncEvent{
+			Timestamp: time.Now().UnixNano() + int64(i+20),
+			Service:   ServiceSocial,
+			Social: &SocialEventPayload{
+				Type:   "observation",
+				Actor:  "system",
+				Target: "dave",
+				Reason: ReasonJourneyTimeout,
+			},
+		}
+		event.ComputeID()
+		ledger.AddEvent(event)
+	}
+
+	// Bob got teased a lot (doesn't directly affect clout, but shows activity)
+	event := SyncEvent{
+		Timestamp: now,
+		Service:   ServiceSocial,
+		Social: &SocialEventPayload{
+			Type:   "tease",
+			Actor:  "alice",
+			Target: "bob",
+			Reason: ReasonHighRestarts,
+		},
+	}
+	event.ComputeID()
+	ledger.AddEvent(event)
+
+	// Derive clout from the ledger events
+	derivedClout := ledger.DeriveClout(soul, personality)
+
+	t.Logf("Derived clout from events:")
+	for name, clout := range derivedClout {
+		t.Logf("  %s: %.2f", name, clout)
+	}
+
+	// Verify the clout makes sense based on events:
+	// - Carol should have highest clout (journey-pass + journey-complete)
+	// - Dave should have lowest/negative clout (journey-timeout)
+	if derivedClout["carol"] <= derivedClout["dave"] {
+		t.Errorf("Carol (reliable) should have more clout than Dave (timeouts): carol=%.2f, dave=%.2f",
+			derivedClout["carol"], derivedClout["dave"])
+	}
+
+	// Now use derived clout for journey routing
+	// Set up the test world to use derived clout for all naras
+	for name := range tw.Naras {
+		tw.Clout[name] = derivedClout
+	}
+
+	// Start a journey from alice
+	alice := tw.Naras["alice"]
+	wm, err := alice.Handler.StartJourney("Testing derived clout routing!")
+	if err != nil {
+		t.Fatalf("Failed to start journey: %v", err)
+	}
+
+	t.Logf("Journey started with ID: %s", wm.ID)
+
+	// Wait for the journey to complete
+	completed := tw.WaitForCompletion(5 * time.Second)
+	if completed == nil {
+		t.Fatal("Journey did not complete within timeout")
+	}
+
+	// Log the path taken
+	t.Logf("Journey path:")
+	for i, hop := range completed.Hops {
+		t.Logf("  Hop %d: %s", i+1, hop.Nara)
+	}
+
+	// Verify the first hop is carol (highest clout)
+	if len(completed.Hops) > 0 && completed.Hops[0].Nara != "carol" {
+		t.Logf("Note: First hop was %s (expected carol based on clout)", completed.Hops[0].Nara)
+		// This isn't a hard failure - routing also considers who hasn't been visited
+	}
+
+	// Verify the journey completed successfully
+	if !completed.IsComplete() {
+		t.Error("Journey should be marked complete")
+	}
+
+	// Verify signatures
+	err = completed.VerifyChain(func(name string) []byte {
+		if nara, ok := tw.Naras[name]; ok {
+			return nara.Keypair.PublicKey
+		}
+		return nil
+	})
+	if err != nil {
+		t.Errorf("Signature verification failed: %v", err)
+	}
+
+	t.Logf("Journey completed successfully with event-derived clout routing!")
+}

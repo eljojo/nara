@@ -2,6 +2,7 @@ package nara
 
 import (
 	"encoding/json"
+	"math/rand"
 	"net/http"
 	"sort"
 	"time"
@@ -300,6 +301,13 @@ func (network *Network) recordObservationOnlineNara(name string) {
 	if observation.Online == "" && name != network.meName() {
 		logrus.Printf("observation: seen %s for the first time", name)
 		network.Buzz.increase(3)
+
+		// Emit first-seen observation event in event-primary mode
+		if useObservationEvents() && !network.local.isBooting() && network.local.SyncLedger != nil {
+			event := NewFirstSeenObservationEvent(network.meName(), name, time.Now().Unix())
+			network.local.SyncLedger.AddEventWithDedup(event)
+			logrus.Debugf("📊 First-seen observation event: %s", name)
+		}
 	}
 
 	// "our" observation is mostly a mirror of what others think of us
@@ -324,11 +332,21 @@ func (network *Network) recordObservationOnlineNara(name string) {
 		}
 	}
 
+	// Track if we detected a restart (to avoid duplicate event emissions)
+	wasRestart := false
 	if !observation.isOnline() && observation.Online != "" {
 		observation.LastRestart = time.Now().Unix()
 		observation.Restarts = observation.Restarts + 1
 		logrus.Printf("observation: %s came back online", name)
 		network.Buzz.increase(3)
+		wasRestart = true
+
+		// Emit restart observation event in event-primary mode
+		if useObservationEvents() && !network.local.isBooting() && network.local.SyncLedger != nil && name != network.meName() {
+			event := NewRestartObservationEvent(network.meName(), name, observation.StartTime, observation.Restarts)
+			network.local.SyncLedger.AddEventWithDedup(event)
+			logrus.Debugf("📊 Restart observation event: %s (restart #%d)", name, observation.Restarts)
+		}
 	}
 
 	observation.Online = "ONLINE"
@@ -336,13 +354,21 @@ func (network *Network) recordObservationOnlineNara(name string) {
 	network.local.setObservation(name, observation)
 
 	// Record observation event when state changes to ONLINE
-	// Only record if this is a state change (not first time seen or already online)
+	// Only emit status-change if this wasn't already handled by restart event
+	// This avoids duplicate events for the same transition
 	if name != network.meName() && !network.local.isBooting() && network.local.SyncLedger != nil {
-		if previousState != "" && previousState != "ONLINE" {
-			// State changed from MISSING/OFFLINE to ONLINE
-			event := NewObservationEvent(network.meName(), name, ReasonOnline)
-			network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
-			logrus.Printf("observation: %s came online", name)
+		if previousState != "" && previousState != "ONLINE" && !wasRestart {
+			// Emit status-change observation event in event-primary mode
+			if useObservationEvents() {
+				event := NewStatusChangeObservationEvent(network.meName(), name, "ONLINE")
+				network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality)
+				logrus.Debugf("📊 Status-change observation event: %s → ONLINE", name)
+			} else {
+				// Legacy: State changed from MISSING/OFFLINE to ONLINE
+				event := NewObservationEvent(network.meName(), name, ReasonOnline)
+				network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
+				logrus.Printf("observation: %s came online", name)
+			}
 		}
 	}
 
@@ -429,11 +455,10 @@ func (network *Network) observationMaintenance() {
 				logrus.Printf("observation: %s has disappeared", name)
 				network.Buzz.increase(10)
 
-				// Record offline observation event (MISSING counts as offline)
-				if network.local.SyncLedger != nil {
-					event := NewObservationEvent(network.meName(), name, ReasonOffline)
-					network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
-					logrus.Printf("observation: %s went offline (disappeared)", name)
+				// Use delayed reporting to avoid redundant MISSING events from multiple observers
+				// "If no one says anything, I guess I'll say something about it"
+				if name != network.meName() && network.local.SyncLedger != nil {
+					go network.reportMissingWithDelay(name)
 				}
 			}
 		}
@@ -448,10 +473,61 @@ func (network *Network) observationMaintenance() {
 		network.local.Me.Status.Flair = newFlair
 		network.local.Me.Status.LicensePlate = network.local.LicensePlate()
 
-		time.Sleep(1 * time.Second)
+		select {
+		case <-time.After(1 * time.Second):
+			// Continue to next iteration
+		case <-network.ctx.Done():
+			logrus.Debugf("observationMaintenance: shutting down gracefully")
+			return
+		}
 	}
 }
 
 func (obs NaraObservation) isOnline() bool {
 	return obs.Online == "ONLINE"
+}
+
+// reportMissingWithDelay implements "if no one says anything, I guess I'll say something"
+// Waits a random delay, then checks if another observer already reported the subject as missing.
+// If yes, stays silent. If no, emits the MISSING event.
+// To read more, see: https://meshtastic.org/docs/overview/mesh-algo/#broadcasts-using-managed-flooding
+func (network *Network) reportMissingWithDelay(subject string) {
+	// Random delay 0-10 seconds to stagger reports
+	delay := time.Duration(rand.Intn(10)) * time.Second
+
+	select {
+	case <-time.After(delay):
+		// Continue to check and potentially report
+	case <-network.ctx.Done():
+		// Shutdown initiated, don't report
+		return
+	}
+
+	// Check if another observer already reported this subject as MISSING/offline
+	// Look for recent events (within last 15 seconds)
+	recentCutoff := time.Now().Add(-15 * time.Second).UnixNano()
+
+	events := network.local.SyncLedger.GetObservationEventsAbout(subject)
+	for _, e := range events {
+		// Check if this is a recent MISSING event from another observer
+		if e.Timestamp > recentCutoff &&
+			e.Observation != nil &&
+			e.Observation.Observer != network.meName() &&
+			(e.Observation.Type == "status-change" && e.Observation.OnlineState == "MISSING") {
+			logrus.Debugf("🤐 Not reporting %s MISSING - %s already reported it", subject, e.Observation.Observer)
+			return
+		}
+	}
+
+	// No one else reported it, so we'll report it
+	if useObservationEvents() {
+		event := NewStatusChangeObservationEvent(network.meName(), subject, "MISSING")
+		network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality)
+		logrus.Debugf("📊 Status-change observation event: %s → MISSING (after %v delay)", subject, delay)
+	} else {
+		// Legacy mode
+		event := NewObservationEvent(network.meName(), subject, ReasonOffline)
+		network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
+		logrus.Printf("observation: %s went offline (disappeared) after %v delay", subject, delay)
+	}
 }

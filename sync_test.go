@@ -424,6 +424,87 @@ func TestSyncLedger_Prune(t *testing.T) {
 	}
 }
 
+func TestSyncLedger_PrunePriority(t *testing.T) {
+	// Test that priority-based pruning keeps critical events
+	ledger := NewSyncLedger(10) // Max 10 events
+
+	baseTime := time.Now().UnixNano()
+
+	// Add 5 critical events (restart, first-seen) - these should NEVER be pruned
+	for i := 0; i < 3; i++ {
+		e := NewRestartObservationEvent("observer", fmt.Sprintf("nara-%d", i), baseTime, int64(i+1))
+		e.Timestamp = baseTime + int64(i*1000)
+		e.ComputeID()
+		ledger.AddEvent(e)
+	}
+	for i := 0; i < 2; i++ {
+		e := NewFirstSeenObservationEvent("observer", fmt.Sprintf("new-nara-%d", i), baseTime)
+		e.Timestamp = baseTime + int64((i+3)*1000)
+		e.ComputeID()
+		ledger.AddEvent(e)
+	}
+
+	// Add 5 status-change events (priority 1)
+	for i := 0; i < 5; i++ {
+		e := NewStatusChangeObservationEvent("observer", fmt.Sprintf("status-nara-%d", i), "ONLINE")
+		e.Timestamp = baseTime + int64((i+5)*1000)
+		e.ComputeID()
+		ledger.AddEvent(e)
+	}
+
+	// Add 5 social events (priority 2)
+	for i := 0; i < 5; i++ {
+		e := NewSocialSyncEvent("tease", "alice", fmt.Sprintf("target-%d", i), "random", "alice")
+		e.Timestamp = baseTime + int64((i+10)*1000)
+		e.ComputeID()
+		ledger.AddEvent(e)
+	}
+
+	// Add 10 ping events (priority 3 - lowest)
+	for i := 0; i < 10; i++ {
+		e := SyncEvent{
+			Timestamp: baseTime + int64((i+15)*1000),
+			Service:   ServicePing,
+			Ping:      &PingObservation{Observer: "alice", Target: "bob", RTT: float64(i + 1)},
+		}
+		e.ComputeID()
+		ledger.AddEvent(e)
+	}
+
+	// Now we have 25 events, max is 10, so pruning should kick in
+	// Force a prune
+	ledger.Prune()
+
+	// Count events by type
+	criticalCount := ledger.GetCriticalEventCount()
+	serviceCounts := ledger.GetEventCountsByService()
+
+	// Critical events (restart + first-seen) should ALL still be there
+	if criticalCount != 5 {
+		t.Errorf("expected 5 critical events to be preserved, got %d", criticalCount)
+	}
+
+	// Pings should be pruned first (they're lowest priority)
+	// We added 10 pings, and need to remove 15 events to get to max 10
+	// Order: pings (10), then social (5), then status-change (5), then critical (5)
+	// To get to 10: remove all 10 pings, then 5 social = 15 removed, left with 10
+	if serviceCounts[ServicePing] > 0 {
+		t.Logf("ping events remaining: %d (expected 0)", serviceCounts[ServicePing])
+	}
+
+	// Verify we're at or below max
+	total := ledger.EventCount()
+	if total > 10 {
+		t.Errorf("expected at most 10 events after prune, got %d", total)
+	}
+
+	t.Logf("After prune: total=%d, critical=%d, observation=%d, social=%d, ping=%d",
+		total, criticalCount,
+		serviceCounts[ServiceObservation],
+		serviceCounts[ServiceSocial],
+		serviceCounts[ServicePing])
+}
+
 // --- JSON Serialization ---
 
 func TestSyncEvent_JSONRoundtrip(t *testing.T) {

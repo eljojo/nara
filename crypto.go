@@ -61,3 +61,12 @@ func VerifySignature(publicKey ed25519.PublicKey, message, signature []byte) boo
 	}
 	return ed25519.Verify(publicKey, message, signature)
 }
+
+// VerifySignatureBase64 verifies a base64-encoded signature
+func VerifySignatureBase64(publicKey []byte, message []byte, signatureBase64 string) bool {
+	signature, err := base64.StdEncoding.DecodeString(signatureBase64)
+	if err != nil {
+		return false
+	}
+	return VerifySignature(publicKey, message, signature)
+}

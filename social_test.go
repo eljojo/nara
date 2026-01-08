@@ -300,3 +300,51 @@ func TestNewJourneyObservationEvent(t *testing.T) {
 
 // Tests for teasing mechanics (IsNiceNumber, ShouldTeaseFor*, etc.)
 // are in teasing_test.go to avoid duplication
+
+// --- Signature Tests ---
+
+func TestSocialEvent_SignAndVerify(t *testing.T) {
+	// Create keypairs from test souls
+	soul := NativeSoulCustom([]byte("test-hw-fingerprint-1"), "alice")
+	keypair := DeriveKeypair(soul)
+
+	// Create and sign an event
+	event := NewTeaseEvent("alice", "bob", ReasonHighRestarts)
+	event.Sign(keypair)
+
+	if event.Signature == "" {
+		t.Error("Expected signature to be set after signing")
+	}
+
+	// Verify with correct public key
+	if !event.Verify(keypair.PublicKey) {
+		t.Error("Expected signature to verify with correct public key")
+	}
+
+	// Verify fails with wrong public key
+	wrongSoul := NativeSoulCustom([]byte("different-hw-fingerprint"), "bob")
+	wrongKeypair := DeriveKeypair(wrongSoul)
+	if event.Verify(wrongKeypair.PublicKey) {
+		t.Error("Expected signature to fail with wrong public key")
+	}
+
+	// Verify fails if event is tampered
+	tamperedEvent := event
+	tamperedEvent.Target = "charlie"
+	if tamperedEvent.Verify(keypair.PublicKey) {
+		t.Error("Expected signature to fail with tampered event")
+	}
+}
+
+func TestSocialEvent_VerifyUnsigned(t *testing.T) {
+	event := NewTeaseEvent("alice", "bob", ReasonHighRestarts)
+	// Don't sign it
+
+	soul := NativeSoulCustom([]byte("test-hw-fingerprint-2"), "alice")
+	keypair := DeriveKeypair(soul)
+
+	// Verify should return false for unsigned event
+	if event.Verify(keypair.PublicKey) {
+		t.Error("Expected Verify to return false for unsigned event")
+	}
+}

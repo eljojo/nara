@@ -65,13 +65,13 @@ func (network *Network) selfieHandler(client mqtt.Client, msg mqtt.Message) {
 }
 
 func (network *Network) chauHandler(client mqtt.Client, msg mqtt.Message) {
-	nara := NewNara("")
-	if err := json.Unmarshal(msg.Payload(), nara); err != nil {
+	event := ChauEvent{}
+	if err := json.Unmarshal(msg.Payload(), &event); err != nil {
 		logrus.Debugf("chauHandler: invalid JSON: %v", err)
 		return
 	}
 
-	network.chauInbox <- *nara
+	network.chauInbox <- event
 }
 
 func (network *Network) socialHandler(client mqtt.Client, msg mqtt.Message) {
@@ -203,6 +203,21 @@ func (network *Network) postEvent(topic string, event interface{}) {
 func (network *Network) disconnectMQTT() {
 	network.Mqtt.Disconnect(100)
 	logrus.Printf("Disconnected from MQTT")
+}
+
+// Shutdown gracefully stops all background goroutines
+func (network *Network) Shutdown() {
+	logrus.Printf("🛑 Initiating graceful shutdown...")
+
+	// Cancel context to signal all goroutines to stop
+	if network.cancelFunc != nil {
+		network.cancelFunc()
+	}
+
+	// Give goroutines a moment to finish their current work
+	time.Sleep(100 * time.Millisecond)
+
+	logrus.Printf("✅ Graceful shutdown complete")
 }
 
 func initializeMQTT(onConnect mqtt.OnConnectHandler, name string, host string, user string, pass string) mqtt.Client {

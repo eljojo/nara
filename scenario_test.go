@@ -6,7 +6,7 @@ import (
 )
 
 func TestScenario_VibeShift(t *testing.T) {
-	ln := NewLocalNara("blue-jay", "blue-jay-soul", "host", "user", "pass", -1, 0) // use blue-jay to skip fetch
+	ln := NewLocalNara("blue-jay", testSoul("blue-jay"), "host", "user", "pass", -1, 0) // use blue-jay to skip fetch
 	network := ln.Network
 
 	// Mock observations
@@ -62,7 +62,7 @@ func TestScenario_VibeShift(t *testing.T) {
 	}
 
 	// 8. Simulate Nara B leaving (Chau)
-	network.handleChauEvent(Nara{Name: "B"})
+	network.handleChauEvent(ChauEvent{From: "B"})
 	obsB = network.local.getObservation("B")
 	if obsB.Online != "OFFLINE" {
 		t.Errorf("expected B to be OFFLINE, got %s", obsB.Online)

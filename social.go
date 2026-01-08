@@ -33,6 +33,23 @@ type SocialEvent struct {
 	Target    string // who it was about
 	Reason    string // why (e.g., "high-restarts", "trend-abandon")
 	Witness   string // who reported it (empty if self-reported)
+	Signature string // Base64-encoded Ed25519 signature (optional)
+}
+
+// Sign signs the social event with the given keypair
+func (e *SocialEvent) Sign(kp NaraKeypair) {
+	// Sign the content that makes up the ID (without the signature itself)
+	message := fmt.Sprintf("%d:%s:%s:%s:%s:%s", e.Timestamp, e.Type, e.Actor, e.Target, e.Reason, e.Witness)
+	e.Signature = kp.SignBase64([]byte(message))
+}
+
+// Verify verifies the social event signature
+func (e *SocialEvent) Verify(publicKey []byte) bool {
+	if e.Signature == "" {
+		return false
+	}
+	message := fmt.Sprintf("%d:%s:%s:%s:%s:%s", e.Timestamp, e.Type, e.Actor, e.Target, e.Reason, e.Witness)
+	return VerifySignatureBase64(publicKey, []byte(message), e.Signature)
 }
 
 // ComputeID generates a deterministic ID from event content

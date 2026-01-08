@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -23,7 +25,7 @@ type Network struct {
 	Mqtt                mqtt.Client
 	heyThereInbox       chan HeyThereEvent
 	newspaperInbox      chan NewspaperEvent
-	chauInbox           chan Nara
+	chauInbox           chan ChauEvent
 	selfieInbox         chan Nara
 	socialInbox         chan SocialEvent
 	ledgerRequestInbox  chan LedgerRequest
@@ -44,6 +46,9 @@ type Network struct {
 	pendingJourneys      map[string]*PendingJourney
 	pendingJourneysMu    sync.RWMutex
 	journeyCompleteInbox chan JourneyCompletion
+	// Graceful shutdown
+	ctx        context.Context
+	cancelFunc context.CancelFunc
 }
 
 // PendingJourney tracks a journey we participated in, waiting for completion
@@ -64,19 +69,91 @@ type JourneyCompletion struct {
 }
 
 type NewspaperEvent struct {
-	From   string
-	Status NaraStatus
+	From      string
+	Status    NaraStatus
+	Signature string // Base64-encoded signature of the status JSON
+}
+
+// SignNewspaper creates a signed newspaper event
+func (network *Network) SignNewspaper(status NaraStatus) NewspaperEvent {
+	event := NewspaperEvent{
+		From:   network.meName(),
+		Status: status,
+	}
+	// Sign the JSON-serialized status
+	statusJSON, _ := json.Marshal(status)
+	event.Signature = network.local.Keypair.SignBase64(statusJSON)
+	return event
+}
+
+// VerifyNewspaper verifies a newspaper event signature
+func (event *NewspaperEvent) Verify(publicKey []byte) bool {
+	if event.Signature == "" {
+		return false
+	}
+	statusJSON, err := json.Marshal(event.Status)
+	if err != nil {
+		return false
+	}
+	return VerifySignatureBase64(publicKey, statusJSON, event.Signature)
 }
 
 type HeyThereEvent struct {
-	From string
+	From      string
+	PublicKey string // Base64-encoded Ed25519 public key
+	MeshIP    string // Tailscale IP for mesh communication
+	Signature string // Base64-encoded signature of "hey_there:{From}:{PublicKey}:{MeshIP}"
+}
+
+// Sign signs the HeyThereEvent with the given keypair
+func (h *HeyThereEvent) Sign(kp NaraKeypair) {
+	message := fmt.Sprintf("hey_there:%s:%s:%s", h.From, h.PublicKey, h.MeshIP)
+	h.Signature = kp.SignBase64([]byte(message))
+}
+
+// Verify verifies the HeyThereEvent signature against the embedded public key
+func (h *HeyThereEvent) Verify() bool {
+	if h.PublicKey == "" || h.Signature == "" {
+		return false
+	}
+	pubKey, err := ParsePublicKey(h.PublicKey)
+	if err != nil {
+		return false
+	}
+	message := fmt.Sprintf("hey_there:%s:%s:%s", h.From, h.PublicKey, h.MeshIP)
+	return VerifySignatureBase64(pubKey, []byte(message), h.Signature)
+}
+
+type ChauEvent struct {
+	From      string
+	PublicKey string // Base64-encoded Ed25519 public key
+	Signature string // Base64-encoded signature of "chau:{From}:{PublicKey}"
+}
+
+// Sign signs the ChauEvent with the given keypair
+func (c *ChauEvent) Sign(kp NaraKeypair) {
+	message := fmt.Sprintf("chau:%s:%s", c.From, c.PublicKey)
+	c.Signature = kp.SignBase64([]byte(message))
+}
+
+// Verify verifies the ChauEvent signature against the embedded public key
+func (c *ChauEvent) Verify() bool {
+	if c.PublicKey == "" || c.Signature == "" {
+		return false
+	}
+	pubKey, err := ParsePublicKey(c.PublicKey)
+	if err != nil {
+		return false
+	}
+	message := fmt.Sprintf("chau:%s:%s", c.From, c.PublicKey)
+	return VerifySignatureBase64(pubKey, []byte(message), c.Signature)
 }
 
 func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Network {
 	network := &Network{local: localNara}
 	network.Neighbourhood = make(map[string]*Nara)
 	network.heyThereInbox = make(chan HeyThereEvent)
-	network.chauInbox = make(chan Nara)
+	network.chauInbox = make(chan ChauEvent)
 	network.selfieInbox = make(chan Nara)
 	network.newspaperInbox = make(chan NewspaperEvent)
 	network.socialInbox = make(chan SocialEvent, 100)
@@ -89,6 +166,8 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	network.worldJourneys = make([]*WorldMessage, 0)
 	network.pendingJourneys = make(map[string]*PendingJourney)
 	network.journeyCompleteInbox = make(chan JourneyCompletion, 50)
+	// Initialize context for graceful shutdown
+	network.ctx, network.cancelFunc = context.WithCancel(context.Background())
 	network.Mqtt = initializeMQTT(network.mqttOnConnectHandler(), network.meName(), host, user, pass)
 	return network
 }
@@ -311,6 +390,12 @@ func (network *Network) onWorldJourneyPassThrough(wm *WorldMessage) {
 }
 
 func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetConfig) {
+	if useObservationEvents() {
+		logrus.Printf("📊 Observation events mode: ENABLED")
+	} else {
+		logrus.Printf("📊 Observation events mode: disabled (legacy newspaper-based)")
+	}
+
 	if serveUI {
 		err := network.startHttpServer(httpAddr)
 		if err != nil {
@@ -388,6 +473,10 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 	// Start boot recovery after a short delay to gather neighbors
 	if !network.ReadOnly {
 		go network.bootRecovery()
+		// Run backfill after boot recovery completes
+		go network.backfillObservations()
+		// Start background sync for organic memory strengthening
+		go network.backgroundSync()
 	}
 
 	// Start garbage collection maintenance
@@ -404,22 +493,58 @@ func (network *Network) meName() string {
 	return network.local.Me.Name
 }
 
+// useObservationEvents returns true if event-driven observation mode is enabled
+func useObservationEvents() bool {
+	return os.Getenv("USE_OBSERVATION_EVENTS") == "true"
+}
+
 func (network *Network) announce() {
 	if network.ReadOnly {
 		return
 	}
 	topic := fmt.Sprintf("%s/%s", "nara/newspaper", network.meName())
 	network.recordObservationOnlineNara(network.meName())
-	network.postEvent(topic, network.local.Me.Status)
+
+	// In event-primary mode, broadcast slim newspapers without Observations
+	if useObservationEvents() {
+		// Create a safe copy of status without the Observations map
+		network.local.Me.mu.Lock()
+		slimStatus := network.local.Me.Status
+		network.local.Me.mu.Unlock()
+		slimStatus.Observations = nil
+		signedEvent := network.SignNewspaper(slimStatus)
+		network.postEvent(topic, signedEvent)
+		logrus.Debugf("📰 Slim newspaper broadcast (event-primary mode, signed)")
+	} else {
+		// Traditional mode: include full observations
+		network.local.Me.mu.Lock()
+		statusCopy := network.local.Me.Status
+		network.local.Me.mu.Unlock()
+		signedEvent := network.SignNewspaper(statusCopy)
+		network.postEvent(topic, signedEvent)
+	}
 }
 
 func (network *Network) announceForever() {
 	for {
-		ts := network.local.chattinessRate(5, 55)
+		var ts int64
+		if useObservationEvents() {
+			// Event-primary mode: newspapers are lightweight heartbeats (30-300s)
+			ts = network.local.chattinessRate(30, 300)
+		} else {
+			// Traditional mode: newspapers contain observations (5-55s)
+			ts = network.local.chattinessRate(5, 55)
+		}
 		// logrus.Debugf("time between announces = %d", ts)
-		time.Sleep(time.Duration(ts) * time.Second)
 
-		network.announce()
+		// Wait with graceful shutdown support
+		select {
+		case <-time.After(time.Duration(ts) * time.Second):
+			network.announce()
+		case <-network.ctx.Done():
+			logrus.Debugf("announceForever: shutting down gracefully")
+			return
+		}
 	}
 }
 
@@ -432,11 +557,40 @@ func (network *Network) processNewspaperEvents() {
 func (network *Network) handleNewspaperEvent(event NewspaperEvent) {
 	logrus.Debugf("newspaperHandler update from %s", event.From)
 
+	// Verify signature if present
+	if event.Signature != "" {
+		// Get public key - try from event status first, then from known neighbor
+		var pubKey []byte
+		if event.Status.PublicKey != "" {
+			var err error
+			pubKey, err = ParsePublicKey(event.Status.PublicKey)
+			if err != nil {
+				logrus.Warnf("🚨 Invalid public key in newspaper from %s", event.From)
+				return
+			}
+		} else {
+			// Try to get from known neighbor
+			pubKey = network.getPublicKeyForNara(event.From)
+		}
+
+		if pubKey != nil && !event.Verify(pubKey) {
+			logrus.Warnf("🚨 Invalid signature on newspaper from %s", event.From)
+			return
+		}
+	}
+
 	network.local.mu.Lock()
 	nara, present := network.Neighbourhood[event.From]
 	network.local.mu.Unlock()
 	if present {
 		nara.mu.Lock()
+		// Warn if public key changed
+		if event.Status.PublicKey != "" && nara.Status.PublicKey != "" && nara.Status.PublicKey != event.Status.PublicKey {
+			logrus.Warnf("⚠️  Public key changed for %s! Old: %s..., New: %s...",
+				event.From,
+				truncateKey(nara.Status.PublicKey),
+				truncateKey(event.Status.PublicKey))
+		}
 		nara.Status.setValuesFrom(event.Status)
 		nara.mu.Unlock()
 	} else {
@@ -473,8 +627,46 @@ func (network *Network) processHeyThereEvents() {
 }
 
 func (network *Network) handleHeyThereEvent(heyThere HeyThereEvent) {
+	// Verify signature if present
+	if heyThere.Signature != "" {
+		if !heyThere.Verify() {
+			logrus.Warnf("🚨 Invalid signature on hey_there from %s", heyThere.From)
+			return
+		}
+	}
+
 	logrus.Printf("%s says: hey there!", heyThere.From)
 	network.recordObservationOnlineNara(heyThere.From)
+
+	// Store PublicKey and MeshIP from the hey_there event
+	if heyThere.PublicKey != "" || heyThere.MeshIP != "" {
+		network.local.mu.Lock()
+		nara, present := network.Neighbourhood[heyThere.From]
+		network.local.mu.Unlock()
+
+		if present {
+			nara.mu.Lock()
+			// Warn if public key changed
+			if heyThere.PublicKey != "" && nara.Status.PublicKey != "" && nara.Status.PublicKey != heyThere.PublicKey {
+				logrus.Warnf("⚠️  Public key changed for %s! Old: %s..., New: %s...",
+					heyThere.From,
+					truncateKey(nara.Status.PublicKey),
+					truncateKey(heyThere.PublicKey))
+			}
+			if heyThere.PublicKey != "" {
+				nara.Status.PublicKey = heyThere.PublicKey
+			}
+			if heyThere.MeshIP != "" {
+				nara.Status.MeshIP = heyThere.MeshIP
+				nara.Status.MeshEnabled = true
+			}
+			nara.mu.Unlock()
+			logrus.Debugf("📝 Updated %s: PublicKey=%s..., MeshIP=%s",
+				heyThere.From,
+				truncateKey(heyThere.PublicKey),
+				heyThere.MeshIP)
+		}
+	}
 
 	// artificially slow down so if two naras boot at the same time they both get the message
 	if !network.ReadOnly {
@@ -482,6 +674,14 @@ func (network *Network) handleHeyThereEvent(heyThere HeyThereEvent) {
 		network.selfie()
 	}
 	network.Buzz.increase(1)
+}
+
+// truncateKey returns first 8 chars of a key for logging
+func truncateKey(key string) string {
+	if len(key) > 8 {
+		return key[:8]
+	}
+	return key
 }
 
 func (network *Network) heyThere() {
@@ -496,7 +696,12 @@ func (network *Network) heyThere() {
 	network.LastHeyThere = time.Now().Unix()
 
 	topic := "nara/plaza/hey_there"
-	heyThere := &HeyThereEvent{From: network.meName()}
+	heyThere := &HeyThereEvent{
+		From:      network.meName(),
+		PublicKey: network.local.Me.Status.PublicKey,
+		MeshIP:    network.local.Me.Status.MeshIP,
+	}
+	heyThere.Sign(network.local.Keypair)
 	network.postEvent(topic, heyThere)
 	network.selfie()
 	logrus.Printf("%s: 👋", heyThere.From)
@@ -525,32 +730,50 @@ func (network *Network) processChauEvents() {
 	}
 }
 
-func (network *Network) handleChauEvent(nara Nara) {
-	if nara.Name == network.meName() || nara.Name == "" {
+func (network *Network) handleChauEvent(event ChauEvent) {
+	if event.From == network.meName() || event.From == "" {
 		return
 	}
 
-	network.local.mu.Lock()
-	existingNara, present := network.Neighbourhood[nara.Name]
-	network.local.mu.Unlock()
-	if present {
-		existingNara.setValuesFrom(nara)
+	// Verify signature if present
+	if event.Signature != "" && event.PublicKey != "" {
+		if !event.Verify() {
+			logrus.Warnf("⚠️  chau from %s has invalid signature, ignoring", event.From)
+			return
+		}
 	}
 
-	observation := network.local.getObservation(nara.Name)
+	network.local.mu.Lock()
+	existingNara, present := network.Neighbourhood[event.From]
+	network.local.mu.Unlock()
+
+	// Check for public key changes
+	if present && existingNara.Status.PublicKey != "" && event.PublicKey != "" {
+		if existingNara.Status.PublicKey != event.PublicKey {
+			logrus.Warnf("⚠️  PUBLIC KEY CHANGED for %s! old=%s new=%s",
+				event.From, truncateKey(existingNara.Status.PublicKey), truncateKey(event.PublicKey))
+		}
+	}
+
+	// Update the nara's public key if provided
+	if present && event.PublicKey != "" {
+		existingNara.Status.PublicKey = event.PublicKey
+	}
+
+	observation := network.local.getObservation(event.From)
 	previousState := observation.Online
 	observation.Online = "OFFLINE"
 	observation.LastSeen = time.Now().Unix()
-	network.local.setObservation(nara.Name, observation)
+	network.local.setObservation(event.From, observation)
 
 	// Record offline observation event if state changed
 	if previousState == "ONLINE" && !network.local.isBooting() && network.local.SyncLedger != nil {
-		event := NewObservationEvent(network.meName(), nara.Name, ReasonOffline)
-		network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
-		logrus.Printf("observation: %s went offline", nara.Name)
+		obsEvent := NewObservationEvent(network.meName(), event.From, ReasonOffline)
+		network.local.SyncLedger.AddSocialEventFilteredLegacy(obsEvent, network.local.Me.Status.Personality)
+		logrus.Printf("observation: %s went offline", event.From)
 	}
 
-	logrus.Printf("%s: chau!", nara.Name)
+	logrus.Printf("%s: chau!", event.From)
 	network.Buzz.increase(2)
 }
 
@@ -566,7 +789,12 @@ func (network *Network) Chau() {
 	observation.LastSeen = time.Now().Unix()
 	network.local.setMeObservation(observation)
 
-	network.postEvent(topic, network.local.Me)
+	chauEvent := &ChauEvent{
+		From:      network.meName(),
+		PublicKey: network.local.Me.Status.PublicKey,
+	}
+	chauEvent.Sign(network.local.Keypair)
+	network.postEvent(topic, chauEvent)
 }
 
 func (network *Network) oldestNaraBarrio() Nara {
@@ -756,6 +984,15 @@ func (network *Network) handleSocialEvent(event SocialEvent) {
 		return
 	}
 
+	// Verify signature if present
+	if event.Signature != "" {
+		pubKey := network.getPublicKeyForNara(event.Actor)
+		if pubKey != nil && !event.Verify(pubKey) {
+			logrus.Warnf("🚨 Invalid signature on tease from %s", event.Actor)
+			return
+		}
+	}
+
 	// Add to our ledger
 	if network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality) {
 		logrus.Printf("📢 %s teased %s: %s", event.Actor, event.Target, TeaseMessage(event.Reason, event.Actor, event.Target))
@@ -812,8 +1049,9 @@ func (network *Network) Tease(target, reason string) bool {
 		return false
 	}
 
-	// Create and broadcast the event
+	// Create, sign, and broadcast the event
 	event := NewTeaseEvent(actor, target, reason)
+	event.Sign(network.local.Keypair)
 
 	// Add to our own ledger
 	if network.local.SyncLedger != nil {
@@ -1052,6 +1290,9 @@ func (network *Network) bootRecoveryViaMesh(online []string) {
 	}
 
 	logrus.Printf("📦 boot recovery via mesh complete: merged %d events total", totalMerged)
+
+	// Seed AvgPingRTT from recovered ping observations
+	network.seedAvgPingRTTFromHistory()
 }
 
 // fetchSyncEventsFromMesh fetches unified SyncEvents with signature verification
@@ -1074,6 +1315,7 @@ func (network *Network) fetchSyncEventsFromMesh(client *http.Client, meshIP, nam
 
 	// Make HTTP request to neighbor's mesh endpoint
 	url := fmt.Sprintf("http://%s:%d/events/sync", meshIP, DefaultMeshPort)
+	logrus.Debugf("🌐 HTTP POST %s (requesting %d events from %s)", url, maxEvents, name)
 	req, err := http.NewRequest("POST", url, bytes.NewReader(jsonBody))
 	if err != nil {
 		logrus.Warnf("📦 failed to create mesh sync request: %v", err)
@@ -1118,13 +1360,22 @@ func (network *Network) fetchSyncEventsFromMesh(client *http.Client, meshIP, nam
 	// Also verify the inner signature for extra assurance
 	if response.Signature != "" && !verified {
 		// Look up sender's public key from our neighborhood
-		if nara := network.Neighbourhood[name]; nara != nil && nara.Status.PublicKey != "" {
-			pubKey, err := ParsePublicKey(nara.Status.PublicKey)
-			if err == nil {
-				if response.VerifySignature(pubKey) {
-					verified = true
-				} else {
-					logrus.Warnf("📦 inner signature verification failed for %s", name)
+		// Note: Short-circuit evaluation ensures nara.Status is only accessed if nara != nil
+		network.local.mu.Lock()
+		nara := network.Neighbourhood[name]
+		network.local.mu.Unlock()
+		if nara != nil {
+			nara.mu.Lock()
+			publicKey := nara.Status.PublicKey
+			nara.mu.Unlock()
+			if publicKey != "" {
+				pubKey, err := ParsePublicKey(publicKey)
+				if err == nil {
+					if response.VerifySignature(pubKey) {
+						verified = true
+					} else {
+						logrus.Warnf("📦 inner signature verification failed for %s", name)
+					}
 				}
 			}
 		}
@@ -1183,6 +1434,258 @@ func (network *Network) RequestLedgerSync(neighbor string, subjects []string) {
 	network.postEvent(topic, req)
 }
 
+// seedAvgPingRTTFromHistory initializes AvgPingRTT from historical ping observations
+// Called after boot recovery to seed exponential moving average with recovered data
+func (network *Network) seedAvgPingRTTFromHistory() {
+	if network.local.SyncLedger == nil {
+		return
+	}
+
+	// Get all ping observations from the ledger
+	allPings := network.local.SyncLedger.GetPingObservations()
+
+	// Group pings by target to seed our observations
+	// We use ALL pings (from any observer) to get initial RTT estimates
+	// This means we learn from the network: if B→C has 50ms RTT, we seed our C observation with that
+	myName := network.meName()
+	pingsByTarget := make(map[string][]float64)
+
+	for _, ping := range allPings {
+		// Skip pings TO us (we care about targets we might ping, not pings to us)
+		if ping.Target != myName {
+			pingsByTarget[ping.Target] = append(pingsByTarget[ping.Target], ping.RTT)
+		}
+	}
+
+	// Seed AvgPingRTT for each target
+	seededCount := 0
+	for target, rtts := range pingsByTarget {
+		obs := network.local.getObservation(target)
+
+		// Only seed if AvgPingRTT is not already set (0 means uninitialized)
+		if obs.AvgPingRTT == 0 && len(rtts) > 0 {
+			// Calculate simple average from historical pings
+			sum := 0.0
+			for _, rtt := range rtts {
+				sum += rtt
+			}
+			avg := sum / float64(len(rtts))
+
+			obs.AvgPingRTT = avg
+			network.local.setObservation(target, obs)
+			seededCount++
+		}
+	}
+
+	if seededCount > 0 {
+		logrus.Printf("📍 Seeded AvgPingRTT for %d targets from historical ping observations", seededCount)
+	}
+}
+
+// backfillObservations migrates existing observations to observation events
+// This enables smooth transition from newspaper-based consensus to event-based
+func (network *Network) backfillObservations() {
+	// Wait for boot recovery to complete and gather some observations
+	time.Sleep(3 * time.Minute)
+
+	myName := network.meName()
+	backfillCount := 0
+
+	// Lock Me.mu to safely read Me.Status.Observations
+	network.local.Me.mu.Lock()
+	observations := make(map[string]NaraObservation)
+	for name, obs := range network.local.Me.Status.Observations {
+		observations[name] = obs
+	}
+	network.local.Me.mu.Unlock()
+
+	logrus.Printf("📦 Checking if backfill needed for %d observations...", len(observations))
+
+	for naraName, obs := range observations {
+		if naraName == myName {
+			continue // Skip self
+		}
+
+		// Check if we already have observation events for this nara
+		existingEvents := network.local.SyncLedger.GetObservationEventsAbout(naraName)
+		if len(existingEvents) > 0 {
+			// Already have event-based data, skip backfill
+			continue
+		}
+
+		// No events exist, but we have newspaper-based knowledge
+		// Create backfill event if data is meaningful
+		if obs.StartTime > 0 && obs.Restarts >= 0 {
+			event := NewBackfillObservationEvent(
+				myName,
+				naraName,
+				obs.StartTime,
+				obs.Restarts,
+				obs.LastRestart,
+			)
+
+			// Add with full anti-abuse protections
+			added := network.local.SyncLedger.AddEventWithDedup(event)
+			if added {
+				backfillCount++
+				logrus.Debugf("📦 Backfilled observation for %s (start:%d, restarts:%d)",
+					naraName, obs.StartTime, obs.Restarts)
+			}
+		}
+	}
+
+	if backfillCount > 0 {
+		logrus.Printf("📦 Backfilled %d historical observations into event system", backfillCount)
+	} else {
+		logrus.Printf("📦 No backfill needed (events already present or no meaningful data)")
+	}
+}
+
+// backgroundSync performs lightweight periodic syncing to strengthen collective memory
+// Runs every ~30 minutes (±5min jitter) to catch up on missed critical events
+func (network *Network) backgroundSync() {
+	// Initial random delay (0-5 minutes) to spread startup load
+	initialDelay := time.Duration(rand.Intn(5)) * time.Minute
+	select {
+	case <-time.After(initialDelay):
+	case <-network.ctx.Done():
+		logrus.Debugf("backgroundSync: shutting down before initial delay")
+		return
+	}
+
+	// Main sync loop: every 30 minutes ±5min jitter
+	for {
+		baseInterval := 30 * time.Minute
+		jitter := time.Duration(rand.Intn(10)-5) * time.Minute // -5 to +5 minutes
+		interval := baseInterval + jitter
+
+		select {
+		case <-time.After(interval):
+			network.performBackgroundSync()
+		case <-network.ctx.Done():
+			logrus.Debugf("backgroundSync: shutting down gracefully")
+			return
+		}
+	}
+}
+
+// performBackgroundSync executes a single background sync cycle
+func (network *Network) performBackgroundSync() {
+	// Get online neighbors
+	online := network.NeighbourhoodOnlineNames()
+	if len(online) == 0 {
+		logrus.Debug("🔄 Background sync: no neighbors online")
+		return
+	}
+
+	// Pick 1-2 random neighbors to query
+	numNeighbors := 1
+	if len(online) > 1 && rand.Float64() > 0.5 {
+		numNeighbors = 2
+	}
+
+	// Shuffle and pick neighbors
+	rand.Shuffle(len(online), func(i, j int) {
+		online[i], online[j] = online[j], online[i]
+	})
+
+	neighbors := online[:numNeighbors]
+
+	// Query each neighbor via mesh if available
+	for _, neighbor := range neighbors {
+		if network.tsnetMesh != nil {
+			ip := network.getMeshIPForNara(neighbor)
+			if ip != "" {
+				network.performBackgroundSyncViaMesh(neighbor, ip)
+			} else {
+				logrus.Debugf("🔄 Background sync: neighbor %s not mesh-enabled, skipping", neighbor)
+			}
+		} else {
+			// Could add MQTT fallback here if needed
+			logrus.Debug("🔄 Background sync: mesh not available, skipping")
+		}
+	}
+}
+
+// performBackgroundSyncViaMesh performs background sync with a specific neighbor via mesh
+//
+// IMPORTANT: This function determines which event types are continuously synced across the network.
+// When adding new service types (in sync.go), consider whether they should be synced here.
+// Current services synced:
+//   - ServiceObservation: restart/first-seen/status-change events (24h window, personality filtered)
+//   - ServicePing: RTT measurements (no time filter, used for Vivaldi coordinates)
+//   - ServiceSocial: teases, observations, gossip (24h window, personality filtered)
+//
+// Boot recovery (bootRecoveryViaMesh) syncs ALL events without filtering.
+// This background sync maintains eventual consistency for recent events.
+func (network *Network) performBackgroundSyncViaMesh(neighbor, ip string) {
+	logrus.Debugf("🔄 background sync: requesting events from %s (%s)", neighbor, ip)
+
+	// Use existing fetchSyncEventsFromMesh method with lightweight parameters
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	// Fetch events from this neighbor (all types, we filter below)
+	events, success := network.fetchSyncEventsFromMesh(
+		client,
+		ip,
+		neighbor,
+		nil, // subjects: nil = all naras
+		0,   // sliceIndex: 0 for simple query
+		1,   // sliceTotal: 1 for simple query (no slicing)
+		100, // maxEvents: lightweight query
+	)
+
+	if !success {
+		logrus.Debugf("🔄 Background sync with %s failed", neighbor)
+		return
+	}
+
+	// Filter and merge events by type
+	// Time cutoff for observation and social events (24h window)
+	cutoff := time.Now().Add(-24 * time.Hour).UnixNano()
+	added := 0
+	hasPingEvents := false
+
+	for _, event := range events {
+		switch event.Service {
+		case ServiceObservation:
+			// Observation events: 24h window with personality filtering
+			if event.Timestamp >= cutoff {
+				if network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality) {
+					added++
+				}
+			}
+
+		case ServicePing:
+			// Ping events: no time filtering (always useful for coordinate estimation)
+			if network.local.SyncLedger.AddEvent(event) {
+				added++
+				hasPingEvents = true
+			}
+
+		case ServiceSocial:
+			// Social events: 24h window with personality filtering
+			// This ensures teases, gossip, and social observations propagate across the network
+			if event.Timestamp >= cutoff {
+				if network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality) {
+					added++
+				}
+			}
+		}
+	}
+
+	if added > 0 {
+		logrus.Printf("🔄 background sync from %s: received %d events, merged %d", neighbor, len(events), added)
+
+		// If we received ping events, update AvgPingRTT from history
+		if hasPingEvents {
+			network.seedAvgPingRTTFromHistory()
+		}
+	} else if len(events) > 0 {
+		logrus.Debugf("🔄 background sync from %s: received %d events (all duplicates)", neighbor, len(events))
+	}
+}
+
 // socialMaintenance periodically cleans up social data
 func (network *Network) socialMaintenance() {
 	// Run every 5 minutes
@@ -1198,9 +1701,24 @@ func (network *Network) socialMaintenance() {
 			network.local.SyncLedger.Prune()
 			afterCount := network.local.SyncLedger.EventCount()
 
-			if beforeCount != afterCount {
-				logrus.Printf("🗑️  pruned %d old events (now: %d)", beforeCount-afterCount, afterCount)
+			// Log event store stats
+			serviceCounts := network.local.SyncLedger.GetEventCountsByService()
+			criticalCount := network.local.SyncLedger.GetCriticalEventCount()
+			var statsStr string
+			for service, count := range serviceCounts {
+				if statsStr != "" {
+					statsStr += ", "
+				}
+				statsStr += fmt.Sprintf("%s=%d", service, count)
 			}
+			if beforeCount != afterCount {
+				logrus.Printf("📊 event store: %d events (%s, critical=%d) - pruned %d", afterCount, statsStr, criticalCount, beforeCount-afterCount)
+			} else {
+				logrus.Printf("📊 event store: %d events (%s, critical=%d)", afterCount, statsStr, criticalCount)
+			}
+
+			// Cleanup rate limiter to prevent unbounded map growth
+			network.local.SyncLedger.observationRL.Cleanup()
 		}
 
 		// Cleanup tease cooldowns

@@ -133,7 +133,7 @@ func (network *Network) pingAndUpdateCoordinates(targetName string, config Vival
 	}
 
 	// Ping the peer
-	rtt, err := network.tsnetMesh.Ping(meshIP, 5*time.Second)
+	rtt, err := network.tsnetMesh.Ping(meshIP, network.meName(), 5*time.Second)
 	if err != nil {
 		logrus.Debugf("📍 Ping to %s failed: %v", targetName, err)
 		return
@@ -165,7 +165,7 @@ func (network *Network) pingAndUpdateCoordinates(targetName string, config Vival
 	network.local.setObservation(targetName, obs)
 
 	// Record to unified sync ledger for network-wide propagation
-	// Uses replace strategy: one ping per observer→target pair
+	// Uses replace strategy: keeps last 5 pings per observer→target pair
 	// Sign the event so others can verify it came from us
 	if network.local.SyncLedger != nil {
 		network.local.SyncLedger.AddSignedPingObservationWithReplace(

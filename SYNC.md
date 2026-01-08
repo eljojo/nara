@@ -34,10 +34,18 @@ The `SyncLedger` is the unified event store. It holds all syncable events regard
 
 ## Event Types
 
+### Observation Events (`service: "observation"`)
+Network state consensus events - replace newspaper broadcasts for tracking restarts and online status:
+- **restart**: Detected a nara restarted (StartTime, restart count)
+- **first-seen**: First time observing a nara (seeds StartTime)
+- **status-change**: Online/Offline/Missing transition
+
+These events use **importance levels** (1-3) and have anti-abuse protection (per-pair compaction, rate limiting, deduplication). Critical for distributed consensus on network state.
+
 ### Social Events (`service: "social"`)
 Social interactions between naras:
 - **tease**: One nara teasing another (for high restarts, comebacks, etc.)
-- **observation**: System observations (online/offline, journey events)
+- **observation**: Legacy system observations (online/offline, journey events)
 - **gossip**: Hearsay about what happened
 
 ### Ping Observations (`service: "ping"`)
@@ -86,16 +94,39 @@ When a nara boots, it wants to catch up on what it missed. Target: **10,000 even
 6. Merge events into SyncLedger
 ```
 
-### After Boot: Real-Time Watching
+### After Boot: Background Sync (Organic Memory Strengthening)
 
-Once a nara is online, **no further syncing is needed**. It watches events in real-time via MQTT plaza.
+Once a nara is online, it watches events in real-time via MQTT plaza. However, with personality-based filtering and hazy memory, important events can be missed. **Background sync** helps the collective memory stay strong.
 
-Syncing is only for:
-1. **Seeding**: Events from before you ever existed
-2. **Catching up**: Events from while you were offline
-3. **Spreading opinions**: Share your perspective when others ask
+**Schedule:**
+- Every ~30 minutes (±5min random jitter)
+- Initial random delay (0-5 minutes) to spread startup
+- Query 1-2 random online neighbors per sync
 
-You have your own vantage point - you see events as they happen.
+**Focus on Important Events:**
+```json
+{
+  "from": "requester",
+  "services": ["observation"],  // Observation events only
+  "since_time": "<24 hours ago>",
+  "max_events": 100,
+  "min_importance": 2  // Only Normal and Critical
+}
+```
+
+This lightweight sync helps catch up on critical observation events (restarts, first-seen) that may have been dropped by other naras' personality filters.
+
+**Network Load (5000 nodes):**
+- 250 sync requests/minute network-wide
+- ~1 incoming request per nara every 6 minutes
+- ~20KB payload per request
+- **Total: 83 KB/s** (vs 68MB/s - 1GB/s with old newspaper system)
+
+**Why it's needed:**
+1. **Event persistence**: Critical events survive even if some naras drop them
+2. **Gradual propagation**: Events spread organically through repeated syncs
+3. **Personality compensation**: High-chill naras catch up on events they filtered
+4. **Network healing**: Partitioned nodes eventually converge
 
 ### Interleaved Slicing
 
@@ -143,6 +174,63 @@ This keeps the ping data diverse across the network:
 - 5 naras = max 100 ping entries (5 per pair × 20 pairs)
 - 100 naras = max ~50,000 ping entries
 - 5000 naras = bounded by ledger max (50k events) and time-based pruning
+
+### AvgPingRTT Seeding from Historical Data
+
+When a nara restarts or receives ping observations from neighbors, it **seeds its exponential moving average (AvgPingRTT)** from historical ping data:
+
+1. **On boot recovery:** After syncing events from neighbors, calculate average RTT from recovered ping observations
+2. **During background sync:** When receiving ping events from neighbors, recalculate averages for targets with uninitialized AvgPingRTT
+3. **Only if uninitialized:** Seeding only happens when `AvgPingRTT == 0` (never overwrites existing values)
+
+This provides **immediate RTT estimates** without waiting for new pings, improving Vivaldi coordinate accuracy and proximity-based routing from the moment a nara comes online.
+
+## Anti-Abuse Mechanisms
+
+The observation event system includes four layers of protection against malicious or misconfigured naras:
+
+### 1. Per-Pair Compaction
+**Purpose:** Prevent one hyperactive observer from saturating storage
+
+- Maximum **20 observation events per observer→subject pair**
+- Oldest events dropped when limit exceeded
+- Example: If alice has 20 observations about bob, adding a 21st evicts the oldest
+
+### 2. Time-Window Rate Limiting
+**Purpose:** Block burst flooding attacks
+
+- Maximum **10 events about same subject per 5-minute window**
+- Blocks malicious nara claiming restart every second
+- Example: After 10 "bob restarted" events in 5 minutes, further events rejected
+- Window slides forward automatically
+
+### 3. Content-Based Deduplication
+**Purpose:** Prevent redundant storage when multiple observers report same event
+
+- Hash restart events by `(subject, restart_num, start_time)`
+- Multiple observers reporting same restart = single stored event
+- Keeps earliest observer for attribution
+- Example: 10 naras report "lisa restarted (1137)" → stored once
+
+### 4. Importance-Aware Pruning
+**Purpose:** Ensure critical events survive longest
+
+- Global ledger pruning respects importance levels:
+  1. Drop Casual (importance=1) first
+  2. Drop Normal (importance=2) second
+  3. Keep Critical (importance=3) longest
+- Restart and first-seen events marked Critical
+- Survives global MaxEvents pruning
+
+### Combined Protection
+
+At 5000 nodes with 50 abusive naras flooding events:
+- **Layer 2** blocks flood after 10 events/5min per subject ✓
+- **Layer 1** limits each attacker to 20 events per victim ✓
+- **Layer 3** deduplicates coordinated attack ✓
+- **Layer 4** preserves critical events under pressure ✓
+
+**Result:** Network remains functional with 1% malicious nodes
 
 ## Scale Considerations (5-5000 Naras)
 

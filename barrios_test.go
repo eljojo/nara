@@ -149,7 +149,7 @@ func TestGridCellToClusterIndex(t *testing.T) {
 // TestGridBasedBarrios_SameCellSameCluster verifies that naras in the same grid cell
 // get the same cluster - this is the key symmetric property
 func TestGridBasedBarrios_SameCellSameCluster(t *testing.T) {
-	ln := NewLocalNara("me", "test-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	// Give ourselves coordinates clearly in a cell
@@ -210,7 +210,7 @@ func TestGridBasedBarrios_SameCellSameCluster(t *testing.T) {
 // TestGridBasedBarrios_DifferentCellsDifferentClusters verifies that naras in
 // different grid cells get different clusters (usually - this is probabilistic)
 func TestGridBasedBarrios_DifferentCellsDifferentClusters(t *testing.T) {
-	ln := NewLocalNara("me", "test-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	// Me at origin
@@ -247,7 +247,7 @@ func TestGridBasedBarrios_DifferentCellsDifferentClusters(t *testing.T) {
 
 // TestCalculateGridSize verifies auto-tuning based on RTT data
 func TestCalculateGridSize(t *testing.T) {
-	ln := NewLocalNara("me", "test-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	// No ping data - should return default
@@ -270,7 +270,7 @@ func TestCalculateGridSize(t *testing.T) {
 
 // TestCalculateGridSize_Clamping verifies grid size stays within bounds
 func TestCalculateGridSize_Clamping(t *testing.T) {
-	ln := NewLocalNara("me", "test-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	// Add very low RTT pings
@@ -295,7 +295,7 @@ func TestCalculateGridSize_Clamping(t *testing.T) {
 
 // TestIsInMyBarrio verifies the barrio membership check
 func TestIsInMyBarrio(t *testing.T) {
-	ln := NewLocalNara("me", "test-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	// Set coordinates for me
@@ -331,7 +331,7 @@ func TestIsInMyBarrio(t *testing.T) {
 
 // TestIsInMyBarrio_FallbackToVibe verifies fallback when no coordinates
 func TestIsInMyBarrio_FallbackToVibe(t *testing.T) {
-	ln := NewLocalNara("me", "test-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	// No coordinates for anyone
@@ -350,7 +350,7 @@ func TestIsInMyBarrio_FallbackToVibe(t *testing.T) {
 // TestIsInMyBarrio_MixedRollout verifies behavior during rollout when some naras
 // have coordinates (new code) and some don't (old code)
 func TestIsInMyBarrio_MixedRollout(t *testing.T) {
-	ln := NewLocalNara("me", "test-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	// I have coordinates (new nara)
@@ -411,7 +411,7 @@ func TestIsInMyBarrio_MixedRollout(t *testing.T) {
 
 // TestBarriosFallback verifies fallback to hash-based when no coordinates
 func TestBarriosFallback(t *testing.T) {
-	ln := NewLocalNara("me", "test-soul", "host", "user", "pass", -1, 0)
+	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 
 	// No coordinates for anyone

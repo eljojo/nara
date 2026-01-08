@@ -113,6 +113,37 @@ naras love to follow trends! they might start a new trend or join one started by
 - **Following the Wave**: personality determines how likely a nara is to join a trend or get bored and leave
 - **Visualizing Fashion**: on the web dashboard, trends are color-coded so you can spot which naras are vibing together
 
+## network architecture & scalability
+
+nara uses a hybrid MQTT + mesh architecture designed to scale from 5 to 5000 nodes:
+
+- **MQTT Plaza** (public square): lightweight announcements, social events, journey completions
+- **Mesh HTTP** (direct connections): event syncing, ping measurements
+- **Event-Driven Observations**: distributed consensus on network state (restarts, uptime, online status)
+
+### the newspaper problem
+
+originally, naras broadcast their entire state every 5-55 seconds via "newspapers" containing observations about all known naras. at scale:
+- **5000 nodes**: 750KB-1MB per broadcast = 68MB/s - 1GB/s network traffic
+- **doesn't scale** past ~100 nodes
+
+### event-driven solution
+
+instead of broadcasting complete state, naras emit lightweight events when changes occur:
+- `restart` events: when a nara restarts
+- `first-seen` events: first time observing a nara
+- `status-change` events: online/offline transitions
+
+**benefits:**
+- **99.99% traffic reduction**: 83 KB/s at 5000 nodes (vs 68MB/s - 1GB/s)
+- **eventual consistency**: events spread organically through gossip
+- **anti-abuse protection**: 4-layer defense against malicious nodes
+- **graceful migration**: backfill mechanism preserves historical knowledge
+
+**background sync:** naras perform lightweight periodic syncing (~30 min intervals) to catch up on critical events missed due to personality-based filtering, helping the collective memory stay strong.
+
+for details, see [OBSERVATIONS.md](OBSERVATIONS.md).
+
 ---
 
 ## usage

@@ -92,11 +92,15 @@ func NewLocalNara(name string, soul string, mqtt_host string, mqtt_user string, 
 
 	ln.seedPersonality()
 
-	// Initialize unified sync ledger for all service types (social + ping + future)
+	// Initialize unified sync ledger for all service types (social + ping + observation)
+	// GUARANTEE: SyncLedger is ALWAYS non-nil after NewLocalNara() completes
 	if ledgerCapacity <= 0 {
 		ledgerCapacity = 80000 // default
 	}
 	ln.SyncLedger = NewSyncLedger(ledgerCapacity)
+	if ln.SyncLedger == nil {
+		panic("SyncLedger initialization failed - this should never happen")
+	}
 
 	ln.updateHostStats()
 
@@ -131,12 +135,15 @@ func (ln *LocalNara) Start(serveUI bool, readOnly bool, httpAddr string, meshCon
 }
 
 func (ln *LocalNara) SetupCloseHandler() {
-	c := make(chan os.Signal)
+	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-c
 		fmt.Println("babaayyy")
 		ln.Network.Chau()
+
+		// Gracefully shutdown all background goroutines
+		ln.Network.Shutdown()
 
 		ln.Network.disconnectMQTT()
 
