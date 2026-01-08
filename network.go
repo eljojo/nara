@@ -1756,8 +1756,10 @@ func (network *Network) bootRecoveryViaMesh(online []string) {
 	// Fetch from all neighbors in parallel
 	type syncResult struct {
 		name         string
+		sliceIndex   int
 		events       []SyncEvent
 		respVerified bool
+		success      bool
 	}
 	results := make(chan syncResult, len(meshNeighbors))
 	var wg sync.WaitGroup
@@ -1775,7 +1777,13 @@ func (network *Network) bootRecoveryViaMesh(online []string) {
 			defer func() { <-sem }() // Release semaphore
 
 			events, respVerified := network.fetchSyncEventsFromMesh(client, n.ip, n.name, subjects, idx, totalSlices, eventsPerNeighbor)
-			results <- syncResult{name: n.name, events: events, respVerified: respVerified}
+			results <- syncResult{
+				name:         n.name,
+				sliceIndex:   idx,
+				events:       events,
+				respVerified: respVerified,
+				success:      len(events) > 0 || respVerified, // success if we got events or at least verified (empty slice is OK)
+			}
 		}(i, neighbor)
 	}
 
@@ -1787,7 +1795,11 @@ func (network *Network) bootRecoveryViaMesh(online []string) {
 
 	// Process results as they arrive (merging is thread-safe)
 	var totalMerged int
+	var failedSlices []int
+	respondedNeighbors := make(map[string]bool)
+
 	for result := range results {
+		respondedNeighbors[result.name] = result.success
 		if len(result.events) > 0 {
 			added, warned := network.MergeSyncEventsWithVerification(result.events)
 			totalMerged += added
@@ -1798,6 +1810,74 @@ func (network *Network) bootRecoveryViaMesh(online []string) {
 				verifiedStr = fmt.Sprintf(" ⚠%d", warned)
 			}
 			logrus.Printf("📦 mesh sync from %s: received %d events, merged %d%s", result.name, len(result.events), added, verifiedStr)
+		} else if !result.success {
+			// Track failed slices for retry
+			failedSlices = append(failedSlices, result.sliceIndex)
+			logrus.Printf("📦 mesh sync from %s failed (slice %d), will retry with another neighbor", result.name, result.sliceIndex)
+		}
+	}
+
+	// Retry failed slices with different neighbors
+	if len(failedSlices) > 0 {
+		// Find neighbors that succeeded (they're available for retry)
+		var availableNeighbors []struct{ name, ip string }
+		for _, n := range meshNeighbors {
+			if respondedNeighbors[n.name] {
+				availableNeighbors = append(availableNeighbors, n)
+			}
+		}
+
+		if len(availableNeighbors) > 0 {
+			logrus.Printf("📦 retrying %d failed slices with %d available neighbors", len(failedSlices), len(availableNeighbors))
+
+			retryResults := make(chan syncResult, len(failedSlices))
+			var retryWg sync.WaitGroup
+
+			for i, sliceIdx := range failedSlices {
+				// Pick a different neighbor for each failed slice (round-robin)
+				neighbor := availableNeighbors[i%len(availableNeighbors)]
+
+				retryWg.Add(1)
+				sem <- struct{}{}
+
+				go func(idx int, n struct{ name, ip string }) {
+					defer retryWg.Done()
+					defer func() { <-sem }()
+
+					logrus.Printf("📦 retry: asking %s for slice %d", n.name, idx)
+					events, respVerified := network.fetchSyncEventsFromMesh(client, n.ip, n.name, subjects, idx, totalSlices, eventsPerNeighbor)
+					retryResults <- syncResult{
+						name:         n.name,
+						sliceIndex:   idx,
+						events:       events,
+						respVerified: respVerified,
+						success:      len(events) > 0,
+					}
+				}(sliceIdx, neighbor)
+			}
+
+			go func() {
+				retryWg.Wait()
+				close(retryResults)
+			}()
+
+			for result := range retryResults {
+				if len(result.events) > 0 {
+					added, warned := network.MergeSyncEventsWithVerification(result.events)
+					totalMerged += added
+					verifiedStr := ""
+					if result.respVerified && warned == 0 {
+						verifiedStr = " ✓"
+					} else if warned > 0 {
+						verifiedStr = fmt.Sprintf(" ⚠%d", warned)
+					}
+					logrus.Printf("📦 retry mesh sync from %s (slice %d): received %d events, merged %d%s", result.name, result.sliceIndex, len(result.events), added, verifiedStr)
+				} else {
+					logrus.Printf("📦 retry mesh sync from %s (slice %d) also failed", result.name, result.sliceIndex)
+				}
+			}
+		} else {
+			logrus.Printf("📦 no available neighbors for retry, %d slices remain unsynced", len(failedSlices))
 		}
 	}
 
@@ -2538,6 +2618,17 @@ func (network *Network) exchangeZine(targetName string, myZine *Zine) {
 		return
 	}
 
+	// Create request with auth headers
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(zineBytes))
+	if err != nil {
+		logrus.Warnf("📰 Failed to create zine request for %s: %v", targetName, err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Add mesh authentication headers (Ed25519 signature)
+	network.AddMeshAuthHeaders(req)
+
 	// Use test client if available, otherwise use tsnet client
 	var client *http.Client
 	if network.testHTTPClient != nil {
@@ -2546,7 +2637,7 @@ func (network *Network) exchangeZine(targetName string, myZine *Zine) {
 		client = network.tsnetMesh.Server().HTTPClient()
 	}
 
-	resp, err := client.Post(url, "application/json", bytes.NewBuffer(zineBytes))
+	resp, err := client.Do(req)
 	if err != nil {
 		logrus.Infof("📰 Failed to exchange zine with %s: %v", targetName, err)
 		return
