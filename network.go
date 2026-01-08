@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -86,6 +87,10 @@ type Network struct {
 	tsnetMesh       *TsnetMesh         // Used when Headscale is configured
 	// Transport mode (MQTT, Gossip, or Hybrid)
 	TransportMode TransportMode
+	// EmitLegacyMQTTHeyThere controls whether to emit old-style MQTT hey_there broadcasts.
+	// Default is true for backward compatibility. Set to false to use only new gossip-based
+	// hey_there sync events. Will be removed once all naras are upgraded.
+	EmitLegacyMQTTHeyThere bool
 	// Peer discovery strategy for gossip-only mode
 	peerDiscovery PeerDiscovery
 	// Pending journey tracking for timeout detection
@@ -179,6 +184,22 @@ func (h *HeyThereEvent) Verify() bool {
 	return VerifySignatureBase64(pubKey, []byte(message), h.Signature)
 }
 
+// ContentString implements Payload interface for HeyThereEvent
+func (h *HeyThereEvent) ContentString() string {
+	return fmt.Sprintf("hey_there:%s:%s:%s", h.From, h.PublicKey, h.MeshIP)
+}
+
+// IsValid implements Payload interface for HeyThereEvent
+func (h *HeyThereEvent) IsValid() bool {
+	return h.From != "" && h.PublicKey != "" && h.Verify()
+}
+
+// GetActor implements Payload interface for HeyThereEvent
+func (h *HeyThereEvent) GetActor() string { return h.From }
+
+// GetTarget implements Payload interface for HeyThereEvent
+func (h *HeyThereEvent) GetTarget() string { return h.From }
+
 type ChauEvent struct {
 	From      string
 	PublicKey string // Base64-encoded Ed25519 public key
@@ -202,6 +223,14 @@ func (c *ChauEvent) Verify() bool {
 	}
 	message := fmt.Sprintf("chau:%s:%s", c.From, c.PublicKey)
 	return VerifySignatureBase64(pubKey, []byte(message), c.Signature)
+}
+
+// PeerResponse contains identity information about a peer.
+// Used by the peer resolution protocol to return discovered peer info.
+type PeerResponse struct {
+	Target    string `json:"target"`
+	PublicKey string `json:"public_key"`
+	MeshIP    string `json:"mesh_ip,omitempty"`
 }
 
 // NeighborInfo contains information about a neighbor to share in howdy responses
@@ -257,6 +286,7 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	network.sseClients = make(map[chan SocialEvent]bool)
 	network.skippingEvents = false
 	network.Buzz = newBuzz()
+	network.EmitLegacyMQTTHeyThere = true // Backward compatibility - set to false when all naras upgraded
 	network.worldJourneys = make([]*WorldMessage, 0)
 	network.pendingJourneys = make(map[string]*PendingJourney)
 	network.journeyCompleteInbox = make(chan JourneyCompletion, 50)
@@ -409,6 +439,12 @@ func (network *Network) VerifySyncEvent(e *SyncEvent) bool {
 // MergeSyncEventsWithVerification merges events into SyncLedger after verifying signatures
 // Returns the number of events added and number that had verification warnings
 func (network *Network) MergeSyncEventsWithVerification(events []SyncEvent) (added int, warned int) {
+	// First, discover any naras mentioned in these events
+	network.discoverNarasFromEvents(events)
+
+	// Process hey_there sync events to learn peer identities
+	network.processHeyThereSyncEvents(events)
+
 	for i := range events {
 		e := &events[i]
 		if !network.VerifySyncEvent(e) {
@@ -417,6 +453,336 @@ func (network *Network) MergeSyncEventsWithVerification(events []SyncEvent) (add
 	}
 	added = network.local.SyncLedger.MergeEvents(events)
 	return added, warned
+}
+
+// discoverNarasFromEvents creates Nara entries for any unknown naras mentioned in events.
+// This allows us to track observations about naras we hear about through the event stream,
+// even before we know their public key.
+func (network *Network) discoverNarasFromEvents(events []SyncEvent) {
+	seen := make(map[string]bool)
+	myName := network.meName()
+
+	for _, e := range events {
+		// Collect all nara names from this event
+		names := []string{e.Emitter, e.GetActor(), e.GetTarget()}
+		for _, name := range names {
+			if name == "" || name == myName || seen[name] {
+				continue
+			}
+			seen[name] = true
+
+			// Check if we know this nara
+			network.local.mu.Lock()
+			_, known := network.Neighbourhood[name]
+			network.local.mu.Unlock()
+
+			if !known {
+				// Create a basic entry for this nara
+				network.importNara(NewNara(name))
+				logrus.Debugf("📖 Discovered nara %s from event stream", name)
+			}
+		}
+	}
+}
+
+// processHeyThereSyncEvents extracts peer identity information from hey_there sync events.
+// This enables peer discovery through gossip without requiring MQTT broadcasts.
+func (network *Network) processHeyThereSyncEvents(events []SyncEvent) {
+	for _, e := range events {
+		if e.Service != ServiceHeyThere || e.HeyThere == nil {
+			continue
+		}
+
+		h := e.HeyThere
+		if h.From == network.meName() {
+			continue // Ignore our own hey_there events
+		}
+
+		// Verify the hey_there event's internal signature
+		if !h.Verify() {
+			logrus.Warnf("📡 Invalid hey_there signature from %s", h.From)
+			continue
+		}
+
+		// Check if nara exists and update or create
+		network.local.mu.Lock()
+		nara, exists := network.Neighbourhood[h.From]
+		network.local.mu.Unlock()
+
+		if exists {
+			// Update existing nara with proper locking
+			nara.mu.Lock()
+			updated := false
+			if nara.Status.PublicKey == "" && h.PublicKey != "" {
+				nara.Status.PublicKey = h.PublicKey
+				updated = true
+			}
+			if nara.Status.MeshIP == "" && h.MeshIP != "" {
+				nara.Status.MeshIP = h.MeshIP
+				nara.Status.MeshEnabled = true
+				updated = true
+			}
+			nara.mu.Unlock()
+			if updated {
+				logrus.Infof("📡 Updated identity for %s via hey_there event (🔑)", h.From)
+			}
+		} else {
+			// Create new nara and import it
+			newNara := NewNara(h.From)
+			newNara.Status.PublicKey = h.PublicKey
+			newNara.Status.MeshIP = h.MeshIP
+			newNara.Status.MeshEnabled = h.MeshIP != ""
+			network.importNara(newNara)
+			logrus.Infof("📡 Discovered new peer %s via hey_there event (🔑)", h.From)
+		}
+	}
+}
+
+// emitHeyThereSyncEvent creates and adds a hey_there sync event to our ledger.
+// This allows our identity to propagate through gossip (new mechanism replacing MQTT hey_there).
+func (network *Network) emitHeyThereSyncEvent() {
+	publicKey := FormatPublicKey(network.local.Keypair.PublicKey)
+	meshIP := network.local.Me.Status.MeshIP
+
+	event := NewHeyThereSyncEvent(network.meName(), publicKey, meshIP, network.local.Keypair)
+	network.local.SyncLedger.MergeEvents([]SyncEvent{event})
+	logrus.Infof("%s: 👋 (gossip)", network.meName())
+}
+
+// InitGossipIdentity initializes gossip-mode identity emission.
+// Called by Start() and can be called by tests to simulate startup.
+// This emits the hey_there sync event that allows our identity to propagate through gossip.
+func (network *Network) InitGossipIdentity() {
+	if network.TransportMode != TransportMQTT {
+		network.emitHeyThereSyncEvent()
+	}
+}
+
+// --- Peer Resolution Protocol ---
+// When we don't know a peer's identity (public key), we can query neighbors.
+// Uses HTTP redirects: if a neighbor doesn't know, they redirect us to try someone else.
+
+// resolvePeer queries neighbors to discover the identity of an unknown peer.
+// Returns nil if no one knows the target within the timeout.
+func (network *Network) resolvePeer(target string) *PeerResponse {
+	// Check if we already know this peer
+	if network.getPublicKeyForNara(target) != nil {
+		network.local.mu.Lock()
+		nara := network.Neighbourhood[target]
+		network.local.mu.Unlock()
+		if nara != nil {
+			nara.mu.Lock()
+			resp := &PeerResponse{
+				Target:    target,
+				PublicKey: nara.Status.PublicKey,
+				MeshIP:    nara.Status.MeshIP,
+			}
+			nara.mu.Unlock()
+			return resp
+		}
+	}
+
+	// Track who we've already asked to prevent loops
+	asked := map[string]bool{network.meName(): true}
+
+	// Get initial neighbors to query
+	neighbors := network.NeighbourhoodOnlineNames()
+	if len(neighbors) == 0 {
+		return nil
+	}
+
+	// Create HTTP client that doesn't follow redirects automatically
+	client := network.getHTTPClient()
+	noRedirectClient := &http.Client{
+		Timeout: client.Timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse // Don't follow redirects automatically
+		},
+	}
+
+	// Try each neighbor, following redirects manually
+	toAsk := make([]string, len(neighbors))
+	copy(toAsk, neighbors)
+
+	for len(toAsk) > 0 && len(asked) < 10 { // Max 10 hops
+		name := toAsk[0]
+		toAsk = toAsk[1:]
+
+		if asked[name] {
+			continue
+		}
+		asked[name] = true
+
+		url := network.getMeshURLForNara(name)
+		if url == "" {
+			continue
+		}
+
+		// Build asked list for the request
+		askedList := make([]string, 0, len(asked))
+		for n := range asked {
+			askedList = append(askedList, n)
+		}
+
+		resp := network.queryPeerAt(noRedirectClient, url, target, askedList)
+		if resp == nil {
+			continue
+		}
+
+		if resp.PublicKey != "" {
+			// Found it! Import and return
+			newNara := NewNara(target)
+			newNara.Status.PublicKey = resp.PublicKey
+			newNara.Status.MeshIP = resp.MeshIP
+			newNara.Status.MeshEnabled = resp.MeshIP != ""
+			network.importNara(newNara)
+			logrus.Infof("📡 Resolved peer %s via query to %s (🔑)", target, name)
+			return resp
+		}
+
+		// Got a redirect suggestion - add to list if not already asked
+		if resp.Target != "" && !asked[resp.Target] {
+			toAsk = append(toAsk, resp.Target)
+		}
+	}
+
+	logrus.Debugf("📡 Peer resolution failed for %s after asking %d neighbors", target, len(asked)-1)
+	return nil
+}
+
+// queryPeerAt sends a peer query to a specific URL and handles the response.
+// Returns a PeerResponse with PublicKey set if found, or with Target set if redirected.
+func (network *Network) queryPeerAt(client *http.Client, baseURL, target string, asked []string) *PeerResponse {
+	// Build query URL with parameters
+	queryURL := fmt.Sprintf("%s/peer/query?target=%s&asked=%s",
+		baseURL, target, strings.Join(asked, ","))
+
+	req, err := http.NewRequest("GET", queryURL, nil)
+	if err != nil {
+		return nil
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		logrus.Debugf("📡 Peer query to %s failed: %v", baseURL, err)
+		return nil
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		// They know the target - parse response
+		var peerResp PeerResponse
+		if err := json.NewDecoder(resp.Body).Decode(&peerResp); err != nil {
+			return nil
+		}
+		return &peerResp
+
+	case http.StatusTemporaryRedirect, http.StatusSeeOther:
+		// They don't know, but suggest someone else
+		// The redirect location contains the suggested neighbor's name
+		location := resp.Header.Get("X-Nara-Redirect-To")
+		if location != "" {
+			return &PeerResponse{Target: location} // Target field used to indicate redirect
+		}
+		return nil
+
+	case http.StatusNotFound:
+		// They don't know and have no suggestions
+		return nil
+
+	default:
+		return nil
+	}
+}
+
+// httpPeerQueryHandler handles incoming peer queries.
+// GET /peer/query?target=name&asked=a,b,c
+// Returns: 200 + JSON if known, 307 + X-Nara-Redirect-To if redirecting, 404 if unknown
+func (network *Network) httpPeerQueryHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	target := r.URL.Query().Get("target")
+	if target == "" {
+		http.Error(w, "target parameter required", http.StatusBadRequest)
+		return
+	}
+
+	// Parse the asked list
+	askedStr := r.URL.Query().Get("asked")
+	asked := make(map[string]bool)
+	if askedStr != "" {
+		for _, name := range strings.Split(askedStr, ",") {
+			asked[name] = true
+		}
+	}
+	asked[network.meName()] = true // We've now been asked
+
+	// Check if we know the target
+	pubKey := network.getPublicKeyForNara(target)
+	if pubKey != nil {
+		network.local.mu.Lock()
+		nara := network.Neighbourhood[target]
+		network.local.mu.Unlock()
+
+		if nara != nil {
+			nara.mu.Lock()
+			response := PeerResponse{
+				Target:    target,
+				PublicKey: nara.Status.PublicKey,
+				MeshIP:    nara.Status.MeshIP,
+			}
+			nara.mu.Unlock()
+
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(response)
+			return
+		}
+	}
+
+	// We don't know - find a neighbor to redirect to
+	neighbors := network.NeighbourhoodOnlineNames()
+	for _, name := range neighbors {
+		if !asked[name] {
+			// Redirect to this neighbor
+			w.Header().Set("X-Nara-Redirect-To", name)
+			w.WriteHeader(http.StatusTemporaryRedirect)
+			return
+		}
+	}
+
+	// No one else to ask
+	http.NotFound(w, r)
+}
+
+// httpPeerResponseHandler is no longer needed with the redirect-based approach
+func (network *Network) httpPeerResponseHandler(w http.ResponseWriter, r *http.Request) {
+	// Kept for backwards compatibility, but not used
+	http.NotFound(w, r)
+}
+
+// getMeshURLForNara returns the mesh URL for a nara (test override or real)
+func (network *Network) getMeshURLForNara(name string) string {
+	if network.testMeshURLs != nil {
+		return network.testMeshURLs[name]
+	}
+	// In production, construct URL from mesh IP
+	meshIP := network.getMeshIPForNara(name)
+	if meshIP != "" {
+		return fmt.Sprintf("http://%s:%d", meshIP, DefaultMeshPort)
+	}
+	return ""
+}
+
+// getHTTPClient returns the HTTP client to use (test override or default)
+func (network *Network) getHTTPClient() *http.Client {
+	if network.testHTTPClient != nil {
+		return network.testHTTPClient
+	}
+	return &http.Client{Timeout: 5 * time.Second}
 }
 
 func (network *Network) onWorldJourneyComplete(wm *WorldMessage) {
@@ -563,8 +929,9 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 	}
 
 	if !network.ReadOnly {
-		network.heyThere()
+		network.heyThere()  // MQTT broadcast (old style - to be deprecated)
 		network.announce()
+		network.InitGossipIdentity() // Emit hey_there sync event (new style)
 	}
 
 	time.Sleep(1 * time.Second)
@@ -1093,12 +1460,23 @@ func truncateKey(key string) string {
 	return key
 }
 
+// heyThere broadcasts identity via MQTT (legacy mechanism).
+// This is the old-style hey_there that will be deprecated in favor of gossip-based
+// hey_there sync events. Controlled by EmitLegacyMQTTHeyThere flag.
 func (network *Network) heyThere() {
 	if network.ReadOnly {
 		return
 	}
-	ts := int64(5) // seconds
+
+	// Always record our own online observation (needed for local state)
 	network.recordObservationOnlineNara(network.meName())
+
+	// Skip MQTT broadcast if legacy mode is disabled
+	if !network.EmitLegacyMQTTHeyThere {
+		return
+	}
+
+	ts := int64(5) // seconds
 	if (time.Now().Unix() - network.LastHeyThere) <= ts {
 		return
 	}
@@ -1112,7 +1490,7 @@ func (network *Network) heyThere() {
 	}
 	heyThere.Sign(network.local.Keypair)
 	network.postEvent(topic, heyThere)
-	logrus.Printf("%s: 👋", heyThere.From)
+	logrus.Printf("%s: 👋 (MQTT)", heyThere.From)
 
 	network.Buzz.increase(2)
 }

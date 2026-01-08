@@ -25,6 +25,10 @@ run2: build
 	@echo "Starting nara (nixos) on :8081..."
 	@./bin/nara -serve-ui -http-addr :8081 -nara-id nixos -verbose
 
+run3: build
+	@echo "Starting nara (gossip-ghost) on :8081..."
+	@./bin/nara -serve-ui -http-addr :8082 -nara-id gossip-ghost -verbose -transport gossip
+
 # Clean build artifacts
 clean:
 	@echo "Cleaning build artifacts..."

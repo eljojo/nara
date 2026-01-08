@@ -15,6 +15,7 @@ const (
 	ServiceSocial      = "social"      // Social events (teases, observations, gossip)
 	ServicePing        = "ping"        // Ping/RTT measurements
 	ServiceObservation = "observation" // Network state observations (restarts, status changes)
+	ServiceHeyThere    = "hey-there"   // Peer identity announcements (public key, mesh IP)
 )
 
 // Importance levels for observation events
@@ -43,6 +44,7 @@ type SyncEvent struct {
 	Social      *SocialEventPayload      `json:"social,omitempty"`
 	Ping        *PingObservation         `json:"ping,omitempty"`
 	Observation *ObservationEventPayload `json:"observation,omitempty"`
+	HeyThere    *HeyThereEvent           `json:"hey_there,omitempty"`
 }
 
 // Payload is the interface for service-specific event data
@@ -197,6 +199,8 @@ func (e *SyncEvent) Payload() Payload {
 		return e.Ping
 	case ServiceObservation:
 		return e.Observation
+	case ServiceHeyThere:
+		return e.HeyThere
 	}
 	return nil
 }
@@ -422,6 +426,27 @@ func NewBackfillObservationEvent(observer, subject string, startTime, restartNum
 func NewSignedPingSyncEvent(observer, target string, rtt float64, emitter string, keypair NaraKeypair) SyncEvent {
 	e := NewPingSyncEvent(observer, target, rtt)
 	e.Sign(emitter, keypair)
+	return e
+}
+
+// NewHeyThereSyncEvent creates a signed SyncEvent for peer identity announcements.
+// This allows hey_there events to propagate through gossip, enabling peer discovery
+// without MQTT broadcasts.
+func NewHeyThereSyncEvent(name string, publicKey string, meshIP string, keypair NaraKeypair) SyncEvent {
+	heyThere := &HeyThereEvent{
+		From:      name,
+		PublicKey: publicKey,
+		MeshIP:    meshIP,
+	}
+	heyThere.Sign(keypair)
+
+	e := SyncEvent{
+		Timestamp: time.Now().UnixNano(),
+		Service:   ServiceHeyThere,
+		HeyThere:  heyThere,
+	}
+	e.ComputeID()
+	e.Sign(name, keypair)
 	return e
 }
 
