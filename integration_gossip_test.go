@@ -541,3 +541,44 @@ func TestIntegration_MeshDiscovery(t *testing.T) {
 	t.Logf("   - discovery-nara-b at %s", meshIPb)
 	t.Logf("   - discovery-nara-c at %s", meshIPc)
 }
+
+// TestIntegration_GossipOnlyBootRecovery validates that in gossip-only mode,
+// boot recovery discovers peers via mesh before trying to sync.
+// BUG: Currently boot recovery runs before mesh discovery, so it finds no neighbors.
+func TestIntegration_GossipOnlyBootRecovery(t *testing.T) {
+	logrus.SetLevel(logrus.ErrorLevel)
+
+	// Create a nara in gossip-only mode
+	nara := NewLocalNara("boot-recovery-nara", testSoul("boot-recovery-nara"), "", "", "", 50, 1000)
+	nara.Network.TransportMode = TransportGossip
+
+	// Set up mock peer discovery that returns peers
+	mockDiscovery := &MockPeerDiscovery{
+		peers: []DiscoveredPeer{
+			{Name: "peer-alpha", MeshIP: "100.64.0.10"},
+			{Name: "peer-beta", MeshIP: "100.64.0.11"},
+		},
+	}
+	nara.Network.peerDiscovery = mockDiscovery
+	nara.Network.tsnetMesh = &TsnetMesh{} // Mock mesh so discovery doesn't bail
+
+	// Verify no neighbors initially (simulates fresh boot)
+	if len(nara.Network.NeighbourhoodOnlineNames()) != 0 {
+		t.Fatalf("Expected 0 initial neighbors, got %d", len(nara.Network.NeighbourhoodOnlineNames()))
+	}
+
+	// THE BUG: In gossip-only mode, there are no MQTT-discovered neighbors.
+	// Boot recovery should trigger mesh discovery automatically before checking for neighbors.
+	// We test this by calling getNeighborsForBootRecovery() which should return
+	// discovered peers in gossip-only mode.
+
+	online := nara.Network.getNeighborsForBootRecovery()
+
+	// In gossip-only mode, this MUST return discovered peers (after triggering mesh discovery)
+	if len(online) != 2 {
+		t.Errorf("BUG: In gossip-only mode, getNeighborsForBootRecovery() should discover peers via mesh. Expected 2 neighbors, got %d", len(online))
+		t.Log("Boot recovery needs to call discoverMeshPeers() before checking for neighbors in gossip-only mode")
+	} else {
+		t.Logf("✅ Gossip-only boot recovery: found %d peers via mesh discovery", len(online))
+	}
+}

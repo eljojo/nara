@@ -281,7 +281,7 @@ func (network *Network) getOnlineNaraNames() []string {
 	}
 
 	if requireMesh && skippedCount > 0 {
-		logrus.Debugf("🕸️  World journey: %d mesh-enabled naras, skipped %d non-mesh naras", len(names)-1, skippedCount)
+		logrus.Infof("🕸️  World journey: %d mesh-enabled naras, skipped %d non-mesh naras", len(names)-1, skippedCount)
 	}
 
 	return names
@@ -435,8 +435,13 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 		}
 	}
 
-	if token := network.Mqtt.Connect(); token.Wait() && token.Error() != nil {
-		logrus.Fatalf("MQTT connection error: %v", token.Error())
+	// Only connect to MQTT if not in gossip-only mode
+	if network.TransportMode != TransportGossip {
+		if token := network.Mqtt.Connect(); token.Wait() && token.Error() != nil {
+			logrus.Fatalf("MQTT connection error: %v", token.Error())
+		}
+	} else {
+		logrus.Info("📡 Gossip-only mode: MQTT disabled")
 	}
 
 	// Initialize world journey handler
@@ -560,7 +565,7 @@ func (network *Network) announce() {
 		slimStatus.Observations = nil
 		signedEvent := network.SignNewspaper(slimStatus)
 		network.postEvent(topic, signedEvent)
-		logrus.Debugf("📰 Slim newspaper broadcast (event-primary mode, signed)")
+		logrus.Infof("📰 Slim newspaper broadcast (event-primary mode, signed)")
 	} else {
 		// Traditional mode: include full observations
 		network.local.Me.mu.Lock()
@@ -707,7 +712,7 @@ func (network *Network) handleHeyThereEvent(heyThere HeyThereEvent) {
 				nara.Status.MeshEnabled = true
 			}
 			nara.mu.Unlock()
-			logrus.Debugf("📝 Updated %s: PublicKey=%s..., MeshIP=%s",
+			logrus.Infof("📝 Updated %s: PublicKey=%s..., MeshIP=%s",
 				heyThere.From,
 				truncateKey(heyThere.PublicKey),
 				heyThere.MeshIP)
@@ -1271,7 +1276,7 @@ func (network *Network) handleLedgerRequest(req LedgerRequest) {
 
 	topic := fmt.Sprintf("nara/ledger/%s/response", req.From)
 	network.postEvent(topic, response)
-	logrus.Debugf("📤 sent %d events to %s", len(events), req.From)
+	logrus.Infof("📤 sent %d events to %s", len(events), req.From)
 }
 
 func (network *Network) processLedgerResponses() {
@@ -1288,6 +1293,16 @@ func (network *Network) handleLedgerResponse(resp LedgerResponse) {
 	}
 }
 
+// getNeighborsForBootRecovery returns online neighbors, triggering mesh discovery first if needed.
+// In gossip-only mode, we must discover peers via mesh since there's no MQTT to populate neighbors.
+func (network *Network) getNeighborsForBootRecovery() []string {
+	// In gossip-only mode, discover peers via mesh first
+	if network.TransportMode == TransportGossip && network.tsnetMesh != nil && network.peerDiscovery != nil {
+		network.discoverMeshPeers()
+	}
+	return network.NeighbourhoodOnlineNames()
+}
+
 // bootRecovery requests social events from neighbors after boot
 func (network *Network) bootRecovery() {
 	// Wait for initial neighbor discovery
@@ -1296,7 +1311,8 @@ func (network *Network) bootRecovery() {
 	// Retry up to 3 times with backoff if no neighbors found
 	var online []string
 	for attempt := 0; attempt < 3; attempt++ {
-		online = network.NeighbourhoodOnlineNames()
+		// Use helper that triggers mesh discovery in gossip-only mode
+		online = network.getNeighborsForBootRecovery()
 		if len(online) > 0 {
 			break
 		}
@@ -1416,7 +1432,7 @@ func (network *Network) fetchSyncEventsFromMesh(client *http.Client, meshIP, nam
 
 	// Make HTTP request to neighbor's mesh endpoint
 	url := fmt.Sprintf("http://%s:%d/events/sync", meshIP, DefaultMeshPort)
-	logrus.Debugf("🌐 HTTP POST %s (requesting %d events from %s)", url, maxEvents, name)
+	logrus.Infof("🌐 HTTP POST %s (requesting %d events from %s)", url, maxEvents, name)
 	req, err := http.NewRequest("POST", url, bytes.NewReader(jsonBody))
 	if err != nil {
 		logrus.Warnf("📦 failed to create mesh sync request: %v", err)
@@ -1516,7 +1532,7 @@ func (network *Network) bootRecoveryViaMQTT(online []string) {
 
 		topic := fmt.Sprintf("nara/ledger/%s/request", neighbor)
 		network.postEvent(topic, req)
-		logrus.Debugf("📦 requested events about %d subjects from %s", len(partition), neighbor)
+		logrus.Infof("📦 requested events about %d subjects from %s", len(partition), neighbor)
 	}
 }
 
@@ -1629,7 +1645,7 @@ func (network *Network) backfillObservations() {
 			added := network.local.SyncLedger.AddEventWithDedup(event)
 			if added {
 				backfillCount++
-				logrus.Debugf("📦 Backfilled observation for %s (start:%d, restarts:%d)",
+				logrus.Infof("📦 Backfilled observation for %s (start:%d, restarts:%d)",
 					naraName, obs.StartTime, obs.Restarts)
 			}
 		}
@@ -1959,18 +1975,18 @@ func (network *Network) performGossipRound() {
 	// Create our zine
 	zine := network.createZine()
 	if zine == nil {
-		logrus.Debug("📰 No events to gossip")
+		logrus.Infof("📰 No events to gossip")
 		return
 	}
 
 	// Select targets
 	targets := network.selectGossipTargets()
 	if len(targets) == 0 {
-		logrus.Debug("📰 No gossip targets available")
+		logrus.Infof("📰 No gossip targets available")
 		return
 	}
 
-	logrus.Debugf("📰 Gossiping with %d neighbors (zine has %d events)", len(targets), len(zine.Events))
+	logrus.Infof("📰 Gossiping with %d neighbors (zine has %d events)", len(targets), len(zine.Events))
 
 	// Exchange zines with each target
 	for _, targetName := range targets {
@@ -2013,13 +2029,13 @@ func (network *Network) exchangeZine(targetName string, myZine *Zine) {
 
 	resp, err := client.Post(url, "application/json", bytes.NewBuffer(zineBytes))
 	if err != nil {
-		logrus.Debugf("📰 Failed to exchange zine with %s: %v", targetName, err)
+		logrus.Infof("📰 Failed to exchange zine with %s: %v", targetName, err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		logrus.Debugf("📰 Zine exchange with %s failed: status %d", targetName, resp.StatusCode)
+		logrus.Infof("📰 Zine exchange with %s failed: status %d", targetName, resp.StatusCode)
 		return
 	}
 
@@ -2040,7 +2056,7 @@ func (network *Network) exchangeZine(targetName string, myZine *Zine) {
 	// Merge their events into our ledger
 	added, _ := network.MergeSyncEventsWithVerification(theirZine.Events)
 	if added > 0 {
-		logrus.Debugf("📰 Merged %d events from %s's zine", added, targetName)
+		logrus.Infof("📰 Merged %d events from %s's zine", added, targetName)
 	}
 }
 
@@ -2122,7 +2138,7 @@ func (network *Network) performBackgroundSync() {
 // Boot recovery (bootRecoveryViaMesh) syncs ALL events without filtering.
 // This background sync maintains eventual consistency for recent events.
 func (network *Network) performBackgroundSyncViaMesh(neighbor, ip string) {
-	logrus.Debugf("🔄 background sync: requesting events from %s (%s)", neighbor, ip)
+	logrus.Infof("🔄 background sync: requesting events from %s (%s)", neighbor, ip)
 
 	// Use existing fetchSyncEventsFromMesh method with lightweight parameters
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -2139,7 +2155,7 @@ func (network *Network) performBackgroundSyncViaMesh(neighbor, ip string) {
 	)
 
 	if !success {
-		logrus.Debugf("🔄 Background sync with %s failed", neighbor)
+		logrus.Infof("🔄 Background sync with %s failed", neighbor)
 		return
 	}
 

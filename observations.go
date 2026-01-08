@@ -317,7 +317,7 @@ func (network *Network) recordObservationOnlineNara(name string) {
 		if useObservationEvents() && !network.local.isBooting() && network.local.SyncLedger != nil {
 			event := NewFirstSeenObservationEvent(network.meName(), name, time.Now().Unix())
 			network.local.SyncLedger.AddEventWithDedup(event)
-			logrus.Debugf("📊 First-seen observation event: %s", name)
+			logrus.Infof("📊 First-seen observation event: %s", name)
 		}
 	}
 
@@ -356,7 +356,7 @@ func (network *Network) recordObservationOnlineNara(name string) {
 		if useObservationEvents() && !network.local.isBooting() && network.local.SyncLedger != nil && name != network.meName() {
 			event := NewRestartObservationEvent(network.meName(), name, observation.StartTime, observation.Restarts)
 			network.local.SyncLedger.AddEventWithDedup(event)
-			logrus.Debugf("📊 Restart observation event: %s (restart #%d)", name, observation.Restarts)
+			logrus.Infof("📊 Restart observation event: %s (restart #%d)", name, observation.Restarts)
 		}
 	}
 
@@ -373,7 +373,7 @@ func (network *Network) recordObservationOnlineNara(name string) {
 			if useObservationEvents() {
 				event := NewStatusChangeObservationEvent(network.meName(), name, "ONLINE")
 				network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality)
-				logrus.Debugf("📊 Status-change observation event: %s → ONLINE", name)
+				logrus.Infof("📊 Status-change observation event: %s → ONLINE", name)
 			} else {
 				// Legacy: State changed from MISSING/OFFLINE to ONLINE
 				event := NewObservationEvent(network.meName(), name, ReasonOnline)
@@ -534,7 +534,7 @@ func (network *Network) reportMissingWithDelay(subject string) {
 	if useObservationEvents() {
 		event := NewStatusChangeObservationEvent(network.meName(), subject, "MISSING")
 		network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality)
-		logrus.Debugf("📊 Status-change observation event: %s → MISSING (after %v delay)", subject, delay)
+		logrus.Infof("📊 Status-change observation event: %s → MISSING (after %v delay)", subject, delay)
 	} else {
 		// Legacy mode
 		event := NewObservationEvent(network.meName(), subject, ReasonOffline)

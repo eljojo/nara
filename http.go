@@ -77,10 +77,10 @@ func (network *Network) loggingMiddleware(path string, handler http.HandlerFunc)
 
 		// Log the request
 		if bodySummary != "" {
-			logrus.Debugf("📨 %s %s from %s [%s] → %d (%v)",
+			logrus.Infof("📨 %s %s from %s [%s] → %d (%v)",
 				r.Method, path, caller, bodySummary, wrapped.status, duration.Round(time.Millisecond))
 		} else {
-			logrus.Debugf("📨 %s %s from %s → %d (%v)",
+			logrus.Infof("📨 %s %s from %s → %d (%v)",
 				r.Method, path, caller, wrapped.status, duration.Round(time.Millisecond))
 		}
 	}

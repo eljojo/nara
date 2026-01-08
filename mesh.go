@@ -82,7 +82,7 @@ func (t *HTTPMeshTransport) Send(target string, msg *WorldMessage) error {
 	client := t.tsnetServer.HTTPClient()
 	client.Timeout = 30 * time.Second
 
-	logrus.Debugf("🌍 Sending world message to %s via HTTP", target)
+	logrus.Infof("🌍 Sending world message to %s via HTTP", target)
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send world message to %s: %w", target, err)
@@ -94,7 +94,7 @@ func (t *HTTPMeshTransport) Send(target string, msg *WorldMessage) error {
 		return fmt.Errorf("world relay to %s failed with status %d: %s", target, resp.StatusCode, string(body))
 	}
 
-	logrus.Debugf("🌍 World message sent to %s successfully", target)
+	logrus.Infof("🌍 World message sent to %s successfully", target)
 	return nil
 }
 
