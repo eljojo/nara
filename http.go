@@ -207,7 +207,7 @@ func (network *Network) httpNaraeJsonHandler(w http.ResponseWriter, r *http.Requ
 
 	var naras []map[string]interface{}
 	for _, nara := range allNarae {
-		obs := nara.getObservation(nara.Name)
+		obs := network.local.getObservationLocked(nara.Name)
 		nara.mu.Lock()
 		naraMap := map[string]interface{}{
 			"Name":         nara.Name,
