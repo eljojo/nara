@@ -57,12 +57,14 @@ type Network struct {
 	Neighbourhood       map[string]*Nara
 	Buzz                *Buzz
 	LastHeyThere        int64
+	LastSelfie          int64
 	skippingEvents      bool
 	local               *LocalNara
 	Mqtt                mqtt.Client
 	heyThereInbox       chan HeyThereEvent
 	newspaperInbox      chan NewspaperEvent
 	chauInbox           chan ChauEvent
+	selfieInbox         chan Nara
 	socialInbox         chan SocialEvent
 	ledgerRequestInbox  chan LedgerRequest
 	ledgerResponseInbox chan LedgerResponse
@@ -203,6 +205,7 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	network.Neighbourhood = make(map[string]*Nara)
 	network.heyThereInbox = make(chan HeyThereEvent)
 	network.chauInbox = make(chan ChauEvent)
+	network.selfieInbox = make(chan Nara)
 	network.newspaperInbox = make(chan NewspaperEvent)
 	network.socialInbox = make(chan SocialEvent, 100)
 	network.ledgerRequestInbox = make(chan LedgerRequest, 50)
@@ -529,6 +532,7 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 		go network.announceForever()
 	}
 	go network.processHeyThereEvents()
+	go network.processSelfieEvents()
 	go network.processChauEvents()
 	go network.processNewspaperEvents()
 	go network.processSocialEvents()
@@ -688,6 +692,20 @@ func (network *Network) handleNewspaperEvent(event NewspaperEvent) {
 	network.recordObservationOnlineNara(event.From)
 }
 
+func (network *Network) processSelfieEvents() {
+	for {
+		network.handleSelfieEvent(<-network.selfieInbox)
+	}
+}
+
+func (network *Network) handleSelfieEvent(nara Nara) {
+	network.importNara(&nara)
+	logrus.Debugf("%s just took a selfie", nara.Name)
+	network.recordObservationOnlineNara(nara.Name)
+
+	network.Buzz.increase(1)
+}
+
 func (network *Network) processHeyThereEvents() {
 	for {
 		network.handleHeyThereEvent(<-network.heyThereInbox)
@@ -744,6 +762,7 @@ func (network *Network) handleHeyThereEvent(heyThere HeyThereEvent) {
 		// Announce ourselves so the new nara can discover us quickly
 		// This replaces the old selfie() behavior
 		network.announce()
+		network.selfie()
 	}
 	network.Buzz.increase(1)
 }
@@ -775,9 +794,25 @@ func (network *Network) heyThere() {
 	}
 	heyThere.Sign(network.local.Keypair)
 	network.postEvent(topic, heyThere)
+	network.selfie()
 	logrus.Printf("%s: 👋", heyThere.From)
 
 	network.Buzz.increase(2)
+}
+
+func (network *Network) selfie() {
+	if network.ReadOnly {
+		return
+	}
+	ts := int64(5) // seconds
+	network.recordObservationOnlineNara(network.meName())
+	if (time.Now().Unix() - network.LastSelfie) <= ts {
+		return
+	}
+	network.LastSelfie = time.Now().Unix()
+
+	topic := "nara/selfies/" + network.meName()
+	network.postEvent(topic, network.local.Me)
 }
 
 func (network *Network) processChauEvents() {
