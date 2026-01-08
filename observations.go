@@ -394,6 +394,37 @@ func (network *Network) observationMaintenance() {
 		now := time.Now().Unix()
 
 		for name, observation := range observations {
+			// Event-sourced status derivation when enabled
+			// This uses the event log to determine online status rather than LastSeen
+			if useObservationEvents() && network.local.SyncLedger != nil && !network.local.isBooting() {
+				derivedStatus := network.deriveOnlineStatus(name)
+				if derivedStatus != "" && derivedStatus != observation.Online {
+					previousState := observation.Online
+					observation.Online = derivedStatus
+					network.local.setObservation(name, observation)
+
+					// Log status changes
+					if previousState == "ONLINE" && derivedStatus == "MISSING" {
+						logrus.Printf("observation: %s has disappeared (event-derived)", name)
+						network.Buzz.increase(10)
+						if name != network.meName() {
+							go network.reportMissingWithDelay(name)
+						}
+					} else if previousState == "ONLINE" && derivedStatus == "OFFLINE" {
+						logrus.Printf("observation: %s went offline gracefully (event-derived)", name)
+					}
+				}
+
+				// Reset cluster for non-online naras
+				if !observation.isOnline() && observation.ClusterName != "" {
+					observation.ClusterName = ""
+					observation.ClusterEmoji = ""
+					network.local.setObservation(name, observation)
+				}
+				continue
+			}
+
+			// Legacy LastSeen-based maintenance (when event sourcing is disabled)
 			// only do maintenance on naras that are online
 			if !observation.isOnline() {
 				if observation.ClusterName != "" {

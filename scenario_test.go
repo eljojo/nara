@@ -13,7 +13,10 @@ func TestScenario_VibeShift(t *testing.T) {
 	network.ReadOnly = true // avoid MQTT publish in tests
 
 	// 2. Simulate Nara B joining (Hey There)
-	network.handleHeyThereEvent(HeyThereEvent{From: "B"})
+	network.handleHeyThereEvent(SyncEvent{
+		Service:  ServiceHeyThere,
+		HeyThere: &HeyThereEvent{From: "B", PublicKey: "dummykey"},
+	})
 
 	// 3. Verify B is known and ONLINE
 	naraB := network.getNara("B")
@@ -43,7 +46,10 @@ func TestScenario_VibeShift(t *testing.T) {
 	}
 
 	// 6. Simulate Nara C joining and providing a conflicting opinion about B's start time
-	network.handleHeyThereEvent(HeyThereEvent{From: "C"})
+	network.handleHeyThereEvent(SyncEvent{
+		Service:  ServiceHeyThere,
+		HeyThere: &HeyThereEvent{From: "C", PublicKey: "dummykey"},
+	})
 	statusC := NaraStatus{
 		Observations: map[string]NaraObservation{
 			"B": {StartTime: 2000, Online: "ONLINE"}, // Consensus
@@ -62,7 +68,10 @@ func TestScenario_VibeShift(t *testing.T) {
 	}
 
 	// 8. Simulate Nara B leaving (Chau)
-	network.handleChauEvent(ChauEvent{From: "B"})
+	network.handleChauEvent(SyncEvent{
+		Service: ServiceChau,
+		Chau:    &ChauEvent{From: "B"},
+	})
 	obsB = network.local.getObservation("B")
 	if obsB.Online != "OFFLINE" {
 		t.Errorf("expected B to be OFFLINE, got %s", obsB.Online)

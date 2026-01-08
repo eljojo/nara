@@ -62,9 +62,9 @@ type Network struct {
 	skippingEvents      bool
 	local               *LocalNara
 	Mqtt                mqtt.Client
-	heyThereInbox       chan HeyThereEvent
+	heyThereInbox       chan SyncEvent
 	newspaperInbox      chan NewspaperEvent
-	chauInbox           chan ChauEvent
+	chauInbox           chan SyncEvent
 	howdyInbox          chan HowdyEvent
 	howdyCoordinators   sync.Map // map[string]*howdyCoordinator - tracks pending howdy responses
 	startTimeVotes      []startTimeVote
@@ -87,10 +87,6 @@ type Network struct {
 	tsnetMesh       *TsnetMesh         // Used when Headscale is configured
 	// Transport mode (MQTT, Gossip, or Hybrid)
 	TransportMode TransportMode
-	// EmitLegacyMQTTHeyThere controls whether to emit old-style MQTT hey_there broadcasts.
-	// Default is true for backward compatibility. Set to false to use only new gossip-based
-	// hey_there sync events. Will be removed once all naras are upgraded.
-	EmitLegacyMQTTHeyThere bool
 	// Peer discovery strategy for gossip-only mode
 	peerDiscovery PeerDiscovery
 	// Pending journey tracking for timeout detection
@@ -190,8 +186,10 @@ func (h *HeyThereEvent) ContentString() string {
 }
 
 // IsValid implements Payload interface for HeyThereEvent
+// Note: Inner signature verification is not required here - the SyncEvent signature
+// is the attestation layer. This just validates the payload has required fields.
 func (h *HeyThereEvent) IsValid() bool {
-	return h.From != "" && h.PublicKey != "" && h.Verify()
+	return h.From != "" && h.PublicKey != ""
 }
 
 // GetActor implements Payload interface for HeyThereEvent
@@ -224,6 +222,24 @@ func (c *ChauEvent) Verify() bool {
 	message := fmt.Sprintf("chau:%s:%s", c.From, c.PublicKey)
 	return VerifySignatureBase64(pubKey, []byte(message), c.Signature)
 }
+
+// ContentString implements Payload interface for ChauEvent
+func (c *ChauEvent) ContentString() string {
+	return fmt.Sprintf("chau:%s:%s", c.From, c.PublicKey)
+}
+
+// IsValid implements Payload interface for ChauEvent
+// Note: Inner signature verification is not required here - the SyncEvent signature
+// is the attestation layer. This just validates the payload has required fields.
+func (c *ChauEvent) IsValid() bool {
+	return c.From != ""
+}
+
+// GetActor implements Payload interface for ChauEvent
+func (c *ChauEvent) GetActor() string { return c.From }
+
+// GetTarget implements Payload interface for ChauEvent
+func (c *ChauEvent) GetTarget() string { return c.From }
 
 // PeerResponse contains identity information about a peer.
 // Used by the peer resolution protocol to return discovered peer info.
@@ -275,8 +291,8 @@ func (h *HowdyEvent) Verify() bool {
 func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Network {
 	network := &Network{local: localNara}
 	network.Neighbourhood = make(map[string]*Nara)
-	network.heyThereInbox = make(chan HeyThereEvent)
-	network.chauInbox = make(chan ChauEvent)
+	network.heyThereInbox = make(chan SyncEvent)
+	network.chauInbox = make(chan SyncEvent)
 	network.howdyInbox = make(chan HowdyEvent, 50)
 	network.newspaperInbox = make(chan NewspaperEvent)
 	network.socialInbox = make(chan SocialEvent, 100)
@@ -286,7 +302,6 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	network.sseClients = make(map[chan SocialEvent]bool)
 	network.skippingEvents = false
 	network.Buzz = newBuzz()
-	network.EmitLegacyMQTTHeyThere = true // Backward compatibility - set to false when all naras upgraded
 	network.worldJourneys = make([]*WorldMessage, 0)
 	network.pendingJourneys = make(map[string]*PendingJourney)
 	network.journeyCompleteInbox = make(chan JourneyCompletion, 50)
@@ -445,6 +460,9 @@ func (network *Network) MergeSyncEventsWithVerification(events []SyncEvent) (add
 	// Process hey_there sync events to learn peer identities
 	network.processHeyThereSyncEvents(events)
 
+	// Process chau sync events for graceful shutdown detection
+	network.processChauSyncEvents(events)
+
 	for i := range events {
 		e := &events[i]
 		if !network.VerifySyncEvent(e) {
@@ -488,7 +506,8 @@ func (network *Network) discoverNarasFromEvents(events []SyncEvent) {
 // processHeyThereSyncEvents extracts peer identity information from hey_there sync events.
 // This enables peer discovery through gossip without requiring MQTT broadcasts.
 func (network *Network) processHeyThereSyncEvents(events []SyncEvent) {
-	for _, e := range events {
+	for i := range events {
+		e := &events[i]
 		if e.Service != ServiceHeyThere || e.HeyThere == nil {
 			continue
 		}
@@ -498,10 +517,19 @@ func (network *Network) processHeyThereSyncEvents(events []SyncEvent) {
 			continue // Ignore our own hey_there events
 		}
 
-		// Verify the hey_there event's internal signature
-		if !h.Verify() {
-			logrus.Warnf("📡 Invalid hey_there signature from %s", h.From)
-			continue
+		// For hey_there events, verify using the public key FROM the payload itself.
+		// This is the bootstrap case - hey_there is how we learn public keys.
+		// The payload contains the public key, and the SyncEvent is signed with it.
+		if e.IsSigned() && h.PublicKey != "" {
+			pubKey, err := ParsePublicKey(h.PublicKey)
+			if err != nil {
+				logrus.Warnf("📡 Invalid public key in hey_there from %s: %v", h.From, err)
+				continue
+			}
+			if !e.Verify(pubKey) {
+				logrus.Warnf("📡 Invalid hey_there SyncEvent signature from %s", h.From)
+				continue
+			}
 		}
 
 		// Check if nara exists and update or create
@@ -556,6 +584,47 @@ func (network *Network) InitGossipIdentity() {
 	if network.TransportMode != TransportMQTT {
 		network.emitHeyThereSyncEvent()
 	}
+}
+
+// processChauSyncEvents processes chau (graceful shutdown) events from the sync ledger.
+// This allows gossip-only naras to distinguish OFFLINE (graceful) from MISSING (timeout).
+func (network *Network) processChauSyncEvents(events []SyncEvent) {
+	for i := range events {
+		e := &events[i]
+		if e.Service != ServiceChau || e.Chau == nil {
+			continue
+		}
+
+		c := e.Chau
+		if c.From == network.meName() {
+			continue // Ignore our own chau events
+		}
+
+		// Verify the SyncEvent signature (the attestation layer)
+		if !network.VerifySyncEvent(e) {
+			logrus.Warnf("📡 Invalid chau SyncEvent signature from %s", c.From)
+			continue
+		}
+
+		// Mark the nara as OFFLINE (graceful shutdown)
+		observation := network.local.getObservation(c.From)
+		if observation.Online == "ONLINE" {
+			observation.Online = "OFFLINE"
+			observation.LastSeen = time.Now().Unix()
+			network.local.setObservation(c.From, observation)
+			logrus.Infof("📡 %s: chau! (via gossip)", c.From)
+			network.Buzz.increase(2)
+		}
+	}
+}
+
+// emitChauSyncEvent creates and adds a chau sync event to our ledger.
+// This allows graceful shutdown to propagate through gossip.
+func (network *Network) emitChauSyncEvent() {
+	publicKey := FormatPublicKey(network.local.Keypair.PublicKey)
+	event := NewChauSyncEvent(network.meName(), publicKey, network.local.Keypair)
+	network.local.SyncLedger.MergeEvents([]SyncEvent{event})
+	logrus.Infof("%s: chau! (gossip)", network.meName())
 }
 
 // --- Peer Resolution Protocol ---
@@ -1101,6 +1170,7 @@ func (network *Network) handleNewspaperEvent(event NewspaperEvent) {
 	}
 
 	network.recordObservationOnlineNara(event.From)
+	network.emitSeenEvent(event.From, "newspaper")
 }
 
 func (network *Network) processHowdyEvents() {
@@ -1127,6 +1197,7 @@ func (network *Network) handleHowdyEvent(howdy HowdyEvent) {
 	sender.Status = howdy.Me
 	network.importNara(sender)
 	network.recordObservationOnlineNara(howdy.From)
+	network.emitSeenEvent(howdy.From, "howdy")
 
 	// 2. If this howdy is for us, process it fully
 	if howdy.To == network.meName() {
@@ -1247,10 +1318,21 @@ func (network *Network) processHeyThereEvents() {
 	}
 }
 
-func (network *Network) handleHeyThereEvent(heyThere HeyThereEvent) {
-	// Verify signature if present
-	if heyThere.Signature != "" {
-		if !heyThere.Verify() {
+func (network *Network) handleHeyThereEvent(event SyncEvent) {
+	if event.Service != ServiceHeyThere || event.HeyThere == nil {
+		return
+	}
+
+	heyThere := event.HeyThere
+
+	// Verify SyncEvent signature using the public key from the payload
+	if event.IsSigned() && heyThere.PublicKey != "" {
+		pubKey, err := ParsePublicKey(heyThere.PublicKey)
+		if err != nil {
+			logrus.Warnf("🚨 Invalid public key in hey_there from %s: %v", heyThere.From, err)
+			return
+		}
+		if !event.Verify(pubKey) {
 			logrus.Warnf("🚨 Invalid signature on hey_there from %s", heyThere.From)
 			return
 		}
@@ -1258,6 +1340,12 @@ func (network *Network) handleHeyThereEvent(heyThere HeyThereEvent) {
 
 	logrus.Printf("%s says: hey there!", heyThere.From)
 	network.recordObservationOnlineNara(heyThere.From)
+	network.emitSeenEvent(heyThere.From, "hey_there")
+
+	// Add to ledger for gossip propagation
+	if network.local.SyncLedger != nil {
+		network.local.SyncLedger.AddEvent(event)
+	}
 
 	// Store PublicKey and MeshIP from the hey_there event
 	if heyThere.PublicKey != "" || heyThere.MeshIP != "" {
@@ -1461,9 +1549,9 @@ func truncateKey(key string) string {
 	return key
 }
 
-// heyThere broadcasts identity via MQTT (legacy mechanism).
-// This is the old-style hey_there that will be deprecated in favor of gossip-based
-// hey_there sync events. Controlled by EmitLegacyMQTTHeyThere flag.
+// heyThere broadcasts identity via MQTT as a signed SyncEvent.
+// This publishes the same SyncEvent format used in gossip, ensuring
+// consistent attestation across all distribution channels.
 func (network *Network) heyThere() {
 	if network.ReadOnly {
 		return
@@ -1472,26 +1560,40 @@ func (network *Network) heyThere() {
 	// Always record our own online observation (needed for local state)
 	network.recordObservationOnlineNara(network.meName())
 
-	// Skip MQTT broadcast if legacy mode is disabled
-	if !network.EmitLegacyMQTTHeyThere {
-		return
-	}
-
 	ts := int64(5) // seconds
 	if (time.Now().Unix() - network.LastHeyThere) <= ts {
 		return
 	}
 	network.LastHeyThere = time.Now().Unix()
 
+	// Create signed SyncEvent - same format for MQTT and gossip
+	event := NewHeyThereSyncEvent(
+		network.meName(),
+		network.local.Me.Status.PublicKey,
+		network.local.Me.Status.MeshIP,
+		network.local.Keypair,
+	)
+
+	// Publish to MQTT
 	topic := "nara/plaza/hey_there"
-	heyThere := &HeyThereEvent{
+
+	// TODO(rollout): Remove old-style emission after all naras are updated
+	// Emit old-style event first for backwards compatibility with old naras
+	legacyEvent := HeyThereEvent{
 		From:      network.meName(),
 		PublicKey: network.local.Me.Status.PublicKey,
 		MeshIP:    network.local.Me.Status.MeshIP,
 	}
-	heyThere.Sign(network.local.Keypair)
-	network.postEvent(topic, heyThere)
-	logrus.Printf("%s: 👋 (MQTT)", heyThere.From)
+	network.postEvent(topic, legacyEvent)
+
+	// Emit new SyncEvent format for new naras
+	network.postEvent(topic, event)
+	logrus.Printf("%s: 👋 (MQTT)", network.meName())
+
+	// Also add to our ledger for gossip propagation
+	if network.local.SyncLedger != nil {
+		network.local.SyncLedger.AddEvent(event)
+	}
 
 	network.Buzz.increase(2)
 }
@@ -1502,50 +1604,72 @@ func (network *Network) processChauEvents() {
 	}
 }
 
-func (network *Network) handleChauEvent(event ChauEvent) {
-	if event.From == network.meName() || event.From == "" {
+func (network *Network) handleChauEvent(syncEvent SyncEvent) {
+	if syncEvent.Service != ServiceChau || syncEvent.Chau == nil {
 		return
 	}
 
-	// Verify signature if present
-	if event.Signature != "" && event.PublicKey != "" {
-		if !event.Verify() {
-			logrus.Warnf("⚠️  chau from %s has invalid signature, ignoring", event.From)
+	chau := syncEvent.Chau
+	if chau.From == network.meName() || chau.From == "" {
+		return
+	}
+
+	// Verify SyncEvent signature using the public key from the payload (if available)
+	// or from our neighbourhood (if we already know them)
+	if syncEvent.IsSigned() {
+		var pubKey []byte
+		if chau.PublicKey != "" {
+			var err error
+			pubKey, err = ParsePublicKey(chau.PublicKey)
+			if err != nil {
+				logrus.Warnf("⚠️  Invalid public key in chau from %s: %v", chau.From, err)
+				return
+			}
+		} else {
+			pubKey = network.getPublicKeyForNara(chau.From)
+		}
+		if pubKey != nil && !syncEvent.Verify(pubKey) {
+			logrus.Warnf("⚠️  chau from %s has invalid signature, ignoring", chau.From)
 			return
 		}
 	}
 
 	network.local.mu.Lock()
-	existingNara, present := network.Neighbourhood[event.From]
+	existingNara, present := network.Neighbourhood[chau.From]
 	network.local.mu.Unlock()
 
 	// Check for public key changes
-	if present && existingNara.Status.PublicKey != "" && event.PublicKey != "" {
-		if existingNara.Status.PublicKey != event.PublicKey {
+	if present && existingNara.Status.PublicKey != "" && chau.PublicKey != "" {
+		if existingNara.Status.PublicKey != chau.PublicKey {
 			logrus.Warnf("⚠️  PUBLIC KEY CHANGED for %s! old=%s new=%s",
-				event.From, truncateKey(existingNara.Status.PublicKey), truncateKey(event.PublicKey))
+				chau.From, truncateKey(existingNara.Status.PublicKey), truncateKey(chau.PublicKey))
 		}
 	}
 
 	// Update the nara's public key if provided
-	if present && event.PublicKey != "" {
-		existingNara.Status.PublicKey = event.PublicKey
+	if present && chau.PublicKey != "" {
+		existingNara.Status.PublicKey = chau.PublicKey
 	}
 
-	observation := network.local.getObservation(event.From)
+	// Add to ledger for gossip propagation
+	if network.local.SyncLedger != nil {
+		network.local.SyncLedger.AddEvent(syncEvent)
+	}
+
+	observation := network.local.getObservation(chau.From)
 	previousState := observation.Online
 	observation.Online = "OFFLINE"
 	observation.LastSeen = time.Now().Unix()
-	network.local.setObservation(event.From, observation)
+	network.local.setObservation(chau.From, observation)
 
 	// Record offline observation event if state changed
 	if previousState == "ONLINE" && !network.local.isBooting() && network.local.SyncLedger != nil {
-		obsEvent := NewObservationEvent(network.meName(), event.From, ReasonOffline)
+		obsEvent := NewObservationEvent(network.meName(), chau.From, ReasonOffline)
 		network.local.SyncLedger.AddSocialEventFilteredLegacy(obsEvent, network.local.Me.Status.Personality)
-		logrus.Printf("observation: %s went offline", event.From)
+		logrus.Printf("observation: %s went offline", chau.From)
 	}
 
-	logrus.Printf("%s: chau!", event.From)
+	logrus.Printf("%s: chau!", chau.From)
 	network.Buzz.increase(2)
 }
 
@@ -1553,20 +1677,38 @@ func (network *Network) Chau() {
 	if network.ReadOnly {
 		return
 	}
-	topic := "nara/plaza/chau"
-	logrus.Printf("posting to %s", topic)
 
+	// Update our own observation to OFFLINE
 	observation := network.local.getMeObservation()
 	observation.Online = "OFFLINE"
 	observation.LastSeen = time.Now().Unix()
 	network.local.setMeObservation(observation)
 
-	chauEvent := &ChauEvent{
-		From:      network.meName(),
-		PublicKey: network.local.Me.Status.PublicKey,
+	// Create signed SyncEvent - same format for MQTT and gossip
+	event := NewChauSyncEvent(
+		network.meName(),
+		network.local.Me.Status.PublicKey,
+		network.local.Keypair,
+	)
+
+	// Publish to MQTT
+	topic := "nara/plaza/chau"
+
+	// TODO(rollout): Remove old-style emission after all naras are updated
+	// Emit old-style event first for backwards compatibility with old naras
+	legacyEvent := ChauEvent{
+		From: network.meName(),
 	}
-	chauEvent.Sign(network.local.Keypair)
-	network.postEvent(topic, chauEvent)
+	network.postEvent(topic, legacyEvent)
+
+	// Emit new SyncEvent format for new naras
+	network.postEvent(topic, event)
+	logrus.Printf("%s: chau! (MQTT)", network.meName())
+
+	// Also add to ledger for gossip propagation
+	if network.local.SyncLedger != nil {
+		network.local.SyncLedger.AddEvent(event)
+	}
 }
 
 func (network *Network) oldestNaraBarrio() Nara {
@@ -2783,6 +2925,7 @@ func (network *Network) discoverMeshPeers() {
 			nara.Status.PublicKey = peer.PublicKey
 			network.importNara(nara)
 			network.recordObservationOnlineNara(peer.Name) // Properly sets both Online and LastSeen
+			network.emitSeenEvent(peer.Name, "mesh")
 			discovered++
 			if peer.PublicKey != "" {
 				logrus.Infof("📡 Discovered mesh peer: %s at %s (🔑)", peer.Name, peer.MeshIP)
@@ -3050,6 +3193,7 @@ func (network *Network) exchangeZine(targetName string, myZine *Zine) {
 
 	// Mark peer as online - successful zine exchange proves they're reachable
 	network.recordObservationOnlineNara(targetName)
+	network.emitSeenEvent(targetName, "zine")
 }
 
 // backgroundSync performs lightweight periodic syncing to strengthen collective memory
@@ -3395,4 +3539,154 @@ func (network *Network) journeyTimeoutMaintenance() {
 			logrus.Printf("observation: journey %s timed out (from %s)", pending.JourneyID[:8], pending.Originator)
 		}
 	}
+}
+
+// --- Event-Sourced Online Status ---
+
+// getRecentEventsFor returns all recent events relevant to a nara's online status,
+// sorted by timestamp descending (most recent first).
+// This includes:
+// - Events FROM the nara (hey_there, chau, seen)
+// - Events ABOUT the nara (status-change observations)
+func (network *Network) getRecentEventsFor(name string) []SyncEvent {
+	if network.local.SyncLedger == nil {
+		return nil
+	}
+
+	var relevant []SyncEvent
+
+	// Get all events involving this nara
+	allEvents := network.local.SyncLedger.GetAllEvents()
+
+	for _, e := range allEvents {
+		switch e.Service {
+		case ServiceHeyThere:
+			if e.HeyThere != nil && e.HeyThere.From == name {
+				relevant = append(relevant, e)
+			}
+		case ServiceChau:
+			if e.Chau != nil && e.Chau.From == name {
+				relevant = append(relevant, e)
+			}
+		case ServiceSeen:
+			if e.Seen != nil && e.Seen.Subject == name {
+				relevant = append(relevant, e)
+			}
+		case ServiceObservation:
+			if e.Observation != nil && e.Observation.Subject == name {
+				// Only include status-relevant observation types
+				switch e.Observation.Type {
+				case "status-change", "restart", "first-seen":
+					relevant = append(relevant, e)
+				}
+			}
+		}
+	}
+
+	// Sort by timestamp descending (most recent first)
+	sort.Slice(relevant, func(i, j int) bool {
+		return relevant[i].Timestamp > relevant[j].Timestamp
+	})
+
+	return relevant
+}
+
+// deriveOnlineStatus derives a nara's online status from the event store.
+// This is the event-sourced approach: status is derived from the most recent
+// relevant event, not maintained separately.
+//
+// Returns: "ONLINE", "OFFLINE", "MISSING", or "" (unknown)
+func (network *Network) deriveOnlineStatus(name string) string {
+	events := network.getRecentEventsFor(name)
+
+	if len(events) == 0 {
+		return "" // Unknown - no events about this nara
+	}
+
+	latest := events[0] // Most recent event
+
+	// Determine status based on the most recent event
+	switch latest.Service {
+	case ServiceChau:
+		// Graceful shutdown - they're OFFLINE
+		return "OFFLINE"
+
+	case ServiceHeyThere:
+		// They announced themselves - they're ONLINE
+		return "ONLINE"
+
+	case ServiceSeen:
+		// We saw them recently - they're ONLINE
+		return "ONLINE"
+
+	case ServiceObservation:
+		if latest.Observation != nil {
+			switch latest.Observation.Type {
+			case "status-change":
+				// Direct status observation
+				return latest.Observation.OnlineState
+			case "restart":
+				// They restarted - implies they came back ONLINE
+				return "ONLINE"
+			case "first-seen":
+				// Just discovered - implies ONLINE
+				return "ONLINE"
+			}
+		}
+	}
+
+	// Check event age - if too old, they might be MISSING
+	now := time.Now().UnixNano()
+	age := now - latest.Timestamp
+	threshold := network.getMissingThresholdNano(name)
+
+	if age > threshold {
+		return "MISSING"
+	}
+
+	// Recent event exists, assume ONLINE
+	return "ONLINE"
+}
+
+// getMissingThresholdNano returns the MISSING threshold in nanoseconds for a nara.
+// Uses longer threshold for gossip mode.
+func (network *Network) getMissingThresholdNano(name string) int64 {
+	threshold := MissingThreshold // seconds
+	nara := network.getNara(name)
+	subjectIsGossip := nara.Name != "" && nara.Status.TransportMode == "gossip"
+	observerIsGossip := network.TransportMode == TransportGossip
+	if subjectIsGossip || observerIsGossip {
+		threshold = MissingThresholdGossip
+	}
+	return threshold * int64(time.Second) // Convert to nanoseconds
+}
+
+// emitSeenEvent emits a "seen" event when we interact with a nara.
+// This is a lightweight event that proves we received something from them.
+// Signed so other naras can verify who made the observation.
+// Rate-limited to avoid spamming the ledger.
+func (network *Network) emitSeenEvent(subject, via string) {
+	if network.local.SyncLedger == nil || network.local.isBooting() {
+		return
+	}
+
+	// Don't emit seen events for ourselves
+	if subject == network.meName() {
+		return
+	}
+
+	// Rate limit: check if we've seen this nara recently (within 1 minute)
+	// to avoid spamming the ledger with "I saw bob" every second
+	events := network.getRecentEventsFor(subject)
+	if len(events) > 0 {
+		latest := events[0]
+		age := time.Now().UnixNano() - latest.Timestamp
+		// If we have a recent event (within 1 minute), skip emitting seen
+		if age < int64(time.Minute) {
+			return
+		}
+	}
+
+	event := NewSeenSyncEvent(network.meName(), subject, via, network.local.Keypair)
+	network.local.SyncLedger.AddEvent(event)
 }

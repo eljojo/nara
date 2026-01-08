@@ -16,6 +16,8 @@ const (
 	ServicePing        = "ping"        // Ping/RTT measurements
 	ServiceObservation = "observation" // Network state observations (restarts, status changes)
 	ServiceHeyThere    = "hey-there"   // Peer identity announcements (public key, mesh IP)
+	ServiceChau        = "chau"        // Graceful shutdown announcements
+	ServiceSeen        = "seen"        // Lightweight "I saw this nara" events for status derivation
 )
 
 // Importance levels for observation events
@@ -45,7 +47,34 @@ type SyncEvent struct {
 	Ping        *PingObservation         `json:"ping,omitempty"`
 	Observation *ObservationEventPayload `json:"observation,omitempty"`
 	HeyThere    *HeyThereEvent           `json:"hey_there,omitempty"`
+	Chau        *ChauEvent               `json:"chau,omitempty"`
+	Seen        *SeenEvent               `json:"seen,omitempty"`
 }
+
+// SeenEvent records when a nara was seen through some interaction.
+// This is a lightweight event for "I received something from this nara"
+// that proves they're reachable/online without creating heavier events.
+type SeenEvent struct {
+	Observer string `json:"observer"` // who saw them
+	Subject  string `json:"subject"`  // who was seen
+	Via      string `json:"via"`      // how: "zine", "mesh", "ping", "sync"
+}
+
+// ContentString returns canonical string for hashing/signing
+func (s *SeenEvent) ContentString() string {
+	return fmt.Sprintf("seen:%s:%s:%s", s.Observer, s.Subject, s.Via)
+}
+
+// IsValid checks if the payload is well-formed
+func (s *SeenEvent) IsValid() bool {
+	return s.Observer != "" && s.Subject != "" && s.Via != ""
+}
+
+// GetActor implements Payload (Observer is the actor)
+func (s *SeenEvent) GetActor() string { return s.Observer }
+
+// GetTarget implements Payload (Subject is the target)
+func (s *SeenEvent) GetTarget() string { return s.Subject }
 
 // Payload is the interface for service-specific event data
 type Payload interface {
@@ -201,6 +230,10 @@ func (e *SyncEvent) Payload() Payload {
 		return e.Observation
 	case ServiceHeyThere:
 		return e.HeyThere
+	case ServiceChau:
+		return e.Chau
+	case ServiceSeen:
+		return e.Seen
 	}
 	return nil
 }
@@ -431,14 +464,14 @@ func NewSignedPingSyncEvent(observer, target string, rtt float64, emitter string
 
 // NewHeyThereSyncEvent creates a signed SyncEvent for peer identity announcements.
 // This allows hey_there events to propagate through gossip, enabling peer discovery
-// without MQTT broadcasts.
+// without MQTT broadcasts. The SyncEvent signature is the attestation - inner event
+// is just payload data.
 func NewHeyThereSyncEvent(name string, publicKey string, meshIP string, keypair NaraKeypair) SyncEvent {
 	heyThere := &HeyThereEvent{
 		From:      name,
 		PublicKey: publicKey,
 		MeshIP:    meshIP,
 	}
-	heyThere.Sign(keypair)
 
 	e := SyncEvent{
 		Timestamp: time.Now().UnixNano(),
@@ -447,6 +480,44 @@ func NewHeyThereSyncEvent(name string, publicKey string, meshIP string, keypair 
 	}
 	e.ComputeID()
 	e.Sign(name, keypair)
+	return e
+}
+
+// NewChauSyncEvent creates a signed SyncEvent for graceful shutdown announcements.
+// This allows chau events to propagate through gossip, enabling gossip-only naras
+// to distinguish OFFLINE (graceful) from MISSING (timeout). The SyncEvent signature
+// is the attestation - inner event is just payload data.
+func NewChauSyncEvent(name string, publicKey string, keypair NaraKeypair) SyncEvent {
+	chau := &ChauEvent{
+		From:      name,
+		PublicKey: publicKey,
+	}
+
+	e := SyncEvent{
+		Timestamp: time.Now().UnixNano(),
+		Service:   ServiceChau,
+		Chau:      chau,
+	}
+	e.ComputeID()
+	e.Sign(name, keypair)
+	return e
+}
+
+// NewSeenSyncEvent creates a signed SyncEvent for when a nara is seen through some interaction.
+// The via parameter indicates how they were seen: "zine", "mesh", "ping", "sync".
+// Signed so other naras can verify who made the observation when events propagate.
+func NewSeenSyncEvent(observer, subject, via string, keypair NaraKeypair) SyncEvent {
+	e := SyncEvent{
+		Timestamp: time.Now().UnixNano(),
+		Service:   ServiceSeen,
+		Seen: &SeenEvent{
+			Observer: observer,
+			Subject:  subject,
+			Via:      via,
+		},
+	}
+	e.ComputeID()
+	e.Sign(observer, keypair)
 	return e
 }
 

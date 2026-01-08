@@ -37,17 +37,23 @@ func (network *Network) subscribeHandlers(client mqtt.Client) {
 }
 
 func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
-	heyThere := &HeyThereEvent{}
-	if err := json.Unmarshal(msg.Payload(), heyThere); err != nil {
-		logrus.Infof("heyThereHandler: invalid JSON: %v", err)
+	event := SyncEvent{}
+	if err := json.Unmarshal(msg.Payload(), &event); err != nil {
+		logrus.Debugf("heyThereHandler: invalid JSON: %v", err)
 		return
 	}
 
-	if heyThere.From == network.meName() || heyThere.From == "" {
+	// Validate it's a hey_there SyncEvent
+	if event.Service != ServiceHeyThere || event.HeyThere == nil {
+		logrus.Debugf("heyThereHandler: not a hey_there SyncEvent")
 		return
 	}
 
-	network.heyThereInbox <- *heyThere
+	if event.HeyThere.From == network.meName() || event.HeyThere.From == "" {
+		return
+	}
+
+	network.heyThereInbox <- event
 }
 
 func (network *Network) howdyHandler(client mqtt.Client, msg mqtt.Message) {
@@ -66,9 +72,19 @@ func (network *Network) howdyHandler(client mqtt.Client, msg mqtt.Message) {
 }
 
 func (network *Network) chauHandler(client mqtt.Client, msg mqtt.Message) {
-	event := ChauEvent{}
+	event := SyncEvent{}
 	if err := json.Unmarshal(msg.Payload(), &event); err != nil {
-		logrus.Infof("chauHandler: invalid JSON: %v", err)
+		logrus.Debugf("chauHandler: invalid JSON: %v", err)
+		return
+	}
+
+	// Validate it's a chau SyncEvent
+	if event.Service != ServiceChau || event.Chau == nil {
+		logrus.Debugf("chauHandler: not a chau SyncEvent")
+		return
+	}
+
+	if event.Chau.From == network.meName() || event.Chau.From == "" {
 		return
 	}
 

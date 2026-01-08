@@ -148,7 +148,10 @@ func TestHeyThere_StartsHowdyCoordinator(t *testing.T) {
 	}
 
 	// Simulate receiving a hey_there from another nara
-	network.handleHeyThereEvent(HeyThereEvent{From: "newcomer"})
+	network.handleHeyThereEvent(SyncEvent{
+		Service:  ServiceHeyThere,
+		HeyThere: &HeyThereEvent{From: "newcomer", PublicKey: "dummykey"},
+	})
 
 	// Verify that a howdy coordinator was started
 	_, exists := network.howdyCoordinators.Load("newcomer")
@@ -172,7 +175,10 @@ func TestHeyThere_ReadOnlySkipsHowdy(t *testing.T) {
 	// ReadOnly mode should skip howdy coordinator
 	network.ReadOnly = true
 
-	network.handleHeyThereEvent(HeyThereEvent{From: "newcomer"})
+	network.handleHeyThereEvent(SyncEvent{
+		Service:  ServiceHeyThere,
+		HeyThere: &HeyThereEvent{From: "newcomer", PublicKey: "dummykey"},
+	})
 
 	// Howdy coordinator should NOT have been started
 	_, exists := network.howdyCoordinators.Load("newcomer")

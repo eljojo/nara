@@ -723,7 +723,18 @@ func (network *Network) httpGossipZineHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	// Mark sender as online - receiving a zine proves they're reachable
-	network.recordObservationOnlineNara(theirZine.From)
+	// UNLESS they sent a chau event (graceful shutdown announcement)
+	senderIsShuttingDown := false
+	for _, e := range theirZine.Events {
+		if e.Service == ServiceChau && e.Chau != nil && e.Chau.From == theirZine.From {
+			senderIsShuttingDown = true
+			break
+		}
+	}
+	if !senderIsShuttingDown {
+		network.recordObservationOnlineNara(theirZine.From)
+		network.emitSeenEvent(theirZine.From, "zine")
+	}
 
 	// Create our zine to send back (bidirectional exchange)
 	myZine := network.createZine()
