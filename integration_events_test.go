@@ -296,11 +296,16 @@ func TestIntegration_BackfillDoesNotDuplicate(t *testing.T) {
 
 // TestIntegration_CompactionAndDeduplicationIndependent validates that compaction
 // and deduplication work independently without interfering
+// Note: Compaction of restart events only happens when a checkpoint exists
 func TestIntegration_CompactionAndDeduplicationIndependent(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 	ledger := NewSyncLedger(1000)
 
 	// Scenario 1: Compaction without deduplication (using AddEvent)
+	// First add a checkpoint so compaction works
+	checkpoint := NewCheckpointEvent("bob", time.Now().Unix()-3600, time.Now().Unix()-86400, 0, 0)
+	ledger.AddEvent(checkpoint)
+
 	// alice adds 25 different restart events about bob
 	for i := 0; i < 25; i++ {
 		event := NewRestartObservationEvent("alice", "bob", int64(1000+i), int64(i))
@@ -339,6 +344,10 @@ func TestIntegration_CompactionAndDeduplicationIndependent(t *testing.T) {
 	// Scenario 3: Both mechanisms together
 	ledger.Events = []SyncEvent{} // Clear
 	ledger.eventIDs = make(map[string]bool)
+
+	// Add checkpoint for bob so compaction works
+	checkpoint = NewCheckpointEvent("bob", time.Now().Unix()-3600, time.Now().Unix()-86400, 0, 0)
+	ledger.AddEvent(checkpoint)
 
 	// dave adds 25 unique events (should compact to 20)
 	for i := 0; i < 25; i++ {

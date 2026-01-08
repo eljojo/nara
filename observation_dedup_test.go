@@ -332,10 +332,15 @@ func TestObservationDedup_HighVolume(t *testing.T) {
 }
 
 // Test that deduplication + compaction work together
+// Note: Compaction of restart events requires a checkpoint to exist
 func TestObservationDedup_WithCompaction(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	observer := "observer-a"
 	subject := "nara-target"
+
+	// First add a checkpoint so compaction works
+	checkpoint := NewCheckpointEvent(subject, time.Now().Unix()-3600, time.Now().Unix()-86400, 0, 0)
+	ledger.AddEvent(checkpoint)
 
 	// Add 25 unique restarts with same parameters (compaction limit is 20 per pair)
 	for i := 0; i < 25; i++ {

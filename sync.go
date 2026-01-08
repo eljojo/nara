@@ -1793,27 +1793,71 @@ func (l *SyncLedger) addObservationWithCompaction(e SyncEvent, withDedup bool) b
 	}
 
 	// If at or over limit, remove the oldest one(s)
+	// IMPORTANT: Don't prune restart events if no checkpoint exists for this subject
+	// This ensures we don't lose historical restart data before it's checkpointed
 	if len(existingObs) >= MaxObservationsPerPair {
-		oldestIdx := 0
-		oldestTs := existingObs[0].ts
-		for i, obs := range existingObs {
-			if obs.ts < oldestTs {
-				oldestTs = obs.ts
-				oldestIdx = i
+		// Check if a checkpoint exists for this subject
+		hasCheckpoint := false
+		for _, existing := range l.Events {
+			if existing.Service == ServiceCheckpoint && existing.Checkpoint != nil &&
+				existing.Checkpoint.Subject == e.Observation.Subject {
+				hasCheckpoint = true
+				break
 			}
 		}
 
-		toRemove := existingObs[oldestIdx]
-		newEvents := make([]SyncEvent, 0, len(l.Events)-1)
-		for i, existing := range l.Events {
-			if i != toRemove.idx {
-				newEvents = append(newEvents, existing)
+		// Find the oldest NON-RESTART event to prune (prefer pruning status-change over restart)
+		// If all events are restarts and we have no checkpoint, skip pruning to preserve history
+		var oldestNonRestartIdx = -1
+		var oldestNonRestartTs int64 = 0
+		var oldestAnyIdx = 0
+		var oldestAnyTs = existingObs[0].ts
+
+		for i, obs := range existingObs {
+			// Track overall oldest
+			if obs.ts < oldestAnyTs {
+				oldestAnyTs = obs.ts
+				oldestAnyIdx = i
+			}
+
+			// Track oldest non-restart
+			ev := l.Events[obs.idx]
+			if ev.Service == ServiceObservation && ev.Observation != nil &&
+				ev.Observation.Type != "restart" {
+				if oldestNonRestartIdx == -1 || obs.ts < oldestNonRestartTs {
+					oldestNonRestartTs = obs.ts
+					oldestNonRestartIdx = i
+				}
 			}
 		}
-		l.Events = newEvents
-		delete(l.eventIDs, toRemove.id)
-		// Increment version - structure has changed, projections need to reset
-		l.version++
+
+		// Decision: what to prune
+		var toRemoveIdx int
+		if oldestNonRestartIdx != -1 {
+			// Have a non-restart to prune - use it
+			toRemoveIdx = oldestNonRestartIdx
+		} else if hasCheckpoint {
+			// All events are restarts, but we have a checkpoint - safe to prune oldest
+			toRemoveIdx = oldestAnyIdx
+		} else {
+			// All events are restarts and NO checkpoint - DON'T prune, skip this step
+			// This preserves restart history until a checkpoint captures it
+			toRemoveIdx = -1
+		}
+
+		if toRemoveIdx >= 0 {
+			toRemove := existingObs[toRemoveIdx]
+			newEvents := make([]SyncEvent, 0, len(l.Events)-1)
+			for i, existing := range l.Events {
+				if i != toRemove.idx {
+					newEvents = append(newEvents, existing)
+				}
+			}
+			l.Events = newEvents
+			delete(l.eventIDs, toRemove.id)
+			// Increment version - structure has changed, projections need to reset
+			l.version++
+		}
 	}
 
 	// Validate and add the new event
