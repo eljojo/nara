@@ -142,13 +142,15 @@ func (network *Network) newspaperHandler(client mqtt.Client, msg mqtt.Message) {
 		return
 	}
 
-	var status NaraStatus
-	if err := json.Unmarshal(msg.Payload(), &status); err != nil {
+	var event NewspaperEvent
+	if err := json.Unmarshal(msg.Payload(), &event); err != nil {
 		logrus.Infof("newspaperHandler: invalid JSON: %v", err)
 		return
 	}
 
-	network.newspaperInbox <- NewspaperEvent{From: from, Status: status}
+	// Use 'from' from topic as the authoritative source (it matches the MQTT topic)
+	// but preserve signature for verification
+	network.newspaperInbox <- NewspaperEvent{From: from, Status: event.Status, Signature: event.Signature}
 }
 
 func subscribeMqtt(client mqtt.Client, topic string, handler func(client mqtt.Client, msg mqtt.Message)) {

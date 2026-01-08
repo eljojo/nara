@@ -183,3 +183,106 @@ func TestHeyThere_ReadOnlySkipsAnnounce(t *testing.T) {
 		t.Errorf("expected newcomer to be ONLINE even in ReadOnly mode, got %s", obs.Online)
 	}
 }
+
+// TestNewspaperEvent_JSONParsing is a regression test for the bug where
+// newspaper events sent over MQTT were being parsed incorrectly.
+// The bug: We were unmarshalling the JSON into NaraStatus directly,
+// but the JSON structure is NewspaperEvent{From, Status, Signature}.
+// This caused all status fields to be empty because they're nested under "Status".
+func TestNewspaperEvent_JSONParsing(t *testing.T) {
+	// 1. Setup sender and create a signed event using real code
+	senderName := "blue-jay"
+	// Generate a valid native soul for the sender
+	senderSoulV1 := NativeSoulCustom([]byte("test-hw-fingerprint"), senderName)
+	senderSoul := FormatSoul(senderSoulV1)
+
+	sender := NewLocalNara(senderName, senderSoul, "host", "user", "pass", -1, 0)
+
+	sender.Me.Status.Flair = "🐦"
+	sender.Me.Status.Chattiness = 75
+	sender.Me.Status.Buzz = 42
+	sender.Me.Status.Trend = "coffee"
+	sender.Me.Status.TrendEmoji = "☕"
+	sender.Me.Status.MeshEnabled = true
+	sender.Me.Status.MeshIP = "100.64.0.1"
+	sender.Me.Status.Personality = NaraPersonality{
+		Agreeableness: 71,
+		Sociability:   87,
+		Chill:         41,
+	}
+
+	// Create the signed event - this uses the real signing logic
+	event := sender.Network.SignNewspaper(sender.Me.Status)
+
+	// 2. Serialize to JSON (this is what gets sent over MQTT)
+	eventJSON, err := json.Marshal(event)
+	if err != nil {
+		t.Fatalf("Failed to marshal NewspaperEvent: %v", err)
+	}
+
+	// 3. Setup receiver and process the event using real code
+	receiver := NewLocalNara("receiver", testSoul("receiver"), "host", "user", "pass", -1, 0)
+
+	// Parse the JSON the way the MQTT handler does (newspaperHandler in mqtt.go)
+	var parsedEvent NewspaperEvent
+	if err := json.Unmarshal(eventJSON, &parsedEvent); err != nil {
+		t.Fatalf("Failed to unmarshal NewspaperEvent: %v", err)
+	}
+
+	// In real life, 'from' comes from the MQTT topic: nara/newspaper/blue-jay
+	parsedEvent.From = "blue-jay"
+
+	// Process the event using the real handler
+	receiver.Network.handleNewspaperEvent(parsedEvent)
+
+	// 4. Verify the receiver's neighborhood was updated correctly
+	imported := receiver.Network.getNara("blue-jay")
+	if imported.Name == "" {
+		t.Fatal("blue-jay not found in neighborhood")
+	}
+
+	if imported.Status.Flair != "🐦" {
+		t.Errorf("Flair: expected '🐦', got '%s'", imported.Status.Flair)
+	}
+	if imported.Status.Chattiness != 75 {
+		t.Errorf("Chattiness: expected 75, got %d", imported.Status.Chattiness)
+	}
+	if imported.Status.Buzz != 42 {
+		t.Errorf("Buzz: expected 42, got %d", imported.Status.Buzz)
+	}
+	if imported.Status.Trend != "coffee" {
+		t.Errorf("Trend: expected 'coffee', got '%s'", imported.Status.Trend)
+	}
+	if imported.Status.TrendEmoji != "☕" {
+		t.Errorf("TrendEmoji: expected '☕', got '%s'", imported.Status.TrendEmoji)
+	}
+	if imported.Status.Personality.Agreeableness != 71 {
+		t.Errorf("Personality.Agreeableness: expected 71, got %d", imported.Status.Personality.Agreeableness)
+	}
+	if imported.Status.MeshIP != "100.64.0.1" {
+		t.Errorf("MeshIP: expected '100.64.0.1', got '%s'", imported.Status.MeshIP)
+	}
+	if !imported.Status.MeshEnabled {
+		t.Errorf("MeshEnabled: expected true, got false")
+	}
+	if imported.Status.PublicKey != sender.Me.Status.PublicKey {
+		t.Errorf("PublicKey mismatch: expected %s, got %s", sender.Me.Status.PublicKey, imported.Status.PublicKey)
+	}
+
+	// Verify the signature verification actually worked inside handleNewspaperEvent
+	// If it had failed, the neighborhood would not have been updated with these values.
+
+	// 5. Demonstrate the bug regression test
+	// If we parse into NaraStatus directly, all fields are empty because they are nested under "Status" in the JSON
+	var wrongParsed NaraStatus
+	if err := json.Unmarshal(eventJSON, &wrongParsed); err != nil {
+		t.Fatalf("Failed to unmarshal as NaraStatus: %v", err)
+	}
+
+	if wrongParsed.Flair != "" {
+		t.Errorf("BUG CHECK: Parsing NewspaperEvent JSON as NaraStatus should result in empty Flair, got '%s'", wrongParsed.Flair)
+	}
+	if wrongParsed.Personality.Agreeableness != 0 {
+		t.Errorf("BUG CHECK: Parsing NewspaperEvent JSON as NaraStatus should result in zero Agreeableness, got %d", wrongParsed.Personality.Agreeableness)
+	}
+}
