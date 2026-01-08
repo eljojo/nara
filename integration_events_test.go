@@ -374,3 +374,101 @@ func TestIntegration_CompactionAndDeduplicationIndependent(t *testing.T) {
 
 	t.Logf("✅ Compaction and deduplication independent: dave=%d (compacted), witnesses=%d (deduped)", daveEvents, witnessEvents)
 }
+
+// TestIntegration_MissingDetectionNotTooSensitive validates that naras posting infrequently
+// (but still within normal bounds) don't get marked as MISSING prematurely.
+// This test exposes the bug where a 100-second threshold caused naras to be marked
+// MISSING and then teased for "coming back" when they were never actually offline.
+func TestIntegration_MissingDetectionNotTooSensitive(t *testing.T) {
+	logrus.SetLevel(logrus.ErrorLevel)
+
+	// Enable observation events for this test
+	os.Setenv("USE_OBSERVATION_EVENTS", "true")
+	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
+
+	ln1 := NewLocalNara("observer", testSoul("observer"), "", "", "", 50, 1000)
+	network := ln1.Network
+
+	// Not booting
+	me := ln1.getMeObservation()
+	me.LastRestart = time.Now().Unix() - 300
+	me.LastSeen = time.Now().Unix()
+	ln1.setMeObservation(me)
+
+	// Import a neighbor
+	network.importNara(NewNara("quiet-nara"))
+
+	// Quiet-nara is seen for the first time
+	network.recordObservationOnlineNara("quiet-nara")
+
+	// Verify initial state is ONLINE
+	obs := ln1.getObservation("quiet-nara")
+	if obs.Online != "ONLINE" {
+		t.Fatalf("Expected quiet-nara to be ONLINE initially, got %s", obs.Online)
+	}
+	initialRestarts := obs.Restarts
+
+	// Simulate 2 minutes passing without an update (normal quiet period)
+	// This should NOT trigger MISSING - 2 minutes is a reasonable posting interval
+	obs.LastSeen = time.Now().Unix() - 120 // 2 minutes ago
+	ln1.setObservation("quiet-nara", obs)
+
+	// Run maintenance (this is what would mark them as MISSING if threshold is too low)
+	// We run it in a loop to simulate the maintenance ticker
+	now := time.Now().Unix()
+	ln1.Me.mu.Lock()
+	for name, observation := range ln1.Me.Status.Observations {
+		if !observation.isOnline() {
+			continue
+		}
+		// This is the check from observationMaintenance() - uses MissingThreshold constant
+		if (now - observation.LastSeen) > MissingThreshold {
+			observation.Online = "MISSING"
+			ln1.Me.Status.Observations[name] = observation
+		}
+	}
+	ln1.Me.mu.Unlock()
+
+	// Check if quiet-nara was incorrectly marked as MISSING
+	obs = ln1.getObservation("quiet-nara")
+	markedMissing := obs.Online == "MISSING"
+
+	// If marked missing, simulate the nara posting again
+	if markedMissing {
+		// Record them coming online again (this triggers "came back online" logic)
+		ln1.SyncLedger.Events = []SyncEvent{}
+		ln1.SyncLedger.eventIDs = make(map[string]bool)
+		network.recordObservationOnlineNara("quiet-nara")
+	}
+
+	// Get the final state
+	obs = ln1.getObservation("quiet-nara")
+
+	// Count restart observation events emitted
+	restartEvents := 0
+	for _, e := range ln1.SyncLedger.GetAllEvents() {
+		if e.Observation != nil && e.Observation.Type == "restart" && e.Observation.Subject == "quiet-nara" {
+			restartEvents++
+		}
+	}
+
+	// THE BUG: With threshold=100s, a nara that was quiet for 120s gets:
+	// 1. Marked as MISSING (wrong - they're just quiet)
+	// 2. When they post, counted as a restart (wrong - they never restarted)
+	// 3. Teased for "coming back" (wrong - they never left)
+
+	if markedMissing {
+		t.Errorf("BUG: quiet-nara was marked MISSING after only 2 minutes of silence - threshold is too sensitive")
+	}
+
+	if obs.Restarts > initialRestarts {
+		t.Errorf("BUG: quiet-nara's restart count was incremented (from %d to %d) even though they never restarted - just posted infrequently",
+			initialRestarts, obs.Restarts)
+	}
+
+	if restartEvents > 0 {
+		t.Errorf("BUG: %d restart events were emitted for quiet-nara even though they never restarted", restartEvents)
+	}
+
+	t.Logf("Missing detection sensitivity test complete")
+}

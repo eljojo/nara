@@ -12,6 +12,17 @@ import (
 
 const BlueJayURL = "https://nara.network/narae.json"
 
+// MissingThreshold is the duration without updates before a nara is marked MISSING.
+// This must be long enough to account for:
+// - Variable posting intervals (naras post every 10-30 seconds, but can go quieter)
+// - Network delays and occasional missed messages
+// - Brief quiet periods that don't indicate actual offline status
+// 5 minutes (300s) is chosen because:
+// - Naras normally post every 30s, so 300s = 10 missed posts
+// - This avoids false positives for quiet but online naras
+// - Actual crashes/network issues will exceed this within reasonable time
+const MissingThreshold int64 = 300 // seconds
+
 var OpinionDelayOverride time.Duration = 0
 
 type NaraObservation struct {
@@ -448,8 +459,8 @@ func (network *Network) observationMaintenance() {
 				continue
 			}
 
-			// mark missing after 100 seconds of no updates
-			if (now-observation.LastSeen) > 100 && !network.skippingEvents && !network.local.isBooting() {
+			// mark missing after MissingThreshold seconds of no updates
+			if (now-observation.LastSeen) > MissingThreshold && !network.skippingEvents && !network.local.isBooting() {
 				observation.Online = "MISSING"
 				network.local.setObservation(name, observation)
 				logrus.Printf("observation: %s has disappeared", name)
