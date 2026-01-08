@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -148,6 +150,66 @@ func VerifyMeshResponse(resp *http.Response, body []byte, getPublicKey func(stri
 	return name, nil
 }
 
+// tryDiscoverUnknownSender attempts to discover an unknown sender by fetching their
+// public key via /ping from their mesh IP. This enables new naras to be recognized
+// immediately when they first contact us, rather than waiting for MQTT broadcasts.
+func (network *Network) tryDiscoverUnknownSender(name, remoteAddr string) bool {
+	// Extract IP from remoteAddr (format: "100.64.0.x:port")
+	ip := remoteAddr
+	if colonIdx := strings.LastIndex(remoteAddr, ":"); colonIdx != -1 {
+		ip = remoteAddr[:colonIdx]
+	}
+
+	// Only try for mesh IPs (100.64.x.x range)
+	if !strings.HasPrefix(ip, "100.64.") {
+		return false
+	}
+
+	// Try to fetch their public key via /ping
+	url := fmt.Sprintf("http://%s:%d/ping", ip, DefaultMeshPort)
+	client := &http.Client{Timeout: 2 * time.Second}
+
+	resp, err := client.Get(url)
+	if err != nil {
+		logrus.Debugf("📡 Failed to ping %s at %s: %v", name, ip, err)
+		return false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+
+	var pingResp struct {
+		From      string `json:"from"`
+		PublicKey string `json:"public_key"`
+		MeshIP    string `json:"mesh_ip"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&pingResp); err != nil {
+		return false
+	}
+
+	// Verify the response is from who we expected
+	if pingResp.From != name {
+		logrus.Warnf("📡 Name mismatch: expected %s, got %s from %s", name, pingResp.From, ip)
+		return false
+	}
+
+	if pingResp.PublicKey == "" {
+		return false
+	}
+
+	// Import the newly discovered nara
+	nara := NewNara(name)
+	nara.Status.PublicKey = pingResp.PublicKey
+	nara.Status.MeshIP = pingResp.MeshIP
+	nara.Status.MeshEnabled = true
+	network.importNara(nara)
+
+	logrus.Infof("📡 Discovered unknown sender %s via on-demand ping (🔑)", name)
+	return true
+}
+
 // meshAuthMiddleware wraps a handler to require mesh authentication
 // Skip authentication for /ping endpoint (latency-critical)
 func (network *Network) meshAuthMiddleware(path string, handler http.HandlerFunc) http.HandlerFunc {
@@ -160,6 +222,16 @@ func (network *Network) meshAuthMiddleware(path string, handler http.HandlerFunc
 
 		// Verify request signature
 		sender, err := VerifyMeshRequest(r, network.getPublicKeyForNara)
+
+		// If sender is unknown, try to discover them via /ping
+		if err != nil && strings.Contains(err.Error(), "unknown sender") {
+			senderName := r.Header.Get(HeaderNaraName)
+			if senderName != "" && network.tryDiscoverUnknownSender(senderName, r.RemoteAddr) {
+				// Retry verification with newly discovered key
+				sender, err = VerifyMeshRequest(r, network.getPublicKeyForNara)
+			}
+		}
+
 		if err != nil {
 			logrus.Warnf("🚫 mesh auth failed from %s: %v", r.RemoteAddr, err)
 			http.Error(w, "Authentication failed: "+err.Error(), http.StatusUnauthorized)
