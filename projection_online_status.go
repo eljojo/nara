@@ -51,6 +51,13 @@ func NewOnlineStatusProjection(ledger *SyncLedger) *OnlineStatusProjection {
 
 	p.projection = NewProjection(ledger, p.handleEvent)
 
+	// Register reset handler to clear state when ledger is restructured
+	p.projection.SetOnReset(func() {
+		p.mu.Lock()
+		p.states = make(map[string]*OnlineState)
+		p.mu.Unlock()
+	})
+
 	return p
 }
 

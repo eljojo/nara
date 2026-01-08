@@ -641,6 +641,7 @@ type SyncLedger struct {
 	MaxEvents     int
 	eventIDs      map[string]bool
 	observationRL *ObservationRateLimit // Rate limiter for observation events
+	version       int64                 // Increments on structural changes (prune, out-of-order insert)
 	mu            sync.RWMutex
 }
 
@@ -883,22 +884,28 @@ func (l *SyncLedger) GetAllEvents() []SyncEvent {
 	return result
 }
 
-// GetEventsSince returns events from the given position onwards.
-// This is more efficient than GetAllEvents for incremental processing
-// as it only copies events after the position, not the entire ledger.
-// Also returns the current total event count for position tracking.
-func (l *SyncLedger) GetEventsSince(position int) ([]SyncEvent, int) {
+// GetEventsSince returns events from the given position onwards, plus the current
+// total count and version. If the version has changed since the caller last saw it,
+// the caller should reset and reprocess from position 0.
+func (l *SyncLedger) GetEventsSince(position int) ([]SyncEvent, int, int64) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
 	total := len(l.Events)
 	if position >= total {
-		return nil, total
+		return nil, total, l.version
 	}
 
 	result := make([]SyncEvent, total-position)
 	copy(result, l.Events[position:])
-	return result, total
+	return result, total, l.version
+}
+
+// GetVersion returns the current structural version of the ledger.
+func (l *SyncLedger) GetVersion() int64 {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.version
 }
 
 // GetObservationEventsAbout returns all observation events about a specific subject
@@ -1238,6 +1245,9 @@ func (l *SyncLedger) pruneUnlocked() {
 	sort.Slice(l.Events, func(i, j int) bool {
 		return l.Events[i].Timestamp < l.Events[j].Timestamp
 	})
+
+	// Increment version - structure has changed, projections need to reset
+	l.version++
 }
 
 // --- Ping-specific queries ---

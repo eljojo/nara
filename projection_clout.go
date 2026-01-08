@@ -36,6 +36,13 @@ func NewCloutProjection(ledger *SyncLedger) *CloutProjection {
 
 	p.projection = NewProjection(ledger, p.handleEvent)
 
+	// Register reset handler to clear state when ledger is restructured
+	p.projection.SetOnReset(func() {
+		p.mu.Lock()
+		p.events = make([]SocialEventRecord, 0)
+		p.mu.Unlock()
+	})
+
 	return p
 }
 

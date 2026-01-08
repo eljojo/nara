@@ -11,21 +11,35 @@ import (
 // EventHandler is a callback function that processes a single event.
 type EventHandler func(event SyncEvent) error
 
+// ResetHandler is called when the projection needs to reset its state.
+type ResetHandler func()
+
 // Projection processes events from a SyncLedger incrementally.
 type Projection struct {
-	ledger   *SyncLedger
-	handler  EventHandler
-	position int // Index of next event to process
-	mu       sync.Mutex
+	ledger      *SyncLedger
+	handler     EventHandler
+	onReset     ResetHandler // Called when projection needs to clear state
+	position    int          // Index of next event to process
+	lastVersion int64        // Last seen ledger version
+	mu          sync.Mutex
 }
 
 // NewProjection creates a new projection with the given event handler.
 func NewProjection(ledger *SyncLedger, handler EventHandler) *Projection {
 	return &Projection{
-		ledger:   ledger,
-		handler:  handler,
-		position: 0,
+		ledger:      ledger,
+		handler:     handler,
+		position:    0,
+		lastVersion: -1, // -1 indicates "never processed" - don't reset on first run
 	}
+}
+
+// SetOnReset sets a callback that's invoked when the projection resets.
+// This allows projections to clear their derived state on reset.
+func (p *Projection) SetOnReset(handler ResetHandler) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.onReset = handler
 }
 
 // RunToEnd processes all events from the current position to the end of the ledger.
@@ -33,8 +47,16 @@ func (p *Projection) RunToEnd(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// Use incremental fetch - only get events we haven't processed yet
-	events, total := p.ledger.GetEventsSince(p.position)
+	// Check if ledger structure changed (pruning, etc.) - if so, reset and reprocess
+	events, total, version := p.ledger.GetEventsSince(p.position)
+	if version != p.lastVersion && p.lastVersion >= 0 {
+		// Ledger was restructured, need to reset and reprocess from beginning
+		p.position = 0
+		if p.onReset != nil {
+			p.onReset()
+		}
+		events, total, version = p.ledger.GetEventsSince(0)
+	}
 
 	for i, event := range events {
 		select {
@@ -49,6 +71,7 @@ func (p *Projection) RunToEnd(ctx context.Context) error {
 	}
 	// Ensure position is at the end even if no events processed
 	p.position = total
+	p.lastVersion = version
 
 	return nil
 }
@@ -59,10 +82,19 @@ func (p *Projection) RunOnce() (bool, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// Use incremental fetch - only get events we haven't processed yet
-	events, total := p.ledger.GetEventsSince(p.position)
+	// Check if ledger structure changed (pruning, etc.) - if so, reset and reprocess
+	events, total, version := p.ledger.GetEventsSince(p.position)
+	if version != p.lastVersion && p.lastVersion >= 0 {
+		// Ledger was restructured, need to reset and reprocess from beginning
+		p.position = 0
+		if p.onReset != nil {
+			p.onReset()
+		}
+		events, total, version = p.ledger.GetEventsSince(0)
+	}
 
 	if len(events) == 0 {
+		p.lastVersion = version
 		return false, nil
 	}
 
@@ -74,6 +106,7 @@ func (p *Projection) RunOnce() (bool, error) {
 	}
 	// Ensure position is at the end
 	p.position = total
+	p.lastVersion = version
 
 	return true, nil
 }

@@ -34,6 +34,13 @@ func NewOpinionConsensusProjection(ledger *SyncLedger) *OpinionConsensusProjecti
 
 	p.projection = NewProjection(ledger, p.handleEvent)
 
+	// Register reset handler to clear state when ledger is restructured
+	p.projection.SetOnReset(func() {
+		p.mu.Lock()
+		p.observationsBySubject = make(map[string][]ObservationRecord)
+		p.mu.Unlock()
+	})
+
 	return p
 }
 
