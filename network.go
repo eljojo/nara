@@ -321,7 +321,7 @@ func (network *Network) getPublicKeyForNara(name string) []byte {
 // The event is always added regardless - verification is informational
 func (network *Network) VerifySyncEvent(e *SyncEvent) bool {
 	if !e.IsSigned() {
-		logrus.Debugf("Unsigned event %s from service %s (actor: %s)", e.ID[:8], e.Service, e.GetActor())
+		logrus.Tracef("Unsigned event %s from service %s (actor: %s)", e.ID[:8], e.Service, e.GetActor())
 		return true // Unsigned is acceptable, just log it
 	}
 
@@ -337,7 +337,7 @@ func (network *Network) VerifySyncEvent(e *SyncEvent) bool {
 		return false // Bad signature - suspicious
 	}
 
-	logrus.Debugf("Verified event %s from %s", e.ID[:8], e.Emitter)
+	logrus.Tracef("Verified event %s from %s", e.ID[:8], e.Emitter)
 	return true
 }
 

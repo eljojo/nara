@@ -115,7 +115,9 @@ func main() {
 		*authKeyPtr = deobfuscate(defaultHeadscaleKeyEnc)
 	}
 
-	if *verbosePtr || *extraVerbosePtr {
+	if *extraVerbosePtr {
+		logrus.SetLevel(logrus.TraceLevel)
+	} else if *verbosePtr {
 		logrus.SetLevel(logrus.DebugLevel)
 	}
 
