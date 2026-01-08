@@ -580,6 +580,9 @@ func (network *Network) emitHeyThereSyncEvent() {
 
 	event := NewHeyThereSyncEvent(network.meName(), publicKey, meshIP, network.local.Keypair)
 	network.local.SyncLedger.MergeEvents([]SyncEvent{event})
+	if network.local.Projections != nil {
+		network.local.Projections.Trigger()
+	}
 	logrus.Infof("%s: 👋 (gossip)", network.meName())
 }
 
@@ -653,6 +656,9 @@ func (network *Network) emitChauSyncEvent() {
 	publicKey := FormatPublicKey(network.local.Keypair.PublicKey)
 	event := NewChauSyncEvent(network.meName(), publicKey, network.local.Keypair)
 	network.local.SyncLedger.MergeEvents([]SyncEvent{event})
+	if network.local.Projections != nil {
+		network.local.Projections.Trigger()
+	}
 	logrus.Infof("%s: chau! (gossip)", network.meName())
 }
 
@@ -1374,6 +1380,9 @@ func (network *Network) handleHeyThereEvent(event SyncEvent) {
 	// Add to ledger for gossip propagation
 	if network.local.SyncLedger != nil {
 		network.local.SyncLedger.AddEvent(event)
+		if network.local.Projections != nil {
+			network.local.Projections.Trigger()
+		}
 	}
 
 	// Store PublicKey and MeshIP from the hey_there event
@@ -1619,9 +1628,13 @@ func (network *Network) heyThere() {
 	network.postEvent(topic, event)
 	logrus.Printf("%s: 👋 (MQTT)", network.meName())
 
-	// Also add to our ledger for gossip propagation
+	// Also add to our ledger for gossip propagation and projection tracking
 	if network.local.SyncLedger != nil {
 		network.local.SyncLedger.AddEvent(event)
+		// Trigger projection so it knows we're online
+		if network.local.Projections != nil {
+			network.local.Projections.Trigger()
+		}
 	}
 
 	network.Buzz.increase(2)
@@ -1683,6 +1696,9 @@ func (network *Network) handleChauEvent(syncEvent SyncEvent) {
 	// Add to ledger for gossip propagation
 	if network.local.SyncLedger != nil {
 		network.local.SyncLedger.AddEvent(syncEvent)
+		if network.local.Projections != nil {
+			network.local.Projections.Trigger()
+		}
 	}
 
 	observation := network.local.getObservation(chau.From)
@@ -1737,6 +1753,9 @@ func (network *Network) Chau() {
 	// Also add to ledger for gossip propagation
 	if network.local.SyncLedger != nil {
 		network.local.SyncLedger.AddEvent(event)
+		if network.local.Projections != nil {
+			network.local.Projections.Trigger()
+		}
 	}
 }
 
@@ -2687,6 +2706,9 @@ func (network *Network) backfillObservations() {
 
 	if backfillCount > 0 {
 		logrus.Printf("📦 Backfilled %d historical observations into event system", backfillCount)
+		if network.local.Projections != nil {
+			network.local.Projections.Trigger()
+		}
 	} else {
 		logrus.Printf("📦 No backfill needed (events already present or no meaningful data)")
 	}

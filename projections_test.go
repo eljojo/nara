@@ -447,3 +447,59 @@ func TestGetEventsSinceReturnsVersion(t *testing.T) {
 		t.Errorf("GetVersion() %d != GetEventsSince version %d", ledger.GetVersion(), version)
 	}
 }
+
+// TestOnlineStatusOwnHeyThereInLedger verifies that when a nara sends hey_there,
+// it must be added to their own ledger so the projection knows they're online.
+// The fix: network.go HeyThere() now adds event to SyncLedger and triggers projection.
+func TestOnlineStatusOwnHeyThereInLedger(t *testing.T) {
+	// Create a local nara that will send hey_there
+	ledger := NewSyncLedger(100)
+	projection := NewOnlineStatusProjection(ledger)
+
+	// Initial catchup
+	projection.RunToEnd(context.Background())
+
+	// Simulate what HeyThere() does: create and "send" a hey_there event
+	myName := "test-nara"
+	heyThereEvent := SyncEvent{
+		Timestamp: time.Now().UnixNano(),
+		Service:   ServiceHeyThere,
+		HeyThere: &HeyThereEvent{
+			From:      myName,
+			PublicKey: "test-key",
+		},
+	}
+	heyThereEvent.ComputeID()
+
+	// The fix: add hey_there to local ledger (simulates what HeyThere() does after fix)
+	ledger.AddEvent(heyThereEvent)
+
+	// The fix also triggers the projection immediately
+	projection.RunOnce()
+
+	// Check our own status - should be ONLINE
+	status := projection.GetStatus(myName)
+	if status != "ONLINE" {
+		t.Errorf("Expected ONLINE status for ourselves after sending hey_there, got %q", status)
+	}
+}
+
+// TestOnlineStatusWithoutOwnHeyThere documents the bug behavior when hey_there isn't in ledger.
+func TestOnlineStatusWithoutOwnHeyThere(t *testing.T) {
+	// This test documents what happens WITHOUT the fix (bug behavior)
+	ledger := NewSyncLedger(100)
+	projection := NewOnlineStatusProjection(ledger)
+	projection.RunToEnd(context.Background())
+
+	myName := "test-nara"
+	// Simulate OLD bug: hey_there was sent to MQTT but NOT added to local ledger
+	// (no event added)
+
+	projection.RunOnce()
+
+	// Without any events, projection returns "" (unknown)
+	status := projection.GetStatus(myName)
+	if status != "" {
+		t.Errorf("Expected empty status when no events in ledger, got %q", status)
+	}
+}
