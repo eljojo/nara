@@ -95,15 +95,11 @@ func (network *Network) formOpinion() {
 	}()
 
 	// Wait for boot recovery to complete first (so we have data to form opinions on)
-	// Use select to handle both normal operation and direct test calls
-	if network.bootRecoveryDone != nil {
-		select {
-		case <-network.bootRecoveryDone:
-			logrus.Debug("🕵️  boot recovery done, now starting opinion timer")
-		case <-time.After(100 * time.Millisecond):
-			// In tests or direct calls, don't wait forever
-			logrus.Debug("🕵️  boot recovery channel not signaled, proceeding (likely test/direct call)")
-		}
+	// Skip waiting in test mode (OpinionDelayOverride set) or if channel is nil
+	if network.bootRecoveryDone != nil && OpinionDelayOverride == 0 {
+		logrus.Debug("🕵️  waiting for boot recovery to complete...")
+		<-network.bootRecoveryDone
+		logrus.Debug("🕵️  boot recovery done, now starting opinion timer")
 	}
 
 	if OpinionDelayOverride > 0 {

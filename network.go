@@ -78,8 +78,8 @@ type Network struct {
 	ctx        context.Context
 	cancelFunc context.CancelFunc
 	// Startup sequencing: operations must complete in order
-	bootRecoveryDone  chan struct{}
-	formOpinionsDone  chan struct{}
+	bootRecoveryDone chan struct{}
+	formOpinionsDone chan struct{}
 	// Test hooks (only used in tests)
 	testHTTPClient *http.Client      // Override HTTP client for testing
 	testMeshURLs   map[string]string // Override mesh URLs for testing (nara name -> URL)
@@ -1311,19 +1311,22 @@ func (network *Network) handleLedgerResponse(resp LedgerResponse) {
 	}
 }
 
-// getNeighborsForBootRecovery returns online neighbors, triggering mesh discovery first if needed.
-// In gossip-only mode, we must discover peers via mesh since there's no MQTT to populate neighbors.
+// getNeighborsForBootRecovery returns online neighbors.
+// Only re-discovers if no peers are known (peers are typically discovered at connect time in gossip mode).
 func (network *Network) getNeighborsForBootRecovery() []string {
-	// In gossip-only mode, discover peers via mesh first
-	if network.TransportMode == TransportGossip {
-		logrus.Debugf("📡 Boot recovery: gossip mode, checking mesh discovery conditions (tsnetMesh=%v, peerDiscovery=%v)",
-			network.tsnetMesh != nil, network.peerDiscovery != nil)
-		if network.tsnetMesh != nil && network.peerDiscovery != nil {
-			logrus.Info("📡 Boot recovery: triggering mesh discovery...")
+	online := network.NeighbourhoodOnlineNames()
+
+	// In gossip-only mode, only re-discover if we have no peers
+	// (peers are normally discovered immediately after tsnet connects)
+	if len(online) == 0 && network.TransportMode == TransportGossip {
+		logrus.Debug("📡 Boot recovery: no peers known, triggering mesh discovery...")
+		if network.tsnetMesh != nil {
 			network.discoverMeshPeers()
+			online = network.NeighbourhoodOnlineNames()
 		}
 	}
-	return network.NeighbourhoodOnlineNames()
+
+	return online
 }
 
 // bootRecovery requests social events from neighbors after boot
@@ -1334,21 +1337,31 @@ func (network *Network) bootRecovery() {
 		logrus.Debug("📦 boot recovery complete, signaling formOpinion to proceed")
 	}()
 
-	// Wait for initial neighbor discovery
-	time.Sleep(30 * time.Second)
-
-	// Retry up to 3 times with backoff if no neighbors found
+	// In gossip mode, check if peers are already discovered (from immediate discovery at connect)
+	// If so, skip the 30s wait and start syncing right away
 	var online []string
-	for attempt := 0; attempt < 3; attempt++ {
-		// Use helper that triggers mesh discovery in gossip-only mode
-		online = network.getNeighborsForBootRecovery()
+	if network.TransportMode == TransportGossip {
+		online = network.NeighbourhoodOnlineNames()
 		if len(online) > 0 {
-			break
+			logrus.Printf("📦 Gossip mode: %d peers already discovered, starting boot recovery immediately", len(online))
 		}
-		if attempt < 2 {
-			waitTime := time.Duration(30*(attempt+1)) * time.Second
-			logrus.Printf("📦 no neighbors for boot recovery, retrying in %v...", waitTime)
-			time.Sleep(waitTime)
+	}
+
+	// Wait for initial neighbor discovery (only if we don't have peers yet)
+	if len(online) == 0 {
+		time.Sleep(30 * time.Second)
+
+		// Retry up to 3 times with backoff if no neighbors found
+		for attempt := 0; attempt < 3; attempt++ {
+			online = network.getNeighborsForBootRecovery()
+			if len(online) > 0 {
+				break
+			}
+			if attempt < 2 {
+				waitTime := time.Duration(30*(attempt+1)) * time.Second
+				logrus.Printf("📦 no neighbors for boot recovery, retrying in %v...", waitTime)
+				time.Sleep(waitTime)
+			}
 		}
 	}
 
@@ -1370,7 +1383,7 @@ func (network *Network) bootRecovery() {
 // BootRecoveryTargetEvents is the target number of events to fetch on boot
 const BootRecoveryTargetEvents = 10000
 
-// bootRecoveryViaMesh uses direct HTTP to sync events from neighbors
+// bootRecoveryViaMesh uses direct HTTP to sync events from neighbors (parallelized)
 func (network *Network) bootRecoveryViaMesh(online []string) {
 	// Get all known subjects (naras)
 	subjects := append(online, network.meName())
@@ -1404,10 +1417,7 @@ func (network *Network) bootRecoveryViaMesh(online []string) {
 		eventsPerNeighbor = 100 // minimum events per neighbor
 	}
 
-	logrus.Printf("📦 boot recovery via mesh: syncing from %d neighbors (~%d events each)", totalSlices, eventsPerNeighbor)
-
-	// Query each neighbor with interleaved slicing
-	var totalMerged int
+	logrus.Printf("📦 boot recovery via mesh: syncing from %d neighbors in parallel (~%d events each)", totalSlices, eventsPerNeighbor)
 
 	// Use tsnet HTTP client to route through Tailscale
 	var client *http.Client
@@ -1419,19 +1429,51 @@ func (network *Network) bootRecoveryViaMesh(online []string) {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
 
+	// Fetch from all neighbors in parallel
+	type syncResult struct {
+		name         string
+		events       []SyncEvent
+		respVerified bool
+	}
+	results := make(chan syncResult, len(meshNeighbors))
+	var wg sync.WaitGroup
+
+	// Limit concurrent requests to avoid overwhelming the network
+	const maxConcurrent = 10
+	sem := make(chan struct{}, maxConcurrent)
+
 	for i, neighbor := range meshNeighbors {
-		events, respVerified := network.fetchSyncEventsFromMesh(client, neighbor.ip, neighbor.name, subjects, i, totalSlices, eventsPerNeighbor)
-		if len(events) > 0 {
-			// Merge into SyncLedger with per-event signature verification
-			added, warned := network.MergeSyncEventsWithVerification(events)
+		wg.Add(1)
+		sem <- struct{}{} // Acquire semaphore
+
+		go func(idx int, n struct{ name, ip string }) {
+			defer wg.Done()
+			defer func() { <-sem }() // Release semaphore
+
+			events, respVerified := network.fetchSyncEventsFromMesh(client, n.ip, n.name, subjects, idx, totalSlices, eventsPerNeighbor)
+			results <- syncResult{name: n.name, events: events, respVerified: respVerified}
+		}(i, neighbor)
+	}
+
+	// Close results channel when all fetches complete
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Process results as they arrive (merging is thread-safe)
+	var totalMerged int
+	for result := range results {
+		if len(result.events) > 0 {
+			added, warned := network.MergeSyncEventsWithVerification(result.events)
 			totalMerged += added
 			verifiedStr := ""
-			if respVerified && warned == 0 {
+			if result.respVerified && warned == 0 {
 				verifiedStr = " ✓"
 			} else if warned > 0 {
 				verifiedStr = fmt.Sprintf(" ⚠%d", warned)
 			}
-			logrus.Printf("📦 mesh sync from %s: received %d events, merged %d%s", neighbor.name, len(events), added, verifiedStr)
+			logrus.Printf("📦 mesh sync from %s: received %d events, merged %d%s", result.name, len(result.events), added, verifiedStr)
 		}
 	}
 
@@ -1823,8 +1865,9 @@ type PeerDiscovery interface {
 
 // DiscoveredPeer represents a nara found via discovery
 type DiscoveredPeer struct {
-	Name   string
-	MeshIP string
+	Name      string
+	MeshIP    string
+	PublicKey string // Ed25519 public key (from /ping response)
 }
 
 // TailscalePeerDiscovery scans the Tailscale mesh subnet for peers
@@ -1885,10 +1928,14 @@ func (d *TailscalePeerDiscovery) ScanForPeers(myIP string) []DiscoveredPeer {
 				return
 			}
 
+			// Extract public key if present
+			pubKey, _ := pingResp["public_key"].(string)
+
 			mu.Lock()
 			peers = append(peers, DiscoveredPeer{
-				Name:   naraName,
-				MeshIP: ip,
+				Name:      naraName,
+				MeshIP:    ip,
+				PublicKey: pubKey,
 			})
 			mu.Unlock()
 		}(ip)
@@ -1899,8 +1946,9 @@ func (d *TailscalePeerDiscovery) ScanForPeers(myIP string) []DiscoveredPeer {
 	return peers
 }
 
-// discoverMeshPeers discovers peers and bootstraps from them
+// discoverMeshPeers discovers peers and fetches their public keys
 // This replaces MQTT-based discovery in gossip-only mode
+// Note: Does NOT bootstrap from peers - that's handled by bootRecovery
 func (network *Network) discoverMeshPeers() {
 	if network.tsnetMesh == nil {
 		return
@@ -1917,21 +1965,22 @@ func (network *Network) discoverMeshPeers() {
 	tsnetPeers, err := network.tsnetMesh.Peers(ctx)
 	if err != nil {
 		logrus.Debugf("📡 Status API failed, falling back to IP scan: %v", err)
-		// Fall back to IP scanning if Status API fails
+		// Fall back to IP scanning if Status API fails (includes public keys)
 		if network.peerDiscovery != nil {
 			peers = network.peerDiscovery.ScanForPeers(network.tsnetMesh.IP())
 		}
 	} else {
-		// Convert TsnetPeer to DiscoveredPeer
+		// Convert TsnetPeer to DiscoveredPeer (no public keys yet)
 		for _, p := range tsnetPeers {
 			peers = append(peers, DiscoveredPeer{Name: p.Name, MeshIP: p.IP})
 		}
 		logrus.Infof("📡 Got %d peers from tsnet Status API (instant!)", len(peers))
+
+		// Fetch public keys from peers in parallel
+		peers = network.fetchPublicKeysFromPeers(peers)
 	}
 
 	discovered := 0
-	var newPeers []DiscoveredPeer
-
 	for _, peer := range peers {
 		// Skip self
 		if peer.Name == myName {
@@ -1940,29 +1989,100 @@ func (network *Network) discoverMeshPeers() {
 
 		// Check if we already know this nara
 		network.local.mu.Lock()
-		_, exists := network.Neighbourhood[peer.Name]
+		existing, exists := network.Neighbourhood[peer.Name]
 		network.local.mu.Unlock()
 
 		if !exists {
-			// New peer - add to neighborhood
+			// New peer - add to neighborhood with public key
 			nara := NewNara(peer.Name)
 			nara.Status.MeshIP = peer.MeshIP
 			nara.Status.MeshEnabled = true
+			nara.Status.PublicKey = peer.PublicKey
 			network.importNara(nara)
 			network.local.setObservation(peer.Name, NaraObservation{Online: "ONLINE"})
-
-			newPeers = append(newPeers, peer)
 			discovered++
-			logrus.Infof("📡 Discovered mesh peer: %s at %s", peer.Name, peer.MeshIP)
+			if peer.PublicKey != "" {
+				logrus.Infof("📡 Discovered mesh peer: %s at %s (🔑)", peer.Name, peer.MeshIP)
+			} else {
+				logrus.Infof("📡 Discovered mesh peer: %s at %s (no key yet)", peer.Name, peer.MeshIP)
+			}
+		} else if peer.PublicKey != "" && existing.Status.PublicKey == "" {
+			// Update existing peer with newly discovered public key
+			existing.Status.PublicKey = peer.PublicKey
+			logrus.Infof("📡 Updated public key for %s (🔑)", peer.Name)
 		}
 	}
 
 	if discovered > 0 {
 		logrus.Printf("📡 Mesh discovery complete: found %d new peers", discovered)
-
-		// Bootstrap from discovered peers (like boot recovery but triggered by discovery)
-		network.bootstrapFromDiscoveredPeers(newPeers)
 	}
+}
+
+// fetchPublicKeysFromPeers pings peers in parallel to get their public keys
+// This is necessary because tsnet Status API only gives us names and IPs
+func (network *Network) fetchPublicKeysFromPeers(peers []DiscoveredPeer) []DiscoveredPeer {
+	if network.tsnetMesh == nil || network.tsnetMesh.Server() == nil {
+		return peers
+	}
+
+	client := network.tsnetMesh.Server().HTTPClient()
+	client.Timeout = 2 * time.Second
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	// Process in parallel with a semaphore
+	const maxConcurrent = 20
+	sem := make(chan struct{}, maxConcurrent)
+
+	for i := range peers {
+		if peers[i].PublicKey != "" {
+			continue // Already has public key
+		}
+
+		wg.Add(1)
+		sem <- struct{}{} // Acquire semaphore
+
+		go func(idx int) {
+			defer wg.Done()
+			defer func() { <-sem }() // Release semaphore
+
+			url := fmt.Sprintf("http://%s:%d/ping", peers[idx].MeshIP, DefaultMeshPort)
+			resp, err := client.Get(url)
+			if err != nil {
+				return
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				return
+			}
+
+			var pingResp map[string]interface{}
+			if err := json.NewDecoder(resp.Body).Decode(&pingResp); err != nil {
+				return
+			}
+
+			if pubKey, ok := pingResp["public_key"].(string); ok && pubKey != "" {
+				mu.Lock()
+				peers[idx].PublicKey = pubKey
+				mu.Unlock()
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Count how many have public keys
+	withKeys := 0
+	for _, p := range peers {
+		if p.PublicKey != "" {
+			withKeys++
+		}
+	}
+	logrus.Debugf("📡 Fetched public keys: %d/%d peers have keys", withKeys, len(peers))
+
+	return peers
 }
 
 // bootstrapFromDiscoveredPeers fetches initial state from newly discovered peers
