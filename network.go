@@ -463,6 +463,10 @@ func (network *Network) MergeSyncEventsWithVerification(events []SyncEvent) (add
 	// Process chau sync events for graceful shutdown detection
 	network.processChauSyncEvents(events)
 
+	// Mark event emitters as seen - if we receive events they created,
+	// that's evidence they exist and are active
+	network.markEmittersAsSeen(events)
+
 	for i := range events {
 		e := &events[i]
 		if !network.VerifySyncEvent(e) {
@@ -506,6 +510,38 @@ func (network *Network) discoverNarasFromEvents(events []SyncEvent) {
 				logrus.Debugf("📖 Discovered nara %s from event stream", name)
 			}
 		}
+	}
+}
+
+// markEmittersAsSeen marks event emitters as seen/online.
+// When we receive events that a nara created (they're the Emitter), that's evidence
+// they exist and are active. This allows us to discover naras through zine/gossip
+// exchanges before we directly receive their newspaper.
+func (network *Network) markEmittersAsSeen(events []SyncEvent) {
+	if network.local.isBooting() {
+		return // Don't mark during boot to avoid noise
+	}
+
+	seen := make(map[string]bool)
+	myName := network.meName()
+
+	for _, e := range events {
+		emitter := e.Emitter
+		if emitter == "" || emitter == myName || seen[emitter] {
+			continue
+		}
+		seen[emitter] = true
+
+		// Check if we already have this nara marked as online
+		obs := network.local.getObservation(emitter)
+		if obs.Online == "ONLINE" {
+			continue // Already marked as online, skip
+		}
+
+		// Mark them as seen - we received events they emitted
+		network.recordObservationOnlineNara(emitter)
+		network.emitSeenEvent(emitter, "event")
+		logrus.Debugf("📖 Marked %s as seen via event emission", emitter)
 	}
 }
 

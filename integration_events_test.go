@@ -820,3 +820,77 @@ func TestIntegration_DirectObservationSetMissingLastSeen(t *testing.T) {
 
 	t.Log("⚠️  Direct setObservation with only Online leaves LastSeen=0 - use recordObservationOnlineNara instead")
 }
+
+// TestIntegration_ZineMergeMarksEmittersAsSeen verifies that when we receive events
+// via zine merge where a nara is the EMITTER, they should be marked as seen.
+//
+// This tests the scenario from production where:
+// 1. We receive a zine with events emitted by r2d2 (teases, etc.)
+// 2. r2d2 should be discovered AND marked as seen
+// 3. Currently r2d2 is only discovered but not marked as seen until we directly
+//    receive their newspaper
+//
+// BUG: discoverNarasFromEvents creates entries but doesn't emit seen events
+// for emitters, so they appear as "unknown" rather than "online" until we
+// directly receive their newspaper.
+func TestIntegration_ZineMergeMarksEmittersAsSeen(t *testing.T) {
+	logrus.SetLevel(logrus.ErrorLevel)
+
+	// Enable observation events for this test
+	os.Setenv("USE_OBSERVATION_EVENTS", "true")
+	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
+
+	ln := NewLocalNara("observer", testSoul("observer"), "", "", "", 50, 1000)
+	network := ln.Network
+
+	// Fake an older start time so we're not in booting mode
+	me := ln.getMeObservation()
+	me.LastRestart = time.Now().Unix() - 200
+	me.LastSeen = time.Now().Unix()
+	ln.setMeObservation(me)
+
+	// Verify r2d2 is not known initially
+	_, known := network.Neighbourhood["r2d2"]
+	if known {
+		t.Fatal("r2d2 should not be known initially")
+	}
+
+	// Create events that r2d2 emitted (like a tease)
+	// These are events we'd receive via zine merge
+	r2d2Soul := NativeSoulCustom([]byte("test-hw-r2d2"), "r2d2")
+	r2d2Keypair := DeriveKeypair(r2d2Soul)
+	teaseEvent := NewSignedSocialSyncEvent("tease", "r2d2", "observer", ReasonHighRestarts, "witness", "r2d2", r2d2Keypair)
+
+	// Simulate receiving these events via zine merge
+	network.MergeSyncEventsWithVerification([]SyncEvent{teaseEvent})
+
+	// r2d2 should now be discovered (in Neighbourhood)
+	_, known = network.Neighbourhood["r2d2"]
+	if !known {
+		t.Error("r2d2 should be discovered after merging events they emitted")
+	}
+
+	// BUG: r2d2 should also be marked as "seen" (observation with Online status)
+	// because we received events they emitted - that's evidence they exist and are active
+	obs := ln.getObservation("r2d2")
+
+	// This is the expected behavior that currently fails:
+	// When we receive events EMITTED by a nara, they should be marked as seen
+	if obs.Online != "ONLINE" {
+		t.Errorf("BUG: r2d2 should be marked as ONLINE after receiving events they emitted, got %q", obs.Online)
+		t.Log("Expected: receiving events emitted by r2d2 should mark them as seen/online")
+		t.Log("Actual: r2d2 is discovered but not marked online until we receive their newspaper directly")
+	}
+
+	// Additionally, we should have emitted a seen event for r2d2
+	seenEvents := 0
+	for _, e := range ln.SyncLedger.GetAllEvents() {
+		if e.Service == ServiceSeen && e.Seen != nil && e.Seen.Subject == "r2d2" {
+			seenEvents++
+		}
+	}
+
+	if seenEvents == 0 {
+		t.Error("BUG: Should have emitted a seen event for r2d2 after receiving events they emitted")
+	}
+}
