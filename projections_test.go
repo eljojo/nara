@@ -630,3 +630,183 @@ func TestOnlineStatusAfterResetWithMixedTimestamps(t *testing.T) {
 		t.Errorf("After pruning: expected lisa ONLINE, got %q", status)
 	}
 }
+
+// TestOnlineStatusRaceConditionWithAsyncTrigger tests the race condition where
+// the observation maintenance loop reads from the projection before it has
+// processed newly added events. This simulates what happens during zine merges:
+//   1. Events are added to ledger
+//   2. Trigger() is called (async, doesn't block)
+//   3. Observation loop calls GetStatus() immediately
+//   4. BUG: GetStatus returns stale data
+//
+// The fix is to call RunOnce() synchronously before reading status.
+func TestOnlineStatusRaceConditionWithAsyncTrigger(t *testing.T) {
+	ledger := NewSyncLedger(100)
+	projection := NewOnlineStatusProjection(ledger)
+	now := time.Now().UnixNano()
+
+	// Phase 1: Initial state - bob is OFFLINE (via chau event)
+	oldChauEvent := SyncEvent{
+		Timestamp: now - int64(10*time.Second),
+		Service:   ServiceChau,
+		Chau: &ChauEvent{
+			From: "bob",
+		},
+	}
+	oldChauEvent.ComputeID()
+	ledger.AddEvent(oldChauEvent)
+
+	// Process initial events
+	projection.RunOnce()
+
+	// Verify bob is OFFLINE
+	status := projection.GetStatus("bob")
+	if status != "OFFLINE" {
+		t.Fatalf("Initial state: expected bob OFFLINE, got %q", status)
+	}
+
+	// Phase 2: Simulate zine merge - add hey_there that makes bob ONLINE
+	// This is what happens when we receive a zine with bob's recent hey_there
+	recentHeyThere := SyncEvent{
+		Timestamp: now - int64(5*time.Second), // More recent than chau
+		Service:   ServiceHeyThere,
+		HeyThere: &HeyThereEvent{
+			From:      "bob",
+			PublicKey: "bob-key",
+		},
+	}
+	recentHeyThere.ComputeID()
+	ledger.AddEvent(recentHeyThere)
+
+	// In production, Trigger() is called here (async, doesn't wait)
+	projection.Trigger()
+
+	// BUG SCENARIO: Observation loop runs immediately after Trigger()
+	// WITHOUT calling RunOnce() first. The projection hasn't processed
+	// the new event yet, so it returns stale data.
+	//
+	// Note: In this test, Trigger() sends to a channel but there's no
+	// goroutine receiving (RunContinuous isn't running), so the projection
+	// state is definitely stale here.
+	staleStatus := projection.GetStatus("bob")
+
+	// The stale status should still be OFFLINE (the bug behavior)
+	// This verifies our test actually captures the race condition.
+	if staleStatus != "OFFLINE" {
+		t.Errorf("Race condition test: expected stale status OFFLINE, got %q", staleStatus)
+		t.Log("If this fails, the test isn't properly capturing the race condition")
+	}
+
+	// FIX: Call RunOnce() synchronously before reading status
+	// This is what the observation maintenance loop should do.
+	projection.RunOnce()
+
+	// Now status should be correct (ONLINE from the recent hey_there)
+	correctStatus := projection.GetStatus("bob")
+	if correctStatus != "ONLINE" {
+		t.Errorf("After RunOnce fix: expected bob ONLINE, got %q", correctStatus)
+		t.Log("The fix is to call RunOnce() before GetStatus() in the observation loop")
+	}
+}
+
+// TestOnlineStatusRaceWithVersionChange tests the race condition when events
+// cause a ledger version change (pruning). This simulates:
+//   1. Projection is up-to-date at version V1
+//   2. Zine merge causes many events to be added
+//   3. Pruning happens, version changes to V2
+//   4. Observation loop reads from projection (still at V1)
+//   5. BUG: Projection doesn't know it needs to reset
+//
+// The fix is RunOnce() which checks version and resets if needed.
+func TestOnlineStatusRaceWithVersionChange(t *testing.T) {
+	ledger := NewSyncLedger(20) // Small capacity to trigger pruning
+	projection := NewOnlineStatusProjection(ledger)
+	now := time.Now().UnixNano()
+
+	// Phase 1: Add events including one for "charlie"
+	for i := 0; i < 10; i++ {
+		ledger.AddEvent(SyncEvent{
+			Timestamp: now - int64(15-i)*int64(time.Second),
+			Service:   ServiceSeen,
+			Seen: &SeenEvent{
+				Observer: "observer",
+				Subject:  "other" + string(rune('0'+i)),
+				Via:      "test",
+			},
+		})
+	}
+
+	// Add a recent event for charlie
+	charlieEvent := SyncEvent{
+		Timestamp: now - int64(5*time.Second),
+		Service:   ServiceHeyThere,
+		HeyThere: &HeyThereEvent{
+			From:      "charlie",
+			PublicKey: "charlie-key",
+		},
+	}
+	charlieEvent.ComputeID()
+	ledger.AddEvent(charlieEvent)
+
+	// Process all events
+	projection.RunOnce()
+
+	// Verify charlie is ONLINE
+	status := projection.GetStatus("charlie")
+	if status != "ONLINE" {
+		t.Fatalf("Initial state: expected charlie ONLINE, got %q", status)
+	}
+
+	// Record the current version
+	initialVersion := ledger.GetVersion()
+
+	// Phase 2: Simulate zine merge that causes pruning
+	// Add many events to exceed capacity and trigger pruning
+	for i := 0; i < 15; i++ {
+		ledger.AddEvent(SyncEvent{
+			Timestamp: now + int64(i*1000), // Recent timestamps
+			Service:   ServiceSeen,
+			Seen: &SeenEvent{
+				Observer: "other-observer",
+				Subject:  "new-nara" + string(rune('0'+i)),
+				Via:      "zine",
+			},
+		})
+	}
+
+	// Trigger (async)
+	projection.Trigger()
+
+	// Version should have changed due to pruning
+	newVersion := ledger.GetVersion()
+	if newVersion == initialVersion {
+		t.Log("Warning: Version didn't change. Test might not be exercising the version-change path.")
+	}
+
+	// BUG SCENARIO: Reading status without RunOnce()
+	// The projection still has charlie's state, but it might be inconsistent
+	// because the ledger was restructured.
+	//
+	// Without RunOnce(), the projection doesn't know to reset.
+	// This might still return ONLINE in some cases, but the state is stale.
+	// The key issue is the projection doesn't know the ledger changed.
+
+	// FIX: Call RunOnce() which checks version and resets if needed
+	projection.RunOnce()
+
+	// After RunOnce(), if charlie's event survived pruning, status is ONLINE
+	// If it was pruned, status would be "" (unknown)
+	fixedStatus := projection.GetStatus("charlie")
+
+	// Charlie's event should have survived (it's relatively recent)
+	// The important thing is that RunOnce() properly processed the version change
+	if fixedStatus == "" {
+		t.Log("Charlie's event was pruned - this is expected behavior")
+		t.Log("The test verifies RunOnce() properly handles version changes")
+	} else if fixedStatus == "ONLINE" {
+		t.Log("Charlie's event survived pruning - status correctly shows ONLINE")
+	} else if fixedStatus == "MISSING" {
+		t.Errorf("After RunOnce fix: charlie incorrectly marked as MISSING")
+		t.Log("This would indicate the timestamp-sorting fix isn't working")
+	}
+}

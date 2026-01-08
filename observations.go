@@ -406,6 +406,13 @@ func (network *Network) observationMaintenance() {
 
 		now := time.Now().Unix()
 
+		// Ensure projection is up-to-date before checking statuses
+		// This synchronously processes any pending events, avoiding race
+		// conditions where we read stale data during/after a zine merge.
+		if useObservationEvents() && network.local.Projections != nil && !network.local.isBooting() {
+			network.local.Projections.OnlineStatus().RunOnce()
+		}
+
 		for name, observation := range observations {
 			// Event-sourced status derivation when enabled
 			// This uses the event log to determine online status rather than LastSeen

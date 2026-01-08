@@ -1044,6 +1044,8 @@ func (l *SyncLedger) addObservationWithCompaction(e SyncEvent, withDedup bool) b
 		}
 		l.Events = newEvents
 		delete(l.eventIDs, toRemove.id)
+		// Increment version - structure has changed, projections need to reset
+		l.version++
 	}
 
 	// Validate and add the new event
