@@ -27,7 +27,6 @@ func (network *Network) subscribeHandlers(client mqtt.Client) {
 	subscribeMqtt(client, "nara/plaza/social", network.socialHandler)
 	subscribeMqtt(client, "nara/plaza/journey_complete", network.journeyCompleteHandler)
 	subscribeMqtt(client, "nara/newspaper/#", network.newspaperHandler)
-	subscribeMqtt(client, "nara/selfies/#", network.selfieHandler)
 
 	// Subscribe to ledger requests and responses for this nara
 	ledgerRequestTopic := fmt.Sprintf("nara/ledger/%s/request", network.meName())
@@ -48,20 +47,6 @@ func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 	}
 
 	network.heyThereInbox <- *heyThere
-}
-
-func (network *Network) selfieHandler(client mqtt.Client, msg mqtt.Message) {
-	nara := NewNara("")
-	if err := json.Unmarshal(msg.Payload(), nara); err != nil {
-		logrus.Infof("selfieHandler: invalid JSON: %v", err)
-		return
-	}
-
-	if nara.Name == network.meName() || nara.Name == "" {
-		return
-	}
-
-	network.selfieInbox <- *nara
 }
 
 func (network *Network) chauHandler(client mqtt.Client, msg mqtt.Message) {
