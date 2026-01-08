@@ -988,9 +988,10 @@ func (network *Network) meName() string {
 	return network.local.Me.Name
 }
 
-// useObservationEvents returns true if event-driven observation mode is enabled
+// useObservationEvents returns true if event-driven observation mode is enabled.
+// Default is true (on). Set USE_OBSERVATION_EVENTS=false to disable.
 func useObservationEvents() bool {
-	return os.Getenv("USE_OBSERVATION_EVENTS") == "true"
+	return os.Getenv("USE_OBSERVATION_EVENTS") != "false"
 }
 
 func (network *Network) announce() {

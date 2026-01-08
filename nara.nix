@@ -87,7 +87,6 @@ in
               Restart = "always";
               RestartSec = 3;
               EnvironmentFile = lib.optional (cfg.environmentFile != null) cfg.environmentFile;
-              Environment = [ "USE_OBSERVATION_EVENTS=true" ];
             };
           };
         };
