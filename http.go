@@ -338,7 +338,7 @@ func (network *Network) httpRecentEventsHandler(w http.ResponseWriter, r *http.R
 		}
 	}
 
-	// Convert to JSON-friendly format
+	// Convert to JSON-friendly format (timestamps in seconds for UI)
 	var eventList []map[string]interface{}
 	for _, e := range events {
 		eventList = append(eventList, map[string]interface{}{
@@ -346,7 +346,7 @@ func (network *Network) httpRecentEventsHandler(w http.ResponseWriter, r *http.R
 			"target":    e.Target,
 			"reason":    e.Reason,
 			"message":   TeaseMessage(e.Reason, e.Actor, e.Target),
-			"timestamp": e.Timestamp,
+			"timestamp": e.Timestamp / 1e9, // Convert nanoseconds to seconds for UI
 		})
 	}
 

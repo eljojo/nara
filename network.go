@@ -3634,18 +3634,25 @@ func (network *Network) emitSeenEvent(subject, via string) {
 		return
 	}
 
-	// Rate limit: check if we've seen this nara recently (within 1 minute)
-	// to avoid spamming the ledger with "I saw bob" every second
-	events := network.getRecentEventsFor(subject)
-	if len(events) > 0 {
-		latest := events[0]
-		age := time.Now().UnixNano() - latest.Timestamp
-		// If we have a recent event (within 1 minute), skip emitting seen
-		if age < int64(time.Minute) {
-			return
+	// Rate limit: check if WE emitted a seen event for this subject recently
+	// Only check our own seen events, not other event types (hey_there, chau, etc.)
+	me := network.meName()
+	allEvents := network.local.SyncLedger.GetAllEvents()
+	now := time.Now().UnixNano()
+
+	for i := len(allEvents) - 1; i >= 0; i-- {
+		e := allEvents[i]
+		// Only check seen events we emitted about this subject
+		if e.Service == ServiceSeen && e.Seen != nil &&
+			e.Seen.Observer == me && e.Seen.Subject == subject {
+			age := now - e.Timestamp
+			if age < int64(time.Minute) {
+				return // We already emitted a seen event recently
+			}
+			break // Found our most recent seen for this subject, it's old enough
 		}
 	}
 
-	event := NewSeenSyncEvent(network.meName(), subject, via, network.local.Keypair)
+	event := NewSeenSyncEvent(me, subject, via, network.local.Keypair)
 	network.local.SyncLedger.AddEvent(event)
 }

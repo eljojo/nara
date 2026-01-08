@@ -48,16 +48,17 @@ func (p *Projection) RunToEnd(ctx context.Context) error {
 	defer p.mu.Unlock()
 
 	// Check if ledger structure changed (pruning, etc.) - if so, reset and reprocess
-	events, total, version := p.ledger.GetEventsSince(p.position)
+	events, _, version := p.ledger.GetEventsSince(p.position)
 	if version != p.lastVersion && p.lastVersion >= 0 {
 		// Ledger was restructured, need to reset and reprocess from beginning
 		p.position = 0
 		if p.onReset != nil {
 			p.onReset()
 		}
-		events, total, version = p.ledger.GetEventsSince(0)
+		events, _, version = p.ledger.GetEventsSince(0)
 	}
 
+	start := p.position
 	for i, event := range events {
 		select {
 		case <-ctx.Done():
@@ -66,11 +67,10 @@ func (p *Projection) RunToEnd(ctx context.Context) error {
 			if err := p.handler(event); err != nil {
 				return err
 			}
-			p.position = p.position + i + 1
+			// Track progress so early returns have correct position
+			p.position = start + i + 1
 		}
 	}
-	// Ensure position is at the end even if no events processed
-	p.position = total
 	p.lastVersion = version
 
 	return nil
@@ -83,14 +83,14 @@ func (p *Projection) RunOnce() (bool, error) {
 	defer p.mu.Unlock()
 
 	// Check if ledger structure changed (pruning, etc.) - if so, reset and reprocess
-	events, total, version := p.ledger.GetEventsSince(p.position)
+	events, _, version := p.ledger.GetEventsSince(p.position)
 	if version != p.lastVersion && p.lastVersion >= 0 {
 		// Ledger was restructured, need to reset and reprocess from beginning
 		p.position = 0
 		if p.onReset != nil {
 			p.onReset()
 		}
-		events, total, version = p.ledger.GetEventsSince(0)
+		events, _, version = p.ledger.GetEventsSince(0)
 	}
 
 	if len(events) == 0 {
@@ -98,14 +98,13 @@ func (p *Projection) RunOnce() (bool, error) {
 		return false, nil
 	}
 
+	start := p.position
 	for i, event := range events {
 		if err := p.handler(event); err != nil {
 			return true, err
 		}
-		p.position = p.position + i + 1
+		p.position = start + i + 1
 	}
-	// Ensure position is at the end
-	p.position = total
 	p.lastVersion = version
 
 	return true, nil

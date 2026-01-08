@@ -43,16 +43,30 @@ func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 		return
 	}
 
-	// Validate it's a hey_there SyncEvent
-	if event.Service != ServiceHeyThere || event.HeyThere == nil {
-		logrus.Debugf("heyThereHandler: not a hey_there SyncEvent")
+	// Try new SyncEvent format first
+	if event.Service == ServiceHeyThere && event.HeyThere != nil {
+		if event.HeyThere.From == network.meName() || event.HeyThere.From == "" {
+			return
+		}
+		network.heyThereInbox <- event
 		return
 	}
 
-	if event.HeyThere.From == network.meName() || event.HeyThere.From == "" {
+	// Fallback: try legacy HeyThereEvent format (for old nodes during rollout)
+	legacy := HeyThereEvent{}
+	if err := json.Unmarshal(msg.Payload(), &legacy); err != nil {
 		return
 	}
-
+	if legacy.From == "" || legacy.From == network.meName() {
+		return
+	}
+	// Convert legacy to SyncEvent
+	event = SyncEvent{
+		Timestamp: time.Now().UnixNano(),
+		Service:   ServiceHeyThere,
+		HeyThere:  &legacy,
+	}
+	event.ComputeID()
 	network.heyThereInbox <- event
 }
 
@@ -78,16 +92,30 @@ func (network *Network) chauHandler(client mqtt.Client, msg mqtt.Message) {
 		return
 	}
 
-	// Validate it's a chau SyncEvent
-	if event.Service != ServiceChau || event.Chau == nil {
-		logrus.Debugf("chauHandler: not a chau SyncEvent")
+	// Try new SyncEvent format first
+	if event.Service == ServiceChau && event.Chau != nil {
+		if event.Chau.From == network.meName() || event.Chau.From == "" {
+			return
+		}
+		network.chauInbox <- event
 		return
 	}
 
-	if event.Chau.From == network.meName() || event.Chau.From == "" {
+	// Fallback: try legacy ChauEvent format (for old nodes during rollout)
+	legacy := ChauEvent{}
+	if err := json.Unmarshal(msg.Payload(), &legacy); err != nil {
 		return
 	}
-
+	if legacy.From == "" || legacy.From == network.meName() {
+		return
+	}
+	// Convert legacy to SyncEvent
+	event = SyncEvent{
+		Timestamp: time.Now().UnixNano(),
+		Service:   ServiceChau,
+		Chau:      &legacy,
+	}
+	event.ComputeID()
 	network.chauInbox <- event
 }
 
