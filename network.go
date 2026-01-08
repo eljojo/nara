@@ -462,8 +462,10 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 					network.local.Me.Status.MeshIP = tsnetMesh.IP()
 
 					// Initialize peer discovery for gossip-only mode
+					peerDiscoveryClient := tsnetMesh.Server().HTTPClient()
+					peerDiscoveryClient.Timeout = 2 * time.Second // Short timeout for scanning
 					network.peerDiscovery = &TailscalePeerDiscovery{
-						client: tsnetMesh.Server().HTTPClient(),
+						client: peerDiscoveryClient,
 					}
 
 					// Start mesh HTTP server on tsnet interface (port 7433)
@@ -1297,8 +1299,13 @@ func (network *Network) handleLedgerResponse(resp LedgerResponse) {
 // In gossip-only mode, we must discover peers via mesh since there's no MQTT to populate neighbors.
 func (network *Network) getNeighborsForBootRecovery() []string {
 	// In gossip-only mode, discover peers via mesh first
-	if network.TransportMode == TransportGossip && network.tsnetMesh != nil && network.peerDiscovery != nil {
-		network.discoverMeshPeers()
+	if network.TransportMode == TransportGossip {
+		logrus.Debugf("📡 Boot recovery: gossip mode, checking mesh discovery conditions (tsnetMesh=%v, peerDiscovery=%v)",
+			network.tsnetMesh != nil, network.peerDiscovery != nil)
+		if network.tsnetMesh != nil && network.peerDiscovery != nil {
+			logrus.Info("📡 Boot recovery: triggering mesh discovery...")
+			network.discoverMeshPeers()
+		}
 	}
 	return network.NeighbourhoodOnlineNames()
 }
@@ -1794,9 +1801,17 @@ type TailscalePeerDiscovery struct {
 	client *http.Client
 }
 
-// ScanForPeers scans 100.64.0.1-254 for naras responding to /ping
+// ScanForPeers scans 100.64.0.1-254 for naras responding to /ping (parallelized)
 func (d *TailscalePeerDiscovery) ScanForPeers(myIP string) []DiscoveredPeer {
+	logrus.Debugf("📡 Starting parallel peer scan (myIP=%s)", myIP)
+
 	var peers []DiscoveredPeer
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	// Use a semaphore to limit concurrent requests (avoid overwhelming the network)
+	const maxConcurrent = 50
+	sem := make(chan struct{}, maxConcurrent)
 
 	// Scan mesh subnet (100.64.0.0/10 for Tailscale)
 	for i := 1; i <= 254; i++ {
@@ -1807,37 +1822,49 @@ func (d *TailscalePeerDiscovery) ScanForPeers(myIP string) []DiscoveredPeer {
 			continue
 		}
 
-		// Try to ping this IP
-		url := fmt.Sprintf("http://%s:%d/ping", ip, DefaultMeshPort)
-		resp, err := d.client.Get(url)
-		if err != nil {
-			continue // Not a nara or unreachable
-		}
+		wg.Add(1)
+		sem <- struct{}{} // Acquire semaphore
 
-		if resp.StatusCode != http.StatusOK {
+		go func(ip string) {
+			defer wg.Done()
+			defer func() { <-sem }() // Release semaphore
+
+			// Try to ping this IP
+			url := fmt.Sprintf("http://%s:%d/ping", ip, DefaultMeshPort)
+			resp, err := d.client.Get(url)
+			if err != nil {
+				return // Not a nara or unreachable
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				resp.Body.Close()
+				return
+			}
+
+			// Decode to get the nara's name
+			var pingResp map[string]interface{}
+			if err := json.NewDecoder(resp.Body).Decode(&pingResp); err != nil {
+				resp.Body.Close()
+				return
+			}
 			resp.Body.Close()
-			continue
-		}
 
-		// Decode to get the nara's name
-		var pingResp map[string]interface{}
-		if err := json.NewDecoder(resp.Body).Decode(&pingResp); err != nil {
-			resp.Body.Close()
-			continue
-		}
-		resp.Body.Close()
+			naraName, ok := pingResp["from"].(string)
+			if !ok || naraName == "" {
+				return
+			}
 
-		naraName, ok := pingResp["from"].(string)
-		if !ok || naraName == "" {
-			continue
-		}
-
-		peers = append(peers, DiscoveredPeer{
-			Name:   naraName,
-			MeshIP: ip,
-		})
+			mu.Lock()
+			peers = append(peers, DiscoveredPeer{
+				Name:   naraName,
+				MeshIP: ip,
+			})
+			mu.Unlock()
+		}(ip)
 	}
 
+	wg.Wait()
+	logrus.Debugf("📡 Parallel peer scan complete: found %d peers", len(peers))
 	return peers
 }
 
@@ -1851,8 +1878,11 @@ func (network *Network) discoverMeshPeers() {
 	myIP := network.tsnetMesh.IP()
 	myName := network.meName()
 
+	logrus.Debugf("📡 Mesh discovery starting: myIP=%s, myName=%s", myIP, myName)
+
 	// Scan for peers using strategy
 	peers := network.peerDiscovery.ScanForPeers(myIP)
+	logrus.Debugf("📡 Mesh discovery scan complete: found %d potential peers", len(peers))
 
 	discovered := 0
 	var newPeers []DiscoveredPeer
