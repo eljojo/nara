@@ -347,11 +347,11 @@ func (network *Network) getMeshIPForNara(name string) string {
 
 func (network *Network) getMyClout() map[string]float64 {
 	// Get this nara's clout scores for other naras
-	if network.local.SyncLedger == nil {
+	if network.local.Projections == nil {
 		return nil
 	}
 
-	baseClout := network.local.SyncLedger.DeriveClout(network.local.Soul, network.local.Me.Status.Personality)
+	baseClout := network.local.Projections.Clout().DeriveClout(network.local.Soul, network.local.Me.Status.Personality)
 
 	// Apply proximity weighting (nearby naras have more influence)
 	network.local.Me.mu.Lock()
@@ -470,6 +470,12 @@ func (network *Network) MergeSyncEventsWithVerification(events []SyncEvent) (add
 		}
 	}
 	added = network.local.SyncLedger.MergeEvents(events)
+
+	// Trigger projection updates if events were added
+	if added > 0 && network.local.Projections != nil {
+		network.local.Projections.Trigger()
+	}
+
 	return added, warned
 }
 
@@ -606,6 +612,13 @@ func (network *Network) processChauSyncEvents(events []SyncEvent) {
 			continue
 		}
 
+		// Check if there's a more recent hey_there from this nara
+		// This prevents stale chau events from incorrectly marking naras offline during backfill
+		if network.hasMoreRecentHeyThere(c.From, e.Timestamp) {
+			logrus.Debugf("📡 Skipping stale chau from %s (has more recent hey_there)", c.From)
+			continue
+		}
+
 		// Mark the nara as OFFLINE (graceful shutdown)
 		observation := network.local.getObservation(c.From)
 		if observation.Online == "ONLINE" {
@@ -616,6 +629,22 @@ func (network *Network) processChauSyncEvents(events []SyncEvent) {
 			network.Buzz.increase(2)
 		}
 	}
+}
+
+// hasMoreRecentHeyThere checks if there's a hey_there event from the given nara
+// that's more recent than the specified timestamp.
+func (network *Network) hasMoreRecentHeyThere(from string, thanTimestamp int64) bool {
+	if network.local.SyncLedger == nil {
+		return false
+	}
+
+	heyThereEvents := network.local.SyncLedger.GetEventsByService(ServiceHeyThere)
+	for _, e := range heyThereEvents {
+		if e.HeyThere != nil && e.HeyThere.From == from && e.Timestamp > thanTimestamp {
+			return true
+		}
+	}
+	return false
 }
 
 // emitChauSyncEvent creates and adds a chau sync event to our ledger.
@@ -3589,76 +3618,6 @@ func (network *Network) getRecentEventsFor(name string) []SyncEvent {
 	})
 
 	return relevant
-}
-
-// deriveOnlineStatus derives a nara's online status from the event store.
-// This is the event-sourced approach: status is derived from the most recent
-// relevant event, not maintained separately.
-//
-// Returns: "ONLINE", "OFFLINE", "MISSING", or "" (unknown)
-func (network *Network) deriveOnlineStatus(name string) string {
-	events := network.getRecentEventsFor(name)
-
-	if len(events) == 0 {
-		return "" // Unknown - no events about this nara
-	}
-
-	latest := events[0] // Most recent event
-
-	// Determine status based on the most recent event
-	switch latest.Service {
-	case ServiceChau:
-		// Graceful shutdown - they're OFFLINE
-		return "OFFLINE"
-
-	case ServiceHeyThere:
-		// They announced themselves - they're ONLINE
-		return "ONLINE"
-
-	case ServiceSeen:
-		// We saw them recently - they're ONLINE
-		return "ONLINE"
-
-	case ServiceObservation:
-		if latest.Observation != nil {
-			switch latest.Observation.Type {
-			case "status-change":
-				// Direct status observation
-				return latest.Observation.OnlineState
-			case "restart":
-				// They restarted - implies they came back ONLINE
-				return "ONLINE"
-			case "first-seen":
-				// Just discovered - implies ONLINE
-				return "ONLINE"
-			}
-		}
-	}
-
-	// Check event age - if too old, they might be MISSING
-	now := time.Now().UnixNano()
-	age := now - latest.Timestamp
-	threshold := network.getMissingThresholdNano(name)
-
-	if age > threshold {
-		return "MISSING"
-	}
-
-	// Recent event exists, assume ONLINE
-	return "ONLINE"
-}
-
-// getMissingThresholdNano returns the MISSING threshold in nanoseconds for a nara.
-// Uses longer threshold for gossip mode.
-func (network *Network) getMissingThresholdNano(name string) int64 {
-	threshold := MissingThreshold // seconds
-	nara := network.getNara(name)
-	subjectIsGossip := nara.Name != "" && nara.Status.TransportMode == "gossip"
-	observerIsGossip := network.TransportMode == TransportGossip
-	if subjectIsGossip || observerIsGossip {
-		threshold = MissingThresholdGossip
-	}
-	return threshold * int64(time.Second) // Convert to nanoseconds
 }
 
 // emitSeenEvent emits a "seen" event when we interact with a nara.

@@ -30,6 +30,7 @@ func TestIntegration_ScaleWith5000Nodes(t *testing.T) {
 
 	// Create a shared sync ledger to simulate network-wide event propagation
 	networkLedger := NewSyncLedger(100000) // Large capacity for scale test
+	opinionProjection := NewOpinionConsensusProjection(networkLedger)
 
 	var mu sync.Mutex
 	eventCounts := make(map[string]int) // Track events per subject
@@ -254,7 +255,7 @@ func TestIntegration_ScaleWith5000Nodes(t *testing.T) {
 	consensusSuccess := 0
 
 	for _, subject := range testSubjects {
-		opinion := networkLedger.DeriveOpinionFromEvents(subject)
+		opinion := opinionProjection.DeriveOpinion(subject)
 		if opinion.StartTime > 0 || opinion.Restarts > 0 {
 			consensusSuccess++
 		}

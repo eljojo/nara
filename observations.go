@@ -259,7 +259,9 @@ func (network *Network) recordObservationOnlineNara(name string) {
 		// Emit first-seen observation event in event-primary mode
 		if useObservationEvents() && !network.local.isBooting() && network.local.SyncLedger != nil {
 			event := NewFirstSeenObservationEvent(network.meName(), name, time.Now().Unix())
-			network.local.SyncLedger.AddEventWithDedup(event)
+			if network.local.SyncLedger.AddEventWithDedup(event) && network.local.Projections != nil {
+				network.local.Projections.Trigger()
+			}
 			logrus.Infof("📊 First-seen observation event: %s", name)
 		}
 	}
@@ -302,7 +304,9 @@ func (network *Network) recordObservationOnlineNara(name string) {
 		// Emit restart observation event in event-primary mode
 		if useObservationEvents() && !network.local.isBooting() && network.local.SyncLedger != nil && name != network.meName() {
 			event := NewRestartObservationEvent(network.meName(), name, observation.StartTime, observation.Restarts)
-			network.local.SyncLedger.AddEventWithDedup(event)
+			if network.local.SyncLedger.AddEventWithDedup(event) && network.local.Projections != nil {
+				network.local.Projections.Trigger()
+			}
 			logrus.Infof("📊 Restart observation event: %s (restart #%d)", name, observation.Restarts)
 		}
 	}
@@ -319,12 +323,16 @@ func (network *Network) recordObservationOnlineNara(name string) {
 			// Emit status-change observation event in event-primary mode
 			if useObservationEvents() {
 				event := NewStatusChangeObservationEvent(network.meName(), name, "ONLINE")
-				network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality)
+				if network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality) && network.local.Projections != nil {
+					network.local.Projections.Trigger()
+				}
 				logrus.Infof("📊 Status-change observation event: %s → ONLINE", name)
 			} else {
 				// Legacy: State changed from MISSING/OFFLINE to ONLINE
 				event := NewObservationEvent(network.meName(), name, ReasonOnline)
-				network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
+				if network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality) && network.local.Projections != nil {
+					network.local.Projections.Trigger()
+				}
 				logrus.Printf("observation: %s came online", name)
 			}
 		}
@@ -396,8 +404,8 @@ func (network *Network) observationMaintenance() {
 		for name, observation := range observations {
 			// Event-sourced status derivation when enabled
 			// This uses the event log to determine online status rather than LastSeen
-			if useObservationEvents() && network.local.SyncLedger != nil && !network.local.isBooting() {
-				derivedStatus := network.deriveOnlineStatus(name)
+			if useObservationEvents() && network.local.Projections != nil && !network.local.isBooting() {
+				derivedStatus := network.local.Projections.OnlineStatus().GetStatus(name)
 				if derivedStatus != "" && derivedStatus != observation.Online {
 					previousState := observation.Online
 					observation.Online = derivedStatus
@@ -488,11 +496,11 @@ func (obs NaraObservation) isOnline() bool {
 }
 
 func (network *Network) applyEventConsensusIfMissing(name string, observation *NaraObservation) {
-	if network.local.SyncLedger == nil {
+	if network.local.Projections == nil {
 		return
 	}
 
-	opinion := network.local.SyncLedger.DeriveOpinionFromEvents(name)
+	opinion := network.local.Projections.Opinion().DeriveOpinion(name)
 	if observation.StartTime == 0 && opinion.StartTime > 0 {
 		observation.StartTime = opinion.StartTime
 	}
@@ -539,12 +547,16 @@ func (network *Network) reportMissingWithDelay(subject string) {
 	// No one else reported it, so we'll report it
 	if useObservationEvents() {
 		event := NewStatusChangeObservationEvent(network.meName(), subject, "MISSING")
-		network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality)
+		if network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality) && network.local.Projections != nil {
+			network.local.Projections.Trigger()
+		}
 		logrus.Infof("📊 Status-change observation event: %s → MISSING (after %v delay)", subject, delay)
 	} else {
 		// Legacy mode
 		event := NewObservationEvent(network.meName(), subject, ReasonOffline)
-		network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
+		if network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality) && network.local.Projections != nil {
+			network.local.Projections.Trigger()
+		}
 		logrus.Printf("observation: %s went offline (disappeared) after %v delay", subject, delay)
 	}
 }

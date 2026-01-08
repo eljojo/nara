@@ -870,6 +870,7 @@ func TestSyncLedger_GetTeaseCounts(t *testing.T) {
 // TestSyncLedger_DeriveClout tests subjective clout calculation
 func TestSyncLedger_DeriveClout(t *testing.T) {
 	ledger := NewSyncLedger(1000)
+	cloutProjection := NewCloutProjection(ledger)
 
 	// Add events with recent timestamps
 	now := time.Now().Unix()
@@ -897,8 +898,8 @@ func TestSyncLedger_DeriveClout(t *testing.T) {
 	soul2 := "soul-observer-2"
 
 	// Get clout from both perspectives
-	clout1 := ledger.DeriveClout(soul1, socialPersonality)
-	clout2 := ledger.DeriveClout(soul2, chillPersonality)
+	clout1 := cloutProjection.DeriveClout(soul1, socialPersonality)
+	clout2 := cloutProjection.DeriveClout(soul2, chillPersonality)
 
 	// Alice should have some clout (positive or negative depending on resonance)
 	// The exact values depend on TeaseResonates, but we can verify structure
@@ -916,6 +917,7 @@ func TestSyncLedger_DeriveClout(t *testing.T) {
 // TestSyncLedger_DeriveClout_Observations tests clout from observation events
 func TestSyncLedger_DeriveClout_Observations(t *testing.T) {
 	ledger := NewSyncLedger(1000)
+	cloutProjection := NewCloutProjection(ledger)
 	now := time.Now().Unix()
 
 	// Add observation events
@@ -946,7 +948,7 @@ func TestSyncLedger_DeriveClout_Observations(t *testing.T) {
 	}
 
 	personality := NaraPersonality{Chill: 50, Sociability: 50, Agreeableness: 50}
-	clout := ledger.DeriveClout("observer-soul", personality)
+	clout := cloutProjection.DeriveClout("observer-soul", personality)
 
 	// reliable-nara should have positive clout (journey-complete + journey-pass)
 	if clout["reliable-nara"] <= 0 {

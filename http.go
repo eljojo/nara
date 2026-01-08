@@ -310,8 +310,8 @@ func (network *Network) httpEventsSSEHandler(w http.ResponseWriter, r *http.Requ
 // Clout scores from this nara's perspective
 func (network *Network) httpCloutHandler(w http.ResponseWriter, r *http.Request) {
 	var clout map[string]float64
-	if network.local.SyncLedger != nil {
-		clout = network.local.SyncLedger.DeriveClout(network.local.Soul, network.local.Me.Status.Personality)
+	if network.local.Projections != nil {
+		clout = network.local.Projections.Clout().DeriveClout(network.local.Soul, network.local.Me.Status.Personality)
 	} else {
 		clout = make(map[string]float64)
 	}

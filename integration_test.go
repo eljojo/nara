@@ -230,7 +230,7 @@ func TestIntegration_MultiNaraNetwork(t *testing.T) {
 	for _, ln := range naras {
 		for neighborName := range ln.Network.Neighbourhood {
 			// Try to derive opinion from events
-			opinion := ln.SyncLedger.DeriveOpinionFromEvents(neighborName)
+			opinion := ln.Projections.Opinion().DeriveOpinion(neighborName)
 			if opinion.StartTime > 0 || opinion.Restarts > 0 {
 				consensusWorking++
 				break // Count once per nara
