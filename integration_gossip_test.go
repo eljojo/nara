@@ -1,6 +1,9 @@
 package nara
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -8,68 +11,79 @@ import (
 )
 
 // TestIntegration_GossipOnlyMode validates that naras can operate in gossip-only mode
-// without MQTT, spreading events purely via P2P zine exchanges
+// without MQTT, spreading events purely via P2P zine exchanges using performGossipRound()
 func TestIntegration_GossipOnlyMode(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
-	// Create 5 naras in gossip-only mode (no MQTT)
-	naras := make([]*LocalNara, 5)
-	for i := 0; i < 5; i++ {
-		ln := NewLocalNara("gossip-nara-"+string(rune('a'+i)), "test-soul", "", "", "", 50, 1000)
-		ln.Network.TransportMode = TransportGossip // Gossip-only mode
+	// Create 5 naras in gossip-only mode with real HTTP test servers
+	type testNara struct {
+		ln     *LocalNara
+		server *httptest.Server
+	}
+	naras := make([]testNara, 5)
 
-		// Fake that they're not booting
+	for i := 0; i < 5; i++ {
+		name := fmt.Sprintf("gossip-nara-%c", 'a'+i)
+		ln := NewLocalNara(name, testSoul(name), "", "", "", 50, 1000)
+		ln.Network.TransportMode = TransportGossip
+
+		// Mark as not booting
 		me := ln.getMeObservation()
 		me.LastRestart = time.Now().Unix() - 200
 		me.LastSeen = time.Now().Unix()
 		ln.setMeObservation(me)
 
-		naras[i] = ln
-	}
+		// Create HTTP test server for this nara's gossip endpoint
+		mux := http.NewServeMux()
+		mux.HandleFunc("/gossip/zine", ln.Network.httpGossipZineHandler)
+		server := httptest.NewServer(mux)
 
-	// Set up mock mesh discovery: each nara knows about the others via manual setup
-	// (In a real scenario, this would happen via discoverMeshPeers() scanning IPs,
-	// but for this test we simulate the post-discovery state)
+		naras[i] = testNara{ln: ln, server: server}
+	}
+	defer func() {
+		for _, n := range naras {
+			n.server.Close()
+		}
+	}()
+
+	// Shared HTTP client for all naras
+	sharedClient := &http.Client{Timeout: 5 * time.Second}
+
+	// Set up test hooks and neighborhood: each nara knows about the others
 	for i := 0; i < 5; i++ {
+		naras[i].ln.Network.testHTTPClient = sharedClient
+		naras[i].ln.Network.testMeshURLs = make(map[string]string)
+
 		for j := 0; j < 5; j++ {
 			if i != j {
-				neighborName := "gossip-nara-" + string(rune('a'+j))
+				neighborName := naras[j].ln.Me.Name
 				neighbor := NewNara(neighborName)
-				neighbor.Status.MeshIP = "100.64.0." + string(rune('1'+j)) // Fake mesh IPs
-				naras[i].Network.importNara(neighbor)
-				naras[i].setObservation(neighborName, NaraObservation{Online: "ONLINE"})
+				neighbor.Status.PublicKey = FormatPublicKey(naras[j].ln.Keypair.PublicKey)
+				naras[i].ln.Network.importNara(neighbor)
+				naras[i].ln.setObservation(neighborName, NaraObservation{Online: "ONLINE"})
+				// Store test server URL for this neighbor
+				naras[i].ln.Network.testMeshURLs[neighborName] = naras[j].server.URL
 			}
 		}
 	}
 
-	// Nara 0 creates a social event
-	event := NewTeaseEvent(naras[0].Me.Name, "gossip-nara-b", "high restarts")
-	naras[0].SyncLedger.AddSocialEvent(event)
+	// Nara A creates a social event
+	event := NewTeaseEvent(naras[0].ln.Me.Name, "gossip-nara-b", "high restarts")
+	naras[0].ln.SyncLedger.AddSocialEvent(event)
 
-	// Simulate gossip rounds - each nara gossips with neighbors
-	// In real code this happens via gossipForever() loop
+	// Run gossip rounds using the REAL performGossipRound() production code
 	for round := 0; round < 3; round++ {
 		for i := 0; i < 5; i++ {
-			// Create zine from nara i
-			zine := createTestZine(naras[i])
-
-			// Exchange with 2-3 random neighbors
-			for j := 0; j < 5; j++ {
-				if i != j && j%2 == 0 { // Simple pattern for test
-					// Merge zine into neighbor's ledger
-					for _, e := range zine.Events {
-						naras[j].SyncLedger.AddEvent(e)
-					}
-				}
-			}
+			naras[i].ln.Network.performGossipRound()
 		}
-		time.Sleep(100 * time.Millisecond) // Allow propagation
+		// Wait for async exchanges to complete
+		time.Sleep(50 * time.Millisecond)
 	}
 
 	// Verify event propagated to most naras via gossip
 	propagatedCount := 0
 	for i := 0; i < 5; i++ {
-		events := naras[i].SyncLedger.GetEventsByService(ServiceSocial)
+		events := naras[i].ln.SyncLedger.GetEventsByService(ServiceSocial)
 		for _, e := range events {
 			if e.Social != nil && e.Social.Type == "tease" && e.Social.Target == "gossip-nara-b" {
 				propagatedCount++
@@ -78,112 +92,244 @@ func TestIntegration_GossipOnlyMode(t *testing.T) {
 		}
 	}
 
-	// Should reach at least 3/5 naras via gossip (epidemic spread)
-	if propagatedCount < 3 {
-		t.Errorf("Expected event to reach at least 3 naras via gossip, reached %d", propagatedCount)
+	// Should reach all 5 naras via gossip (epidemic spread)
+	if propagatedCount < 5 {
+		t.Errorf("Expected event to reach all 5 naras via gossip, reached %d", propagatedCount)
 	}
 
-	t.Logf("✅ Gossip-only mode: event reached %d/5 naras without MQTT", propagatedCount)
+	t.Logf("✅ Gossip-only mode: event reached %d/5 naras via performGossipRound()", propagatedCount)
 }
 
 // TestIntegration_HybridMode validates that naras can use both MQTT and gossip simultaneously
+// In hybrid mode, events should propagate via gossip using performGossipRound()
 func TestIntegration_HybridMode(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
-	// Create shared ledger to simulate both transport paths
-	sharedLedger := NewSyncLedger(1000)
+	// Create 3 naras in hybrid mode with HTTP servers for gossip
+	type testNara struct {
+		ln     *LocalNara
+		server *httptest.Server
+	}
+	naras := make([]testNara, 3)
 
-	// Create 3 naras in hybrid mode
-	naras := make([]*LocalNara, 3)
 	for i := 0; i < 3; i++ {
-		ln := NewLocalNara("hybrid-nara-"+string(rune('a'+i)), "test-soul", "", "", "", 50, 1000)
-		ln.Network.TransportMode = TransportHybrid // Both MQTT and Gossip
-		ln.SyncLedger = sharedLedger               // Share ledger to simulate both paths working
+		name := fmt.Sprintf("hybrid-nara-%c", 'a'+i)
+		ln := NewLocalNara(name, testSoul(name), "", "", "", 50, 1000)
+		ln.Network.TransportMode = TransportHybrid
 
-		// Fake not booting
 		me := ln.getMeObservation()
 		me.LastRestart = time.Now().Unix() - 200
 		me.LastSeen = time.Now().Unix()
 		ln.setMeObservation(me)
 
-		naras[i] = ln
+		mux := http.NewServeMux()
+		mux.HandleFunc("/gossip/zine", ln.Network.httpGossipZineHandler)
+		server := httptest.NewServer(mux)
+
+		naras[i] = testNara{ln: ln, server: server}
 	}
+	defer func() {
+		for _, n := range naras {
+			n.server.Close()
+		}
+	}()
 
-	// Create events via both "transports" (simulated)
-	mqttEvent := NewTeaseEvent("hybrid-nara-a", "hybrid-nara-b", "came back")
-	gossipEvent := NewTeaseEvent("hybrid-nara-b", "hybrid-nara-c", "trend abandon")
+	// Shared HTTP client for all naras
+	sharedClient := &http.Client{Timeout: 5 * time.Second}
 
-	// Both should arrive in the shared ledger
-	sharedLedger.AddSocialEvent(mqttEvent)
-	sharedLedger.AddSocialEvent(gossipEvent)
-
-	// All naras should see both events (transport-agnostic)
+	// Set up test hooks and neighborhood
 	for i := 0; i < 3; i++ {
-		events := naras[i].SyncLedger.GetEventsByService(ServiceSocial)
-		if len(events) < 2 {
-			t.Errorf("Nara %d expected to see 2 events (from both transports), got %d", i, len(events))
+		naras[i].ln.Network.testHTTPClient = sharedClient
+		naras[i].ln.Network.testMeshURLs = make(map[string]string)
+
+		for j := 0; j < 3; j++ {
+			if i != j {
+				neighbor := NewNara(naras[j].ln.Me.Name)
+				neighbor.Status.PublicKey = FormatPublicKey(naras[j].ln.Keypair.PublicKey)
+				naras[i].ln.Network.importNara(neighbor)
+				naras[i].ln.setObservation(naras[j].ln.Me.Name, NaraObservation{Online: "ONLINE"})
+				naras[i].ln.Network.testMeshURLs[naras[j].ln.Me.Name] = naras[j].server.URL
+			}
 		}
 	}
 
-	t.Logf("✅ Hybrid mode: all naras saw events from both MQTT and gossip transports")
+	// Nara A creates an event
+	event := NewTeaseEvent("hybrid-nara-a", "hybrid-nara-b", "came back")
+	naras[0].ln.SyncLedger.AddSocialEvent(event)
+
+	// Run gossip rounds using performGossipRound() production code
+	for round := 0; round < 2; round++ {
+		for i := 0; i < 3; i++ {
+			naras[i].ln.Network.performGossipRound()
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// All naras should see the event via gossip transport
+	for i := 0; i < 3; i++ {
+		events := naras[i].ln.SyncLedger.GetEventsByService(ServiceSocial)
+		if len(events) < 1 {
+			t.Errorf("Nara %d expected to see at least 1 event, got %d", i, len(events))
+		}
+	}
+
+	t.Logf("✅ Hybrid mode: event propagated to all naras via performGossipRound()")
 }
 
-// TestIntegration_MixedNetworkTopology validates that MQTT-only, gossip-only, and hybrid naras
-// can coexist and events still propagate across the network
+// TestIntegration_MixedNetworkTopology validates that gossip-enabled naras (gossip-only and hybrid)
+// can propagate events via performGossipRound(), while MQTT-only naras are excluded from gossip
 func TestIntegration_MixedNetworkTopology(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
-	// Shared ledger simulates universal event propagation
-	sharedLedger := NewSyncLedger(2000)
-
-	// Create mixed network:
-	// - 2 MQTT-only naras
-	// - 2 Gossip-only naras
-	// - 2 Hybrid naras (bridge between MQTT and gossip)
-	naras := make([]*LocalNara, 6)
+	// Create mixed network with HTTP servers for gossip-enabled naras
+	// - 2 MQTT-only naras (no gossip server)
+	// - 2 Gossip-only naras (gossip server)
+	// - 2 Hybrid naras (gossip server)
+	type testNara struct {
+		ln     *LocalNara
+		server *httptest.Server // nil for MQTT-only
+		mode   TransportMode
+	}
 	modes := []TransportMode{TransportMQTT, TransportMQTT, TransportGossip, TransportGossip, TransportHybrid, TransportHybrid}
+	naras := make([]testNara, 6)
 
 	for i := 0; i < 6; i++ {
-		ln := NewLocalNara("mixed-nara-"+string(rune('a'+i)), "test-soul", "", "", "", 50, 1000)
+		name := fmt.Sprintf("mixed-nara-%c", 'a'+i)
+		ln := NewLocalNara(name, testSoul(name), "", "", "", 50, 1000)
 		ln.Network.TransportMode = modes[i]
-		ln.SyncLedger = sharedLedger
 
 		me := ln.getMeObservation()
 		me.LastRestart = time.Now().Unix() - 200
 		me.LastSeen = time.Now().Unix()
 		ln.setMeObservation(me)
 
-		naras[i] = ln
+		var server *httptest.Server
+		if modes[i] != TransportMQTT {
+			// Only gossip-enabled naras get HTTP servers
+			mux := http.NewServeMux()
+			mux.HandleFunc("/gossip/zine", ln.Network.httpGossipZineHandler)
+			server = httptest.NewServer(mux)
+		}
+
+		naras[i] = testNara{ln: ln, server: server, mode: modes[i]}
 	}
+	defer func() {
+		for _, n := range naras {
+			if n.server != nil {
+				n.server.Close()
+			}
+		}
+	}()
 
-	// MQTT-only nara creates event (should propagate via hybrid bridges)
-	mqttEvent := NewTeaseEvent("mixed-nara-a", "mixed-nara-c", "high restarts")
-	sharedLedger.AddSocialEvent(mqttEvent)
+	// Shared HTTP client for all naras
+	sharedClient := &http.Client{Timeout: 5 * time.Second}
 
-	// Gossip-only nara creates event (should propagate via hybrid bridges)
-	gossipEvent := NewTeaseEvent("mixed-nara-c", "mixed-nara-a", "came back")
-	sharedLedger.AddSocialEvent(gossipEvent)
-
-	// All naras should eventually see both events (hybrid naras bridge the gap)
-	time.Sleep(200 * time.Millisecond)
-
+	// Set up test hooks and neighborhood
 	for i := 0; i < 6; i++ {
-		events := naras[i].SyncLedger.GetEventsByService(ServiceSocial)
-		if len(events) < 2 {
-			t.Errorf("Nara %d (mode: %v) expected to see 2 events, got %d", i, modes[i], len(events))
+		naras[i].ln.Network.testHTTPClient = sharedClient
+		naras[i].ln.Network.testMeshURLs = make(map[string]string)
+
+		for j := 0; j < 6; j++ {
+			if i != j {
+				neighbor := NewNara(naras[j].ln.Me.Name)
+				neighbor.Status.PublicKey = FormatPublicKey(naras[j].ln.Keypair.PublicKey)
+				naras[i].ln.Network.importNara(neighbor)
+				naras[i].ln.setObservation(naras[j].ln.Me.Name, NaraObservation{Online: "ONLINE"})
+				// Only add URL for gossip-enabled neighbors
+				if naras[j].server != nil {
+					naras[i].ln.Network.testMeshURLs[naras[j].ln.Me.Name] = naras[j].server.URL
+				}
+			}
 		}
 	}
 
-	t.Logf("✅ Mixed topology: MQTT-only, gossip-only, and hybrid naras all saw both events")
+	// Gossip-only nara creates event
+	event := NewTeaseEvent("mixed-nara-c", "mixed-nara-a", "high restarts")
+	naras[2].ln.SyncLedger.AddSocialEvent(event) // mixed-nara-c is gossip-only
+
+	// Run gossip rounds using performGossipRound() - only gossip-enabled naras participate
+	for round := 0; round < 2; round++ {
+		for i := 0; i < 6; i++ {
+			if naras[i].server != nil { // Only gossip-enabled naras run gossip rounds
+				naras[i].ln.Network.performGossipRound()
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Verify: gossip-enabled naras (indices 2-5) should have the event
+	gossipEnabledWithEvent := 0
+	for i := 2; i < 6; i++ {
+		events := naras[i].ln.SyncLedger.GetEventsByService(ServiceSocial)
+		if len(events) >= 1 {
+			gossipEnabledWithEvent++
+		}
+	}
+	if gossipEnabledWithEvent < 4 {
+		t.Errorf("Expected all 4 gossip-enabled naras to have event, got %d", gossipEnabledWithEvent)
+	}
+
+	// Verify: MQTT-only naras (indices 0-1) should NOT have the event via gossip
+	// (they would need MQTT or a hybrid bridge in real deployment)
+	for i := 0; i < 2; i++ {
+		events := naras[i].ln.SyncLedger.GetEventsByService(ServiceSocial)
+		if len(events) > 0 {
+			t.Errorf("MQTT-only nara %d should not receive events via gossip, got %d", i, len(events))
+		}
+	}
+
+	t.Logf("✅ Mixed topology: gossip-enabled naras propagated event via performGossipRound()")
 }
 
 // TestIntegration_ZineCreationAndExchange validates zine structure and bidirectional exchange
+// Uses real HTTP servers and the production performGossipRound() code path
 func TestIntegration_ZineCreationAndExchange(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
-	// Create 2 naras
-	alice := NewLocalNara("alice", "alice-soul", "", "", "", 50, 1000)
-	bob := NewLocalNara("bob", "bob-soul", "", "", "", 50, 1000)
+	// Create 2 naras with valid souls for keypair generation
+	alice := NewLocalNara("alice", testSoul("alice"), "", "", "", 50, 1000)
+	bob := NewLocalNara("bob", testSoul("bob"), "", "", "", 50, 1000)
+
+	// Verify keypairs were generated
+	if len(alice.Keypair.PrivateKey) == 0 {
+		t.Fatal("Alice keypair not generated - soul invalid")
+	}
+	if len(bob.Keypair.PrivateKey) == 0 {
+		t.Fatal("Bob keypair not generated - soul invalid")
+	}
+
+	alice.Network.TransportMode = TransportGossip
+	bob.Network.TransportMode = TransportGossip
+
+	// Create HTTP servers for both naras (these handle /gossip/zine requests)
+	aliceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		alice.Network.httpGossipZineHandler(w, r)
+	}))
+	defer aliceServer.Close()
+
+	bobServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		bob.Network.httpGossipZineHandler(w, r)
+	}))
+	defer bobServer.Close()
+
+	// Set up test hooks so performGossipRound() can reach the test servers
+	sharedClient := &http.Client{Timeout: 5 * time.Second}
+
+	// Alice knows about bob
+	alice.Network.testHTTPClient = sharedClient
+	alice.Network.testMeshURLs = map[string]string{"bob": bobServer.URL}
+	bobNara := NewNara("bob")
+	bobNara.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
+	alice.Network.importNara(bobNara)
+	alice.setObservation("bob", NaraObservation{Online: "ONLINE"})
+
+	// Bob knows about alice
+	bob.Network.testHTTPClient = sharedClient
+	bob.Network.testMeshURLs = map[string]string{"alice": aliceServer.URL}
+	aliceNara := NewNara("alice")
+	aliceNara.Status.PublicKey = FormatPublicKey(alice.Keypair.PublicKey)
+	bob.Network.importNara(aliceNara)
+	bob.setObservation("alice", NaraObservation{Online: "ONLINE"})
 
 	// Alice creates some events
 	for i := 0; i < 5; i++ {
@@ -191,68 +337,70 @@ func TestIntegration_ZineCreationAndExchange(t *testing.T) {
 		alice.SyncLedger.AddSocialEvent(event)
 	}
 
-	// Alice creates a zine
-	aliceZine := createTestZine(alice)
-
-	// Verify zine structure
-	if aliceZine.From != "alice" {
-		t.Errorf("Expected zine from alice, got %s", aliceZine.From)
+	// Verify alice has a zine to send
+	aliceZine := alice.Network.createZine()
+	if aliceZine == nil {
+		t.Fatal("Alice createZine returned nil")
 	}
-	if len(aliceZine.Events) == 0 {
-		t.Error("Expected zine to contain events")
+	if len(aliceZine.Events) != 5 {
+		t.Errorf("Expected alice's zine to have 5 events, got %d", len(aliceZine.Events))
 	}
-	if aliceZine.CreatedAt == 0 {
-		t.Error("Expected zine to have creation timestamp")
+	if aliceZine.Signature == "" {
+		t.Error("Expected zine to be signed")
 	}
 
-	// Bob receives alice's zine and merges events
-	for _, e := range aliceZine.Events {
-		bob.SyncLedger.AddEvent(e) // AddEvent for SyncEvent is correct
+	// Alice performs a gossip round - this triggers the REAL HTTP exchange
+	alice.Network.performGossipRound()
+
+	// Wait for async exchange to complete
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify bob received alice's events via the gossip round
+	bobEvents := bob.SyncLedger.GetEventsByService(ServiceSocial)
+	if len(bobEvents) < 5 {
+		t.Errorf("Bob should have received alice's 5 events via gossip, got %d", len(bobEvents))
 	}
 
-	// Bob creates his own zine to send back (bidirectional exchange)
+	// Bob creates his own event
 	event := NewTeaseEvent("bob", "alice", "response")
 	bob.SyncLedger.AddSocialEvent(event)
-	bobZine := createTestZine(bob)
 
-	// Alice receives bob's zine
-	for _, e := range bobZine.Events {
-		alice.SyncLedger.AddEvent(e) // AddEvent for SyncEvent is correct
-	}
+	// Bob performs a gossip round back to alice
+	bob.Network.performGossipRound()
 
-	// Verify bidirectional exchange worked
+	// Wait for async exchange
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify alice received bob's event via gossip
 	aliceEvents := alice.SyncLedger.GetEventsByService(ServiceSocial)
-	bobEvents := bob.SyncLedger.GetEventsByService(ServiceSocial)
-
-	if len(bobEvents) < 5 {
-		t.Errorf("Bob should have received alice's 5 events, got %d", len(bobEvents))
-	}
 	if len(aliceEvents) < 6 { // original 5 + bob's 1
-		t.Errorf("Alice should have 6 events total (5 original + 1 from bob), got %d", len(aliceEvents))
+		t.Errorf("Alice should have 6 events total (5 original + 1 from bob via gossip), got %d", len(aliceEvents))
 	}
 
-	t.Logf("✅ Zine exchange: bidirectional propagation working correctly")
+	t.Logf("✅ Zine exchange: bidirectional propagation via performGossipRound() working correctly")
 }
 
 // TestIntegration_GossipTargetSelection validates that gossip picks random mesh neighbors
+// Uses the production selectGossipTargets() method instead of test helper
 func TestIntegration_GossipTargetSelection(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
-	ln := NewLocalNara("test-nara", "test-soul", "", "", "", 50, 1000)
+	ln := NewLocalNara("test-nara", testSoul("test-nara"), "", "", "", 50, 1000)
+	ln.Network.TransportMode = TransportGossip
 
 	// Add 10 mesh-enabled neighbors
 	for i := 0; i < 10; i++ {
-		neighborName := "neighbor-" + string(rune('a'+i))
+		neighborName := fmt.Sprintf("neighbor-%c", 'a'+i)
 		neighbor := NewNara(neighborName)
-		neighbor.Status.MeshIP = "100.64.0." + string(rune('1'+i))
+		neighbor.Status.MeshIP = fmt.Sprintf("100.64.0.%d", 1+i)
 		ln.Network.importNara(neighbor)
 		ln.setObservation(neighborName, NaraObservation{Online: "ONLINE"})
 	}
 
-	// Select gossip targets multiple times
+	// Select gossip targets multiple times using production code
 	selections := make(map[string]int)
 	for i := 0; i < 50; i++ {
-		targets := selectGossipTargets(ln.Network, 3)
+		targets := ln.Network.selectGossipTargets()
 		for _, target := range targets {
 			selections[target]++
 		}
@@ -298,26 +446,6 @@ func TestIntegration_GossipEventDeduplication(t *testing.T) {
 	t.Logf("✅ Event deduplication: same event via multiple transports correctly deduplicated")
 }
 
-// Helper: createTestZine creates a zine from a nara's recent events
-func createTestZine(ln *LocalNara) *Zine {
-	// Get recent events (last 5 minutes for test purposes)
-	cutoff := time.Now().Add(-5 * time.Minute).UnixNano()
-	allEvents := ln.SyncLedger.GetAllEvents()
-
-	var recentEvents []SyncEvent
-	for _, e := range allEvents {
-		if e.Timestamp >= cutoff {
-			recentEvents = append(recentEvents, e)
-		}
-	}
-
-	return &Zine{
-		From:      ln.Me.Name,
-		CreatedAt: time.Now().Unix(),
-		Events:    recentEvents,
-	}
-}
-
 // MockPeerDiscovery returns a predefined list of peers for testing
 type MockPeerDiscovery struct {
 	peers []DiscoveredPeer
@@ -337,8 +465,8 @@ func (m *MockPeerDiscovery) ScanForPeers(myIP string) []DiscoveredPeer {
 func TestIntegration_MeshDiscovery(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
-	// Create a nara that will discover peers
-	discoverer := NewLocalNara("discovery-nara-a", "test-soul", "", "", "", 50, 1000)
+	// Create a nara that will discover peers (use testSoul for valid keypair)
+	discoverer := NewLocalNara("discovery-nara-a", testSoul("discovery-nara-a"), "", "", "", 50, 1000)
 	discoverer.Network.TransportMode = TransportGossip
 
 	// Verify no neighbors initially
@@ -412,35 +540,4 @@ func TestIntegration_MeshDiscovery(t *testing.T) {
 	t.Logf("✅ Mesh discovery: successfully discovered 2 peers using strategy pattern")
 	t.Logf("   - discovery-nara-b at %s", meshIPb)
 	t.Logf("   - discovery-nara-c at %s", meshIPc)
-}
-
-// Helper: selectGossipTargets selects random mesh neighbors for gossip
-// (This will be implemented properly in the actual code)
-func selectGossipTargets(network *Network, count int) []string {
-	online := network.NeighbourhoodOnlineNames()
-
-	// Filter to mesh-enabled only
-	var meshEnabled []string
-	for _, name := range online {
-		if network.getMeshIPForNara(name) != "" {
-			meshEnabled = append(meshEnabled, name)
-		}
-	}
-
-	// Return random subset
-	if len(meshEnabled) <= count {
-		return meshEnabled
-	}
-
-	// Simple random selection for test
-	targets := make([]string, 0, count)
-	used := make(map[int]bool)
-	for len(targets) < count && len(targets) < len(meshEnabled) {
-		idx := len(meshEnabled) / (count + 1) * (len(targets) + 1)
-		if !used[idx] {
-			targets = append(targets, meshEnabled[idx])
-			used[idx] = true
-		}
-	}
-	return targets
 }

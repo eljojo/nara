@@ -725,11 +725,15 @@ func (network *Network) httpGossipZineHandler(w http.ResponseWriter, r *http.Req
 	// Create our zine to send back (bidirectional exchange)
 	myZine := network.createZine()
 	if myZine == nil {
-		// Even if we have no events, send empty zine
+		// Even if we have no events, send empty signed zine
 		myZine = &Zine{
 			From:      network.meName(),
 			CreatedAt: time.Now().Unix(),
 			Events:    []SyncEvent{},
+		}
+		// Sign the empty zine for consistency
+		if sig, err := signZine(myZine, network.local.Keypair); err == nil {
+			myZine.Signature = sig
 		}
 	}
 

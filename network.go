@@ -77,6 +77,9 @@ type Network struct {
 	// Graceful shutdown
 	ctx        context.Context
 	cancelFunc context.CancelFunc
+	// Test hooks (only used in tests)
+	testHTTPClient *http.Client      // Override HTTP client for testing
+	testMeshURLs   map[string]string // Override mesh URLs for testing (nara name -> URL)
 }
 
 // PendingJourney tracks a journey we participated in, waiting for completion
@@ -1668,10 +1671,15 @@ func verifyZine(z *Zine, publicKey ed25519.PublicKey) bool {
 func (network *Network) selectGossipTargets() []string {
 	online := network.NeighbourhoodOnlineNames()
 
-	// Filter to mesh-enabled only
+	// Filter to mesh-enabled only (or test URLs if in test mode)
 	var meshEnabled []string
 	for _, name := range online {
-		if network.getMeshIPForNara(name) != "" {
+		if network.testMeshURLs != nil {
+			// In test mode, use testMeshURLs
+			if network.testMeshURLs[name] != "" {
+				meshEnabled = append(meshEnabled, name)
+			}
+		} else if network.getMeshIPForNara(name) != "" {
 			meshEnabled = append(meshEnabled, name)
 		}
 	}
@@ -1733,31 +1741,29 @@ func (d *TailscalePeerDiscovery) ScanForPeers(myIP string) []DiscoveredPeer {
 		if err != nil {
 			continue // Not a nara or unreachable
 		}
+
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			continue
+		}
+
+		// Decode to get the nara's name
+		var pingResp map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&pingResp); err != nil {
+			resp.Body.Close()
+			continue
+		}
 		resp.Body.Close()
 
-		if resp.StatusCode == http.StatusOK {
-			// Decode to get the nara's name
-			var pingResp map[string]interface{}
-			resp, err := d.client.Get(url)
-			if err != nil {
-				continue
-			}
-			defer resp.Body.Close()
-
-			if err := json.NewDecoder(resp.Body).Decode(&pingResp); err != nil {
-				continue
-			}
-
-			naraName, ok := pingResp["from"].(string)
-			if !ok || naraName == "" {
-				continue
-			}
-
-			peers = append(peers, DiscoveredPeer{
-				Name:   naraName,
-				MeshIP: ip,
-			})
+		naraName, ok := pingResp["from"].(string)
+		if !ok || naraName == "" {
+			continue
 		}
+
+		peers = append(peers, DiscoveredPeer{
+			Name:   naraName,
+			MeshIP: ip,
+		})
 	}
 
 	return peers
@@ -1918,9 +1924,20 @@ func (network *Network) performGossipRound() {
 
 // exchangeZine sends our zine to a neighbor and receives theirs back
 func (network *Network) exchangeZine(targetName string, myZine *Zine) {
-	meshIP := network.getMeshIPForNara(targetName)
-	if meshIP == "" {
-		return
+	// Determine URL - use test override if available
+	var url string
+	if network.testMeshURLs != nil {
+		url = network.testMeshURLs[targetName]
+		if url == "" {
+			return
+		}
+		url = url + "/gossip/zine"
+	} else {
+		meshIP := network.getMeshIPForNara(targetName)
+		if meshIP == "" {
+			return
+		}
+		url = fmt.Sprintf("http://%s:%d/gossip/zine", meshIP, DefaultMeshPort)
 	}
 
 	// Encode our zine
@@ -1930,9 +1947,13 @@ func (network *Network) exchangeZine(targetName string, myZine *Zine) {
 		return
 	}
 
-	// POST to neighbor's /gossip/zine endpoint
-	url := fmt.Sprintf("http://%s:%d/gossip/zine", meshIP, DefaultMeshPort)
-	client := network.tsnetMesh.Server().HTTPClient()
+	// Use test client if available, otherwise use tsnet client
+	var client *http.Client
+	if network.testHTTPClient != nil {
+		client = network.testHTTPClient
+	} else {
+		client = network.tsnetMesh.Server().HTTPClient()
+	}
 
 	resp, err := client.Post(url, "application/json", bytes.NewBuffer(zineBytes))
 	if err != nil {
