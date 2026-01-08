@@ -166,8 +166,15 @@ func (network *Network) tryDiscoverUnknownSender(name, remoteAddr string) bool {
 	}
 
 	// Try to fetch their public key via /ping
+	// Must use tsnet HTTP client to route through the mesh
+	if network.tsnetMesh == nil || network.tsnetMesh.Server() == nil {
+		logrus.Debugf("📡 Cannot discover %s: no tsnet mesh available", name)
+		return false
+	}
+
 	url := fmt.Sprintf("http://%s:%d/ping", ip, DefaultMeshPort)
-	client := &http.Client{Timeout: 2 * time.Second}
+	client := network.tsnetMesh.Server().HTTPClient()
+	client.Timeout = 2 * time.Second
 
 	resp, err := client.Get(url)
 	if err != nil {
