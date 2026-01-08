@@ -81,6 +81,31 @@ func (nara *Nara) setObservation(name string, observation NaraObservation) {
 }
 
 func (network *Network) formOpinion() {
+	// Signal completion when done (allows backfillObservations to proceed)
+	defer func() {
+		if network.formOpinionsDone != nil {
+			select {
+			case <-network.formOpinionsDone:
+				// Already closed
+			default:
+				close(network.formOpinionsDone)
+				logrus.Debug("👀 opinions formed, signaling backfill to proceed")
+			}
+		}
+	}()
+
+	// Wait for boot recovery to complete first (so we have data to form opinions on)
+	// Use select to handle both normal operation and direct test calls
+	if network.bootRecoveryDone != nil {
+		select {
+		case <-network.bootRecoveryDone:
+			logrus.Debug("🕵️  boot recovery done, now starting opinion timer")
+		case <-time.After(100 * time.Millisecond):
+			// In tests or direct calls, don't wait forever
+			logrus.Debug("🕵️  boot recovery channel not signaled, proceeding (likely test/direct call)")
+		}
+	}
+
 	if OpinionDelayOverride > 0 {
 		logrus.Printf("🕵️  forming opinions (overridden) in %v...", OpinionDelayOverride)
 		time.Sleep(OpinionDelayOverride)

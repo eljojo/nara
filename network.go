@@ -77,6 +77,9 @@ type Network struct {
 	// Graceful shutdown
 	ctx        context.Context
 	cancelFunc context.CancelFunc
+	// Startup sequencing: operations must complete in order
+	bootRecoveryDone  chan struct{}
+	formOpinionsDone  chan struct{}
 	// Test hooks (only used in tests)
 	testHTTPClient *http.Client      // Override HTTP client for testing
 	testMeshURLs   map[string]string // Override mesh URLs for testing (nara name -> URL)
@@ -200,6 +203,9 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	network.journeyCompleteInbox = make(chan JourneyCompletion, 50)
 	// Initialize context for graceful shutdown
 	network.ctx, network.cancelFunc = context.WithCancel(context.Background())
+	// Initialize startup sequencing channels
+	network.bootRecoveryDone = make(chan struct{})
+	network.formOpinionsDone = make(chan struct{})
 	network.Mqtt = initializeMQTT(network.mqttOnConnectHandler(), network.meName(), host, user, pass)
 	return network
 }
@@ -477,6 +483,12 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 					httpTransport := NewHTTPMeshTransport(tsnetMesh.Server(), network, DefaultMeshPort)
 					network.InitWorldJourney(httpTransport)
 					logrus.Infof("🌍 World journey using HTTP over tsnet (IP: %s)", tsnetMesh.IP())
+
+					// In gossip-only mode, discover peers immediately (don't wait 30s)
+					if network.TransportMode == TransportGossip {
+						logrus.Info("📡 Gossip mode: discovering peers immediately...")
+						network.discoverMeshPeers()
+					}
 				}
 			}
 		}
@@ -521,6 +533,10 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 		go network.backfillObservations()
 		// Start background sync for organic memory strengthening
 		go network.backgroundSync()
+	} else {
+		// In ReadOnly mode, close startup channels so formOpinion/backfill don't block
+		close(network.bootRecoveryDone)
+		close(network.formOpinionsDone)
 	}
 
 	// Start garbage collection maintenance
@@ -1312,6 +1328,12 @@ func (network *Network) getNeighborsForBootRecovery() []string {
 
 // bootRecovery requests social events from neighbors after boot
 func (network *Network) bootRecovery() {
+	// Signal completion when done (allows formOpinion to proceed)
+	defer func() {
+		close(network.bootRecoveryDone)
+		logrus.Debug("📦 boot recovery complete, signaling formOpinion to proceed")
+	}()
+
 	// Wait for initial neighbor discovery
 	time.Sleep(30 * time.Second)
 
@@ -1609,8 +1631,17 @@ func (network *Network) seedAvgPingRTTFromHistory() {
 // backfillObservations migrates existing observations to observation events
 // This enables smooth transition from newspaper-based consensus to event-based
 func (network *Network) backfillObservations() {
-	// Wait for boot recovery to complete and gather some observations
-	time.Sleep(3 * time.Minute)
+	// Wait for formOpinion to complete (which already waits for boot recovery)
+	// Use select to handle both normal operation and direct test calls
+	if network.formOpinionsDone != nil {
+		select {
+		case <-network.formOpinionsDone:
+			// formOpinion completed
+		case <-time.After(5 * time.Minute):
+			// Safety timeout - shouldn't hit this in normal operation
+			logrus.Warn("⚠️ backfillObservations: timeout waiting for formOpinion")
+		}
+	}
 
 	myName := network.meName()
 	backfillCount := 0
@@ -1871,18 +1902,32 @@ func (d *TailscalePeerDiscovery) ScanForPeers(myIP string) []DiscoveredPeer {
 // discoverMeshPeers discovers peers and bootstraps from them
 // This replaces MQTT-based discovery in gossip-only mode
 func (network *Network) discoverMeshPeers() {
-	if network.tsnetMesh == nil || network.peerDiscovery == nil {
+	if network.tsnetMesh == nil {
 		return
 	}
 
-	myIP := network.tsnetMesh.IP()
 	myName := network.meName()
+	logrus.Debugf("📡 Mesh discovery starting: myName=%s", myName)
 
-	logrus.Debugf("📡 Mesh discovery starting: myIP=%s, myName=%s", myIP, myName)
+	// Try Status API first (instant, no network scanning)
+	var peers []DiscoveredPeer
+	ctx, cancel := context.WithTimeout(network.ctx, 5*time.Second)
+	defer cancel()
 
-	// Scan for peers using strategy
-	peers := network.peerDiscovery.ScanForPeers(myIP)
-	logrus.Debugf("📡 Mesh discovery scan complete: found %d potential peers", len(peers))
+	tsnetPeers, err := network.tsnetMesh.Peers(ctx)
+	if err != nil {
+		logrus.Debugf("📡 Status API failed, falling back to IP scan: %v", err)
+		// Fall back to IP scanning if Status API fails
+		if network.peerDiscovery != nil {
+			peers = network.peerDiscovery.ScanForPeers(network.tsnetMesh.IP())
+		}
+	} else {
+		// Convert TsnetPeer to DiscoveredPeer
+		for _, p := range tsnetPeers {
+			peers = append(peers, DiscoveredPeer{Name: p.Name, MeshIP: p.IP})
+		}
+		logrus.Infof("📡 Got %d peers from tsnet Status API (instant!)", len(peers))
+	}
 
 	discovered := 0
 	var newPeers []DiscoveredPeer
