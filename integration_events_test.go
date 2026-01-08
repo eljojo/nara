@@ -423,8 +423,8 @@ func TestIntegration_MissingDetectionNotTooSensitive(t *testing.T) {
 		if !observation.isOnline() {
 			continue
 		}
-		// This is the check from observationMaintenance() - uses MissingThreshold constant
-		if (now - observation.LastSeen) > MissingThreshold {
+		// This is the check from observationMaintenance() - uses MissingThresholdSeconds constant
+		if (now - observation.LastSeen) > MissingThresholdSeconds {
 			observation.Online = "MISSING"
 			ln1.Me.Status.Observations[name] = observation
 		}
@@ -617,19 +617,19 @@ func TestIntegration_GossipModeThreshold(t *testing.T) {
 	mqttObs := observer.getObservation("mqtt-nara")
 	gossipObs := observer.getObservation("gossip-nara")
 
-	// Check MQTT nara threshold (should exceed MissingThreshold of 300s)
-	mqttThreshold := MissingThreshold
+	// Check MQTT nara threshold (should exceed MissingThresholdSeconds of 300s)
+	mqttThreshold := MissingThresholdSeconds
 	mqttNaraInfo := network.getNara("mqtt-nara")
 	if mqttNaraInfo.Name != "" && mqttNaraInfo.Status.TransportMode == "gossip" {
-		mqttThreshold = MissingThresholdGossip
+		mqttThreshold = MissingThresholdGossipSeconds
 	}
 	mqttShouldBeMissing := (now - mqttObs.LastSeen) > mqttThreshold
 
-	// Check gossip nara threshold (should NOT exceed MissingThresholdGossip of 3600s)
-	gossipThreshold := MissingThreshold
+	// Check gossip nara threshold (should NOT exceed MissingThresholdGossipSeconds of 3600s)
+	gossipThreshold := MissingThresholdSeconds
 	gossipNaraInfo := network.getNara("gossip-nara")
 	if gossipNaraInfo.Name != "" && gossipNaraInfo.Status.TransportMode == "gossip" {
-		gossipThreshold = MissingThresholdGossip
+		gossipThreshold = MissingThresholdGossipSeconds
 	}
 	gossipShouldBeMissing := (now - gossipObs.LastSeen) > gossipThreshold
 
@@ -646,13 +646,13 @@ func TestIntegration_GossipModeThreshold(t *testing.T) {
 	}
 
 	// Verify the thresholds are as expected
-	if mqttThreshold != MissingThreshold {
+	if mqttThreshold != MissingThresholdSeconds {
 		t.Errorf("MQTT nara should use standard threshold: got %d, want %d",
-			mqttThreshold, MissingThreshold)
+			mqttThreshold, MissingThresholdSeconds)
 	}
-	if gossipThreshold != MissingThresholdGossip {
+	if gossipThreshold != MissingThresholdGossipSeconds {
 		t.Errorf("Gossip nara should use gossip threshold: got %d, want %d",
-			gossipThreshold, MissingThresholdGossip)
+			gossipThreshold, MissingThresholdGossipSeconds)
 	}
 
 	t.Logf("✅ Gossip mode threshold working:")
@@ -693,12 +693,12 @@ func TestIntegration_GossipObserverThreshold(t *testing.T) {
 	// Simulate the threshold check (same logic as observationMaintenance)
 	obs := observer.getObservation("mqtt-nara")
 
-	threshold := MissingThreshold
+	threshold := MissingThresholdSeconds
 	nara := network.getNara("mqtt-nara")
 	subjectIsGossip := nara.Name != "" && nara.Status.TransportMode == "gossip"
 	observerIsGossip := network.TransportMode == TransportGossip
 	if subjectIsGossip || observerIsGossip {
-		threshold = MissingThresholdGossip
+		threshold = MissingThresholdGossipSeconds
 	}
 	shouldBeMissing := (now - obs.LastSeen) > threshold
 
@@ -708,9 +708,9 @@ func TestIntegration_GossipObserverThreshold(t *testing.T) {
 			now-obs.LastSeen, threshold)
 	}
 
-	if threshold != MissingThresholdGossip {
+	if threshold != MissingThresholdGossipSeconds {
 		t.Errorf("Gossip observer should use gossip threshold for all naras: got %d, want %d",
-			threshold, MissingThresholdGossip)
+			threshold, MissingThresholdGossipSeconds)
 	}
 
 	t.Logf("✅ Gossip observer threshold working:")

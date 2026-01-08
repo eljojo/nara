@@ -1,6 +1,7 @@
 package nara
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
@@ -897,6 +898,9 @@ func TestSyncLedger_DeriveClout(t *testing.T) {
 	soul1 := "soul-observer-1"
 	soul2 := "soul-observer-2"
 
+	// Process events before querying
+	cloutProjection.RunToEnd(context.Background())
+
 	// Get clout from both perspectives
 	clout1 := cloutProjection.DeriveClout(soul1, socialPersonality)
 	clout2 := cloutProjection.DeriveClout(soul2, chillPersonality)
@@ -948,6 +952,7 @@ func TestSyncLedger_DeriveClout_Observations(t *testing.T) {
 	}
 
 	personality := NaraPersonality{Chill: 50, Sociability: 50, Agreeableness: 50}
+	cloutProjection.RunToEnd(context.Background())
 	clout := cloutProjection.DeriveClout("observer-soul", personality)
 
 	// reliable-nara should have positive clout (journey-complete + journey-pass)

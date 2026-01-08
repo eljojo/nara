@@ -83,10 +83,8 @@ func (p *OpinionConsensusProjection) handleEvent(event SyncEvent) error {
 
 // DeriveOpinion returns consensus opinion about a subject.
 // Uses the same uptime-weighted clustering algorithm as the legacy implementation.
+// Note: Call Trigger() or RunOnce() before this if you need up-to-date data.
 func (p *OpinionConsensusProjection) DeriveOpinion(subject string) OpinionData {
-	// First, catch up on any new events
-	p.RunToEnd(context.Background())
-
 	p.mu.RLock()
 	observations := p.observationsBySubject[subject]
 	// Make a copy to avoid holding lock during computation
@@ -230,6 +228,17 @@ func (p *OpinionConsensusProjection) GetObservationsFor(subject string) []Observ
 // RunToEnd catches up the projection to the current state.
 func (p *OpinionConsensusProjection) RunToEnd(ctx context.Context) error {
 	return p.projection.RunToEnd(ctx)
+}
+
+// RunOnce processes any new events since last run.
+func (p *OpinionConsensusProjection) RunOnce() (bool, error) {
+	return p.projection.RunOnce()
+}
+
+// Trigger processes new events immediately.
+// Use this when events have been added and you need updated state.
+func (p *OpinionConsensusProjection) Trigger() {
+	p.projection.RunOnce()
 }
 
 // SubjectCount returns the number of subjects with observations.

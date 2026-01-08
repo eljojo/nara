@@ -160,7 +160,8 @@ func (s *ProjectionStore) Start() {
 // Trigger forces an immediate projection update for all projections.
 func (s *ProjectionStore) Trigger() {
 	s.onlineStatus.Trigger()
-	// Clout and opinion are on-demand, no need to trigger
+	s.clout.Trigger()
+	s.opinion.Trigger()
 }
 
 // Shutdown gracefully stops all projections.

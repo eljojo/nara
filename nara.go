@@ -137,12 +137,12 @@ func (ln *LocalNara) Start(serveUI bool, readOnly bool, httpAddr string, meshCon
 	if ln.Projections != nil {
 		// Configure MISSING threshold to account for gossip mode
 		ln.Projections.OnlineStatus().SetMissingThresholdFunc(func(name string) int64 {
-			threshold := MissingThreshold // seconds
+			threshold := MissingThresholdSeconds
 			nara := ln.Network.getNara(name)
 			subjectIsGossip := nara.Name != "" && nara.Status.TransportMode == "gossip"
 			observerIsGossip := ln.Network.TransportMode == TransportGossip
 			if subjectIsGossip || observerIsGossip {
-				threshold = MissingThresholdGossip
+				threshold = MissingThresholdGossipSeconds
 			}
 			return threshold * int64(time.Second) // Convert to nanoseconds
 		})

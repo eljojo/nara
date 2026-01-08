@@ -297,6 +297,102 @@ func TestOnlineStatusHandlesOutOfOrderEvents(t *testing.T) {
 	}
 }
 
+// TestOnlineStatusChauThenOldHeyThereViaZine verifies the exact scenario:
+// 1. nara1 and nara2 are online
+// 2. nara3 joins
+// 3. nara1 says chau, they all see it
+// 4. nara2 sends zine to nara3 including hey_there from nara1 (older timestamp)
+// 5. nara3 should still know nara1 is offline (chau has newer timestamp)
+//
+// This tests that when an old hey_there arrives after a chau via zine gossip,
+// the chau wins because it has the later timestamp.
+func TestOnlineStatusChauThenOldHeyThereViaZine(t *testing.T) {
+	// Simulate nara3's perspective
+	ledger := NewSyncLedger(100)
+	projection := NewOnlineStatusProjection(ledger)
+	ctx := context.Background()
+
+	// Timeline:
+	// T=1000: nara1 sends hey_there (nara2 sees it, nara3 doesn't exist yet)
+	// T=2000: nara3 joins
+	// T=3000: nara1 sends chau (everyone sees it)
+	// T=4000: nara2 sends zine to nara3 containing the hey_there from T=1000
+
+	baseTime := time.Now().UnixNano()
+	heyThereTime := baseTime + 1000*int64(time.Millisecond)
+	chauTime := baseTime + 3000*int64(time.Millisecond)
+
+	// Step 1: nara3 receives chau directly (this is what nara3 sees first)
+	ledger.AddEvent(SyncEvent{
+		Timestamp: chauTime,
+		Service:   ServiceChau,
+		Emitter:   "nara1",
+		Chau: &ChauEvent{
+			From:      "nara1",
+			PublicKey: "key1",
+		},
+	})
+
+	projection.RunToEnd(ctx)
+
+	// nara1 should be OFFLINE
+	if status := projection.GetStatus("nara1"); status != "OFFLINE" {
+		t.Errorf("After chau: expected nara1 OFFLINE, got %s", status)
+	}
+
+	// Step 2: nara3 receives zine from nara2 containing old hey_there
+	// This hey_there has an OLDER timestamp than the chau
+	ledger.AddEvent(SyncEvent{
+		Timestamp: heyThereTime, // T=1000, older than chau at T=3000
+		Service:   ServiceHeyThere,
+		Emitter:   "nara1",
+		HeyThere: &HeyThereEvent{
+			From:      "nara1",
+			PublicKey: "key1",
+			MeshIP:    "10.0.0.1",
+		},
+	})
+
+	projection.RunToEnd(ctx)
+
+	// nara1 should STILL be OFFLINE because the chau (T=3000) is newer than hey_there (T=1000)
+	if status := projection.GetStatus("nara1"); status != "OFFLINE" {
+		t.Errorf("After old hey_there via zine: expected nara1 OFFLINE, got %s", status)
+	}
+
+	// Verify the state internals
+	state := projection.GetState("nara1")
+	if state == nil {
+		t.Fatal("Expected state for nara1")
+	}
+	if state.LastEventTime != chauTime {
+		t.Errorf("Expected LastEventTime=%d (chau), got %d", chauTime, state.LastEventTime)
+	}
+	if state.LastEventType != ServiceChau {
+		t.Errorf("Expected LastEventType=%s, got %s", ServiceChau, state.LastEventType)
+	}
+
+	// Step 3: If nara1 comes back online with a NEW hey_there, it should work
+	newHeyThereTime := baseTime + 5000*int64(time.Millisecond)
+	ledger.AddEvent(SyncEvent{
+		Timestamp: newHeyThereTime, // T=5000, newer than chau at T=3000
+		Service:   ServiceHeyThere,
+		Emitter:   "nara1",
+		HeyThere: &HeyThereEvent{
+			From:      "nara1",
+			PublicKey: "key1",
+			MeshIP:    "10.0.0.1",
+		},
+	})
+
+	projection.RunToEnd(ctx)
+
+	// NOW nara1 should be ONLINE
+	if status := projection.GetStatus("nara1"); status != "ONLINE" {
+		t.Errorf("After new hey_there: expected nara1 ONLINE, got %s", status)
+	}
+}
+
 // TestGetEventsSinceReturnsVersion verifies GetEventsSince returns version correctly.
 func TestGetEventsSinceReturnsVersion(t *testing.T) {
 	ledger := NewSyncLedger(5)

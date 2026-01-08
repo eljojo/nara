@@ -1,6 +1,7 @@
 package nara
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -424,6 +425,7 @@ func TestIntegration_WorldJourney_DerivedClout(t *testing.T) {
 	ledger.AddEvent(event)
 
 	// Derive clout from the ledger events
+	cloutProjection.RunToEnd(context.Background())
 	derivedClout := cloutProjection.DeriveClout(soul, personality)
 
 	t.Logf("Derived clout from events:")

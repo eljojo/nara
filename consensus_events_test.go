@@ -1,6 +1,7 @@
 package nara
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -19,6 +20,7 @@ func TestConsensusEvents_SingleObserver(t *testing.T) {
 	ledger.AddEvent(event)
 
 	// Derive consensus from events
+	projection.RunToEnd(context.Background())
 	opinion := projection.DeriveOpinion(subject)
 
 	if opinion.StartTime != expectedStartTime {
@@ -46,6 +48,7 @@ func TestConsensusEvents_Agreement(t *testing.T) {
 	}
 
 	// Consensus should match agreed values
+	projection.RunToEnd(context.Background())
 	opinion := projection.DeriveOpinion(subject)
 
 	if opinion.StartTime != agreedStartTime {
@@ -80,6 +83,7 @@ func TestConsensusEvents_Disagreement(t *testing.T) {
 	// Consensus should pick:
 	// - StartTime: 1000 (clustering majority)
 	// - Restarts: 11 (highest value = most recent knowledge)
+	projection.RunToEnd(context.Background())
 	opinion := projection.DeriveOpinion(subject)
 
 	if opinion.StartTime != 1000 {
@@ -117,6 +121,7 @@ func TestConsensusEvents_UptimeWeighting(t *testing.T) {
 	// (Cluster with 2+ observers wins via Strategy 1, but they're in same cluster)
 	// Actually, 1000 and 2000 are in DIFFERENT clusters (diff > 60s tolerance)
 	// So this tests Strategy 2: single-observer clusters ranked by uptime
+	projection.RunToEnd(context.Background())
 	opinion := projection.DeriveOpinion(subject)
 
 	// Cluster [1000, 1000] has 2 observers with total uptime 200
@@ -143,6 +148,7 @@ func TestConsensusEvents_UptimeWeighting_SingleObserverClusters(t *testing.T) {
 	ledger.AddEvent(event3)
 
 	// With no cluster having 2+ observers, Strategy 2 picks highest uptime
+	projection.RunToEnd(context.Background())
 	opinion := projection.DeriveOpinion(subject)
 
 	if opinion.StartTime != 3000 {
@@ -171,6 +177,7 @@ func TestConsensusEvents_ToleranceClustering(t *testing.T) {
 	ledger.AddEvent(outlierEvent)
 
 	// Consensus should cluster the three within-tolerance observations
+	projection.RunToEnd(context.Background())
 	opinion := projection.DeriveOpinion(subject)
 
 	// Should be close to baseTime (within the cluster)
@@ -194,6 +201,7 @@ func TestConsensusEvents_FirstSeen(t *testing.T) {
 	}
 
 	// Consensus should derive StartTime from first-seen events
+	projection.RunToEnd(context.Background())
 	opinion := projection.DeriveOpinion(subject)
 
 	if opinion.StartTime == 0 {
@@ -222,6 +230,7 @@ func TestConsensusEvents_Backfill(t *testing.T) {
 	}
 
 	// Consensus should treat backfill events like regular observations
+	projection.RunToEnd(context.Background())
 	opinion := projection.DeriveOpinion(subject)
 
 	if opinion.StartTime != backfillStartTime {
@@ -257,6 +266,7 @@ func TestConsensusEvents_MixedBackfillAndRealtime(t *testing.T) {
 	}
 
 	// Consensus should prefer majority (newer restart count)
+	projection.RunToEnd(context.Background())
 	opinion := projection.DeriveOpinion(subject)
 
 	if opinion.Restarts != newRestarts {
@@ -271,6 +281,7 @@ func TestConsensusEvents_NoEvents(t *testing.T) {
 	subject := "nara-unknown"
 
 	// No events about this subject
+	projection.RunToEnd(context.Background())
 	opinion := projection.DeriveOpinion(subject)
 
 	// Should return zero values or indicate no consensus
@@ -326,6 +337,7 @@ func TestConsensusEvents_RestartProgression(t *testing.T) {
 	}
 
 	// Consensus should pick highest restart count (most recent)
+	projection.RunToEnd(context.Background())
 	opinion := projection.DeriveOpinion(subject)
 
 	if opinion.Restarts != 10 {
@@ -392,6 +404,7 @@ func TestConsensusEvents_PersonalityFiltered(t *testing.T) {
 	ledger.AddEventFiltered(normalEvent, chillPersonality)
 
 	// Consensus should work even if some events were filtered
+	projection.RunToEnd(context.Background())
 	opinion := projection.DeriveOpinion(subject)
 
 	// Should have at least the critical event
@@ -416,6 +429,7 @@ func TestConsensusEvents_LastRestart(t *testing.T) {
 		ledger.AddEvent(event)
 	}
 
+	projection.RunToEnd(context.Background())
 	opinion := projection.DeriveOpinion(subject)
 
 	// Should derive LastRestart from events
@@ -453,6 +467,7 @@ func TestConsensusEvents_SparseObservations(t *testing.T) {
 	ledger.AddEvent(event)
 
 	// Consensus should work with minimal data
+	projection.RunToEnd(context.Background())
 	opinion := projection.DeriveOpinion(subject)
 
 	if opinion.StartTime != 1000 {

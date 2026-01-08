@@ -11,7 +11,7 @@ import (
 
 const BlueJayURL = "https://nara.network/narae.json"
 
-// MissingThreshold is the duration without updates before a nara is marked MISSING.
+// MissingThresholdSeconds is the duration (in SECONDS) without updates before a nara is marked MISSING.
 // This must be long enough to account for:
 // - Variable posting intervals (naras post every 10-30 seconds, but can go quieter)
 // - Network delays and occasional missed messages
@@ -20,16 +20,21 @@ const BlueJayURL = "https://nara.network/narae.json"
 // - Naras normally post every 30s, so 300s = 10 missed posts
 // - This avoids false positives for quiet but online naras
 // - Actual crashes/network issues will exceed this within reasonable time
-const MissingThreshold int64 = 300 // seconds (5 minutes)
+//
+// NOTE: This is in SECONDS because LastSeen uses time.Now().Unix() (seconds).
+// For projections that use nanoseconds, multiply by int64(time.Second).
+const MissingThresholdSeconds int64 = 300 // 5 minutes
 
-// MissingThresholdGossip is a more lenient threshold for naras in gossip mode.
+// MissingThresholdGossipSeconds is a more lenient threshold (in SECONDS) for naras in gossip mode.
 // Gossip mode relies on zine exchanges which happen less frequently (every 60s),
 // and may not reach all naras in each round due to the random peer selection.
 // 1 hour is chosen because:
 // - Zines spread every 60s to 3-5 random peers
 // - A nara might not be selected for several rounds
 // - 1 hour allows for natural gossip propagation delays
-const MissingThresholdGossip int64 = 3600 // seconds (1 hour)
+//
+// NOTE: This is in SECONDS. For projections, multiply by int64(time.Second).
+const MissingThresholdGossipSeconds int64 = 3600 // 1 hour
 
 var OpinionDelayOverride time.Duration = 0
 
@@ -449,12 +454,12 @@ func (network *Network) observationMaintenance() {
 			// Use longer threshold when:
 			// 1. The observed nara is in gossip mode (they update less frequently)
 			// 2. We (the observer) are in gossip mode (we receive updates less frequently)
-			threshold := MissingThreshold
+			threshold := MissingThresholdSeconds
 			nara := network.getNara(name)
 			subjectIsGossip := nara.Name != "" && nara.Status.TransportMode == "gossip"
 			observerIsGossip := network.TransportMode == TransportGossip
 			if subjectIsGossip || observerIsGossip {
-				threshold = MissingThresholdGossip
+				threshold = MissingThresholdGossipSeconds
 			}
 
 			if (now-observation.LastSeen) > threshold && !network.skippingEvents && !network.local.isBooting() {

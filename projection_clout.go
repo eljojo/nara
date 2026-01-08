@@ -73,10 +73,8 @@ func (p *CloutProjection) handleEvent(event SyncEvent) error {
 
 // DeriveClout computes subjective clout scores based on stored events.
 // Each observer derives their own opinion based on their soul and personality.
+// Note: Call Trigger() or RunOnce() before this if you need up-to-date data.
 func (p *CloutProjection) DeriveClout(observerSoul string, personality NaraPersonality) map[string]float64 {
-	// First, catch up on any new events
-	p.RunToEnd(context.Background())
-
 	p.mu.RLock()
 	events := make([]SocialEventRecord, len(p.events))
 	copy(events, p.events)
@@ -230,6 +228,17 @@ func computeCloutEventWeight(record SocialEventRecord, personality NaraPersonali
 // RunToEnd catches up the projection to the current state.
 func (p *CloutProjection) RunToEnd(ctx context.Context) error {
 	return p.projection.RunToEnd(ctx)
+}
+
+// RunOnce processes any new events since last run.
+func (p *CloutProjection) RunOnce() (bool, error) {
+	return p.projection.RunOnce()
+}
+
+// Trigger processes new events immediately.
+// Use this when events have been added and you need updated state.
+func (p *CloutProjection) Trigger() {
+	p.projection.RunOnce()
 }
 
 // EventCount returns the number of social events stored.
