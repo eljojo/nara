@@ -21,7 +21,16 @@ const BlueJayURL = "https://nara.network/narae.json"
 // - Naras normally post every 30s, so 300s = 10 missed posts
 // - This avoids false positives for quiet but online naras
 // - Actual crashes/network issues will exceed this within reasonable time
-const MissingThreshold int64 = 300 // seconds
+const MissingThreshold int64 = 300 // seconds (5 minutes)
+
+// MissingThresholdGossip is a more lenient threshold for naras in gossip mode.
+// Gossip mode relies on zine exchanges which happen less frequently (every 60s),
+// and may not reach all naras in each round due to the random peer selection.
+// 1 hour is chosen because:
+// - Zines spread every 60s to 3-5 random peers
+// - A nara might not be selected for several rounds
+// - 1 hour allows for natural gossip propagation delays
+const MissingThresholdGossip int64 = 3600 // seconds (1 hour)
 
 var OpinionDelayOverride time.Duration = 0
 
@@ -480,8 +489,15 @@ func (network *Network) observationMaintenance() {
 				continue
 			}
 
-			// mark missing after MissingThreshold seconds of no updates
-			if (now-observation.LastSeen) > MissingThreshold && !network.skippingEvents && !network.local.isBooting() {
+			// mark missing after threshold seconds of no updates
+			// Use longer threshold for gossip-mode naras (they update less frequently)
+			threshold := MissingThreshold
+			nara := network.getNara(name)
+			if nara.Name != "" && nara.Status.TransportMode == "gossip" {
+				threshold = MissingThresholdGossip
+			}
+
+			if (now-observation.LastSeen) > threshold && !network.skippingEvents && !network.local.isBooting() {
 				observation.Online = "MISSING"
 				network.local.setObservation(name, observation)
 				logrus.Printf("observation: %s has disappeared", name)

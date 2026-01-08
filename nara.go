@@ -44,21 +44,22 @@ type NaraPersonality struct {
 }
 
 type NaraStatus struct {
-	LicensePlate string
-	Flair        string
-	HostStats    HostStats
-	Chattiness   int64
-	Buzz         int
-	Observations map[string]NaraObservation
-	Trend        string
-	TrendEmoji   string
-	Personality  NaraPersonality
-	Version      string
-	PublicUrl    string
-	PublicKey    string             // Base64-encoded Ed25519 public key
-	MeshEnabled  bool               // True if this nara is connected to the Headscale mesh
-	MeshIP       string             // Tailscale IP for direct mesh communication (no DNS needed)
-	Coordinates  *NetworkCoordinate `json:"coordinates,omitempty"` // Vivaldi network coordinates
+	LicensePlate  string
+	Flair         string
+	HostStats     HostStats
+	Chattiness    int64
+	Buzz          int
+	Observations  map[string]NaraObservation
+	Trend         string
+	TrendEmoji    string
+	Personality   NaraPersonality
+	Version       string
+	PublicUrl     string
+	PublicKey     string             // Base64-encoded Ed25519 public key
+	MeshEnabled   bool               // True if this nara is connected to the Headscale mesh
+	MeshIP        string             // Tailscale IP for direct mesh communication (no DNS needed)
+	Coordinates   *NetworkCoordinate `json:"coordinates,omitempty"` // Vivaldi network coordinates
+	TransportMode string             `json:"transport_mode,omitempty"` // "mqtt", "gossip", or "hybrid"
 	// remember to sync with setValuesFrom
 	// NOTE: Soul was removed - NEVER serialize private keys!
 }
@@ -123,6 +124,7 @@ func NewNara(name string) *Nara {
 func (ln *LocalNara) Start(serveUI bool, readOnly bool, httpAddr string, meshConfig *TsnetConfig, transportMode TransportMode) {
 	ln.Network.ReadOnly = readOnly
 	ln.Network.TransportMode = transportMode
+	ln.Me.Status.TransportMode = transportMode.String() // Share our transport mode with peers
 	if serveUI {
 		logrus.Printf("💻 Serving UI")
 	}
@@ -216,5 +218,8 @@ func (ns *NaraStatus) setValuesFrom(other NaraStatus) {
 	ns.MeshIP = other.MeshIP
 	if other.Coordinates != nil {
 		ns.Coordinates = other.Coordinates
+	}
+	if other.TransportMode != "" {
+		ns.TransportMode = other.TransportMode
 	}
 }

@@ -30,6 +30,20 @@ const (
 	TransportHybrid
 )
 
+// String returns the string representation of the transport mode
+func (t TransportMode) String() string {
+	switch t {
+	case TransportMQTT:
+		return "mqtt"
+	case TransportGossip:
+		return "gossip"
+	case TransportHybrid:
+		return "hybrid"
+	default:
+		return "unknown"
+	}
+}
+
 // Zine is a batch of recent events passed hand-to-hand between naras
 // Like underground zines at punk shows, these spread organically through mesh network
 type Zine struct {
