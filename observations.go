@@ -143,25 +143,19 @@ func (network *Network) formOpinion() {
 			continue
 		}
 
+		// Use event-based consensus for observation data
 		observation := network.local.getObservation(name)
-		startTime := network.findStartingTimeFromNeighbourhoodForNara(name)
-		if startTime > 0 {
-			observation.StartTime = startTime
-		} else {
-			logrus.Printf("couldn't adjust startTime for %s based on neighbour disagreement", name)
-		}
-		restarts := network.findRestartCountFromNeighbourhoodForNara(name)
-		if restarts > 0 {
-			observation.Restarts = restarts
-		} else {
-			logrus.Printf("couldn't adjust restart count for %s based on neighbour disagreement", name)
-		}
-		if name != network.meName() {
-			lastRestart := network.findLastRestartFromNeighbourhoodForNara(name)
-			if lastRestart > 0 {
-				observation.LastRestart = lastRestart
-			} else {
-				logrus.Printf("couldn't adjust last restart date for %s based on neighbour disagreement", name)
+		if network.local.Projections != nil {
+			network.local.Projections.Opinion().RunOnce()
+			opinion := network.local.Projections.Opinion().DeriveOpinion(name)
+			if opinion.StartTime > 0 {
+				observation.StartTime = opinion.StartTime
+			}
+			if opinion.Restarts > 0 {
+				observation.Restarts = opinion.Restarts
+			}
+			if name != network.meName() && opinion.LastRestart > 0 {
+				observation.LastRestart = opinion.LastRestart
 			}
 		}
 		network.local.setObservation(name, observation)
@@ -351,48 +345,6 @@ func (network *Network) fetchOpinionsFromBlueJay() {
 	}
 }
 
-// findStartingTimeFromNeighbourhoodForNara uses uptime-weighted clustering consensus
-// with a hierarchy of strategies from strictest to most permissive:
-//
-// Strategy 1 (Strong): Pick cluster with >= 2 agreeing observers and highest uptime
-// Strategy 2 (Weak): Pick cluster with highest uptime (even single observer)
-// Strategy 3 (Coin flip): If top 2 clusters are close in uptime, flip a coin
-//
-// This handles: exact agreement, small clock drift, competing opinions,
-// and total chaos (with a sense of humor).
-func (network *Network) findStartingTimeFromNeighbourhoodForNara(name string) int64 {
-	const tolerance int64 = 60 // seconds - handles clock drift
-
-	var observations []consensusValue
-	var sources []string // track who provided what
-	network.local.mu.Lock()
-	defer network.local.mu.Unlock()
-
-	for naraName, nara := range network.Neighbourhood {
-		obs := nara.getObservation(name)
-		if obs.StartTime > 0 {
-			uptime := nara.Status.HostStats.Uptime
-			if uptime == 0 {
-				uptime = 1 // minimum weight
-			}
-			observations = append(observations, consensusValue{
-				value:  obs.StartTime,
-				weight: uptime,
-			})
-			sources = append(sources, naraName)
-		}
-	}
-
-	result := consensusByUptime(observations, tolerance, true)
-	if result == 0 && len(observations) > 0 {
-		logrus.Infof("  startTime data for %s: %d sources", name, len(observations))
-		for i, obs := range observations {
-			logrus.Infof("    %s: startTime=%d weight=%d", sources[i], obs.value, obs.weight)
-		}
-	}
-	return result
-}
-
 func (network *Network) recordObservationOnlineNara(name string) {
 	network.local.mu.Lock()
 	_, present := network.Neighbourhood[name]
@@ -414,8 +366,8 @@ func (network *Network) recordObservationOnlineNara(name string) {
 		logrus.Printf("observation: seen %s for the first time", name)
 		network.Buzz.increase(3)
 
-		// Emit first-seen observation event in event-primary mode
-		if useObservationEvents() && !network.local.isBooting() && network.local.SyncLedger != nil {
+		// Emit first-seen observation event
+		if !network.local.isBooting() && network.local.SyncLedger != nil {
 			event := NewFirstSeenObservationEvent(network.meName(), name, time.Now().Unix())
 			if network.local.SyncLedger.AddEventWithDedup(event) && network.local.Projections != nil {
 				network.local.Projections.Trigger()
@@ -424,24 +376,20 @@ func (network *Network) recordObservationOnlineNara(name string) {
 		}
 	}
 
-	// "our" observation is mostly a mirror of what others think of us
+	// Use event-based consensus for observation data
 	if observation.StartTime == 0 || name == network.meName() {
-		restarts := network.findRestartCountFromNeighbourhoodForNara(name)
-		startTime := network.findStartingTimeFromNeighbourhoodForNara(name)
-		lastRestart := network.findLastRestartFromNeighbourhoodForNara(name)
-
-		if restarts > 0 {
-			observation.Restarts = restarts
-		}
-		if startTime > 0 {
-			observation.StartTime = startTime
-		}
-		if lastRestart > 0 && name != network.meName() {
-			observation.LastRestart = lastRestart
-		}
-
-		if observation.StartTime == 0 || observation.Restarts == 0 || observation.LastRestart == 0 {
-			network.applyEventConsensusIfMissing(name, &observation)
+		if network.local.Projections != nil {
+			network.local.Projections.Opinion().RunOnce()
+			opinion := network.local.Projections.Opinion().DeriveOpinion(name)
+			if observation.StartTime == 0 && opinion.StartTime > 0 {
+				observation.StartTime = opinion.StartTime
+			}
+			if observation.Restarts == 0 && opinion.Restarts > 0 {
+				observation.Restarts = opinion.Restarts
+			}
+			if observation.LastRestart == 0 && name != network.meName() && opinion.LastRestart > 0 {
+				observation.LastRestart = opinion.LastRestart
+			}
 		}
 
 		if observation.StartTime == 0 && name == network.meName() && !network.local.isBooting() {
@@ -459,8 +407,8 @@ func (network *Network) recordObservationOnlineNara(name string) {
 		network.Buzz.increase(3)
 		wasRestart = true
 
-		// Emit restart observation event in event-primary mode
-		if useObservationEvents() && !network.local.isBooting() && network.local.SyncLedger != nil && name != network.meName() {
+		// Emit restart observation event
+		if !network.local.isBooting() && network.local.SyncLedger != nil && name != network.meName() {
 			event := NewRestartObservationEvent(network.meName(), name, observation.StartTime, observation.Restarts)
 			if network.local.SyncLedger.AddEventWithDedup(event) && network.local.Projections != nil {
 				network.local.Projections.Trigger()
@@ -478,21 +426,11 @@ func (network *Network) recordObservationOnlineNara(name string) {
 	// This avoids duplicate events for the same transition
 	if name != network.meName() && !network.local.isBooting() && network.local.SyncLedger != nil {
 		if previousState != "" && previousState != "ONLINE" && !wasRestart {
-			// Emit status-change observation event in event-primary mode
-			if useObservationEvents() {
-				event := NewStatusChangeObservationEvent(network.meName(), name, "ONLINE")
-				if network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality) && network.local.Projections != nil {
-					network.local.Projections.Trigger()
-				}
-				logrus.Infof("📊 Status-change observation event: %s → ONLINE", name)
-			} else {
-				// Legacy: State changed from MISSING/OFFLINE to ONLINE
-				event := NewObservationEvent(network.meName(), name, ReasonOnline)
-				if network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality) && network.local.Projections != nil {
-					network.local.Projections.Trigger()
-				}
-				logrus.Printf("observation: %s came online", name)
+			event := NewStatusChangeObservationEvent(network.meName(), name, "ONLINE")
+			if network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality) && network.local.Projections != nil {
+				network.local.Projections.Trigger()
 			}
+			logrus.Infof("📊 Status-change observation event: %s → ONLINE", name)
 		}
 	}
 
@@ -501,69 +439,6 @@ func (network *Network) recordObservationOnlineNara(name string) {
 	if !network.local.isBooting() && name != network.meName() {
 		network.checkAndTease(name, previousState, previousTrend)
 	}
-}
-
-func (network *Network) findRestartCountFromNeighbourhoodForNara(name string) int64 {
-	network.local.mu.Lock()
-	defer network.local.mu.Unlock()
-	var maxSeen int64 = 0
-	var values []int64
-	var sources []string
-
-	for naraName, nara := range network.Neighbourhood {
-		restarts := nara.getObservation(name).Restarts
-		values = append(values, restarts)
-		sources = append(sources, naraName)
-		if restarts > maxSeen {
-			maxSeen = restarts
-		}
-	}
-
-	if maxSeen == 0 && len(values) > 0 {
-		logrus.Infof("  restartCount data for %s: %d sources", name, len(values))
-		for i, val := range values {
-			logrus.Infof("    %s: restarts=%d", sources[i], val)
-		}
-	}
-	return maxSeen
-}
-
-func (network *Network) findLastRestartFromNeighbourhoodForNara(name string) int64 {
-	values := make(map[int64]int)
-	sources := make(map[int64][]string)
-	network.local.mu.Lock()
-	defer network.local.mu.Unlock()
-	for naraName, nara := range network.Neighbourhood {
-		last_restart := nara.getObservation(name).LastRestart
-		if last_restart > 0 {
-			values[last_restart] += 1
-			sources[last_restart] = append(sources[last_restart], naraName)
-		}
-	}
-
-	var result int64
-	maxSeen := 0
-
-	total_votes := 0
-	for _, count := range values {
-		total_votes += count
-	}
-	threshold := total_votes / 4
-
-	for last_restart, count := range values {
-		if count > maxSeen && count > threshold {
-			maxSeen = count
-			result = last_restart
-		}
-	}
-
-	if result == 0 && len(values) > 0 {
-		logrus.Infof("  lastRestart data for %s: threshold=%d, total_votes=%d", name, threshold, total_votes)
-		for ts, count := range values {
-			logrus.Infof("    timestamp=%d votes=%d from=%v", ts, count, sources[ts])
-		}
-	}
-	return result
 }
 
 func (network *Network) observationMaintenance() {
@@ -575,19 +450,17 @@ func (network *Network) observationMaintenance() {
 		}
 		network.local.Me.mu.Unlock()
 
-		now := time.Now().Unix()
-
 		// Ensure projection is up-to-date before checking statuses
 		// This synchronously processes any pending events, avoiding race
 		// conditions where we read stale data during/after a zine merge.
-		if useObservationEvents() && network.local.Projections != nil && !network.local.isBooting() {
+		if network.local.Projections != nil && !network.local.isBooting() {
 			network.local.Projections.OnlineStatus().RunOnce()
 		}
 
 		for name, observation := range observations {
-			// Event-sourced status derivation when enabled
+			// Event-sourced status derivation
 			// This uses the event log to determine online status rather than LastSeen
-			if useObservationEvents() && network.local.Projections != nil && !network.local.isBooting() {
+			if network.local.Projections != nil && !network.local.isBooting() {
 				derivedStatus := network.local.Projections.OnlineStatus().GetStatus(name)
 				if derivedStatus != "" && derivedStatus != observation.Online {
 					previousState := observation.Online
@@ -596,13 +469,13 @@ func (network *Network) observationMaintenance() {
 
 					// Log status changes
 					if previousState == "ONLINE" && derivedStatus == "MISSING" {
-						logrus.Printf("observation: %s has disappeared (event-derived)", name)
+						logrus.Printf("observation: %s has disappeared", name)
 						network.Buzz.increase(10)
 						if name != network.meName() {
 							go network.reportMissingWithDelay(name)
 						}
 					} else if previousState == "ONLINE" && derivedStatus == "OFFLINE" {
-						logrus.Printf("observation: %s went offline gracefully (event-derived)", name)
+						logrus.Printf("observation: %s went offline gracefully", name)
 					}
 				}
 
@@ -611,45 +484,6 @@ func (network *Network) observationMaintenance() {
 					observation.ClusterName = ""
 					observation.ClusterEmoji = ""
 					network.local.setObservation(name, observation)
-				}
-				continue
-			}
-
-			// Legacy LastSeen-based maintenance (when event sourcing is disabled)
-			// only do maintenance on naras that are online
-			if !observation.isOnline() {
-				if observation.ClusterName != "" {
-					// reset cluster for offline naras
-					observation.ClusterName = ""
-					observation.ClusterEmoji = ""
-					network.local.setObservation(name, observation)
-				}
-
-				continue
-			}
-
-			// mark missing after threshold seconds of no updates
-			// Use longer threshold when:
-			// 1. The observed nara is in gossip mode (they update less frequently)
-			// 2. We (the observer) are in gossip mode (we receive updates less frequently)
-			threshold := MissingThresholdSeconds
-			nara := network.getNara(name)
-			subjectIsGossip := nara.Name != "" && nara.Status.TransportMode == "gossip"
-			observerIsGossip := network.TransportMode == TransportGossip
-			if subjectIsGossip || observerIsGossip {
-				threshold = MissingThresholdGossipSeconds
-			}
-
-			if (now-observation.LastSeen) > threshold && !network.skippingEvents && !network.local.isBooting() {
-				observation.Online = "MISSING"
-				network.local.setObservation(name, observation)
-				logrus.Printf("observation: %s has disappeared", name)
-				network.Buzz.increase(10)
-
-				// Use delayed reporting to avoid redundant MISSING events from multiple observers
-				// "If no one says anything, I guess I'll say something about it"
-				if name != network.meName() && network.local.SyncLedger != nil {
-					go network.reportMissingWithDelay(name)
 				}
 			}
 		}
@@ -676,23 +510,6 @@ func (network *Network) observationMaintenance() {
 
 func (obs NaraObservation) isOnline() bool {
 	return obs.Online == "ONLINE"
-}
-
-func (network *Network) applyEventConsensusIfMissing(name string, observation *NaraObservation) {
-	if network.local.Projections == nil {
-		return
-	}
-
-	opinion := network.local.Projections.Opinion().DeriveOpinion(name)
-	if observation.StartTime == 0 && opinion.StartTime > 0 {
-		observation.StartTime = opinion.StartTime
-	}
-	if observation.Restarts == 0 && opinion.Restarts > 0 {
-		observation.Restarts = opinion.Restarts
-	}
-	if observation.LastRestart == 0 && name != network.meName() && opinion.LastRestart > 0 {
-		observation.LastRestart = opinion.LastRestart
-	}
 }
 
 // reportMissingWithDelay implements "if no one says anything, I guess I'll say something"
@@ -728,18 +545,9 @@ func (network *Network) reportMissingWithDelay(subject string) {
 	}
 
 	// No one else reported it, so we'll report it
-	if useObservationEvents() {
-		event := NewStatusChangeObservationEvent(network.meName(), subject, "MISSING")
-		if network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality) && network.local.Projections != nil {
-			network.local.Projections.Trigger()
-		}
-		logrus.Infof("📊 Status-change observation event: %s → MISSING (after %v delay)", subject, delay)
-	} else {
-		// Legacy mode
-		event := NewObservationEvent(network.meName(), subject, ReasonOffline)
-		if network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality) && network.local.Projections != nil {
-			network.local.Projections.Trigger()
-		}
-		logrus.Printf("observation: %s went offline (disappeared) after %v delay", subject, delay)
+	event := NewStatusChangeObservationEvent(network.meName(), subject, "MISSING")
+	if network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality) && network.local.Projections != nil {
+		network.local.Projections.Trigger()
 	}
+	logrus.Infof("📊 Status-change observation event: %s → MISSING (after %v delay)", subject, delay)
 }

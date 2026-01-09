@@ -456,6 +456,90 @@ func TestConsensusEvents_VsNewspaperAccuracy(t *testing.T) {
 	// assertSimilar(newspaperOpinion, eventOpinion, tolerance=1%)
 }
 
+// Test consensus when observer changes their mind about StartTime.
+// Unlike the legacy newspaper-based system which only saw current observer state,
+// the projection accumulates ALL observations. When the same observer changes their
+// opinion, both values are used for clustering. The newer value needs network
+// corroboration (other observers) to form a winning cluster.
+func TestConsensusEvents_ChangeOfMind(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+	projection := NewOpinionConsensusProjection(ledger)
+	subject := "nara-target"
+
+	// Observer-a initially reports StartTime=1000
+	event1 := NewRestartObservationEvent("observer-a", subject, 1000, 5)
+	ledger.AddEvent(event1)
+
+	time.Sleep(time.Millisecond) // Ensure different timestamp
+
+	// Same observer later reports StartTime=2000 (changed their mind, e.g., after restart)
+	event2 := NewRestartObservationEvent("observer-a", subject, 2000, 6)
+	ledger.AddEvent(event2)
+
+	// With no other observers, both values form single-observer clusters.
+	// The algorithm picks the first cluster with equal weight (deterministic).
+	projection.RunToEnd(context.Background())
+	opinion := projection.DeriveOpinion(subject)
+
+	// Restarts uses "highest value wins" - so the newer observation wins
+	if opinion.Restarts != 6 {
+		t.Errorf("Expected Restarts=6 (highest value), got %d", opinion.Restarts)
+	}
+
+	// Now add corroborating observer that agrees with new StartTime
+	time.Sleep(time.Millisecond)
+	event3 := NewRestartObservationEvent("observer-b", subject, 2000, 6)
+	ledger.AddEvent(event3)
+
+	projection.RunOnce()
+	opinion = projection.DeriveOpinion(subject)
+
+	// With 2 observers agreeing on StartTime=2000, that cluster wins (Strategy 1)
+	if opinion.StartTime != 2000 {
+		t.Errorf("Expected StartTime=2000 (cluster with 2 observers), got %d", opinion.StartTime)
+	}
+}
+
+// slight modification of the one above
+func TestConsensusEvents_ChangeOfMind_two(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+	projection := NewOpinionConsensusProjection(ledger)
+	subject := "nara-target"
+
+	// Observer-a initially reports StartTime=1000
+	event1 := NewRestartObservationEvent("observer-a", subject, 1000, 5)
+	ledger.AddEvent(event1)
+
+	time.Sleep(time.Millisecond) // Ensure different timestamp
+
+	// Same observer later reports StartTime=2000 (changed their mind, e.g., after restart)
+	event2 := NewRestartObservationEvent("observer-a", subject, 2000, 6)
+	ledger.AddEvent(event2)
+
+	// With no other observers, both values form single-observer clusters.
+	// The algorithm picks the first cluster with equal weight (deterministic).
+	projection.RunToEnd(context.Background())
+	opinion := projection.DeriveOpinion(subject)
+
+	// Restarts uses "highest value wins" - so the newer observation wins
+	if opinion.Restarts != 6 {
+		t.Errorf("Expected Restarts=6 (highest value), got %d", opinion.Restarts)
+	}
+
+	// Now add corroborating observer that agrees with **original** StartTime
+	time.Sleep(time.Millisecond)
+	event3 := NewRestartObservationEvent("observer-b", subject, 1000, 6)
+	ledger.AddEvent(event3)
+
+	projection.RunOnce()
+	opinion = projection.DeriveOpinion(subject)
+
+	// With 2 observers agreeing on StartTime=1000, that cluster wins (Strategy 1)
+	if opinion.StartTime != 1000 {
+		t.Errorf("Expected StartTime=1000 (cluster with 2 observers), got %d", opinion.StartTime)
+	}
+}
+
 // Test consensus with sparse observations
 func TestConsensusEvents_SparseObservations(t *testing.T) {
 	ledger := NewSyncLedger(1000)

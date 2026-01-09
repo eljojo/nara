@@ -210,7 +210,7 @@ func TestIntegration_EventEmissionDuringTransitions(t *testing.T) {
 	ln.setObservation("subject-1", obs)
 
 	// Simulate the MISSING detection in recordObservationGone
-	if useObservationEvents() && ln.SyncLedger != nil {
+	if ln.SyncLedger != nil {
 		event := NewStatusChangeObservationEvent("observer", "subject-1", "MISSING")
 		ln.SyncLedger.AddEventWithDedup(event)
 	}
@@ -825,10 +825,10 @@ func TestIntegration_DirectObservationSetMissingLastSeen(t *testing.T) {
 // via zine merge where a nara is the EMITTER, they should be marked as seen.
 //
 // This tests the scenario from production where:
-// 1. We receive a zine with events emitted by r2d2 (teases, etc.)
-// 2. r2d2 should be discovered AND marked as seen
-// 3. Currently r2d2 is only discovered but not marked as seen until we directly
-//    receive their newspaper
+//  1. We receive a zine with events emitted by r2d2 (teases, etc.)
+//  2. r2d2 should be discovered AND marked as seen
+//  3. Currently r2d2 is only discovered but not marked as seen until we directly
+//     receive their newspaper
 //
 // BUG: discoverNarasFromEvents creates entries but doesn't emit seen events
 // for emitters, so they appear as "unknown" rather than "online" until we

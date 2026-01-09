@@ -634,10 +634,10 @@ func TestOnlineStatusAfterResetWithMixedTimestamps(t *testing.T) {
 // TestOnlineStatusRaceConditionWithAsyncTrigger tests the race condition where
 // the observation maintenance loop reads from the projection before it has
 // processed newly added events. This simulates what happens during zine merges:
-//   1. Events are added to ledger
-//   2. Trigger() is called (async, doesn't block)
-//   3. Observation loop calls GetStatus() immediately
-//   4. BUG: GetStatus returns stale data
+//  1. Events are added to ledger
+//  2. Trigger() is called (async, doesn't block)
+//  3. Observation loop calls GetStatus() immediately
+//  4. BUG: GetStatus returns stale data
 //
 // The fix is to call RunOnce() synchronously before reading status.
 func TestOnlineStatusRaceConditionWithAsyncTrigger(t *testing.T) {
@@ -711,11 +711,11 @@ func TestOnlineStatusRaceConditionWithAsyncTrigger(t *testing.T) {
 
 // TestOnlineStatusRaceWithVersionChange tests the race condition when events
 // cause a ledger version change (pruning). This simulates:
-//   1. Projection is up-to-date at version V1
-//   2. Zine merge causes many events to be added
-//   3. Pruning happens, version changes to V2
-//   4. Observation loop reads from projection (still at V1)
-//   5. BUG: Projection doesn't know it needs to reset
+//  1. Projection is up-to-date at version V1
+//  2. Zine merge causes many events to be added
+//  3. Pruning happens, version changes to V2
+//  4. Observation loop reads from projection (still at V1)
+//  5. BUG: Projection doesn't know it needs to reset
 //
 // The fix is RunOnce() which checks version and resets if needed.
 func TestOnlineStatusRaceWithVersionChange(t *testing.T) {

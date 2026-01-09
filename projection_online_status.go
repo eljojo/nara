@@ -148,6 +148,7 @@ func (p *OnlineStatusProjection) updateState(name, status string, timestamp int6
 
 // GetStatus returns the current derived status for a nara.
 // Returns "ONLINE", "OFFLINE", "MISSING", or "" if unknown.
+// Note: Call Trigger() or RunOnce() before this if you need up-to-date data.
 func (p *OnlineStatusProjection) GetStatus(name string) string {
 	p.mu.RLock()
 	state := p.states[name]

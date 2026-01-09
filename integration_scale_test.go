@@ -1,6 +1,7 @@
 package nara
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"testing"
@@ -254,6 +255,9 @@ func TestIntegration_ScaleWith5000Nodes(t *testing.T) {
 	testSubjects := []string{"nara-0", "nara-100", "nara-500", "nara-1000"}
 	consensusSuccess := 0
 
+	// Process all events before deriving opinions
+	opinionProjection.RunToEnd(context.Background())
+
 	for _, subject := range testSubjects {
 		opinion := opinionProjection.DeriveOpinion(subject)
 		if opinion.StartTime > 0 || opinion.Restarts > 0 {
@@ -262,10 +266,10 @@ func TestIntegration_ScaleWith5000Nodes(t *testing.T) {
 	}
 
 	t.Logf("  Consensus derived for %d/%d test subjects", consensusSuccess, len(testSubjects))
-	if consensusSuccess > 0 {
-		t.Log("✅ Consensus system functional")
+	if consensusSuccess == 0 {
+		t.Error("❌ Consensus failed - no opinions derived for any test subject")
 	} else {
-		t.Log("⚠️  Consensus may not be implemented yet")
+		t.Log("✅ Consensus system functional")
 	}
 
 	// Validation 7: Memory usage (approximate)

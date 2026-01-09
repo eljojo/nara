@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
-	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -993,11 +992,7 @@ func (network *Network) onWorldJourneyPassThrough(wm *WorldMessage) {
 }
 
 func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetConfig) {
-	if useObservationEvents() {
-		logrus.Printf("📊 Observation events mode: ENABLED")
-	} else {
-		logrus.Printf("📊 Observation events mode: disabled (legacy newspaper-based)")
-	}
+	logrus.Printf("📊 Event-sourced observations: ENABLED")
 
 	if serveUI {
 		err := network.startHttpServer(httpAddr)
@@ -1069,7 +1064,7 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 	}
 
 	if !network.ReadOnly {
-		network.heyThere()  // MQTT broadcast (old style - to be deprecated)
+		network.heyThere() // MQTT broadcast (old style - to be deprecated)
 		network.announce()
 		network.InitGossipIdentity() // Emit hey_there sync event (new style)
 	}
@@ -1128,12 +1123,6 @@ func (network *Network) meName() string {
 	return network.local.Me.Name
 }
 
-// useObservationEvents returns true if event-driven observation mode is enabled.
-// Default is true (on). Set USE_OBSERVATION_EVENTS=false to disable.
-func useObservationEvents() bool {
-	return os.Getenv("USE_OBSERVATION_EVENTS") != "false"
-}
-
 func (network *Network) announce() {
 	if network.ReadOnly {
 		return
@@ -1142,37 +1131,19 @@ func (network *Network) announce() {
 	topic := fmt.Sprintf("%s/%s", "nara/newspaper", network.meName())
 	network.recordObservationOnlineNara(network.meName())
 
-	// In event-primary mode, broadcast slim newspapers without Observations
-	if useObservationEvents() {
-		// Create a safe copy of status without the Observations map
-		network.local.Me.mu.Lock()
-		slimStatus := network.local.Me.Status
-		network.local.Me.mu.Unlock()
-		slimStatus.Observations = nil
-		signedEvent := network.SignNewspaper(slimStatus)
-		network.postEvent(topic, signedEvent)
-		logrus.Infof("📰 Slim newspaper broadcast (event-primary mode, signed)")
-	} else {
-		// Traditional mode: include full observations
-		network.local.Me.mu.Lock()
-		statusCopy := network.local.Me.Status
-		network.local.Me.mu.Unlock()
-		signedEvent := network.SignNewspaper(statusCopy)
-		network.postEvent(topic, signedEvent)
-	}
+	// Broadcast slim newspapers without Observations (observations are event-sourced)
+	network.local.Me.mu.Lock()
+	slimStatus := network.local.Me.Status
+	network.local.Me.mu.Unlock()
+	slimStatus.Observations = nil
+	signedEvent := network.SignNewspaper(slimStatus)
+	network.postEvent(topic, signedEvent)
 }
 
 func (network *Network) announceForever() {
 	for {
-		var ts int64
-		if useObservationEvents() {
-			// Event-primary mode: newspapers are lightweight heartbeats (30-300s)
-			ts = network.local.chattinessRate(30, 300)
-		} else {
-			// Traditional mode: newspapers contain observations (5-55s)
-			ts = network.local.chattinessRate(5, 55)
-		}
-		// logrus.Debugf("time between announces = %d", ts)
+		// Newspapers are lightweight heartbeats (30-300s), observations are event-sourced
+		ts := network.local.chattinessRate(30, 300)
 
 		// Wait with graceful shutdown support
 		select {
@@ -3422,12 +3393,19 @@ func (network *Network) recoverSelfStartTimeFromMesh() {
 		return
 	}
 
-	updated := network.local.getMeObservation()
-	before := updated.StartTime
-	network.applyEventConsensusIfMissing(network.meName(), &updated)
-	if updated.StartTime > 0 && updated.StartTime != before {
-		network.local.setObservation(network.meName(), updated)
-		logrus.Printf("🕰️ recovered start time for %s via mesh opinions: %d", network.meName(), updated.StartTime)
+	// Try to recover start time from event-based consensus
+	if network.local.Projections != nil {
+		updated := network.local.getMeObservation()
+		before := updated.StartTime
+		network.local.Projections.Opinion().RunOnce()
+		opinion := network.local.Projections.Opinion().DeriveOpinion(network.meName())
+		if updated.StartTime == 0 && opinion.StartTime > 0 {
+			updated.StartTime = opinion.StartTime
+		}
+		if updated.StartTime > 0 && updated.StartTime != before {
+			network.local.setObservation(network.meName(), updated)
+			logrus.Printf("🕰️ recovered start time for %s via event consensus: %d", network.meName(), updated.StartTime)
+		}
 	}
 }
 
