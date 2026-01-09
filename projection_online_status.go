@@ -86,6 +86,8 @@ func (p *OnlineStatusProjection) handleEvent(event SyncEvent) error {
 			newStatus = "OFFLINE"
 		}
 	case ServiceSeen:
+		// NOTE: ServiceSeen may be redundant now that we handle ServicePing and ServiceSocial.
+		// Consider removing if no longer used elsewhere. Keep for now as it's lightweight.
 		if event.Seen != nil {
 			targetName = event.Seen.Subject
 			newStatus = "ONLINE"
@@ -106,26 +108,42 @@ func (p *OnlineStatusProjection) handleEvent(event SyncEvent) error {
 			targetName = event.Social.Actor
 			newStatus = "ONLINE"
 		}
+	case ServicePing:
+		// Ping events prove both Observer and Target are active
+		if event.Ping != nil {
+			// Handle Observer - they sent the ping, definitely online
+			p.updateState(event.Ping.Observer, "ONLINE", event.Timestamp, event.Service)
+			// Handle Target - they responded (RTT exists), also online
+			targetName = event.Ping.Target
+			newStatus = "ONLINE"
+		}
 	}
 
 	if targetName == "" || newStatus == "" {
 		return nil
 	}
 
+	p.updateState(targetName, newStatus, event.Timestamp, event.Service)
+	return nil
+}
+
+// updateState updates the state for a nara if this event is newer than the current state.
+func (p *OnlineStatusProjection) updateState(name, status string, timestamp int64, service string) {
+	if name == "" {
+		return
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// Update state if this event is newer than the current state
-	current := p.states[targetName]
-	if current == nil || event.Timestamp > current.LastEventTime {
-		p.states[targetName] = &OnlineState{
-			Status:        newStatus,
-			LastEventTime: event.Timestamp,
-			LastEventType: event.Service,
+	current := p.states[name]
+	if current == nil || timestamp > current.LastEventTime {
+		p.states[name] = &OnlineState{
+			Status:        status,
+			LastEventTime: timestamp,
+			LastEventType: service,
 		}
 	}
-
-	return nil
 }
 
 // GetStatus returns the current derived status for a nara.

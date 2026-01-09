@@ -852,3 +852,56 @@ func TestOnlineStatusSocialEventsMarkActorOnline(t *testing.T) {
 		t.Errorf("Expected LastEventType to be %q, got %q", ServiceSocial, state.LastEventType)
 	}
 }
+
+// TestOnlineStatusPingEventsMarkBothOnline verifies that ping events mark
+// both the Observer (sender) and Target (receiver) as ONLINE.
+func TestOnlineStatusPingEventsMarkBothOnline(t *testing.T) {
+	ledger := NewSyncLedger(100)
+	projection := NewOnlineStatusProjection(ledger)
+
+	now := time.Now().UnixNano()
+
+	// alice pings bob - both should be marked ONLINE
+	ledger.AddEvent(SyncEvent{
+		Timestamp: now,
+		Service:   ServicePing,
+		Emitter:   "alice",
+		Ping: &PingObservation{
+			Observer: "alice",
+			Target:   "bob",
+			RTT:      15.5,
+		},
+	})
+
+	// Process the ping event
+	projection.RunOnce()
+
+	// alice (Observer) should be ONLINE
+	aliceStatus := projection.GetStatus("alice")
+	if aliceStatus != "ONLINE" {
+		t.Errorf("Expected alice (Observer) to be ONLINE after ping, got: %q", aliceStatus)
+	}
+
+	// bob (Target) should be ONLINE
+	bobStatus := projection.GetStatus("bob")
+	if bobStatus != "ONLINE" {
+		t.Errorf("Expected bob (Target) to be ONLINE after ping, got: %q", bobStatus)
+	}
+
+	// Verify states were properly recorded
+	aliceState := projection.GetState("alice")
+	if aliceState == nil {
+		t.Fatal("Expected alice to have state after ping event, got nil")
+	}
+	if aliceState.LastEventType != ServicePing {
+		t.Errorf("Expected alice LastEventType to be %q, got %q", ServicePing, aliceState.LastEventType)
+	}
+
+	bobState := projection.GetState("bob")
+	if bobState == nil {
+		t.Fatal("Expected bob to have state after ping event, got nil")
+	}
+	if bobState.LastEventType != ServicePing {
+		t.Errorf("Expected bob LastEventType to be %q, got %q", ServicePing, bobState.LastEventType)
+	}
+}
