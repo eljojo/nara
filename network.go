@@ -99,11 +99,12 @@ type Network struct {
 	bootRecoveryDone chan struct{}
 	formOpinionsDone chan struct{}
 	// Test hooks (only used in tests)
-	testHTTPClient        *http.Client      // Override HTTP client for testing
-	testMeshURLs          map[string]string // Override mesh URLs for testing (nara name -> URL)
-	testTeaseDelay        *time.Duration    // Override tease delay for testing (nil = use default 0-5s random)
-	testAnnounceCount     int               // Counter for announce() calls (for testing)
-	testSkipHeyThereSleep bool              // Skip the 1s sleep in handleHeyThereEvent (for testing)
+	testHTTPClient        *http.Client                      // Override HTTP client for testing
+	testMeshURLs          map[string]string                 // Override mesh URLs for testing (nara name -> URL)
+	testTeaseDelay        *time.Duration                    // Override tease delay for testing (nil = use default 0-5s random)
+	testAnnounceCount     int                               // Counter for announce() calls (for testing)
+	testSkipHeyThereSleep bool                              // Skip the 1s sleep in handleHeyThereEvent (for testing)
+	testPingFunc          func(name string) (bool, error)   // Override ping behavior for testing (returns success, error)
 }
 
 // PendingJourney tracks a journey we participated in, waiting for completion

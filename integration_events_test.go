@@ -894,3 +894,126 @@ func TestIntegration_ZineMergeMarksEmittersAsSeen(t *testing.T) {
 		t.Error("BUG: Should have emitted a seen event for r2d2 after receiving events they emitted")
 	}
 }
+
+// TestIntegration_PingVerificationBeforeMarkingMissing validates that we ping a nara
+// before marking them as MISSING. This guards against buggy naras spreading false
+// "offline" observations that could be believed by the whole network.
+func TestIntegration_PingVerificationBeforeMarkingMissing(t *testing.T) {
+	logrus.SetLevel(logrus.ErrorLevel)
+
+	ln := NewLocalNara("observer", testSoul("observer"), "host", "user", "pass", 50, 1000)
+	network := ln.Network
+
+	// Fake an older start time so we're not in booting mode
+	me := ln.getMeObservation()
+	me.LastRestart = time.Now().Unix() - 200
+	me.LastSeen = time.Now().Unix()
+	ln.setMeObservation(me)
+
+	// Import target nara and mark as online
+	network.importNara(NewNara("target"))
+	obs := ln.getObservation("target")
+	obs.Online = "ONLINE"
+	obs.StartTime = time.Now().Unix() - 3600 // Started 1 hour ago
+	ln.setObservation("target", obs)
+
+	// Track ping attempts
+	pingAttempts := 0
+	var pingResults []bool
+
+	// Scenario 1: Ping succeeds - target should stay ONLINE
+	t.Run("ping_succeeds_prevents_missing", func(t *testing.T) {
+		pingAttempts = 0
+		network.testPingFunc = func(name string) (bool, error) {
+			pingAttempts++
+			pingResults = append(pingResults, true)
+			return true, nil // Ping succeeds
+		}
+
+		// Call verifyOnlineWithPing directly
+		result := network.verifyOnlineWithPing("target")
+
+		if !result {
+			t.Error("verifyOnlineWithPing should return true when ping succeeds")
+		}
+
+		if pingAttempts != 1 {
+			t.Errorf("Expected 1 ping attempt, got %d", pingAttempts)
+		}
+
+		// Target should still be ONLINE
+		obs := ln.getObservation("target")
+		if obs.Online != "ONLINE" {
+			t.Errorf("Target should be ONLINE after successful ping, got %s", obs.Online)
+		}
+
+		// Should have emitted a ping event
+		pingEvents := 0
+		for _, e := range ln.SyncLedger.GetAllEvents() {
+			if e.Service == ServicePing && e.Ping != nil && e.Ping.Target == "target" {
+				pingEvents++
+			}
+		}
+		if pingEvents == 0 {
+			t.Error("Should have emitted a ping event after successful verification")
+		}
+
+		t.Logf("✅ Ping succeeded: target stayed ONLINE, ping events=%d", pingEvents)
+	})
+
+	// Reset for scenario 2
+	ln.SyncLedger.Events = []SyncEvent{}
+	ln.SyncLedger.eventIDs = make(map[string]bool)
+	pingAttempts = 0
+	pingResults = []bool{}
+	resetVerifyPingRateLimit() // Clear rate limit for next scenario
+
+	// Scenario 2: Ping fails - target should be allowed to be marked MISSING
+	t.Run("ping_fails_allows_missing", func(t *testing.T) {
+		network.testPingFunc = func(name string) (bool, error) {
+			pingAttempts++
+			pingResults = append(pingResults, false)
+			return false, nil // Ping fails
+		}
+
+		// Call verifyOnlineWithPing directly
+		result := network.verifyOnlineWithPing("target")
+
+		if result {
+			t.Error("verifyOnlineWithPing should return false when ping fails")
+		}
+
+		if pingAttempts != 1 {
+			t.Errorf("Expected 1 ping attempt, got %d", pingAttempts)
+		}
+
+		t.Logf("✅ Ping failed: verification returned false, allowing MISSING transition")
+	})
+
+	// Reset for scenario 3
+	pingAttempts = 0
+
+	// Scenario 3: Self-ping is skipped
+	t.Run("self_ping_skipped", func(t *testing.T) {
+		network.testPingFunc = func(name string) (bool, error) {
+			pingAttempts++
+			return true, nil
+		}
+
+		// Try to verify ourselves - should skip
+		result := network.verifyOnlineWithPing("observer")
+
+		if result {
+			t.Error("verifyOnlineWithPing should return false for self")
+		}
+
+		if pingAttempts != 0 {
+			t.Errorf("Should not ping self, but got %d ping attempts", pingAttempts)
+		}
+
+		t.Log("✅ Self-ping correctly skipped")
+	})
+
+	// Cleanup
+	network.testPingFunc = nil
+}

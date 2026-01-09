@@ -4,10 +4,25 @@ import (
 	"encoding/json"
 	"math/rand"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
 )
+
+// verifyPingRateLimit tracks last verification ping attempts to prevent spam.
+// Maps nara name → last ping attempt time (Unix timestamp).
+var (
+	verifyPingLastAttempt   = make(map[string]int64)
+	verifyPingLastAttemptMu sync.Mutex
+)
+
+// resetVerifyPingRateLimit clears the rate limit map (for testing only).
+func resetVerifyPingRateLimit() {
+	verifyPingLastAttemptMu.Lock()
+	verifyPingLastAttempt = make(map[string]int64)
+	verifyPingLastAttemptMu.Unlock()
+}
 
 const BlueJayURL = "https://nara.network/narae.json"
 
@@ -464,12 +479,32 @@ func (network *Network) observationMaintenance() {
 				derivedStatus := network.local.Projections.OnlineStatus().GetStatus(name)
 				if derivedStatus != "" && derivedStatus != observation.Online {
 					previousState := observation.Online
+
+					// Before transitioning ONLINE → MISSING, verify with a ping
+					// This guards against buggy naras spreading false "offline" observations
+					if previousState == "ONLINE" && derivedStatus == "MISSING" {
+						// Skip ping verification for old events (>1 hour) - likely historical data
+						state := network.local.Projections.OnlineStatus().GetState(name)
+						eventAge := time.Duration(0)
+						if state != nil {
+							eventAge = time.Since(time.Unix(0, state.LastEventTime))
+						}
+
+						if eventAge > 1*time.Hour {
+							logrus.Debugf("🔍 Skipping ping verification for %s - event is old (%v)", name, eventAge)
+						} else if network.verifyOnlineWithPing(name) {
+							// Ping succeeded - they're still online, don't mark as MISSING
+							logrus.Infof("🔍 Disagreement resolved: %s reported MISSING but ping succeeded - keeping ONLINE", name)
+							continue
+						}
+					}
+
 					observation.Online = derivedStatus
 					network.local.setObservation(name, observation)
 
 					// Log status changes
 					if previousState == "ONLINE" && derivedStatus == "MISSING" {
-						logrus.Printf("observation: %s has disappeared", name)
+						logrus.Printf("observation: %s has disappeared (verified)", name)
 						network.Buzz.increase(10)
 						if name != network.meName() {
 							go network.reportMissingWithDelay(name)
@@ -544,10 +579,109 @@ func (network *Network) reportMissingWithDelay(subject string) {
 		}
 	}
 
-	// No one else reported it, so we'll report it
+	// Final verification: try pinging before broadcasting they're missing
+	// This gives the nara one more chance to respond after the delay
+	if network.verifyOnlineWithPing(subject) {
+		logrus.Debugf("🔍 %s responded to verification ping - not reporting MISSING", subject)
+		return
+	}
+
+	// No one else reported it and ping failed, so we'll report it
 	event := NewStatusChangeObservationEvent(network.meName(), subject, "MISSING")
 	if network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality) && network.local.Projections != nil {
 		network.local.Projections.Trigger()
 	}
-	logrus.Infof("📊 Status-change observation event: %s → MISSING (after %v delay)", subject, delay)
+	logrus.Infof("📊 Status-change observation event: %s → MISSING (after %v delay, verified)", subject, delay)
+}
+
+// verifyOnlineWithPing attempts to ping a nara before marking them as offline/missing.
+// Returns true if the nara is verified online (and emits an event), false if unreachable.
+// This guards against buggy naras spreading false "offline" observations.
+func (network *Network) verifyOnlineWithPing(name string) bool {
+	// Skip verification for ourselves
+	if name == network.meName() {
+		return false
+	}
+
+	// Rate limit: don't ping the same nara more than once per 60 seconds
+	verifyPingLastAttemptMu.Lock()
+	lastAttempt := verifyPingLastAttempt[name]
+	now := time.Now().Unix()
+	if now-lastAttempt < 60 {
+		verifyPingLastAttemptMu.Unlock()
+		logrus.Debugf("🔍 Skipping ping verification for %s - rate limited (last attempt %ds ago)", name, now-lastAttempt)
+		return false
+	}
+	verifyPingLastAttempt[name] = now
+	verifyPingLastAttemptMu.Unlock()
+
+	// Test hook: allows tests to override ping behavior
+	if network.testPingFunc != nil {
+		success, _ := network.testPingFunc(name)
+		if success {
+			network.markOnlineFromPing(name, 1.0) // Use 1ms for test RTT
+		}
+		return success
+	}
+
+	// Need mesh to ping
+	if network.tsnetMesh == nil {
+		return false
+	}
+
+	// Get the mesh IP for this nara
+	network.local.mu.Lock()
+	nara, exists := network.Neighbourhood[name]
+	network.local.mu.Unlock()
+
+	if !exists {
+		return false
+	}
+
+	nara.mu.Lock()
+	meshIP := nara.Status.MeshIP
+	nara.mu.Unlock()
+
+	if meshIP == "" {
+		logrus.Debugf("🔍 Cannot verify %s - no mesh IP", name)
+		return false
+	}
+
+	// Try to ping with a short timeout (2 seconds)
+	logrus.Debugf("🔍 Verifying %s is really offline via ping...", name)
+	rtt, err := network.tsnetMesh.Ping(meshIP, network.meName(), 2*time.Second)
+	if err != nil {
+		logrus.Debugf("🔍 Verification ping to %s failed: %v - confirmed offline", name, err)
+		return false
+	}
+
+	// Ping succeeded! Mark them as online
+	rttMs := float64(rtt.Milliseconds())
+	logrus.Infof("🔍 Verification ping to %s succeeded (%.2fms) - still online!", name, rttMs)
+	network.markOnlineFromPing(name, rttMs)
+
+	return true
+}
+
+// markOnlineFromPing updates observation and emits a ping event after a successful ping.
+// This is the shared logic for both real pings and test pings.
+func (network *Network) markOnlineFromPing(name string, rttMs float64) {
+	// Update our observation
+	obs := network.local.getObservation(name)
+	obs.Online = "ONLINE"
+	obs.LastSeen = time.Now().Unix()
+	obs.LastPingRTT = rttMs
+	obs.LastPingTime = time.Now().Unix()
+	network.local.setObservation(name, obs)
+
+	// Emit a ping event to prove they're still alive
+	if network.local.SyncLedger != nil {
+		network.local.SyncLedger.AddSignedPingObservationWithReplace(
+			network.meName(), name, rttMs,
+			network.meName(), network.local.Keypair,
+		)
+		if network.local.Projections != nil {
+			network.local.Projections.Trigger()
+		}
+	}
 }
