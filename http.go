@@ -815,6 +815,8 @@ func (network *Network) httpDMHandler(w http.ResponseWriter, r *http.Request) {
 	network.recordObservationOnlineNara(event.Emitter)
 	network.emitSeenEvent(event.Emitter, "dm")
 
+	logrus.Infof("📬 Received DM from %s: event %s added=%v", event.Emitter, event.ID, added)
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": added,
