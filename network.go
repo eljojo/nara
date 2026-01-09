@@ -311,6 +311,14 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	network.bootRecoveryDone = make(chan struct{})
 	network.formOpinionsDone = make(chan struct{})
 	network.Mqtt = initializeMQTT(network.mqttOnConnectHandler(), network.meName(), host, user, pass)
+
+	// Set up pruning priority for unknown naras (events from naras without public keys are pruned first)
+	if localNara.SyncLedger != nil {
+		localNara.SyncLedger.SetUnknownNaraChecker(func(name string) bool {
+			return !network.hasPublicKeyFor(name)
+		})
+	}
+
 	return network
 }
 
@@ -424,6 +432,12 @@ func (network *Network) getPublicKeyForNara(name string) []byte {
 		return nil
 	}
 	return pubKey
+}
+
+// hasPublicKeyFor returns true if we have a valid public key for the named nara.
+// Used to determine if a nara is "known" for pruning priority.
+func (network *Network) hasPublicKeyFor(name string) bool {
+	return network.getPublicKeyForNara(name) != nil
 }
 
 // VerifySyncEvent verifies a sync event's signature and logs warnings

@@ -506,6 +506,75 @@ func TestSyncLedger_PrunePriority(t *testing.T) {
 		serviceCounts[ServicePing])
 }
 
+func TestSyncLedger_PrunePriority_UnknownNarasFirst(t *testing.T) {
+	// Test that events from unknown naras are pruned before events from known naras
+	ledger := NewSyncLedger(5) // Max 5 events
+
+	// Set up the unknown nara checker - "unknown-nara" is unknown, "known-nara" is known
+	ledger.SetUnknownNaraChecker(func(name string) bool {
+		return name == "unknown-nara"
+	})
+
+	baseTime := time.Now().UnixNano()
+
+	// Add 3 ping events from a KNOWN nara (should be kept)
+	for i := 0; i < 3; i++ {
+		e := SyncEvent{
+			Timestamp: baseTime + int64(i*1000),
+			Service:   ServicePing,
+			Ping:      &PingObservation{Observer: "known-nara", Target: "other", RTT: float64(i + 1)},
+		}
+		e.ComputeID()
+		ledger.AddEvent(e)
+	}
+
+	// Add 3 ping events from an UNKNOWN nara (should be pruned first)
+	for i := 0; i < 3; i++ {
+		e := SyncEvent{
+			Timestamp: baseTime + int64((i+3)*1000),
+			Service:   ServicePing,
+			Ping:      &PingObservation{Observer: "unknown-nara", Target: "other", RTT: float64(i + 10)},
+		}
+		e.ComputeID()
+		ledger.AddEvent(e)
+	}
+
+	// Now we have 6 events, max is 5, so 1 should be pruned
+	// With the unknown nara priority, the unknown-nara ping should be pruned first
+	ledger.Prune()
+
+	// Count events from each nara
+	knownCount := 0
+	unknownCount := 0
+	for _, e := range ledger.GetAllEvents() {
+		if e.Service == ServicePing && e.Ping != nil {
+			if e.Ping.Observer == "known-nara" {
+				knownCount++
+			} else if e.Ping.Observer == "unknown-nara" {
+				unknownCount++
+			}
+		}
+	}
+
+	// All 3 known-nara events should be preserved
+	if knownCount != 3 {
+		t.Errorf("expected 3 events from known-nara to be preserved, got %d", knownCount)
+	}
+
+	// Only 2 unknown-nara events should remain (1 was pruned)
+	if unknownCount != 2 {
+		t.Errorf("expected 2 events from unknown-nara after pruning (1 pruned), got %d", unknownCount)
+	}
+
+	// Total should be 5
+	total := ledger.EventCount()
+	if total != 5 {
+		t.Errorf("expected 5 total events, got %d", total)
+	}
+
+	t.Logf("After prune: total=%d, known-nara=%d, unknown-nara=%d", total, knownCount, unknownCount)
+}
+
 // --- JSON Serialization ---
 
 func TestSyncEvent_JSONRoundtrip(t *testing.T) {

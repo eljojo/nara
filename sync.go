@@ -643,6 +643,10 @@ type SyncLedger struct {
 	observationRL *ObservationRateLimit // Rate limiter for observation events
 	version       int64                 // Increments on structural changes (prune, out-of-order insert)
 	mu            sync.RWMutex
+
+	// isUnknownNara is an optional callback to check if a nara is unknown (no public key).
+	// Events from unknown naras are pruned first. Set via SetUnknownNaraChecker.
+	isUnknownNara func(name string) bool
 }
 
 // NewSyncLedger creates a new unified sync ledger
@@ -653,6 +657,67 @@ func NewSyncLedger(maxEvents int) *SyncLedger {
 		eventIDs:      make(map[string]bool),
 		observationRL: NewObservationRateLimit(),
 	}
+}
+
+// SetUnknownNaraChecker sets a callback to check if a nara is unknown (no public key).
+// Events from unknown naras are pruned first during storage pressure.
+func (l *SyncLedger) SetUnknownNaraChecker(checker func(name string) bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.isUnknownNara = checker
+}
+
+// isEventFromUnknownNara checks if an event is from/about an unknown nara.
+// Returns false if no checker is set or the nara is known.
+func (l *SyncLedger) isEventFromUnknownNara(e SyncEvent) bool {
+	if l.isUnknownNara == nil {
+		return false
+	}
+
+	// Extract the relevant nara name(s) from the event
+	var names []string
+
+	switch e.Service {
+	case ServiceHeyThere:
+		if e.HeyThere != nil {
+			names = append(names, e.HeyThere.From)
+		}
+	case ServiceChau:
+		if e.Chau != nil {
+			names = append(names, e.Chau.From)
+		}
+	case ServiceObservation:
+		if e.Observation != nil {
+			names = append(names, e.Observation.Observer, e.Observation.Subject)
+		}
+	case ServiceSocial:
+		if e.Social != nil {
+			names = append(names, e.Social.Actor)
+			if e.Social.Target != "" {
+				names = append(names, e.Social.Target)
+			}
+			if e.Social.Witness != "" {
+				names = append(names, e.Social.Witness)
+			}
+		}
+	case ServicePing:
+		if e.Ping != nil {
+			names = append(names, e.Ping.Observer, e.Ping.Target)
+		}
+	case ServiceSeen:
+		if e.Seen != nil {
+			names = append(names, e.Seen.Observer, e.Seen.Subject)
+		}
+	}
+
+	// If ANY of the naras involved are unknown, consider this event lower priority
+	for _, name := range names {
+		if name != "" && l.isUnknownNara(name) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // AddEvent adds an event if it's valid and not a duplicate (by ID).
@@ -1211,7 +1276,16 @@ func (l *SyncLedger) pruneUnlocked() {
 	}
 
 	// Sort by priority (higher number = prune first), then by timestamp (oldest first)
+	// Events from unknown naras (no public key) are pruned first
 	sort.Slice(l.Events, func(i, j int) bool {
+		// Check if events are from unknown naras (prune first)
+		unknownI := l.isEventFromUnknownNara(l.Events[i])
+		unknownJ := l.isEventFromUnknownNara(l.Events[j])
+		if unknownI != unknownJ {
+			return unknownI // Unknown nara events sorted to front (pruned first)
+		}
+
+		// Then sort by priority
 		pi, pj := eventPruningPriority(l.Events[i]), eventPruningPriority(l.Events[j])
 		if pi != pj {
 			return pi > pj // Higher priority number = prune first
