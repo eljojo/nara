@@ -134,7 +134,15 @@ func (network *Network) formOpinion() {
 
 	names := network.NeighbourhoodNames()
 
+	// First pass: identify and skip ghost naras (seen once briefly, never again)
+	ghostCount := 0
 	for _, name := range names {
+		if network.isGhostNara(name) {
+			ghostCount++
+			logrus.Debugf("skipping ghost nara %s (no meaningful data from any neighbor)", name)
+			continue
+		}
+
 		observation := network.local.getObservation(name)
 		startTime := network.findStartingTimeFromNeighbourhoodForNara(name)
 		if startTime > 0 {
@@ -158,7 +166,143 @@ func (network *Network) formOpinion() {
 		}
 		network.local.setObservation(name, observation)
 	}
+	if ghostCount > 0 {
+		logrus.Printf("👻 skipped %d ghost naras (no data from any neighbor)", ghostCount)
+	}
 	logrus.Printf("👀  opinions formed")
+
+	// Garbage collect ghost naras that are safe to delete
+	deleted := network.garbageCollectGhostNaras()
+	if deleted > 0 {
+		logrus.Printf("🗑️  garbage collected %d ghost naras from memory", deleted)
+	}
+}
+
+// isGhostNara returns true if the nara appears to be a "ghost" - seen once briefly
+// and never again, with no meaningful data from any neighbor. These are naras that
+// should be skipped in opinion forming to avoid noise.
+func (network *Network) isGhostNara(name string) bool {
+	// Check our own observation first
+	myObs := network.local.getObservation(name)
+	if myObs.StartTime > 0 || myObs.Restarts > 0 || myObs.LastRestart > 0 {
+		return false // We have data, not a ghost
+	}
+
+	// Check if any neighbor has meaningful data
+	network.local.mu.Lock()
+	defer network.local.mu.Unlock()
+
+	for _, nara := range network.Neighbourhood {
+		obs := nara.getObservation(name)
+		if obs.StartTime > 0 || obs.Restarts > 0 || obs.LastRestart > 0 {
+			return false // At least one neighbor has data
+		}
+	}
+
+	// No one has meaningful data about this nara - it's a ghost
+	return true
+}
+
+// isGhostNaraSafeToDelete returns true if a ghost nara is safe to completely remove
+// from memory. This is stricter than isGhostNara - we want to be 100% sure this isn't
+// a data corruption issue before deleting.
+//
+// Safety criteria:
+// 1. No neighbor has ANY meaningful data (StartTime, Restarts, LastRestart all zero)
+// 2. Our own observation has no meaningful data
+// 3. Online status is empty (never been properly tracked)
+// 4. LastSeen is either 0 OR old enough that we're confident it's abandoned (> 24 hours)
+// 5. At least 3 neighbors checked (avoid race conditions during boot)
+func (network *Network) isGhostNaraSafeToDelete(name string) bool {
+	// Never delete ourselves
+	if name == network.meName() {
+		return false
+	}
+
+	myObs := network.local.getObservation(name)
+
+	// If we have any meaningful tracking data, don't delete
+	if myObs.StartTime > 0 || myObs.Restarts > 0 || myObs.LastRestart > 0 {
+		return false
+	}
+
+	// If it's currently marked as online, definitely don't delete
+	if myObs.Online == "ONLINE" {
+		return false
+	}
+
+	// If LastSeen is recent (within last 24 hours), don't delete - network needs to be resilient
+	if myObs.LastSeen > 0 {
+		oneDayAgo := time.Now().Unix() - 86400 // 24 hours
+		if myObs.LastSeen > oneDayAgo {
+			return false
+		}
+	}
+
+	// Check if any neighbor has meaningful data
+	network.local.mu.Lock()
+	defer network.local.mu.Unlock()
+
+	neighborsChecked := 0
+	for naraName, nara := range network.Neighbourhood {
+		// Don't count the target nara itself as a witness
+		if naraName == name {
+			continue
+		}
+		obs := nara.getObservation(name)
+		if obs.StartTime > 0 || obs.Restarts > 0 || obs.LastRestart > 0 {
+			return false // At least one neighbor has data - not safe
+		}
+		// Also check if any neighbor thinks it's online
+		if obs.Online == "ONLINE" {
+			return false
+		}
+		neighborsChecked++
+	}
+
+	// Require at least 3 neighbors checked to avoid deleting during early boot
+	if neighborsChecked < 3 {
+		return false
+	}
+
+	return true
+}
+
+// garbageCollectGhostNaras removes ghost naras that are safe to delete from
+// both the Neighbourhood and our Observations. Returns count of deleted naras.
+func (network *Network) garbageCollectGhostNaras() int {
+	names := network.NeighbourhoodNames()
+	toDelete := []string{}
+
+	for _, name := range names {
+		if network.isGhostNaraSafeToDelete(name) {
+			toDelete = append(toDelete, name)
+		}
+	}
+
+	if len(toDelete) == 0 {
+		return 0
+	}
+
+	// Actually delete them
+	network.local.mu.Lock()
+	for _, name := range toDelete {
+		delete(network.Neighbourhood, name)
+	}
+	network.local.mu.Unlock()
+
+	// Also remove from our observations
+	network.local.Me.mu.Lock()
+	for _, name := range toDelete {
+		delete(network.local.Me.Status.Observations, name)
+	}
+	network.local.Me.mu.Unlock()
+
+	for _, name := range toDelete {
+		logrus.Printf("🗑️  garbage collected ghost nara: %s", name)
+	}
+
+	return len(toDelete)
 }
 
 func (network *Network) fetchOpinionsFromBlueJay() {
@@ -220,10 +364,11 @@ func (network *Network) findStartingTimeFromNeighbourhoodForNara(name string) in
 	const tolerance int64 = 60 // seconds - handles clock drift
 
 	var observations []consensusValue
+	var sources []string // track who provided what
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
 
-	for _, nara := range network.Neighbourhood {
+	for naraName, nara := range network.Neighbourhood {
 		obs := nara.getObservation(name)
 		if obs.StartTime > 0 {
 			uptime := nara.Status.HostStats.Uptime
@@ -234,10 +379,18 @@ func (network *Network) findStartingTimeFromNeighbourhoodForNara(name string) in
 				value:  obs.StartTime,
 				weight: uptime,
 			})
+			sources = append(sources, naraName)
 		}
 	}
 
-	return consensusByUptime(observations, tolerance, true)
+	result := consensusByUptime(observations, tolerance, true)
+	if result == 0 && len(observations) > 0 {
+		logrus.Infof("  startTime data for %s: %d sources", name, len(observations))
+		for i, obs := range observations {
+			logrus.Infof("    %s: startTime=%d weight=%d", sources[i], obs.value, obs.weight)
+		}
+	}
+	return result
 }
 
 func (network *Network) recordObservationOnlineNara(name string) {
@@ -354,25 +507,37 @@ func (network *Network) findRestartCountFromNeighbourhoodForNara(name string) in
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
 	var maxSeen int64 = 0
+	var values []int64
+	var sources []string
 
-	for _, nara := range network.Neighbourhood {
+	for naraName, nara := range network.Neighbourhood {
 		restarts := nara.getObservation(name).Restarts
+		values = append(values, restarts)
+		sources = append(sources, naraName)
 		if restarts > maxSeen {
 			maxSeen = restarts
 		}
 	}
 
+	if maxSeen == 0 && len(values) > 0 {
+		logrus.Infof("  restartCount data for %s: %d sources", name, len(values))
+		for i, val := range values {
+			logrus.Infof("    %s: restarts=%d", sources[i], val)
+		}
+	}
 	return maxSeen
 }
 
 func (network *Network) findLastRestartFromNeighbourhoodForNara(name string) int64 {
 	values := make(map[int64]int)
+	sources := make(map[int64][]string)
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
-	for _, nara := range network.Neighbourhood {
+	for naraName, nara := range network.Neighbourhood {
 		last_restart := nara.getObservation(name).LastRestart
 		if last_restart > 0 {
 			values[last_restart] += 1
+			sources[last_restart] = append(sources[last_restart], naraName)
 		}
 	}
 
@@ -392,6 +557,12 @@ func (network *Network) findLastRestartFromNeighbourhoodForNara(name string) int
 		}
 	}
 
+	if result == 0 && len(values) > 0 {
+		logrus.Infof("  lastRestart data for %s: threshold=%d, total_votes=%d", name, threshold, total_votes)
+		for ts, count := range values {
+			logrus.Infof("    timestamp=%d votes=%d from=%v", ts, count, sources[ts])
+		}
+	}
 	return result
 }
 
