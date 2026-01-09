@@ -949,6 +949,63 @@ func (l *SyncLedger) GetAllEvents() []SyncEvent {
 	return result
 }
 
+// RemoveEventsFor removes all events involving a specific nara (as actor or target).
+// Returns the number of events removed.
+func (l *SyncLedger) RemoveEventsFor(name string) int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	kept := make([]SyncEvent, 0, len(l.Events))
+	removed := 0
+
+	for _, e := range l.Events {
+		if l.eventInvolvesNara(e, name) {
+			delete(l.eventIDs, e.ID)
+			removed++
+		} else {
+			kept = append(kept, e)
+		}
+	}
+
+	if removed > 0 {
+		l.Events = kept
+		l.version++
+	}
+
+	return removed
+}
+
+// eventInvolvesNara checks if an event involves a specific nara (as actor or target).
+func (l *SyncLedger) eventInvolvesNara(e SyncEvent, name string) bool {
+	switch e.Service {
+	case ServiceHeyThere:
+		if e.HeyThere != nil && e.HeyThere.From == name {
+			return true
+		}
+	case ServiceChau:
+		if e.Chau != nil && e.Chau.From == name {
+			return true
+		}
+	case ServiceObservation:
+		if e.Observation != nil && (e.Observation.Observer == name || e.Observation.Subject == name) {
+			return true
+		}
+	case ServiceSocial:
+		if e.Social != nil && (e.Social.Witness == name || e.Social.Target == name) {
+			return true
+		}
+	case ServicePing:
+		if e.Ping != nil && (e.Ping.Observer == name || e.Ping.Target == name) {
+			return true
+		}
+	case ServiceSeen:
+		if e.Seen != nil && (e.Seen.Observer == name || e.Seen.Subject == name) {
+			return true
+		}
+	}
+	return false
+}
+
 // GetEventsSince returns events from the given position onwards, plus the current
 // total count and version. If the version has changed since the caller last saw it,
 // the caller should reset and reprocess from position 0.

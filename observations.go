@@ -278,7 +278,7 @@ func (network *Network) isGhostNaraSafeToDelete(name string) bool {
 }
 
 // garbageCollectGhostNaras removes ghost naras that are safe to delete from
-// both the Neighbourhood and our Observations. Returns count of deleted naras.
+// the Neighbourhood, our Observations, and the event store. Returns count of deleted naras.
 func (network *Network) garbageCollectGhostNaras() int {
 	names := network.NeighbourhoodNames()
 	toDelete := []string{}
@@ -307,8 +307,16 @@ func (network *Network) garbageCollectGhostNaras() int {
 	}
 	network.local.Me.mu.Unlock()
 
-	for _, name := range toDelete {
-		logrus.Printf("🗑️  garbage collected ghost nara: %s", name)
+	// Remove events involving these ghost naras from the event store
+	if network.local.SyncLedger != nil {
+		for _, name := range toDelete {
+			eventsRemoved := network.local.SyncLedger.RemoveEventsFor(name)
+			logrus.Printf("🗑️  garbage collected ghost nara: %s (removed %d events)", name, eventsRemoved)
+		}
+	} else {
+		for _, name := range toDelete {
+			logrus.Printf("🗑️  garbage collected ghost nara: %s", name)
+		}
 	}
 
 	return len(toDelete)

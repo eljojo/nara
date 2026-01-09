@@ -293,6 +293,60 @@ func TestGarbageCollectGhostNaras(t *testing.T) {
 	network.local.setObservation("recent-ghost", NaraObservation{LastSeen: oneHourAgo})
 	network.importNara(NewNara("recent-ghost"))
 
+	// Add events for different naras to test event deletion
+	now := time.Now().UnixNano()
+
+	// Events FROM the ghost nara (should be deleted)
+	ghostHeyThere := SyncEvent{
+		Timestamp: now,
+		Service:   ServiceHeyThere,
+		HeyThere:  &HeyThereEvent{From: "ghost-to-delete", PublicKey: "ghost-key"},
+	}
+	ghostHeyThere.ComputeID()
+	ln.SyncLedger.AddEvent(ghostHeyThere)
+
+	// Events ABOUT the ghost nara (should be deleted)
+	ghostObservation := SyncEvent{
+		Timestamp:   now + 1,
+		Service:     ServiceObservation,
+		Observation: &ObservationEventPayload{Observer: "me", Subject: "ghost-to-delete", Type: "first-seen", StartTime: 12345, Importance: 1},
+	}
+	ghostObservation.ComputeID()
+	ln.SyncLedger.AddEvent(ghostObservation)
+
+	// Events FROM real-nara (should NOT be deleted)
+	realHeyThere := SyncEvent{
+		Timestamp: now + 2,
+		Service:   ServiceHeyThere,
+		HeyThere:  &HeyThereEvent{From: "real-nara", PublicKey: "real-key"},
+	}
+	realHeyThere.ComputeID()
+	ln.SyncLedger.AddEvent(realHeyThere)
+
+	// Events ABOUT real-nara (should NOT be deleted)
+	realObservation := SyncEvent{
+		Timestamp:   now + 3,
+		Service:     ServiceObservation,
+		Observation: &ObservationEventPayload{Observer: "me", Subject: "real-nara", Type: "first-seen", StartTime: 12345, Importance: 1},
+	}
+	realObservation.ComputeID()
+	ln.SyncLedger.AddEvent(realObservation)
+
+	// Events between other naras (should NOT be deleted)
+	otherEvent := SyncEvent{
+		Timestamp:   now + 4,
+		Service:     ServiceObservation,
+		Observation: &ObservationEventPayload{Observer: "neighbor-a", Subject: "neighbor-b", Type: "first-seen", StartTime: 12345, Importance: 1},
+	}
+	otherEvent.ComputeID()
+	ln.SyncLedger.AddEvent(otherEvent)
+
+	// Verify initial event counts
+	initialEventCount := ln.SyncLedger.EventCount()
+	if initialEventCount != 5 {
+		t.Errorf("expected 5 initial events, got %d", initialEventCount)
+	}
+
 	// Run GC
 	deleted := network.garbageCollectGhostNaras()
 
@@ -327,5 +381,51 @@ func TestGarbageCollectGhostNaras(t *testing.T) {
 	realObs := network.local.getObservation("real-nara")
 	if realObs.StartTime != 1234567890 {
 		t.Error("real-nara observation should still exist")
+	}
+
+	// Verify event deletion - ghost events should be removed, others should remain
+	finalEventCount := ln.SyncLedger.EventCount()
+	expectedEvents := 3 // real-nara hey_there, real-nara observation, neighbor-a→neighbor-b observation
+	if finalEventCount != expectedEvents {
+		t.Errorf("expected %d events after GC, got %d", expectedEvents, finalEventCount)
+	}
+
+	// Verify specific events
+	allEvents := ln.SyncLedger.GetAllEvents()
+
+	// Check that ghost events are gone
+	for _, e := range allEvents {
+		if e.HeyThere != nil && e.HeyThere.From == "ghost-to-delete" {
+			t.Error("ghost-to-delete hey_there event should have been deleted")
+		}
+		if e.Observation != nil && e.Observation.Subject == "ghost-to-delete" {
+			t.Error("ghost-to-delete observation event should have been deleted")
+		}
+	}
+
+	// Check that real-nara events are still present
+	foundRealHeyThere := false
+	foundRealObservation := false
+	foundOtherEvent := false
+	for _, e := range allEvents {
+		if e.HeyThere != nil && e.HeyThere.From == "real-nara" {
+			foundRealHeyThere = true
+		}
+		if e.Observation != nil && e.Observation.Subject == "real-nara" {
+			foundRealObservation = true
+		}
+		if e.Observation != nil && e.Observation.Observer == "neighbor-a" && e.Observation.Subject == "neighbor-b" {
+			foundOtherEvent = true
+		}
+	}
+
+	if !foundRealHeyThere {
+		t.Error("real-nara hey_there event should still exist")
+	}
+	if !foundRealObservation {
+		t.Error("real-nara observation event should still exist")
+	}
+	if !foundOtherEvent {
+		t.Error("neighbor-a→neighbor-b observation event should still exist")
 	}
 }
