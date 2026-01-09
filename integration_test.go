@@ -295,6 +295,8 @@ func TestIntegration_HeyThereDiscovery(t *testing.T) {
 			-1,   // auto chattiness
 			1000, // ledger capacity
 		)
+		// Skip jitter delays for faster discovery in tests
+		ln.Network.testSkipJitter = true
 		return ln
 	}
 

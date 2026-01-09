@@ -104,6 +104,7 @@ type Network struct {
 	testTeaseDelay        *time.Duration                  // Override tease delay for testing (nil = use default 0-5s random)
 	testAnnounceCount     int                             // Counter for announce() calls (for testing)
 	testSkipHeyThereSleep bool                            // Skip the 1s sleep in handleHeyThereEvent (for testing)
+	testSkipJitter        bool                            // Skip jitter delays in hey_there for faster tests
 	testPingFunc          func(name string) (bool, error) // Override ping behavior for testing (returns success, error)
 }
 
@@ -1105,15 +1106,21 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 
 	if !network.ReadOnly {
 		// Add jitter (0-5s) to prevent thundering herd when multiple narae start simultaneously
-		jitter := time.Duration(rand.Intn(5000)) * time.Millisecond
-		time.Sleep(jitter)
+		// Skip jitter in tests for faster discovery
+		if !network.testSkipJitter {
+			jitter := time.Duration(rand.Intn(5000)) * time.Millisecond
+			time.Sleep(jitter)
+		}
 
 		network.heyThere() // MQTT broadcast (old style - to be deprecated)
 		network.announce()
 		network.InitGossipIdentity() // Emit hey_there sync event (new style)
 	}
 
-	time.Sleep(1 * time.Second)
+	// Skip this sleep in tests for faster discovery
+	if !network.testSkipJitter {
+		time.Sleep(1 * time.Second)
+	}
 
 	go network.formOpinion()
 	go network.observationMaintenance()

@@ -18,10 +18,15 @@ func (network *Network) mqttOnConnectHandler() mqtt.OnConnectHandler {
 		network.subscribeHandlers(client)
 
 		// Add jitter (0-5s) to prevent thundering herd when multiple narae reconnect simultaneously
-		jitter := time.Duration(rand.Intn(5000)) * time.Millisecond
-		time.AfterFunc(jitter, func() {
+		// Skip jitter in tests for faster discovery
+		if network.testSkipJitter {
 			network.heyThere()
-		})
+		} else {
+			jitter := time.Duration(rand.Intn(5000)) * time.Millisecond
+			time.AfterFunc(jitter, func() {
+				network.heyThere()
+			})
+		}
 	}
 	return connectHandler
 }
