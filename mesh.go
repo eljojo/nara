@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -267,10 +268,16 @@ func NewTsnetMesh(config TsnetConfig) (*TsnetMesh, error) {
 		return nil, errors.New("control URL is required")
 	}
 
+	// Append random suffix to hostname to avoid conflicts with stale registrations
+	// This helps when restarting quickly or when previous instances didn't clean up
+	suffix := randomSuffix(4)
+	tsnetHostname := config.Hostname + "-" + suffix
+	logrus.Debugf("🌐 Tailscale hostname: %s (base: %s)", tsnetHostname, config.Hostname)
+
 	// Default temp directory for sockets and other temp files
 	// State itself is kept in memory via mem.Store
 	if config.StateDir == "" {
-		config.StateDir = filepath.Join(os.TempDir(), "nara-tsnet-"+config.Hostname)
+		config.StateDir = filepath.Join(os.TempDir(), "nara-tsnet-"+tsnetHostname)
 	}
 
 	// Default port
@@ -293,7 +300,7 @@ func NewTsnetMesh(config TsnetConfig) (*TsnetMesh, error) {
 	}
 
 	server := &tsnet.Server{
-		Hostname:   config.Hostname,
+		Hostname:   tsnetHostname,
 		ControlURL: config.ControlURL,
 		AuthKey:    config.AuthKey,
 		Dir:        config.StateDir,
@@ -305,12 +312,22 @@ func NewTsnetMesh(config TsnetConfig) (*TsnetMesh, error) {
 	mesh := &TsnetMesh{
 		server:     server,
 		inbox:      make(chan *WorldMessage, 100),
-		myName:     config.Hostname,
+		myName:     config.Hostname, // Keep the original name for nara identity
 		port:       config.Port,
 		stateStore: stateStore,
 	}
 
 	return mesh, nil
+}
+
+// randomSuffix generates a random alphanumeric suffix of the given length
+func randomSuffix(length int) string {
+	const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+	result := make([]byte, length)
+	for i := range result {
+		result[i] = chars[rand.Intn(len(chars))]
+	}
+	return string(result)
 }
 
 // Start initializes the tsnet server and starts listening for connections
