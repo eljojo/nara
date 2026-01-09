@@ -1142,8 +1142,6 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 	// Start boot recovery after a short delay to gather neighbors
 	if !network.ReadOnly {
 		go network.bootRecovery()
-		// Run backfill after boot recovery completes
-		go network.backfillObservations()
 		// Start background sync for organic memory strengthening
 		go network.backgroundSync()
 	} else {
@@ -2727,19 +2725,8 @@ func (network *Network) seedAvgPingRTTFromHistory() {
 
 // backfillObservations migrates existing observations to observation events
 // This enables smooth transition from newspaper-based consensus to event-based
+// Called directly from formOpinion() after opinions are formed
 func (network *Network) backfillObservations() {
-	// Wait for formOpinion to complete (which already waits for boot recovery)
-	// Use select to handle both normal operation and direct test calls
-	if network.formOpinionsDone != nil {
-		select {
-		case <-network.formOpinionsDone:
-			// formOpinion completed
-		case <-time.After(5 * time.Minute):
-			// Safety timeout - shouldn't hit this in normal operation
-			logrus.Warn("⚠️ backfillObservations: timeout waiting for formOpinion")
-		}
-	}
-
 	myName := network.meName()
 	backfillCount := 0
 
@@ -3642,6 +3629,133 @@ func (network *Network) performBackgroundSyncViaMesh(neighbor, ip string) {
 	}
 }
 
+// pruneInactiveNaras removes transient/zombie naras to prevent memory bloat.
+// Uses tiered retention based on how established a nara is:
+// - Newcomers (< 2d old): pruned after 24h offline (proving period)
+// - Established (2d-30d old): pruned after 7d offline (generous grace period)
+// - Veterans (30d+ old): kept indefinitely (important community members like bart, r2d2, lisa)
+// - Zombies (never seen): pruned immediately if old enough
+func (network *Network) pruneInactiveNaras() {
+	network.local.mu.Lock()
+	defer network.local.mu.Unlock()
+
+	now := time.Now().Unix()
+
+	const (
+		newcomerAge        = int64(2 * 86400)  // 2 days - proving period
+		establishedAge     = int64(30 * 86400) // 30 days - veteran threshold
+		newcomerTimeout    = int64(24 * 3600)  // Prune newcomers after 24h offline
+		establishedTimeout = int64(7 * 86400)  // Prune established after 7d offline
+		// Veterans (30d+) are never auto-pruned - they're part of the community
+	)
+
+	var toRemove []string
+	var established, veterans, zombies int
+	var prunedNewcomers, prunedEstablished int
+
+	for name, nara := range network.Neighbourhood {
+		obs := network.local.getObservationLocked(name)
+
+		// Never remove ourselves
+		if name == network.meName() {
+			continue
+		}
+
+		// Count naras by age category (regardless of online status)
+		naraAge := int64(0)
+		if obs.StartTime > 0 {
+			naraAge = now - obs.StartTime
+		}
+		if naraAge >= establishedAge {
+			veterans++
+		} else if naraAge >= newcomerAge {
+			established++
+		}
+
+		// Never remove currently ONLINE naras
+		if obs.Online == "ONLINE" {
+			continue
+		}
+
+		// Calculate how long since we last saw them
+		timeSinceLastSeen := int64(0)
+		if obs.LastSeen > 0 {
+			timeSinceLastSeen = now - obs.LastSeen
+		}
+
+		nara.mu.Lock()
+		hasActivity := nara.Status.Flair != "" || nara.Status.Buzz > 0 || nara.Status.Chattiness > 0
+		nara.mu.Unlock()
+
+		// Zombie detection: never seen but "first seen" is old
+		// These are malformed entries that should be cleaned up immediately
+		if obs.LastSeen == 0 && obs.StartTime > 0 && (now-obs.StartTime) > 3600 {
+			toRemove = append(toRemove, name)
+			zombies++
+			continue
+		}
+
+		// Also catch zombies with no timestamps and no activity
+		if obs.LastSeen == 0 && obs.StartTime == 0 && !hasActivity {
+			toRemove = append(toRemove, name)
+			zombies++
+			continue
+		}
+
+		// Skip if we don't have LastSeen (but they're not a zombie)
+		if obs.LastSeen == 0 {
+			logrus.Debugf("⏭️  Skipping %s: no LastSeen timestamp (but has activity, not a zombie)", name)
+			continue
+		}
+
+		// Tiered pruning based on nara age
+		shouldPrune := false
+
+		if naraAge < newcomerAge {
+			// Newcomer: prune if offline for 24h
+			if timeSinceLastSeen > newcomerTimeout {
+				shouldPrune = true
+				prunedNewcomers++
+			}
+		} else if naraAge < establishedAge {
+			// Established: prune if offline for 7 days
+			if timeSinceLastSeen > establishedTimeout {
+				shouldPrune = true
+				prunedEstablished++
+			}
+		} else {
+			// Veteran (30d+): keep indefinitely, they're part of the community
+			// Even if they're offline for months, we remember them (bart, r2d2, lisa, etc.)
+			// (already counted in veterans counter above)
+		}
+
+		if shouldPrune {
+			toRemove = append(toRemove, name)
+		}
+	}
+
+	// Remove inactive naras
+	if len(toRemove) > 0 {
+		for _, name := range toRemove {
+			delete(network.Neighbourhood, name)
+			delete(network.local.Me.Status.Observations, name)
+		}
+		logrus.Printf("🧹 Pruned %d inactive naras: %d zombies, %d newcomers (24h), %d established (7d) | kept %d established, %d veterans (30d+)",
+			len(toRemove), zombies, prunedNewcomers, prunedEstablished, established-prunedEstablished, veterans)
+		logrus.Printf("🕯️ 🪦 🕯️  In memory of: %v", toRemove)
+	}
+}
+
+// contains checks if a string is in a slice
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}
+
 // socialMaintenance periodically cleans up social data
 func (network *Network) socialMaintenance() {
 	// Run every 5 minutes
@@ -3650,6 +3764,9 @@ func (network *Network) socialMaintenance() {
 
 	for {
 		<-ticker.C
+
+		// Prune inactive naras from neighbourhood
+		network.pruneInactiveNaras()
 
 		// Prune the sync ledger
 		if network.local.SyncLedger != nil {

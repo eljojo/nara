@@ -148,6 +148,10 @@ function NaraRow(props) {
   const nara = props.nara;
 
   function timeAgo(a) {
+    // Fix "20462 days ago" bug - return "never" for invalid values
+    if (a <= 0 || !isFinite(a)) {
+      return "never";
+    }
     var difference_in_seconds = a;
     if (difference_in_seconds < 60) {
       difference_in_seconds = Math.round(difference_in_seconds/5) * 5
@@ -181,7 +185,7 @@ function NaraRow(props) {
       <td>{ nara.Buzz  }</td>
       <td>{ trend }</td>
       <td>{ nara.Chattiness  }</td>
-      <td>{ timeAgo(moment().unix() - nara.LastSeen) } ago</td>
+      <td>{ nara.LastSeen === 0 || nara.LastSeen < 0 ? "never" : timeAgo(moment().unix() - nara.LastSeen) + " ago" }</td>
       <td>{ uptime }</td>
       <td>{ timeAgo(nara.LastSeen - nara.StartTime) }</td>
       <td>{ timeAgo(nara.Uptime)  }</td>
@@ -198,6 +202,10 @@ function SocialPanel() {
   const [server, setServer] = useState('');
 
   function timeAgo(timestamp) {
+    // Fix "20462 days ago" bug - return "never" for zero/invalid timestamps
+    if (timestamp === 0 || timestamp < 0) {
+      return "never";
+    }
     const seconds = moment().unix() - timestamp;
     if (seconds < 60) {
       return `${Math.round(seconds)}s ago`;

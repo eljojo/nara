@@ -64,7 +64,15 @@ func (ln LocalNara) printNeigbourhood() {
 func (ln LocalNara) generateScreenRow(nara Nara) neighbour {
 	now := time.Now().Unix()
 	observation := ln.getObservation(nara.Name)
-	lastSeen := timeAgoFriendly(now - observation.LastSeen)
+
+	// Fix "20462 days ago" bug - show "never" if LastSeen is 0 or corrupted
+	var lastSeen string
+	if observation.LastSeen == 0 || observation.LastSeen < 0 {
+		lastSeen = "never"
+	} else {
+		lastSeen = timeAgoFriendly(now - observation.LastSeen)
+	}
+
 	first_seen := timeAgoFriendly(now - observation.StartTime)
 	if observation.StartTime == 0 {
 		first_seen = "?"

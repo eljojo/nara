@@ -109,7 +109,7 @@ func (nara *Nara) setObservation(name string, observation NaraObservation) {
 }
 
 func (network *Network) formOpinion() {
-	// Signal completion when done (allows backfillObservations to proceed)
+	// Signal completion when done
 	defer func() {
 		if network.formOpinionsDone != nil {
 			select {
@@ -117,7 +117,7 @@ func (network *Network) formOpinion() {
 				// Already closed
 			default:
 				close(network.formOpinionsDone)
-				logrus.Debug("👀 opinions formed, signaling backfill to proceed")
+				logrus.Debug("👀 formOpinion complete")
 			}
 		}
 	}()
@@ -194,6 +194,16 @@ func (network *Network) formOpinion() {
 	if deleted > 0 {
 		logrus.Printf("🗑️  garbage collected %d ghost naras from memory", deleted)
 	}
+
+	// Backfill observations now that opinions are formed
+	// This might provide additional data to help distinguish real naras from zombies
+	if !network.ReadOnly {
+		network.backfillObservations()
+	}
+
+	// Prune inactive naras once after backfill completes
+	// Backfill data helps inform whether a nara is truly missing or just a ghost
+	network.pruneInactiveNaras()
 }
 
 // isGhostNara returns true if the nara appears to be a "ghost" - seen once briefly
