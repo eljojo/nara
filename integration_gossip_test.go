@@ -68,8 +68,8 @@ func TestIntegration_GossipOnlyMode(t *testing.T) {
 	}
 
 	// Nara A creates a social event
-	event := NewTeaseEvent(naras[0].ln.Me.Name, "gossip-nara-b", "high restarts")
-	naras[0].ln.SyncLedger.AddSocialEvent(event)
+	event := NewSocialSyncEvent("tease", naras[0].ln.Me.Name, "gossip-nara-b", "high restarts", "")
+	naras[0].ln.SyncLedger.AddEvent(event)
 
 	// Run gossip rounds using the REAL performGossipRound() production code
 	for round := 0; round < 3; round++ {
@@ -154,8 +154,8 @@ func TestIntegration_HybridMode(t *testing.T) {
 	}
 
 	// Nara A creates an event
-	event := NewTeaseEvent("hybrid-nara-a", "hybrid-nara-b", "came back")
-	naras[0].ln.SyncLedger.AddSocialEvent(event)
+	event := NewSocialSyncEvent("tease", "hybrid-nara-a", "hybrid-nara-b", "came back", "")
+	naras[0].ln.SyncLedger.AddEvent(event)
 
 	// Run gossip rounds using performGossipRound() production code
 	for round := 0; round < 2; round++ {
@@ -244,8 +244,8 @@ func TestIntegration_MixedNetworkTopology(t *testing.T) {
 	}
 
 	// Gossip-only nara creates event
-	event := NewTeaseEvent("mixed-nara-c", "mixed-nara-a", "high restarts")
-	naras[2].ln.SyncLedger.AddSocialEvent(event) // mixed-nara-c is gossip-only
+	event := NewSocialSyncEvent("tease", "mixed-nara-c", "mixed-nara-a", "high restarts", "")
+	naras[2].ln.SyncLedger.AddEvent(event) // mixed-nara-c is gossip-only
 
 	// Run gossip rounds using performGossipRound() - only gossip-enabled naras participate
 	for round := 0; round < 2; round++ {
@@ -332,9 +332,11 @@ func TestIntegration_ZineCreationAndExchange(t *testing.T) {
 	bob.setObservation("alice", NaraObservation{Online: "ONLINE"})
 
 	// Alice creates some events
+	// NOTE: Each event must have unique content to avoid ID collisions when
+	// time.Now().UnixNano() returns the same value in a tight loop
 	for i := 0; i < 5; i++ {
-		event := NewTeaseEvent("alice", "bob", "test")
-		alice.SyncLedger.AddSocialEvent(event)
+		event := NewSocialSyncEvent("tease", "alice", "bob", fmt.Sprintf("test-%d", i), "")
+		alice.SyncLedger.AddEvent(event)
 	}
 
 	// Verify alice has a zine to send
@@ -362,8 +364,8 @@ func TestIntegration_ZineCreationAndExchange(t *testing.T) {
 	}
 
 	// Bob creates his own event
-	event := NewTeaseEvent("bob", "alice", "response")
-	bob.SyncLedger.AddSocialEvent(event)
+	event := NewSocialSyncEvent("tease", "bob", "alice", "response", "")
+	bob.SyncLedger.AddEvent(event)
 
 	// Bob performs a gossip round back to alice
 	bob.Network.performGossipRound()
@@ -422,12 +424,12 @@ func TestIntegration_GossipEventDeduplication(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 
 	// Create event
-	event := NewTeaseEvent("alice", "bob", "high restarts")
+	event := NewSocialSyncEvent("tease", "alice", "bob", "high restarts", "")
 
 	// Add same event multiple times (simulating arrival via MQTT and gossip)
-	added1 := ledger.AddSocialEvent(event)
-	added2 := ledger.AddSocialEvent(event) // Duplicate
-	added3 := ledger.AddSocialEvent(event) // Duplicate
+	added1 := ledger.AddEvent(event)
+	added2 := ledger.AddEvent(event) // Duplicate
+	added3 := ledger.AddEvent(event) // Duplicate
 
 	// First should succeed, duplicates should be rejected
 	if !added1 {

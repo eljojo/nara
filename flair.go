@@ -14,7 +14,9 @@ func (ln LocalNara) Flair() string {
 
 	// Network-dependent flair (only for local nara)
 	networkSize := len(ln.Network.Neighbourhood)
-	if networkSize > 2 {
+	myStartTime := ln.Network.local.getMeObservation().StartTime
+	if networkSize > 2 && myStartTime > 0 {
+		// Age-based flair (requires knowing our own StartTime)
 		if ln.Me.Name == ln.Network.oldestNara().Name {
 			awards = awards + "🧓"
 		}
@@ -30,6 +32,9 @@ func (ln LocalNara) Flair() string {
 		if ln.Me.Name == ln.Network.mostRestarts().Name {
 			awards = awards + "🔁"
 		}
+	} else if networkSize > 2 && myStartTime == 0 {
+		// Waiting for opinions to form
+		awards = awards + "🤔"
 	}
 
 	// Status-dependent flair

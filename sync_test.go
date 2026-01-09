@@ -1,6 +1,7 @@
 package nara
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
@@ -61,13 +62,7 @@ func TestSyncLedger_MergeEvents(t *testing.T) {
 	// Add events to ledger1
 	ledger1.AddPingObservation("alice", "bob", 10.0)
 	ledger1.AddPingObservation("alice", "charlie", 20.0)
-	ledger1.AddSocialEvent(SocialEvent{
-		Timestamp: time.Now().Unix(),
-		Type:      "tease",
-		Actor:     "alice",
-		Target:    "bob",
-		Reason:    "high-restarts",
-	})
+	ledger1.AddEvent(NewSocialSyncEvent("tease", "alice", "bob", "high-restarts", ""))
 
 	// Merge into ledger2
 	events := ledger1.GetEventsForSync(nil, nil, 0, 0, 1, 0)
@@ -136,13 +131,7 @@ func TestSyncLedger_GetEventsByService(t *testing.T) {
 	// Add mixed events
 	ledger.AddPingObservation("alice", "bob", 10.0)
 	ledger.AddPingObservation("alice", "charlie", 20.0)
-	ledger.AddSocialEvent(SocialEvent{
-		Timestamp: time.Now().Unix(),
-		Type:      "tease",
-		Actor:     "alice",
-		Target:    "bob",
-		Reason:    "high-restarts",
-	})
+	ledger.AddEvent(NewSocialSyncEvent("tease", "alice", "bob", "high-restarts", ""))
 
 	// Get only pings
 	pings := ledger.GetEventsByService(ServicePing)
@@ -299,13 +288,7 @@ func TestSyncResponse_Signing(t *testing.T) {
 	// Create some events
 	ledger := NewSyncLedger(1000)
 	ledger.AddPingObservation("alice", "bob", 42.5)
-	ledger.AddSocialEvent(SocialEvent{
-		Timestamp: time.Now().Unix(),
-		Type:      "tease",
-		Actor:     "alice",
-		Target:    "bob",
-		Reason:    "high-restarts",
-	})
+	ledger.AddEvent(NewSocialSyncEvent("tease", "alice", "bob", "high-restarts", ""))
 
 	events := ledger.GetEventsForSync(nil, nil, 0, 0, 1, 0)
 
@@ -503,6 +486,75 @@ func TestSyncLedger_PrunePriority(t *testing.T) {
 		serviceCounts[ServiceObservation],
 		serviceCounts[ServiceSocial],
 		serviceCounts[ServicePing])
+}
+
+func TestSyncLedger_PrunePriority_UnknownNarasFirst(t *testing.T) {
+	// Test that events from unknown naras are pruned before events from known naras
+	ledger := NewSyncLedger(5) // Max 5 events
+
+	// Set up the unknown nara checker - "unknown-nara" is unknown, "known-nara" is known
+	ledger.SetUnknownNaraChecker(func(name string) bool {
+		return name == "unknown-nara"
+	})
+
+	baseTime := time.Now().UnixNano()
+
+	// Add 3 ping events from a KNOWN nara (should be kept)
+	for i := 0; i < 3; i++ {
+		e := SyncEvent{
+			Timestamp: baseTime + int64(i*1000),
+			Service:   ServicePing,
+			Ping:      &PingObservation{Observer: "known-nara", Target: "other", RTT: float64(i + 1)},
+		}
+		e.ComputeID()
+		ledger.AddEvent(e)
+	}
+
+	// Add 3 ping events from an UNKNOWN nara (should be pruned first)
+	for i := 0; i < 3; i++ {
+		e := SyncEvent{
+			Timestamp: baseTime + int64((i+3)*1000),
+			Service:   ServicePing,
+			Ping:      &PingObservation{Observer: "unknown-nara", Target: "other", RTT: float64(i + 10)},
+		}
+		e.ComputeID()
+		ledger.AddEvent(e)
+	}
+
+	// Now we have 6 events, max is 5, so 1 should be pruned
+	// With the unknown nara priority, the unknown-nara ping should be pruned first
+	ledger.Prune()
+
+	// Count events from each nara
+	knownCount := 0
+	unknownCount := 0
+	for _, e := range ledger.GetAllEvents() {
+		if e.Service == ServicePing && e.Ping != nil {
+			if e.Ping.Observer == "known-nara" {
+				knownCount++
+			} else if e.Ping.Observer == "unknown-nara" {
+				unknownCount++
+			}
+		}
+	}
+
+	// All 3 known-nara events should be preserved
+	if knownCount != 3 {
+		t.Errorf("expected 3 events from known-nara to be preserved, got %d", knownCount)
+	}
+
+	// Only 2 unknown-nara events should remain (1 was pruned)
+	if unknownCount != 2 {
+		t.Errorf("expected 2 events from unknown-nara after pruning (1 pruned), got %d", unknownCount)
+	}
+
+	// Total should be 5
+	total := ledger.EventCount()
+	if total != 5 {
+		t.Errorf("expected 5 total events, got %d", total)
+	}
+
+	t.Logf("After prune: total=%d, known-nara=%d, unknown-nara=%d", total, knownCount, unknownCount)
 }
 
 // --- JSON Serialization ---
@@ -870,6 +922,7 @@ func TestSyncLedger_GetTeaseCounts(t *testing.T) {
 // TestSyncLedger_DeriveClout tests subjective clout calculation
 func TestSyncLedger_DeriveClout(t *testing.T) {
 	ledger := NewSyncLedger(1000)
+	cloutProjection := NewCloutProjection(ledger)
 
 	// Add events with recent timestamps
 	now := time.Now().Unix()
@@ -896,9 +949,12 @@ func TestSyncLedger_DeriveClout(t *testing.T) {
 	soul1 := "soul-observer-1"
 	soul2 := "soul-observer-2"
 
+	// Process events before querying
+	cloutProjection.RunToEnd(context.Background())
+
 	// Get clout from both perspectives
-	clout1 := ledger.DeriveClout(soul1, socialPersonality)
-	clout2 := ledger.DeriveClout(soul2, chillPersonality)
+	clout1 := cloutProjection.DeriveClout(soul1, socialPersonality)
+	clout2 := cloutProjection.DeriveClout(soul2, chillPersonality)
 
 	// Alice should have some clout (positive or negative depending on resonance)
 	// The exact values depend on TeaseResonates, but we can verify structure
@@ -916,6 +972,7 @@ func TestSyncLedger_DeriveClout(t *testing.T) {
 // TestSyncLedger_DeriveClout_Observations tests clout from observation events
 func TestSyncLedger_DeriveClout_Observations(t *testing.T) {
 	ledger := NewSyncLedger(1000)
+	cloutProjection := NewCloutProjection(ledger)
 	now := time.Now().Unix()
 
 	// Add observation events
@@ -946,7 +1003,8 @@ func TestSyncLedger_DeriveClout_Observations(t *testing.T) {
 	}
 
 	personality := NaraPersonality{Chill: 50, Sociability: 50, Agreeableness: 50}
-	clout := ledger.DeriveClout("observer-soul", personality)
+	cloutProjection.RunToEnd(context.Background())
+	clout := cloutProjection.DeriveClout("observer-soul", personality)
 
 	// reliable-nara should have positive clout (journey-complete + journey-pass)
 	if clout["reliable-nara"] <= 0 {

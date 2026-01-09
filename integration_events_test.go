@@ -210,7 +210,7 @@ func TestIntegration_EventEmissionDuringTransitions(t *testing.T) {
 	ln.setObservation("subject-1", obs)
 
 	// Simulate the MISSING detection in recordObservationGone
-	if useObservationEvents() && ln.SyncLedger != nil {
+	if ln.SyncLedger != nil {
 		event := NewStatusChangeObservationEvent("observer", "subject-1", "MISSING")
 		ln.SyncLedger.AddEventWithDedup(event)
 	}
@@ -423,8 +423,8 @@ func TestIntegration_MissingDetectionNotTooSensitive(t *testing.T) {
 		if !observation.isOnline() {
 			continue
 		}
-		// This is the check from observationMaintenance() - uses MissingThreshold constant
-		if (now - observation.LastSeen) > MissingThreshold {
+		// This is the check from observationMaintenance() - uses MissingThresholdSeconds constant
+		if (now - observation.LastSeen) > MissingThresholdSeconds {
 			observation.Online = "MISSING"
 			ln1.Me.Status.Observations[name] = observation
 		}
@@ -617,19 +617,19 @@ func TestIntegration_GossipModeThreshold(t *testing.T) {
 	mqttObs := observer.getObservation("mqtt-nara")
 	gossipObs := observer.getObservation("gossip-nara")
 
-	// Check MQTT nara threshold (should exceed MissingThreshold of 300s)
-	mqttThreshold := MissingThreshold
+	// Check MQTT nara threshold (should exceed MissingThresholdSeconds of 300s)
+	mqttThreshold := MissingThresholdSeconds
 	mqttNaraInfo := network.getNara("mqtt-nara")
 	if mqttNaraInfo.Name != "" && mqttNaraInfo.Status.TransportMode == "gossip" {
-		mqttThreshold = MissingThresholdGossip
+		mqttThreshold = MissingThresholdGossipSeconds
 	}
 	mqttShouldBeMissing := (now - mqttObs.LastSeen) > mqttThreshold
 
-	// Check gossip nara threshold (should NOT exceed MissingThresholdGossip of 3600s)
-	gossipThreshold := MissingThreshold
+	// Check gossip nara threshold (should NOT exceed MissingThresholdGossipSeconds of 3600s)
+	gossipThreshold := MissingThresholdSeconds
 	gossipNaraInfo := network.getNara("gossip-nara")
 	if gossipNaraInfo.Name != "" && gossipNaraInfo.Status.TransportMode == "gossip" {
-		gossipThreshold = MissingThresholdGossip
+		gossipThreshold = MissingThresholdGossipSeconds
 	}
 	gossipShouldBeMissing := (now - gossipObs.LastSeen) > gossipThreshold
 
@@ -646,13 +646,13 @@ func TestIntegration_GossipModeThreshold(t *testing.T) {
 	}
 
 	// Verify the thresholds are as expected
-	if mqttThreshold != MissingThreshold {
+	if mqttThreshold != MissingThresholdSeconds {
 		t.Errorf("MQTT nara should use standard threshold: got %d, want %d",
-			mqttThreshold, MissingThreshold)
+			mqttThreshold, MissingThresholdSeconds)
 	}
-	if gossipThreshold != MissingThresholdGossip {
+	if gossipThreshold != MissingThresholdGossipSeconds {
 		t.Errorf("Gossip nara should use gossip threshold: got %d, want %d",
-			gossipThreshold, MissingThresholdGossip)
+			gossipThreshold, MissingThresholdGossipSeconds)
 	}
 
 	t.Logf("✅ Gossip mode threshold working:")
@@ -660,6 +660,64 @@ func TestIntegration_GossipModeThreshold(t *testing.T) {
 		mqttShouldBeMissing, mqttThreshold)
 	t.Logf("   - Gossip nara (10 min silence): marked MISSING=%v (threshold=%ds)",
 		gossipShouldBeMissing, gossipThreshold)
+}
+
+// TestIntegration_GossipObserverThreshold validates that when the observer itself is
+// in gossip mode, it uses the longer threshold for ALL naras it observes.
+// This is because gossip-only naras receive updates less frequently via zine exchanges,
+// so they shouldn't mark others as MISSING too quickly.
+func TestIntegration_GossipObserverThreshold(t *testing.T) {
+	logrus.SetLevel(logrus.ErrorLevel)
+
+	// Create a gossip-only observer
+	observer := NewLocalNara("gossip-observer", testSoul("gossip-observer"), "", "", "", 100, 1000)
+	network := observer.Network
+	network.TransportMode = TransportGossip // Observer is in gossip mode
+	network.ReadOnly = true
+
+	// Create a neighbor nara in MQTT mode
+	mqttNara := NewNara("mqtt-nara")
+	mqttNara.Status.TransportMode = "mqtt"
+	network.importNara(mqttNara)
+
+	// Set the MQTT nara as ONLINE with LastSeen 10 minutes ago (600 seconds)
+	// This is after the MQTT threshold (300s) but before the gossip threshold (3600s)
+	now := time.Now().Unix()
+	tenMinutesAgo := now - 600
+
+	observer.setObservation("mqtt-nara", NaraObservation{
+		Online:   "ONLINE",
+		LastSeen: tenMinutesAgo,
+	})
+
+	// Simulate the threshold check (same logic as observationMaintenance)
+	obs := observer.getObservation("mqtt-nara")
+
+	threshold := MissingThresholdSeconds
+	nara := network.getNara("mqtt-nara")
+	subjectIsGossip := nara.Name != "" && nara.Status.TransportMode == "gossip"
+	observerIsGossip := network.TransportMode == TransportGossip
+	if subjectIsGossip || observerIsGossip {
+		threshold = MissingThresholdGossipSeconds
+	}
+	shouldBeMissing := (now - obs.LastSeen) > threshold
+
+	// Even though the observed nara is MQTT, the gossip observer should use the longer threshold
+	if shouldBeMissing {
+		t.Errorf("Gossip observer should NOT mark MQTT nara as MISSING after 10 min: elapsed=%ds, threshold=%ds",
+			now-obs.LastSeen, threshold)
+	}
+
+	if threshold != MissingThresholdGossipSeconds {
+		t.Errorf("Gossip observer should use gossip threshold for all naras: got %d, want %d",
+			threshold, MissingThresholdGossipSeconds)
+	}
+
+	t.Logf("✅ Gossip observer threshold working:")
+	t.Logf("   - Observer mode: gossip")
+	t.Logf("   - Subject mode: mqtt")
+	t.Logf("   - MQTT nara (10 min silence): marked MISSING=%v (threshold=%ds)",
+		shouldBeMissing, threshold)
 }
 
 // TestIntegration_TransportModeString validates the TransportMode.String() method
@@ -761,4 +819,201 @@ func TestIntegration_DirectObservationSetMissingLastSeen(t *testing.T) {
 	}
 
 	t.Log("⚠️  Direct setObservation with only Online leaves LastSeen=0 - use recordObservationOnlineNara instead")
+}
+
+// TestIntegration_ZineMergeMarksEmittersAsSeen verifies that when we receive events
+// via zine merge where a nara is the EMITTER, they should be marked as seen.
+//
+// This tests the scenario from production where:
+//  1. We receive a zine with events emitted by r2d2 (teases, etc.)
+//  2. r2d2 should be discovered AND marked as seen
+//  3. Currently r2d2 is only discovered but not marked as seen until we directly
+//     receive their newspaper
+//
+// BUG: discoverNarasFromEvents creates entries but doesn't emit seen events
+// for emitters, so they appear as "unknown" rather than "online" until we
+// directly receive their newspaper.
+func TestIntegration_ZineMergeMarksEmittersAsSeen(t *testing.T) {
+	logrus.SetLevel(logrus.ErrorLevel)
+
+	// Enable observation events for this test
+	os.Setenv("USE_OBSERVATION_EVENTS", "true")
+	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
+
+	ln := NewLocalNara("observer", testSoul("observer"), "", "", "", 50, 1000)
+	network := ln.Network
+
+	// Fake an older start time so we're not in booting mode
+	me := ln.getMeObservation()
+	me.LastRestart = time.Now().Unix() - 200
+	me.LastSeen = time.Now().Unix()
+	ln.setMeObservation(me)
+
+	// Verify r2d2 is not known initially
+	_, known := network.Neighbourhood["r2d2"]
+	if known {
+		t.Fatal("r2d2 should not be known initially")
+	}
+
+	// Create events that r2d2 emitted (like a tease)
+	// These are events we'd receive via zine merge
+	r2d2Soul := NativeSoulCustom([]byte("test-hw-r2d2"), "r2d2")
+	r2d2Keypair := DeriveKeypair(r2d2Soul)
+	teaseEvent := NewSignedSocialSyncEvent("tease", "r2d2", "observer", ReasonHighRestarts, "witness", "r2d2", r2d2Keypair)
+
+	// Simulate receiving these events via zine merge
+	network.MergeSyncEventsWithVerification([]SyncEvent{teaseEvent})
+
+	// r2d2 should now be discovered (in Neighbourhood)
+	_, known = network.Neighbourhood["r2d2"]
+	if !known {
+		t.Error("r2d2 should be discovered after merging events they emitted")
+	}
+
+	// BUG: r2d2 should also be marked as "seen" (observation with Online status)
+	// because we received events they emitted - that's evidence they exist and are active
+	obs := ln.getObservation("r2d2")
+
+	// This is the expected behavior that currently fails:
+	// When we receive events EMITTED by a nara, they should be marked as seen
+	if obs.Online != "ONLINE" {
+		t.Errorf("BUG: r2d2 should be marked as ONLINE after receiving events they emitted, got %q", obs.Online)
+		t.Log("Expected: receiving events emitted by r2d2 should mark them as seen/online")
+		t.Log("Actual: r2d2 is discovered but not marked online until we receive their newspaper directly")
+	}
+
+	// Additionally, we should have emitted a seen event for r2d2
+	seenEvents := 0
+	for _, e := range ln.SyncLedger.GetAllEvents() {
+		if e.Service == ServiceSeen && e.Seen != nil && e.Seen.Subject == "r2d2" {
+			seenEvents++
+		}
+	}
+
+	if seenEvents == 0 {
+		t.Error("BUG: Should have emitted a seen event for r2d2 after receiving events they emitted")
+	}
+}
+
+// TestIntegration_PingVerificationBeforeMarkingMissing validates that we ping a nara
+// before marking them as MISSING. This guards against buggy naras spreading false
+// "offline" observations that could be believed by the whole network.
+func TestIntegration_PingVerificationBeforeMarkingMissing(t *testing.T) {
+	logrus.SetLevel(logrus.ErrorLevel)
+
+	ln := NewLocalNara("observer", testSoul("observer"), "host", "user", "pass", 50, 1000)
+	network := ln.Network
+
+	// Fake an older start time so we're not in booting mode
+	me := ln.getMeObservation()
+	me.LastRestart = time.Now().Unix() - 200
+	me.LastSeen = time.Now().Unix()
+	ln.setMeObservation(me)
+
+	// Import target nara and mark as online
+	network.importNara(NewNara("target"))
+	obs := ln.getObservation("target")
+	obs.Online = "ONLINE"
+	obs.StartTime = time.Now().Unix() - 3600 // Started 1 hour ago
+	ln.setObservation("target", obs)
+
+	// Track ping attempts
+	pingAttempts := 0
+	var pingResults []bool
+
+	// Scenario 1: Ping succeeds - target should stay ONLINE
+	t.Run("ping_succeeds_prevents_missing", func(t *testing.T) {
+		pingAttempts = 0
+		network.testPingFunc = func(name string) (bool, error) {
+			pingAttempts++
+			pingResults = append(pingResults, true)
+			return true, nil // Ping succeeds
+		}
+
+		// Call verifyOnlineWithPing directly
+		result := network.verifyOnlineWithPing("target")
+
+		if !result {
+			t.Error("verifyOnlineWithPing should return true when ping succeeds")
+		}
+
+		if pingAttempts != 1 {
+			t.Errorf("Expected 1 ping attempt, got %d", pingAttempts)
+		}
+
+		// Target should still be ONLINE
+		obs := ln.getObservation("target")
+		if obs.Online != "ONLINE" {
+			t.Errorf("Target should be ONLINE after successful ping, got %s", obs.Online)
+		}
+
+		// Should have emitted a ping event
+		pingEvents := 0
+		for _, e := range ln.SyncLedger.GetAllEvents() {
+			if e.Service == ServicePing && e.Ping != nil && e.Ping.Target == "target" {
+				pingEvents++
+			}
+		}
+		if pingEvents == 0 {
+			t.Error("Should have emitted a ping event after successful verification")
+		}
+
+		t.Logf("✅ Ping succeeded: target stayed ONLINE, ping events=%d", pingEvents)
+	})
+
+	// Reset for scenario 2
+	ln.SyncLedger.Events = []SyncEvent{}
+	ln.SyncLedger.eventIDs = make(map[string]bool)
+	pingAttempts = 0
+	pingResults = []bool{}
+	resetVerifyPingRateLimit() // Clear rate limit for next scenario
+
+	// Scenario 2: Ping fails - target should be allowed to be marked MISSING
+	t.Run("ping_fails_allows_missing", func(t *testing.T) {
+		network.testPingFunc = func(name string) (bool, error) {
+			pingAttempts++
+			pingResults = append(pingResults, false)
+			return false, nil // Ping fails
+		}
+
+		// Call verifyOnlineWithPing directly
+		result := network.verifyOnlineWithPing("target")
+
+		if result {
+			t.Error("verifyOnlineWithPing should return false when ping fails")
+		}
+
+		if pingAttempts != 1 {
+			t.Errorf("Expected 1 ping attempt, got %d", pingAttempts)
+		}
+
+		t.Logf("✅ Ping failed: verification returned false, allowing MISSING transition")
+	})
+
+	// Reset for scenario 3
+	pingAttempts = 0
+
+	// Scenario 3: Self-ping is skipped
+	t.Run("self_ping_skipped", func(t *testing.T) {
+		network.testPingFunc = func(name string) (bool, error) {
+			pingAttempts++
+			return true, nil
+		}
+
+		// Try to verify ourselves - should skip
+		result := network.verifyOnlineWithPing("observer")
+
+		if result {
+			t.Error("verifyOnlineWithPing should return false for self")
+		}
+
+		if pingAttempts != 0 {
+			t.Errorf("Should not ping self, but got %d ping attempts", pingAttempts)
+		}
+
+		t.Log("✅ Self-ping correctly skipped")
+	})
+
+	// Cleanup
+	network.testPingFunc = nil
 }

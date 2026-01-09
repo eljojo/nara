@@ -330,7 +330,7 @@ func TestBootRecovery_RetryWithEmptySlice(t *testing.T) {
 
 	results := []syncResult{
 		{name: "neighbor-0", sliceIndex: 0, events: 50, respVerified: true},
-		{name: "neighbor-1", sliceIndex: 1, events: 0, respVerified: true}, // Empty but verified = OK
+		{name: "neighbor-1", sliceIndex: 1, events: 0, respVerified: true},  // Empty but verified = OK
 		{name: "neighbor-2", sliceIndex: 2, events: 0, respVerified: false}, // Empty and unverified = FAIL
 	}
 

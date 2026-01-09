@@ -20,7 +20,8 @@ type LocalNara struct {
 	Network         *Network
 	Soul            string
 	Keypair         NaraKeypair
-	SyncLedger      *SyncLedger // Unified event store for all syncable data (social + ping + future types)
+	SyncLedger      *SyncLedger      // Unified event store for all syncable data (social + ping + future types)
+	Projections     *ProjectionStore // Event-sourced projections for derived state
 	forceChattiness int
 	isRaspberryPi   bool
 	isNixOs         bool
@@ -103,6 +104,9 @@ func NewLocalNara(name string, soul string, mqtt_host string, mqtt_user string, 
 		panic("SyncLedger initialization failed - this should never happen")
 	}
 
+	// Initialize projections after SyncLedger
+	ln.Projections = NewProjectionStore(ln.SyncLedger)
+
 	ln.updateHostStats()
 
 	hostinfo, _ := host.Info()
@@ -129,6 +133,22 @@ func (ln *LocalNara) Start(serveUI bool, readOnly bool, httpAddr string, meshCon
 		logrus.Printf("💻 Serving UI")
 	}
 
+	// Start projections
+	if ln.Projections != nil {
+		// Configure MISSING threshold to account for gossip mode
+		ln.Projections.OnlineStatus().SetMissingThresholdFunc(func(name string) int64 {
+			threshold := MissingThresholdSeconds
+			nara := ln.Network.getNara(name)
+			subjectIsGossip := nara.Name != "" && nara.Status.TransportMode == "gossip"
+			observerIsGossip := ln.Network.TransportMode == TransportGossip
+			if subjectIsGossip || observerIsGossip {
+				threshold = MissingThresholdGossipSeconds
+			}
+			return threshold * int64(time.Second) // Convert to nanoseconds
+		})
+		ln.Projections.Start()
+	}
+
 	go ln.updateHostStatsForever()
 	ln.Network.Start(serveUI, httpAddr, meshConfig)
 
@@ -144,6 +164,11 @@ func (ln *LocalNara) SetupCloseHandler() {
 		<-c
 		fmt.Println("babaayyy")
 		ln.Network.Chau()
+
+		// Gracefully shutdown projections
+		if ln.Projections != nil {
+			ln.Projections.Shutdown()
+		}
 
 		// Gracefully shutdown all background goroutines
 		ln.Network.Shutdown()

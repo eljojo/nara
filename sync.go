@@ -16,6 +16,8 @@ const (
 	ServicePing        = "ping"        // Ping/RTT measurements
 	ServiceObservation = "observation" // Network state observations (restarts, status changes)
 	ServiceHeyThere    = "hey-there"   // Peer identity announcements (public key, mesh IP)
+	ServiceChau        = "chau"        // Graceful shutdown announcements
+	ServiceSeen        = "seen"        // Lightweight "I saw this nara" events for status derivation
 )
 
 // Importance levels for observation events
@@ -45,7 +47,34 @@ type SyncEvent struct {
 	Ping        *PingObservation         `json:"ping,omitempty"`
 	Observation *ObservationEventPayload `json:"observation,omitempty"`
 	HeyThere    *HeyThereEvent           `json:"hey_there,omitempty"`
+	Chau        *ChauEvent               `json:"chau,omitempty"`
+	Seen        *SeenEvent               `json:"seen,omitempty"`
 }
+
+// SeenEvent records when a nara was seen through some interaction.
+// This is a lightweight event for "I received something from this nara"
+// that proves they're reachable/online without creating heavier events.
+type SeenEvent struct {
+	Observer string `json:"observer"` // who saw them
+	Subject  string `json:"subject"`  // who was seen
+	Via      string `json:"via"`      // how: "zine", "mesh", "ping", "sync"
+}
+
+// ContentString returns canonical string for hashing/signing
+func (s *SeenEvent) ContentString() string {
+	return fmt.Sprintf("seen:%s:%s:%s", s.Observer, s.Subject, s.Via)
+}
+
+// IsValid checks if the payload is well-formed
+func (s *SeenEvent) IsValid() bool {
+	return s.Observer != "" && s.Subject != "" && s.Via != ""
+}
+
+// GetActor implements Payload (Observer is the actor)
+func (s *SeenEvent) GetActor() string { return s.Observer }
+
+// GetTarget implements Payload (Subject is the target)
+func (s *SeenEvent) GetTarget() string { return s.Subject }
 
 // Payload is the interface for service-specific event data
 type Payload interface {
@@ -201,6 +230,10 @@ func (e *SyncEvent) Payload() Payload {
 		return e.Observation
 	case ServiceHeyThere:
 		return e.HeyThere
+	case ServiceChau:
+		return e.Chau
+	case ServiceSeen:
+		return e.Seen
 	}
 	return nil
 }
@@ -431,14 +464,14 @@ func NewSignedPingSyncEvent(observer, target string, rtt float64, emitter string
 
 // NewHeyThereSyncEvent creates a signed SyncEvent for peer identity announcements.
 // This allows hey_there events to propagate through gossip, enabling peer discovery
-// without MQTT broadcasts.
+// without MQTT broadcasts. The SyncEvent signature is the attestation - inner event
+// is just payload data.
 func NewHeyThereSyncEvent(name string, publicKey string, meshIP string, keypair NaraKeypair) SyncEvent {
 	heyThere := &HeyThereEvent{
 		From:      name,
 		PublicKey: publicKey,
 		MeshIP:    meshIP,
 	}
-	heyThere.Sign(keypair)
 
 	e := SyncEvent{
 		Timestamp: time.Now().UnixNano(),
@@ -450,7 +483,62 @@ func NewHeyThereSyncEvent(name string, publicKey string, meshIP string, keypair 
 	return e
 }
 
+// NewChauSyncEvent creates a signed SyncEvent for graceful shutdown announcements.
+// This allows chau events to propagate through gossip, enabling gossip-only naras
+// to distinguish OFFLINE (graceful) from MISSING (timeout). The SyncEvent signature
+// is the attestation - inner event is just payload data.
+func NewChauSyncEvent(name string, publicKey string, keypair NaraKeypair) SyncEvent {
+	chau := &ChauEvent{
+		From:      name,
+		PublicKey: publicKey,
+	}
+
+	e := SyncEvent{
+		Timestamp: time.Now().UnixNano(),
+		Service:   ServiceChau,
+		Chau:      chau,
+	}
+	e.ComputeID()
+	e.Sign(name, keypair)
+	return e
+}
+
+// NewSeenSyncEvent creates a signed SyncEvent for when a nara is seen through some interaction.
+// The via parameter indicates how they were seen: "zine", "mesh", "ping", "sync".
+// Signed so other naras can verify who made the observation when events propagate.
+func NewSeenSyncEvent(observer, subject, via string, keypair NaraKeypair) SyncEvent {
+	e := SyncEvent{
+		Timestamp: time.Now().UnixNano(),
+		Service:   ServiceSeen,
+		Seen: &SeenEvent{
+			Observer: observer,
+			Subject:  subject,
+			Via:      via,
+		},
+	}
+	e.ComputeID()
+	e.Sign(observer, keypair)
+	return e
+}
+
+// NewTeaseSyncEvent creates a signed SyncEvent for teasing another nara.
+func NewTeaseSyncEvent(actor, target, reason string, keypair NaraKeypair) SyncEvent {
+	return NewSignedSocialSyncEvent("tease", actor, target, reason, "", actor, keypair)
+}
+
+// NewObservationSocialSyncEvent creates a signed SyncEvent for system observations.
+func NewObservationSocialSyncEvent(actor, target, reason string, keypair NaraKeypair) SyncEvent {
+	return NewSignedSocialSyncEvent("observation", actor, target, reason, "", actor, keypair)
+}
+
+// NewJourneyObservationSyncEvent creates a signed SyncEvent for journey observations.
+// The journeyID is stored in the Witness field for tracking.
+func NewJourneyObservationSyncEvent(observer, journeyOriginator, reason, journeyID string, keypair NaraKeypair) SyncEvent {
+	return NewSignedSocialSyncEvent("observation", observer, journeyOriginator, reason, journeyID, observer, keypair)
+}
+
 // SyncEventFromSocialEvent converts legacy SocialEvent to SyncEvent
+// Deprecated: Use NewSocialSyncEvent instead for new code.
 func SyncEventFromSocialEvent(se SocialEvent) SyncEvent {
 	e := SyncEvent{
 		Timestamp: se.Timestamp,
@@ -570,7 +658,12 @@ type SyncLedger struct {
 	MaxEvents     int
 	eventIDs      map[string]bool
 	observationRL *ObservationRateLimit // Rate limiter for observation events
+	version       int64                 // Increments on structural changes (prune, out-of-order insert)
 	mu            sync.RWMutex
+
+	// isUnknownNara is an optional callback to check if a nara is unknown (no public key).
+	// Events from unknown naras are pruned first. Set via SetUnknownNaraChecker.
+	isUnknownNara func(name string) bool
 }
 
 // NewSyncLedger creates a new unified sync ledger
@@ -581,6 +674,67 @@ func NewSyncLedger(maxEvents int) *SyncLedger {
 		eventIDs:      make(map[string]bool),
 		observationRL: NewObservationRateLimit(),
 	}
+}
+
+// SetUnknownNaraChecker sets a callback to check if a nara is unknown (no public key).
+// Events from unknown naras are pruned first during storage pressure.
+func (l *SyncLedger) SetUnknownNaraChecker(checker func(name string) bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.isUnknownNara = checker
+}
+
+// isEventFromUnknownNara checks if an event is from/about an unknown nara.
+// Returns false if no checker is set or the nara is known.
+func (l *SyncLedger) isEventFromUnknownNara(e SyncEvent) bool {
+	if l.isUnknownNara == nil {
+		return false
+	}
+
+	// Extract the relevant nara name(s) from the event
+	var names []string
+
+	switch e.Service {
+	case ServiceHeyThere:
+		if e.HeyThere != nil {
+			names = append(names, e.HeyThere.From)
+		}
+	case ServiceChau:
+		if e.Chau != nil {
+			names = append(names, e.Chau.From)
+		}
+	case ServiceObservation:
+		if e.Observation != nil {
+			names = append(names, e.Observation.Observer, e.Observation.Subject)
+		}
+	case ServiceSocial:
+		if e.Social != nil {
+			names = append(names, e.Social.Actor)
+			if e.Social.Target != "" {
+				names = append(names, e.Social.Target)
+			}
+			if e.Social.Witness != "" {
+				names = append(names, e.Social.Witness)
+			}
+		}
+	case ServicePing:
+		if e.Ping != nil {
+			names = append(names, e.Ping.Observer, e.Ping.Target)
+		}
+	case ServiceSeen:
+		if e.Seen != nil {
+			names = append(names, e.Seen.Observer, e.Seen.Subject)
+		}
+	}
+
+	// If ANY of the naras involved are unknown, consider this event lower priority
+	for _, name := range names {
+		if name != "" && l.isUnknownNara(name) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // AddEvent adds an event if it's valid and not a duplicate (by ID).
@@ -628,16 +782,19 @@ func (l *SyncLedger) AddEvent(e SyncEvent) bool {
 }
 
 // AddSocialEvent is a convenience method to add a legacy SocialEvent
+// Deprecated: Use AddEvent with SyncEvent for new code.
 func (l *SyncLedger) AddSocialEvent(se SocialEvent) bool {
 	return l.AddEvent(SyncEventFromSocialEvent(se))
 }
 
 // AddSocialEventFilteredLegacy adds a legacy SocialEvent with personality filtering
+// Deprecated: Use AddSocialEventFiltered with SyncEvent for new code.
 func (l *SyncLedger) AddSocialEventFilteredLegacy(se SocialEvent, personality NaraPersonality) bool {
 	return l.AddSocialEventFiltered(SyncEventFromSocialEvent(se), personality)
 }
 
 // MergeSocialEventsFiltered adds legacy SocialEvents with personality filtering
+// Deprecated: Convert events to SyncEvent format for new code.
 func (l *SyncLedger) MergeSocialEventsFiltered(events []SocialEvent, personality NaraPersonality) int {
 	added := 0
 	for _, se := range events {
@@ -812,6 +969,87 @@ func (l *SyncLedger) GetAllEvents() []SyncEvent {
 	return result
 }
 
+// RemoveEventsFor removes all events involving a specific nara (as actor or target).
+// Returns the number of events removed.
+func (l *SyncLedger) RemoveEventsFor(name string) int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	kept := make([]SyncEvent, 0, len(l.Events))
+	removed := 0
+
+	for _, e := range l.Events {
+		if l.eventInvolvesNara(e, name) {
+			delete(l.eventIDs, e.ID)
+			removed++
+		} else {
+			kept = append(kept, e)
+		}
+	}
+
+	if removed > 0 {
+		l.Events = kept
+		l.version++
+	}
+
+	return removed
+}
+
+// eventInvolvesNara checks if an event involves a specific nara (as actor or target).
+func (l *SyncLedger) eventInvolvesNara(e SyncEvent, name string) bool {
+	switch e.Service {
+	case ServiceHeyThere:
+		if e.HeyThere != nil && e.HeyThere.From == name {
+			return true
+		}
+	case ServiceChau:
+		if e.Chau != nil && e.Chau.From == name {
+			return true
+		}
+	case ServiceObservation:
+		if e.Observation != nil && (e.Observation.Observer == name || e.Observation.Subject == name) {
+			return true
+		}
+	case ServiceSocial:
+		if e.Social != nil && (e.Social.Witness == name || e.Social.Target == name) {
+			return true
+		}
+	case ServicePing:
+		if e.Ping != nil && (e.Ping.Observer == name || e.Ping.Target == name) {
+			return true
+		}
+	case ServiceSeen:
+		if e.Seen != nil && (e.Seen.Observer == name || e.Seen.Subject == name) {
+			return true
+		}
+	}
+	return false
+}
+
+// GetEventsSince returns events from the given position onwards, plus the current
+// total count and version. If the version has changed since the caller last saw it,
+// the caller should reset and reprocess from position 0.
+func (l *SyncLedger) GetEventsSince(position int) ([]SyncEvent, int, int64) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	total := len(l.Events)
+	if position >= total {
+		return nil, total, l.version
+	}
+
+	result := make([]SyncEvent, total-position)
+	copy(result, l.Events[position:])
+	return result, total, l.version
+}
+
+// GetVersion returns the current structural version of the ledger.
+func (l *SyncLedger) GetVersion() int64 {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.version
+}
+
 // GetObservationEventsAbout returns all observation events about a specific subject
 func (l *SyncLedger) GetObservationEventsAbout(subject string) []SyncEvent {
 	l.mu.RLock()
@@ -948,6 +1186,8 @@ func (l *SyncLedger) addObservationWithCompaction(e SyncEvent, withDedup bool) b
 		}
 		l.Events = newEvents
 		delete(l.eventIDs, toRemove.id)
+		// Increment version - structure has changed, projections need to reset
+		l.version++
 	}
 
 	// Validate and add the new event
@@ -973,104 +1213,6 @@ type OpinionData struct {
 	StartTime   int64
 	Restarts    int64
 	LastRestart int64
-}
-
-// consensusObservation holds observation data for consensus calculations
-type consensusObservation struct {
-	startTime   int64
-	restartNum  int64
-	lastRestart int64
-	uptime      uint64
-}
-
-// DeriveOpinionFromEvents derives consensus about a subject from observation events
-// Uses the same uptime-weighted clustering algorithm as newspaper-based consensus
-func (l *SyncLedger) DeriveOpinionFromEvents(subject string) OpinionData {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-
-	const tolerance int64 = 60 // seconds - handles clock drift
-
-	// Collect restart and first-seen events for this subject
-	var observations []consensusObservation
-
-	for _, e := range l.Events {
-		if e.Service != ServiceObservation || e.Observation == nil {
-			continue
-		}
-		if e.Observation.Subject != subject {
-			continue
-		}
-
-		// Only use restart and first-seen events for consensus
-		if e.Observation.Type == "restart" || e.Observation.Type == "first-seen" {
-			// Use observer's uptime for weighting (default to 1 if not set)
-			uptime := e.Observation.ObserverUptime
-			if uptime == 0 {
-				uptime = 1
-			}
-			obs := consensusObservation{
-				startTime:   e.Observation.StartTime,
-				restartNum:  e.Observation.RestartNum,
-				lastRestart: e.Observation.LastRestart,
-				uptime:      uptime,
-			}
-			observations = append(observations, obs)
-		}
-	}
-
-	if len(observations) == 0 {
-		return OpinionData{} // No consensus data available
-	}
-
-	// Derive StartTime using clustering
-	startTime := l.deriveStartTimeConsensus(observations, tolerance)
-
-	// Derive Restarts (use highest restart count)
-	restarts := l.deriveRestartsConsensus(observations)
-
-	// Derive LastRestart (most recent)
-	lastRestart := l.deriveLastRestartConsensus(observations)
-
-	return OpinionData{
-		StartTime:   startTime,
-		Restarts:    restarts,
-		LastRestart: lastRestart,
-	}
-}
-
-func (l *SyncLedger) deriveStartTimeConsensus(observations []consensusObservation, tolerance int64) int64 {
-	var wobs []consensusValue
-	for _, obs := range observations {
-		if obs.startTime > 0 {
-			wobs = append(wobs, consensusValue{value: obs.startTime, weight: obs.uptime})
-		}
-	}
-	return consensusByUptime(wobs, tolerance, true)
-}
-
-func (l *SyncLedger) deriveRestartsConsensus(observations []consensusObservation) int64 {
-	// For restart counts, just pick the highest value (most recent knowledge)
-	maxRestarts := int64(0)
-	for _, obs := range observations {
-		if obs.restartNum > maxRestarts {
-			maxRestarts = obs.restartNum
-		}
-	}
-
-	return maxRestarts
-}
-
-func (l *SyncLedger) deriveLastRestartConsensus(observations []consensusObservation) int64 {
-	// Pick the most recent LastRestart timestamp
-	maxLastRestart := int64(0)
-	for _, obs := range observations {
-		if obs.lastRestart > maxLastRestart {
-			maxLastRestart = obs.lastRestart
-		}
-	}
-
-	return maxLastRestart
 }
 
 // --- Sync/Gossip Support ---
@@ -1211,7 +1353,16 @@ func (l *SyncLedger) pruneUnlocked() {
 	}
 
 	// Sort by priority (higher number = prune first), then by timestamp (oldest first)
+	// Events from unknown naras (no public key) are pruned first
 	sort.Slice(l.Events, func(i, j int) bool {
+		// Check if events are from unknown naras (prune first)
+		unknownI := l.isEventFromUnknownNara(l.Events[i])
+		unknownJ := l.isEventFromUnknownNara(l.Events[j])
+		if unknownI != unknownJ {
+			return unknownI // Unknown nara events sorted to front (pruned first)
+		}
+
+		// Then sort by priority
 		pi, pj := eventPruningPriority(l.Events[i]), eventPruningPriority(l.Events[j])
 		if pi != pj {
 			return pi > pj // Higher priority number = prune first
@@ -1247,6 +1398,9 @@ func (l *SyncLedger) pruneUnlocked() {
 	sort.Slice(l.Events, func(i, j int) bool {
 		return l.Events[i].Timestamp < l.Events[j].Timestamp
 	})
+
+	// Increment version - structure has changed, projections need to reset
+	l.version++
 }
 
 // --- Ping-specific queries ---
@@ -1564,165 +1718,6 @@ func (l *SyncLedger) EventWeight(event SyncEvent, personality NaraPersonality) f
 		// Sociable naras remember social stuff longer (up to 30% bonus)
 		socModifier := 1.0 + float64(personality.Sociability)/333.0 // 1.0 to 1.3
 
-		halfLife := baseHalfLife * chillModifier * socModifier
-		decayFactor := 1.0 / (1.0 + float64(age)/halfLife)
-		weight *= decayFactor
-	}
-
-	if weight < 0.1 {
-		weight = 0.1
-	}
-
-	return weight
-}
-
-// applyObservationClout handles clout changes from observation events
-// Observations affect the TARGET's clout (the one being observed)
-func applyObservationClout(clout map[string]float64, payload *SocialEventPayload, weight float64) {
-	switch payload.Reason {
-	case ReasonOnline:
-		// Coming online is slightly positive (reliable, available)
-		clout[payload.Target] += weight * 0.1
-	case ReasonOffline:
-		// Going offline is slightly negative (less available)
-		clout[payload.Target] -= weight * 0.05
-	case ReasonJourneyPass:
-		// Participating in journeys is positive (engaged citizen)
-		clout[payload.Target] += weight * 0.2
-	case ReasonJourneyComplete:
-		// Completing journeys is very positive (success!)
-		clout[payload.Target] += weight * 0.5
-	case ReasonJourneyTimeout:
-		// Journey timeout is negative (unreliable)
-		clout[payload.Target] -= weight * 0.3
-	}
-}
-
-// DeriveClout computes subjective clout scores based on the ledger events
-// Each observer derives their own opinion based on their soul and personality
-func (l *SyncLedger) DeriveClout(observerSoul string, personality NaraPersonality) map[string]float64 {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-
-	clout := make(map[string]float64)
-
-	for _, event := range l.Events {
-		// Only process social events
-		if event.Service != ServiceSocial || event.Social == nil {
-			continue
-		}
-
-		payload := event.Social
-		weight := l.eventWeightUnlocked(event, personality)
-
-		switch payload.Type {
-		case "tease":
-			// Convert to legacy SocialEvent for TeaseResonates (it uses the same logic)
-			legacyEvent := SocialEvent{
-				ID:        event.ID,
-				Timestamp: event.Timestamp,
-				Type:      payload.Type,
-				Actor:     payload.Actor,
-				Target:    payload.Target,
-				Reason:    payload.Reason,
-				Witness:   payload.Witness,
-			}
-			if TeaseResonates(legacyEvent, observerSoul, personality) {
-				clout[payload.Actor] += weight * 1.0 // good tease = clout
-			} else {
-				clout[payload.Actor] -= weight * 0.3 // bad tease = cringe
-			}
-		case "observed":
-			// Third-party observation, smaller weight
-			legacyEvent := SocialEvent{
-				ID:        event.ID,
-				Timestamp: event.Timestamp,
-				Type:      payload.Type,
-				Actor:     payload.Actor,
-				Target:    payload.Target,
-				Reason:    payload.Reason,
-				Witness:   payload.Witness,
-			}
-			if TeaseResonates(legacyEvent, observerSoul, personality) {
-				clout[payload.Actor] += weight * 0.5
-			}
-		case "gossip":
-			// Gossip has minimal direct clout impact
-			clout[payload.Actor] += weight * 0.1
-		case "observation":
-			// System observations affect the TARGET's clout
-			applyObservationClout(clout, payload, weight)
-		}
-	}
-
-	return clout
-}
-
-// eventWeightUnlocked is EventWeight without locking (for use when already holding lock)
-func (l *SyncLedger) eventWeightUnlocked(event SyncEvent, personality NaraPersonality) float64 {
-	// Delegate to the public method logic (same calculation)
-	// Only social events have personality-aware weight
-	if event.Service != ServiceSocial || event.Social == nil {
-		return 1.0
-	}
-
-	payload := event.Social
-	weight := 1.0
-
-	weight += float64(personality.Sociability) / 200.0
-	weight -= float64(personality.Chill) / 400.0
-
-	switch payload.Reason {
-	case ReasonHighRestarts:
-		if personality.Sociability > 70 {
-			weight *= 0.7
-		}
-	case ReasonComeback:
-		if personality.Sociability > 60 {
-			weight *= 1.4
-		}
-	case ReasonTrendAbandon:
-		if personality.Agreeableness > 70 {
-			weight *= 0.5
-		}
-		if personality.Sociability > 60 {
-			weight *= 1.2
-		}
-	case ReasonRandom:
-		if personality.Chill > 60 {
-			weight *= 0.3
-		}
-		if personality.Agreeableness > 70 {
-			weight *= 0.6
-		}
-	case ReasonNiceNumber:
-		weight *= 1.1
-	case ReasonOnline, ReasonOffline:
-		weight *= 0.5
-	case ReasonJourneyPass:
-		weight *= 0.8
-	case ReasonJourneyComplete:
-		weight *= 1.3
-	case ReasonJourneyTimeout:
-		weight *= 1.2
-	}
-
-	switch payload.Type {
-	case "observed":
-		weight *= 0.7
-	case "gossip":
-		weight *= 0.4
-	}
-
-	now := time.Now().Unix()
-	age := now - event.Timestamp
-	if age < 0 {
-		age = 7 * 24 * 60 * 60
-	}
-	if age > 0 {
-		baseHalfLife := float64(24 * 60 * 60)
-		chillModifier := 1.0 + float64(50-personality.Chill)/100.0
-		socModifier := 1.0 + float64(personality.Sociability)/333.0
 		halfLife := baseHalfLife * chillModifier * socModifier
 		decayFactor := 1.0 / (1.0 + float64(age)/halfLife)
 		weight *= decayFactor

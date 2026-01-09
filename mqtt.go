@@ -37,17 +37,37 @@ func (network *Network) subscribeHandlers(client mqtt.Client) {
 }
 
 func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
-	heyThere := &HeyThereEvent{}
-	if err := json.Unmarshal(msg.Payload(), heyThere); err != nil {
-		logrus.Infof("heyThereHandler: invalid JSON: %v", err)
+	event := SyncEvent{}
+	if err := json.Unmarshal(msg.Payload(), &event); err != nil {
+		logrus.Debugf("heyThereHandler: invalid JSON: %v", err)
 		return
 	}
 
-	if heyThere.From == network.meName() || heyThere.From == "" {
+	// Try new SyncEvent format first
+	if event.Service == ServiceHeyThere && event.HeyThere != nil {
+		if event.HeyThere.From == network.meName() || event.HeyThere.From == "" {
+			return
+		}
+		network.heyThereInbox <- event
 		return
 	}
 
-	network.heyThereInbox <- *heyThere
+	// Fallback: try legacy HeyThereEvent format (for old nodes during rollout)
+	legacy := HeyThereEvent{}
+	if err := json.Unmarshal(msg.Payload(), &legacy); err != nil {
+		return
+	}
+	if legacy.From == "" || legacy.From == network.meName() {
+		return
+	}
+	// Convert legacy to SyncEvent
+	event = SyncEvent{
+		Timestamp: time.Now().UnixNano(),
+		Service:   ServiceHeyThere,
+		HeyThere:  &legacy,
+	}
+	event.ComputeID()
+	network.heyThereInbox <- event
 }
 
 func (network *Network) howdyHandler(client mqtt.Client, msg mqtt.Message) {
@@ -66,33 +86,72 @@ func (network *Network) howdyHandler(client mqtt.Client, msg mqtt.Message) {
 }
 
 func (network *Network) chauHandler(client mqtt.Client, msg mqtt.Message) {
-	event := ChauEvent{}
+	event := SyncEvent{}
 	if err := json.Unmarshal(msg.Payload(), &event); err != nil {
-		logrus.Infof("chauHandler: invalid JSON: %v", err)
+		logrus.Debugf("chauHandler: invalid JSON: %v", err)
 		return
 	}
 
+	// Try new SyncEvent format first
+	if event.Service == ServiceChau && event.Chau != nil {
+		if event.Chau.From == network.meName() || event.Chau.From == "" {
+			return
+		}
+		network.chauInbox <- event
+		return
+	}
+
+	// Fallback: try legacy ChauEvent format (for old nodes during rollout)
+	legacy := ChauEvent{}
+	if err := json.Unmarshal(msg.Payload(), &legacy); err != nil {
+		return
+	}
+	if legacy.From == "" || legacy.From == network.meName() {
+		return
+	}
+	// Convert legacy to SyncEvent
+	event = SyncEvent{
+		Timestamp: time.Now().UnixNano(),
+		Service:   ServiceChau,
+		Chau:      &legacy,
+	}
+	event.ComputeID()
 	network.chauInbox <- event
 }
 
 func (network *Network) socialHandler(client mqtt.Client, msg mqtt.Message) {
-	event := SocialEvent{}
-	if err := json.Unmarshal(msg.Payload(), &event); err != nil {
+	// Try parsing as SyncEvent first (new format)
+	syncEvent := SyncEvent{}
+	if err := json.Unmarshal(msg.Payload(), &syncEvent); err == nil {
+		if syncEvent.Service == ServiceSocial && syncEvent.Social != nil {
+			// Ignore our own events
+			if syncEvent.Social.Actor == network.meName() {
+				return
+			}
+			network.socialInbox <- syncEvent
+			return
+		}
+	}
+
+	// Fallback: try legacy SocialEvent format (for old nodes during rollout)
+	legacy := SocialEvent{}
+	if err := json.Unmarshal(msg.Payload(), &legacy); err != nil {
 		logrus.Infof("socialHandler: invalid JSON: %v", err)
 		return
 	}
 
 	// Ignore our own events
-	if event.Actor == network.meName() {
+	if legacy.Actor == network.meName() {
 		return
 	}
 
 	// Validate event
-	if !event.IsValid() || event.Actor == "" || event.Target == "" {
+	if !legacy.IsValid() || legacy.Actor == "" || legacy.Target == "" {
 		return
 	}
 
-	network.socialInbox <- event
+	// Convert to SyncEvent and send
+	network.socialInbox <- SyncEventFromSocialEvent(legacy)
 }
 
 func (network *Network) ledgerRequestHandler(client mqtt.Client, msg mqtt.Message) {
@@ -220,6 +279,14 @@ func (network *Network) disconnectMQTT() {
 // Shutdown gracefully stops all background goroutines
 func (network *Network) Shutdown() {
 	logrus.Printf("🛑 Initiating graceful shutdown...")
+
+	// Perform final gossip round to spread our chau event (if gossip is enabled)
+	if network.tsnetMesh != nil && network.TransportMode != TransportMQTT && !network.ReadOnly {
+		logrus.Printf("📰 Sending final zine with chau event...")
+		network.performGossipRound()
+		// Give the HTTP requests a moment to complete
+		time.Sleep(500 * time.Millisecond)
+	}
 
 	// Cancel context to signal all goroutines to stop
 	if network.cancelFunc != nil {

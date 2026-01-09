@@ -291,12 +291,15 @@ func (network *Network) httpEventsSSEHandler(w http.ResponseWriter, r *http.Requ
 	for {
 		select {
 		case event := <-eventChan:
+			if event.Social == nil {
+				continue
+			}
 			data, _ := json.Marshal(map[string]interface{}{
-				"type":      event.Type,
-				"actor":     event.Actor,
-				"target":    event.Target,
-				"reason":    event.Reason,
-				"message":   TeaseMessage(event.Reason, event.Actor, event.Target),
+				"type":      event.Social.Type,
+				"actor":     event.Social.Actor,
+				"target":    event.Social.Target,
+				"reason":    event.Social.Reason,
+				"message":   TeaseMessage(event.Social.Reason, event.Social.Actor, event.Social.Target),
 				"timestamp": event.Timestamp,
 			})
 			fmt.Fprintf(w, "event: social\ndata: %s\n\n", data)
@@ -310,8 +313,8 @@ func (network *Network) httpEventsSSEHandler(w http.ResponseWriter, r *http.Requ
 // Clout scores from this nara's perspective
 func (network *Network) httpCloutHandler(w http.ResponseWriter, r *http.Request) {
 	var clout map[string]float64
-	if network.local.SyncLedger != nil {
-		clout = network.local.SyncLedger.DeriveClout(network.local.Soul, network.local.Me.Status.Personality)
+	if network.local.Projections != nil {
+		clout = network.local.Projections.Clout().DeriveClout(network.local.Soul, network.local.Me.Status.Personality)
 	} else {
 		clout = make(map[string]float64)
 	}
@@ -338,7 +341,7 @@ func (network *Network) httpRecentEventsHandler(w http.ResponseWriter, r *http.R
 		}
 	}
 
-	// Convert to JSON-friendly format
+	// Convert to JSON-friendly format (timestamps in seconds for UI)
 	var eventList []map[string]interface{}
 	for _, e := range events {
 		eventList = append(eventList, map[string]interface{}{
@@ -346,7 +349,7 @@ func (network *Network) httpRecentEventsHandler(w http.ResponseWriter, r *http.R
 			"target":    e.Target,
 			"reason":    e.Reason,
 			"message":   TeaseMessage(e.Reason, e.Actor, e.Target),
-			"timestamp": e.Timestamp,
+			"timestamp": e.Timestamp / 1e9, // Convert nanoseconds to seconds for UI
 		})
 	}
 
@@ -723,7 +726,18 @@ func (network *Network) httpGossipZineHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	// Mark sender as online - receiving a zine proves they're reachable
-	network.recordObservationOnlineNara(theirZine.From)
+	// UNLESS they sent a chau event (graceful shutdown announcement)
+	senderIsShuttingDown := false
+	for _, e := range theirZine.Events {
+		if e.Service == ServiceChau && e.Chau != nil && e.Chau.From == theirZine.From {
+			senderIsShuttingDown = true
+			break
+		}
+	}
+	if !senderIsShuttingDown {
+		network.recordObservationOnlineNara(theirZine.From)
+		network.emitSeenEvent(theirZine.From, "zine")
+	}
 
 	// Create our zine to send back (bidirectional exchange)
 	myZine := network.createZine()

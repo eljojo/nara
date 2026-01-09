@@ -13,7 +13,10 @@ func TestScenario_VibeShift(t *testing.T) {
 	network.ReadOnly = true // avoid MQTT publish in tests
 
 	// 2. Simulate Nara B joining (Hey There)
-	network.handleHeyThereEvent(HeyThereEvent{From: "B"})
+	network.handleHeyThereEvent(SyncEvent{
+		Service:  ServiceHeyThere,
+		HeyThere: &HeyThereEvent{From: "B", PublicKey: "dummykey"},
+	})
 
 	// 3. Verify B is known and ONLINE
 	naraB := network.getNara("B")
@@ -25,14 +28,10 @@ func TestScenario_VibeShift(t *testing.T) {
 		t.Errorf("expected B to be ONLINE, got %s", obsB.Online)
 	}
 
-	// 4. Simulate Nara B sending a Newspaper with status
+	// 4. Simulate Nara B sending a Newspaper with status (slim - no Observations)
 	statusB := NaraStatus{
 		Flair:      "🌊",
 		Chattiness: 50,
-		Observations: map[string]NaraObservation{
-			"B":        {StartTime: 2000, Online: "ONLINE"},
-			"blue-jay": {StartTime: 1000, Online: "ONLINE"},
-		},
 	}
 	network.handleNewspaperEvent(NewspaperEvent{From: "B", Status: statusB})
 
@@ -42,27 +41,38 @@ func TestScenario_VibeShift(t *testing.T) {
 		t.Errorf("expected B flair to be 🌊, got %s", naraB.Status.Flair)
 	}
 
-	// 6. Simulate Nara C joining and providing a conflicting opinion about B's start time
-	network.handleHeyThereEvent(HeyThereEvent{From: "C"})
-	statusC := NaraStatus{
-		Observations: map[string]NaraObservation{
-			"B": {StartTime: 2000, Online: "ONLINE"}, // Consensus
-		},
-	}
-	network.handleNewspaperEvent(NewspaperEvent{From: "C", Status: statusC})
+	// 6. Simulate Nara C joining
+	network.handleHeyThereEvent(SyncEvent{
+		Service:  ServiceHeyThere,
+		HeyThere: &HeyThereEvent{From: "C", PublicKey: "dummykey"},
+	})
+
+	// 7. Add observation events for consensus (projection-based)
+	// B and C both report restart observations about B with StartTime=2000
+	ln.SyncLedger.AddEvent(NewRestartObservationEvent("B", "B", 2000, 1))
+	ln.SyncLedger.AddEvent(NewRestartObservationEvent("C", "B", 2000, 1))
+
+	// Set initial observation for B so it's not considered a ghost
+	// (ghost detection looks at local observation's StartTime/Restarts/LastRestart)
+	obsB = network.local.getObservation("B")
+	obsB.StartTime = 1 // Any non-zero value prevents ghost detection
+	network.local.setObservation("B", obsB)
 
 	OpinionDelayOverride = 1 * time.Millisecond
 	defer func() { OpinionDelayOverride = 0 }()
 
-	// 7. Form opinion and check consensus for B
+	// 8. Form opinion and check consensus for B (should update from projection)
 	network.formOpinion()
 	obsB = network.local.getObservation("B")
 	if obsB.StartTime != 2000 {
 		t.Errorf("expected consensus StartTime for B to be 2000, got %d", obsB.StartTime)
 	}
 
-	// 8. Simulate Nara B leaving (Chau)
-	network.handleChauEvent(ChauEvent{From: "B"})
+	// 9. Simulate Nara B leaving (Chau)
+	network.handleChauEvent(SyncEvent{
+		Service: ServiceChau,
+		Chau:    &ChauEvent{From: "B"},
+	})
 	obsB = network.local.getObservation("B")
 	if obsB.Online != "OFFLINE" {
 		t.Errorf("expected B to be OFFLINE, got %s", obsB.Online)

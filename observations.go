@@ -4,14 +4,29 @@ import (
 	"encoding/json"
 	"math/rand"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
 )
 
+// verifyPingRateLimit tracks last verification ping attempts to prevent spam.
+// Maps nara name → last ping attempt time (Unix timestamp).
+var (
+	verifyPingLastAttempt   = make(map[string]int64)
+	verifyPingLastAttemptMu sync.Mutex
+)
+
+// resetVerifyPingRateLimit clears the rate limit map (for testing only).
+func resetVerifyPingRateLimit() {
+	verifyPingLastAttemptMu.Lock()
+	verifyPingLastAttempt = make(map[string]int64)
+	verifyPingLastAttemptMu.Unlock()
+}
+
 const BlueJayURL = "https://nara.network/narae.json"
 
-// MissingThreshold is the duration without updates before a nara is marked MISSING.
+// MissingThresholdSeconds is the duration (in SECONDS) without updates before a nara is marked MISSING.
 // This must be long enough to account for:
 // - Variable posting intervals (naras post every 10-30 seconds, but can go quieter)
 // - Network delays and occasional missed messages
@@ -20,16 +35,21 @@ const BlueJayURL = "https://nara.network/narae.json"
 // - Naras normally post every 30s, so 300s = 10 missed posts
 // - This avoids false positives for quiet but online naras
 // - Actual crashes/network issues will exceed this within reasonable time
-const MissingThreshold int64 = 300 // seconds (5 minutes)
+//
+// NOTE: This is in SECONDS because LastSeen uses time.Now().Unix() (seconds).
+// For projections that use nanoseconds, multiply by int64(time.Second).
+const MissingThresholdSeconds int64 = 300 // 5 minutes
 
-// MissingThresholdGossip is a more lenient threshold for naras in gossip mode.
+// MissingThresholdGossipSeconds is a more lenient threshold (in SECONDS) for naras in gossip mode.
 // Gossip mode relies on zine exchanges which happen less frequently (every 60s),
 // and may not reach all naras in each round due to the random peer selection.
 // 1 hour is chosen because:
 // - Zines spread every 60s to 3-5 random peers
 // - A nara might not be selected for several rounds
 // - 1 hour allows for natural gossip propagation delays
-const MissingThresholdGossip int64 = 3600 // seconds (1 hour)
+//
+// NOTE: This is in SECONDS. For projections, multiply by int64(time.Second).
+const MissingThresholdGossipSeconds int64 = 3600 // 1 hour
 
 var OpinionDelayOverride time.Duration = 0
 
@@ -129,31 +149,186 @@ func (network *Network) formOpinion() {
 
 	names := network.NeighbourhoodNames()
 
+	// First pass: identify and skip ghost naras (seen once briefly, never again)
+	ghostCount := 0
 	for _, name := range names {
+		if network.isGhostNara(name) {
+			ghostCount++
+			logrus.Debugf("skipping ghost nara %s (no meaningful data from any neighbor)", name)
+			continue
+		}
+
+		// Use event-based consensus for observation data
 		observation := network.local.getObservation(name)
-		startTime := network.findStartingTimeFromNeighbourhoodForNara(name)
-		if startTime > 0 {
-			observation.StartTime = startTime
-		} else {
-			logrus.Printf("couldn't adjust startTime for %s based on neighbour disagreement", name)
-		}
-		restarts := network.findRestartCountFromNeighbourhoodForNara(name)
-		if restarts > 0 {
-			observation.Restarts = restarts
-		} else {
-			logrus.Printf("couldn't adjust restart count for %s based on neighbour disagreement", name)
-		}
-		if name != network.meName() {
-			lastRestart := network.findLastRestartFromNeighbourhoodForNara(name)
-			if lastRestart > 0 {
-				observation.LastRestart = lastRestart
-			} else {
-				logrus.Printf("couldn't adjust last restart date for %s based on neighbour disagreement", name)
+		if network.local.Projections != nil {
+			network.local.Projections.Opinion().RunOnce()
+			opinion := network.local.Projections.Opinion().DeriveOpinion(name)
+			if opinion.StartTime > 0 {
+				observation.StartTime = opinion.StartTime
+			}
+			if opinion.Restarts > 0 {
+				observation.Restarts = opinion.Restarts
+			}
+			if name != network.meName() && opinion.LastRestart > 0 {
+				observation.LastRestart = opinion.LastRestart
 			}
 		}
 		network.local.setObservation(name, observation)
 	}
+	if ghostCount > 0 {
+		logrus.Printf("👻 skipped %d ghost naras (no data from any neighbor)", ghostCount)
+	}
+
+	// Apply consensus for our own start time (using howdy votes collected during boot)
+	// This is deferred until now to have more data than the early 3-vote trigger
+	network.startTimeVotesMu.Lock()
+	if !network.startTimeApplied {
+		network.applyStartTimeConsensus()
+	}
+	network.startTimeVotesMu.Unlock()
+
 	logrus.Printf("👀  opinions formed")
+
+	// Garbage collect ghost naras that are safe to delete
+	deleted := network.garbageCollectGhostNaras()
+	if deleted > 0 {
+		logrus.Printf("🗑️  garbage collected %d ghost naras from memory", deleted)
+	}
+}
+
+// isGhostNara returns true if the nara appears to be a "ghost" - seen once briefly
+// and never again, with no meaningful data from any neighbor. These are naras that
+// should be skipped in opinion forming to avoid noise.
+func (network *Network) isGhostNara(name string) bool {
+	// Check our own observation first
+	myObs := network.local.getObservation(name)
+	if myObs.StartTime > 0 || myObs.Restarts > 0 || myObs.LastRestart > 0 {
+		return false // We have data, not a ghost
+	}
+
+	// Check if any neighbor has meaningful data
+	network.local.mu.Lock()
+	defer network.local.mu.Unlock()
+
+	for _, nara := range network.Neighbourhood {
+		obs := nara.getObservation(name)
+		if obs.StartTime > 0 || obs.Restarts > 0 || obs.LastRestart > 0 {
+			return false // At least one neighbor has data
+		}
+	}
+
+	// No one has meaningful data about this nara - it's a ghost
+	return true
+}
+
+// isGhostNaraSafeToDelete returns true if a ghost nara is safe to completely remove
+// from memory. This is stricter than isGhostNara - we want to be 100% sure this isn't
+// a data corruption issue before deleting.
+//
+// Safety criteria:
+// 1. No neighbor has ANY meaningful data (StartTime, Restarts, LastRestart all zero)
+// 2. Our own observation has no meaningful data
+// 3. Online status is empty (never been properly tracked)
+// 4. LastSeen is either 0 OR old enough that we're confident it's abandoned (> 24 hours)
+// 5. At least 3 neighbors checked (avoid race conditions during boot)
+func (network *Network) isGhostNaraSafeToDelete(name string) bool {
+	// Never delete ourselves
+	if name == network.meName() {
+		return false
+	}
+
+	myObs := network.local.getObservation(name)
+
+	// If we have any meaningful tracking data, don't delete
+	if myObs.StartTime > 0 || myObs.Restarts > 0 || myObs.LastRestart > 0 {
+		return false
+	}
+
+	// If it's currently marked as online, definitely don't delete
+	if myObs.Online == "ONLINE" {
+		return false
+	}
+
+	// If LastSeen is recent (within last 24 hours), don't delete - network needs to be resilient
+	if myObs.LastSeen > 0 {
+		oneDayAgo := time.Now().Unix() - 86400 // 24 hours
+		if myObs.LastSeen > oneDayAgo {
+			return false
+		}
+	}
+
+	// Check if any neighbor has meaningful data
+	network.local.mu.Lock()
+	defer network.local.mu.Unlock()
+
+	neighborsChecked := 0
+	for naraName, nara := range network.Neighbourhood {
+		// Don't count the target nara itself as a witness
+		if naraName == name {
+			continue
+		}
+		obs := nara.getObservation(name)
+		if obs.StartTime > 0 || obs.Restarts > 0 || obs.LastRestart > 0 {
+			return false // At least one neighbor has data - not safe
+		}
+		// Also check if any neighbor thinks it's online
+		if obs.Online == "ONLINE" {
+			return false
+		}
+		neighborsChecked++
+	}
+
+	// Require at least 3 neighbors checked to avoid deleting during early boot
+	if neighborsChecked < 3 {
+		return false
+	}
+
+	return true
+}
+
+// garbageCollectGhostNaras removes ghost naras that are safe to delete from
+// the Neighbourhood, our Observations, and the event store. Returns count of deleted naras.
+func (network *Network) garbageCollectGhostNaras() int {
+	names := network.NeighbourhoodNames()
+	toDelete := []string{}
+
+	for _, name := range names {
+		if network.isGhostNaraSafeToDelete(name) {
+			toDelete = append(toDelete, name)
+		}
+	}
+
+	if len(toDelete) == 0 {
+		return 0
+	}
+
+	// Actually delete them
+	network.local.mu.Lock()
+	for _, name := range toDelete {
+		delete(network.Neighbourhood, name)
+	}
+	network.local.mu.Unlock()
+
+	// Also remove from our observations
+	network.local.Me.mu.Lock()
+	for _, name := range toDelete {
+		delete(network.local.Me.Status.Observations, name)
+	}
+	network.local.Me.mu.Unlock()
+
+	// Remove events involving these ghost naras from the event store
+	if network.local.SyncLedger != nil {
+		for _, name := range toDelete {
+			eventsRemoved := network.local.SyncLedger.RemoveEventsFor(name)
+			logrus.Printf("🗑️  garbage collected ghost nara: %s (removed %d events)", name, eventsRemoved)
+		}
+	} else {
+		for _, name := range toDelete {
+			logrus.Printf("🗑️  garbage collected ghost nara: %s", name)
+		}
+	}
+
+	return len(toDelete)
 }
 
 func (network *Network) fetchOpinionsFromBlueJay() {
@@ -202,39 +377,6 @@ func (network *Network) fetchOpinionsFromBlueJay() {
 	}
 }
 
-// findStartingTimeFromNeighbourhoodForNara uses uptime-weighted clustering consensus
-// with a hierarchy of strategies from strictest to most permissive:
-//
-// Strategy 1 (Strong): Pick cluster with >= 2 agreeing observers and highest uptime
-// Strategy 2 (Weak): Pick cluster with highest uptime (even single observer)
-// Strategy 3 (Coin flip): If top 2 clusters are close in uptime, flip a coin
-//
-// This handles: exact agreement, small clock drift, competing opinions,
-// and total chaos (with a sense of humor).
-func (network *Network) findStartingTimeFromNeighbourhoodForNara(name string) int64 {
-	const tolerance int64 = 60 // seconds - handles clock drift
-
-	var observations []consensusValue
-	network.local.mu.Lock()
-	defer network.local.mu.Unlock()
-
-	for _, nara := range network.Neighbourhood {
-		obs := nara.getObservation(name)
-		if obs.StartTime > 0 {
-			uptime := nara.Status.HostStats.Uptime
-			if uptime == 0 {
-				uptime = 1 // minimum weight
-			}
-			observations = append(observations, consensusValue{
-				value:  obs.StartTime,
-				weight: uptime,
-			})
-		}
-	}
-
-	return consensusByUptime(observations, tolerance, true)
-}
-
 func (network *Network) recordObservationOnlineNara(name string) {
 	network.local.mu.Lock()
 	_, present := network.Neighbourhood[name]
@@ -256,32 +398,30 @@ func (network *Network) recordObservationOnlineNara(name string) {
 		logrus.Printf("observation: seen %s for the first time", name)
 		network.Buzz.increase(3)
 
-		// Emit first-seen observation event in event-primary mode
-		if useObservationEvents() && !network.local.isBooting() && network.local.SyncLedger != nil {
+		// Emit first-seen observation event
+		if !network.local.isBooting() && network.local.SyncLedger != nil {
 			event := NewFirstSeenObservationEvent(network.meName(), name, time.Now().Unix())
-			network.local.SyncLedger.AddEventWithDedup(event)
+			if network.local.SyncLedger.AddEventWithDedup(event) && network.local.Projections != nil {
+				network.local.Projections.Trigger()
+			}
 			logrus.Infof("📊 First-seen observation event: %s", name)
 		}
 	}
 
-	// "our" observation is mostly a mirror of what others think of us
+	// Use event-based consensus for observation data
 	if observation.StartTime == 0 || name == network.meName() {
-		restarts := network.findRestartCountFromNeighbourhoodForNara(name)
-		startTime := network.findStartingTimeFromNeighbourhoodForNara(name)
-		lastRestart := network.findLastRestartFromNeighbourhoodForNara(name)
-
-		if restarts > 0 {
-			observation.Restarts = restarts
-		}
-		if startTime > 0 {
-			observation.StartTime = startTime
-		}
-		if lastRestart > 0 && name != network.meName() {
-			observation.LastRestart = lastRestart
-		}
-
-		if observation.StartTime == 0 || observation.Restarts == 0 || observation.LastRestart == 0 {
-			network.applyEventConsensusIfMissing(name, &observation)
+		if network.local.Projections != nil {
+			network.local.Projections.Opinion().RunOnce()
+			opinion := network.local.Projections.Opinion().DeriveOpinion(name)
+			if observation.StartTime == 0 && opinion.StartTime > 0 {
+				observation.StartTime = opinion.StartTime
+			}
+			if observation.Restarts == 0 && opinion.Restarts > 0 {
+				observation.Restarts = opinion.Restarts
+			}
+			if observation.LastRestart == 0 && name != network.meName() && opinion.LastRestart > 0 {
+				observation.LastRestart = opinion.LastRestart
+			}
 		}
 
 		if observation.StartTime == 0 && name == network.meName() && !network.local.isBooting() {
@@ -299,10 +439,12 @@ func (network *Network) recordObservationOnlineNara(name string) {
 		network.Buzz.increase(3)
 		wasRestart = true
 
-		// Emit restart observation event in event-primary mode
-		if useObservationEvents() && !network.local.isBooting() && network.local.SyncLedger != nil && name != network.meName() {
+		// Emit restart observation event
+		if !network.local.isBooting() && network.local.SyncLedger != nil && name != network.meName() {
 			event := NewRestartObservationEvent(network.meName(), name, observation.StartTime, observation.Restarts)
-			network.local.SyncLedger.AddEventWithDedup(event)
+			if network.local.SyncLedger.AddEventWithDedup(event) && network.local.Projections != nil {
+				network.local.Projections.Trigger()
+			}
 			logrus.Infof("📊 Restart observation event: %s (restart #%d)", name, observation.Restarts)
 		}
 	}
@@ -316,17 +458,11 @@ func (network *Network) recordObservationOnlineNara(name string) {
 	// This avoids duplicate events for the same transition
 	if name != network.meName() && !network.local.isBooting() && network.local.SyncLedger != nil {
 		if previousState != "" && previousState != "ONLINE" && !wasRestart {
-			// Emit status-change observation event in event-primary mode
-			if useObservationEvents() {
-				event := NewStatusChangeObservationEvent(network.meName(), name, "ONLINE")
-				network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality)
-				logrus.Infof("📊 Status-change observation event: %s → ONLINE", name)
-			} else {
-				// Legacy: State changed from MISSING/OFFLINE to ONLINE
-				event := NewObservationEvent(network.meName(), name, ReasonOnline)
-				network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
-				logrus.Printf("observation: %s came online", name)
+			event := NewStatusChangeObservationEvent(network.meName(), name, "ONLINE")
+			if network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality) && network.local.Projections != nil {
+				network.local.Projections.Trigger()
 			}
+			logrus.Infof("📊 Status-change observation event: %s → ONLINE", name)
 		}
 	}
 
@@ -335,51 +471,6 @@ func (network *Network) recordObservationOnlineNara(name string) {
 	if !network.local.isBooting() && name != network.meName() {
 		network.checkAndTease(name, previousState, previousTrend)
 	}
-}
-
-func (network *Network) findRestartCountFromNeighbourhoodForNara(name string) int64 {
-	network.local.mu.Lock()
-	defer network.local.mu.Unlock()
-	var maxSeen int64 = 0
-
-	for _, nara := range network.Neighbourhood {
-		restarts := nara.getObservation(name).Restarts
-		if restarts > maxSeen {
-			maxSeen = restarts
-		}
-	}
-
-	return maxSeen
-}
-
-func (network *Network) findLastRestartFromNeighbourhoodForNara(name string) int64 {
-	values := make(map[int64]int)
-	network.local.mu.Lock()
-	defer network.local.mu.Unlock()
-	for _, nara := range network.Neighbourhood {
-		last_restart := nara.getObservation(name).LastRestart
-		if last_restart > 0 {
-			values[last_restart] += 1
-		}
-	}
-
-	var result int64
-	maxSeen := 0
-
-	total_votes := 0
-	for _, count := range values {
-		total_votes += count
-	}
-	threshold := total_votes / 4
-
-	for last_restart, count := range values {
-		if count > maxSeen && count > threshold {
-			maxSeen = count
-			result = last_restart
-		}
-	}
-
-	return result
 }
 
 func (network *Network) observationMaintenance() {
@@ -391,39 +482,63 @@ func (network *Network) observationMaintenance() {
 		}
 		network.local.Me.mu.Unlock()
 
-		now := time.Now().Unix()
+		// Ensure projection is up-to-date before checking statuses
+		// This synchronously processes any pending events, avoiding race
+		// conditions where we read stale data during/after a zine merge.
+		if network.local.Projections != nil && !network.local.isBooting() {
+			network.local.Projections.OnlineStatus().RunOnce()
+		}
 
 		for name, observation := range observations {
-			// only do maintenance on naras that are online
-			if !observation.isOnline() {
-				if observation.ClusterName != "" {
-					// reset cluster for offline naras
-					observation.ClusterName = ""
-					observation.ClusterEmoji = ""
-					network.local.setObservation(name, observation)
-				}
-
+			// Skip self - we can't observe ourselves as disappeared
+			if name == network.meName() {
 				continue
 			}
 
-			// mark missing after threshold seconds of no updates
-			// Use longer threshold for gossip-mode naras (they update less frequently)
-			threshold := MissingThreshold
-			nara := network.getNara(name)
-			if nara.Name != "" && nara.Status.TransportMode == "gossip" {
-				threshold = MissingThresholdGossip
-			}
+			// Event-sourced status derivation
+			// This uses the event log to determine online status rather than LastSeen
+			if network.local.Projections != nil && !network.local.isBooting() {
+				derivedStatus := network.local.Projections.OnlineStatus().GetStatus(name)
+				if derivedStatus != "" && derivedStatus != observation.Online {
+					previousState := observation.Online
 
-			if (now-observation.LastSeen) > threshold && !network.skippingEvents && !network.local.isBooting() {
-				observation.Online = "MISSING"
-				network.local.setObservation(name, observation)
-				logrus.Printf("observation: %s has disappeared", name)
-				network.Buzz.increase(10)
+					// Before transitioning ONLINE → MISSING, verify with a ping
+					// This guards against buggy naras spreading false "offline" observations
+					if previousState == "ONLINE" && derivedStatus == "MISSING" {
+						// Skip ping verification for old events (>1 hour) - likely historical data
+						state := network.local.Projections.OnlineStatus().GetState(name)
+						eventAge := time.Duration(0)
+						if state != nil {
+							eventAge = time.Since(time.Unix(0, state.LastEventTime))
+						}
 
-				// Use delayed reporting to avoid redundant MISSING events from multiple observers
-				// "If no one says anything, I guess I'll say something about it"
-				if name != network.meName() && network.local.SyncLedger != nil {
-					go network.reportMissingWithDelay(name)
+						if eventAge > 1*time.Hour {
+							logrus.Debugf("🔍 Skipping ping verification for %s - event is old (%v)", name, eventAge)
+						} else if network.verifyOnlineWithPing(name) {
+							// Ping succeeded - they're still online, don't mark as MISSING
+							logrus.Infof("🔍 Disagreement resolved: %s reported MISSING but ping succeeded - keeping ONLINE", name)
+							continue
+						}
+					}
+
+					observation.Online = derivedStatus
+					network.local.setObservation(name, observation)
+
+					// Log status changes
+					if previousState == "ONLINE" && derivedStatus == "MISSING" {
+						logrus.Printf("observation: %s has disappeared (verified)", name)
+						network.Buzz.increase(10)
+						go network.reportMissingWithDelay(name)
+					} else if previousState == "ONLINE" && derivedStatus == "OFFLINE" {
+						logrus.Printf("observation: %s went offline gracefully", name)
+					}
+				}
+
+				// Reset cluster for non-online naras
+				if !observation.isOnline() && observation.ClusterName != "" {
+					observation.ClusterName = ""
+					observation.ClusterEmoji = ""
+					network.local.setObservation(name, observation)
 				}
 			}
 		}
@@ -450,23 +565,6 @@ func (network *Network) observationMaintenance() {
 
 func (obs NaraObservation) isOnline() bool {
 	return obs.Online == "ONLINE"
-}
-
-func (network *Network) applyEventConsensusIfMissing(name string, observation *NaraObservation) {
-	if network.local.SyncLedger == nil {
-		return
-	}
-
-	opinion := network.local.SyncLedger.DeriveOpinionFromEvents(name)
-	if observation.StartTime == 0 && opinion.StartTime > 0 {
-		observation.StartTime = opinion.StartTime
-	}
-	if observation.Restarts == 0 && opinion.Restarts > 0 {
-		observation.Restarts = opinion.Restarts
-	}
-	if observation.LastRestart == 0 && name != network.meName() && opinion.LastRestart > 0 {
-		observation.LastRestart = opinion.LastRestart
-	}
 }
 
 // reportMissingWithDelay implements "if no one says anything, I guess I'll say something"
@@ -501,15 +599,109 @@ func (network *Network) reportMissingWithDelay(subject string) {
 		}
 	}
 
-	// No one else reported it, so we'll report it
-	if useObservationEvents() {
-		event := NewStatusChangeObservationEvent(network.meName(), subject, "MISSING")
-		network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality)
-		logrus.Infof("📊 Status-change observation event: %s → MISSING (after %v delay)", subject, delay)
-	} else {
-		// Legacy mode
-		event := NewObservationEvent(network.meName(), subject, ReasonOffline)
-		network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
-		logrus.Printf("observation: %s went offline (disappeared) after %v delay", subject, delay)
+	// Final verification: try pinging before broadcasting they're missing
+	// This gives the nara one more chance to respond after the delay
+	if network.verifyOnlineWithPing(subject) {
+		logrus.Debugf("🔍 %s responded to verification ping - not reporting MISSING", subject)
+		return
+	}
+
+	// No one else reported it and ping failed, so we'll report it
+	event := NewStatusChangeObservationEvent(network.meName(), subject, "MISSING")
+	if network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality) && network.local.Projections != nil {
+		network.local.Projections.Trigger()
+	}
+	logrus.Infof("📊 Status-change observation event: %s → MISSING (after %v delay, verified)", subject, delay)
+}
+
+// verifyOnlineWithPing attempts to ping a nara before marking them as offline/missing.
+// Returns true if the nara is verified online (and emits an event), false if unreachable.
+// This guards against buggy naras spreading false "offline" observations.
+func (network *Network) verifyOnlineWithPing(name string) bool {
+	// Skip verification for ourselves
+	if name == network.meName() {
+		return false
+	}
+
+	// Rate limit: don't ping the same nara more than once per 60 seconds
+	verifyPingLastAttemptMu.Lock()
+	lastAttempt := verifyPingLastAttempt[name]
+	now := time.Now().Unix()
+	if now-lastAttempt < 60 {
+		verifyPingLastAttemptMu.Unlock()
+		logrus.Debugf("🔍 Skipping ping verification for %s - rate limited (last attempt %ds ago)", name, now-lastAttempt)
+		return false
+	}
+	verifyPingLastAttempt[name] = now
+	verifyPingLastAttemptMu.Unlock()
+
+	// Test hook: allows tests to override ping behavior
+	if network.testPingFunc != nil {
+		success, _ := network.testPingFunc(name)
+		if success {
+			network.markOnlineFromPing(name, 1.0) // Use 1ms for test RTT
+		}
+		return success
+	}
+
+	// Need mesh to ping
+	if network.tsnetMesh == nil {
+		return false
+	}
+
+	// Get the mesh IP for this nara
+	network.local.mu.Lock()
+	nara, exists := network.Neighbourhood[name]
+	network.local.mu.Unlock()
+
+	if !exists {
+		return false
+	}
+
+	nara.mu.Lock()
+	meshIP := nara.Status.MeshIP
+	nara.mu.Unlock()
+
+	if meshIP == "" {
+		logrus.Debugf("🔍 Cannot verify %s - no mesh IP", name)
+		return false
+	}
+
+	// Try to ping with a short timeout (2 seconds)
+	logrus.Debugf("🔍 Verifying %s is really offline via ping...", name)
+	rtt, err := network.tsnetMesh.Ping(meshIP, network.meName(), 2*time.Second)
+	if err != nil {
+		logrus.Debugf("🔍 Verification ping to %s failed: %v - confirmed offline", name, err)
+		return false
+	}
+
+	// Ping succeeded! Mark them as online
+	rttMs := float64(rtt.Milliseconds())
+	logrus.Infof("🔍 Verification ping to %s succeeded (%.2fms) - still online!", name, rttMs)
+	network.markOnlineFromPing(name, rttMs)
+
+	return true
+}
+
+// markOnlineFromPing updates observation and emits a ping event after a successful ping.
+// This is the shared logic for both real pings and test pings.
+func (network *Network) markOnlineFromPing(name string, rttMs float64) {
+	// Update our observation
+	obs := network.local.getObservation(name)
+	obs.Online = "ONLINE"
+	obs.LastSeen = time.Now().Unix()
+	obs.LastPingRTT = rttMs
+	obs.LastPingTime = time.Now().Unix()
+	network.local.setObservation(name, obs)
+
+	// Emit a ping event to prove they're still alive
+	if network.local.SyncLedger != nil {
+		network.local.SyncLedger.AddSignedPingObservationWithReplace(
+			network.meName(), name, rttMs,
+			network.meName(), network.local.Keypair,
+		)
+		if network.local.Projections != nil {
+			network.local.Projections.Trigger()
+		}
 	}
 }

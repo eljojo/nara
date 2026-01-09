@@ -1,6 +1,7 @@
 package nara
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -8,6 +9,7 @@ import (
 // Test consensus with single observer (trivial case)
 func TestConsensusEvents_SingleObserver(t *testing.T) {
 	ledger := NewSyncLedger(1000)
+	projection := NewOpinionConsensusProjection(ledger)
 	observer := "nara-a"
 	subject := "nara-target"
 	expectedStartTime := int64(1234567890)
@@ -18,7 +20,8 @@ func TestConsensusEvents_SingleObserver(t *testing.T) {
 	ledger.AddEvent(event)
 
 	// Derive consensus from events
-	opinion := ledger.DeriveOpinionFromEvents(subject)
+	projection.RunToEnd(context.Background())
+	opinion := projection.DeriveOpinion(subject)
 
 	if opinion.StartTime != expectedStartTime {
 		t.Errorf("Expected StartTime=%d, got %d", expectedStartTime, opinion.StartTime)
@@ -32,6 +35,7 @@ func TestConsensusEvents_SingleObserver(t *testing.T) {
 // Test consensus with multiple observers agreeing
 func TestConsensusEvents_Agreement(t *testing.T) {
 	ledger := NewSyncLedger(1000)
+	projection := NewOpinionConsensusProjection(ledger)
 	subject := "nara-target"
 	agreedStartTime := int64(1234567890)
 	agreedRestarts := int64(100)
@@ -44,7 +48,8 @@ func TestConsensusEvents_Agreement(t *testing.T) {
 	}
 
 	// Consensus should match agreed values
-	opinion := ledger.DeriveOpinionFromEvents(subject)
+	projection.RunToEnd(context.Background())
+	opinion := projection.DeriveOpinion(subject)
 
 	if opinion.StartTime != agreedStartTime {
 		t.Errorf("Expected consensus StartTime=%d, got %d", agreedStartTime, opinion.StartTime)
@@ -58,6 +63,7 @@ func TestConsensusEvents_Agreement(t *testing.T) {
 // Test consensus with observers disagreeing
 func TestConsensusEvents_Disagreement(t *testing.T) {
 	ledger := NewSyncLedger(1000)
+	projection := NewOpinionConsensusProjection(ledger)
 	subject := "nara-target"
 
 	// 3 observers report StartTime=1000, Restarts=10
@@ -77,7 +83,8 @@ func TestConsensusEvents_Disagreement(t *testing.T) {
 	// Consensus should pick:
 	// - StartTime: 1000 (clustering majority)
 	// - Restarts: 11 (highest value = most recent knowledge)
-	opinion := ledger.DeriveOpinionFromEvents(subject)
+	projection.RunToEnd(context.Background())
+	opinion := projection.DeriveOpinion(subject)
 
 	if opinion.StartTime != 1000 {
 		t.Errorf("Expected consensus StartTime=1000 (clustering), got %d", opinion.StartTime)
@@ -91,6 +98,7 @@ func TestConsensusEvents_Disagreement(t *testing.T) {
 // Test consensus with uptime-based weighting
 func TestConsensusEvents_UptimeWeighting(t *testing.T) {
 	ledger := NewSyncLedger(1000)
+	projection := NewOpinionConsensusProjection(ledger)
 	subject := "nara-target"
 
 	// Two observers with LOW uptime report StartTime=1000
@@ -113,7 +121,8 @@ func TestConsensusEvents_UptimeWeighting(t *testing.T) {
 	// (Cluster with 2+ observers wins via Strategy 1, but they're in same cluster)
 	// Actually, 1000 and 2000 are in DIFFERENT clusters (diff > 60s tolerance)
 	// So this tests Strategy 2: single-observer clusters ranked by uptime
-	opinion := ledger.DeriveOpinionFromEvents(subject)
+	projection.RunToEnd(context.Background())
+	opinion := projection.DeriveOpinion(subject)
 
 	// Cluster [1000, 1000] has 2 observers with total uptime 200
 	// Cluster [2000] has 1 observer with uptime 10000
@@ -126,6 +135,7 @@ func TestConsensusEvents_UptimeWeighting(t *testing.T) {
 // Test consensus uptime weighting when no cluster has 2+ observers
 func TestConsensusEvents_UptimeWeighting_SingleObserverClusters(t *testing.T) {
 	ledger := NewSyncLedger(1000)
+	projection := NewOpinionConsensusProjection(ledger)
 	subject := "nara-target"
 
 	// Three observers each report different times (all in separate clusters)
@@ -138,7 +148,8 @@ func TestConsensusEvents_UptimeWeighting_SingleObserverClusters(t *testing.T) {
 	ledger.AddEvent(event3)
 
 	// With no cluster having 2+ observers, Strategy 2 picks highest uptime
-	opinion := ledger.DeriveOpinionFromEvents(subject)
+	projection.RunToEnd(context.Background())
+	opinion := projection.DeriveOpinion(subject)
 
 	if opinion.StartTime != 3000 {
 		t.Errorf("Expected StartTime=3000 (highest uptime observer), got %d", opinion.StartTime)
@@ -148,6 +159,7 @@ func TestConsensusEvents_UptimeWeighting_SingleObserverClusters(t *testing.T) {
 // Test consensus with time tolerance clustering (±60s)
 func TestConsensusEvents_ToleranceClustering(t *testing.T) {
 	ledger := NewSyncLedger(1000)
+	projection := NewOpinionConsensusProjection(ledger)
 	subject := "nara-target"
 	baseTime := int64(1234567890)
 
@@ -165,7 +177,8 @@ func TestConsensusEvents_ToleranceClustering(t *testing.T) {
 	ledger.AddEvent(outlierEvent)
 
 	// Consensus should cluster the three within-tolerance observations
-	opinion := ledger.DeriveOpinionFromEvents(subject)
+	projection.RunToEnd(context.Background())
+	opinion := projection.DeriveOpinion(subject)
 
 	// Should be close to baseTime (within the cluster)
 	if opinion.StartTime < baseTime-60 || opinion.StartTime > baseTime+60 {
@@ -176,6 +189,7 @@ func TestConsensusEvents_ToleranceClustering(t *testing.T) {
 // Test consensus with first-seen events
 func TestConsensusEvents_FirstSeen(t *testing.T) {
 	ledger := NewSyncLedger(1000)
+	projection := NewOpinionConsensusProjection(ledger)
 	subject := "nara-target"
 	firstSeenTime := int64(1234567890)
 
@@ -187,7 +201,8 @@ func TestConsensusEvents_FirstSeen(t *testing.T) {
 	}
 
 	// Consensus should derive StartTime from first-seen events
-	opinion := ledger.DeriveOpinionFromEvents(subject)
+	projection.RunToEnd(context.Background())
+	opinion := projection.DeriveOpinion(subject)
 
 	if opinion.StartTime == 0 {
 		t.Error("Expected non-zero StartTime from first-seen consensus")
@@ -202,6 +217,7 @@ func TestConsensusEvents_FirstSeen(t *testing.T) {
 // Test consensus with backfill events
 func TestConsensusEvents_Backfill(t *testing.T) {
 	ledger := NewSyncLedger(1000)
+	projection := NewOpinionConsensusProjection(ledger)
 	subject := "nara-target"
 	backfillStartTime := int64(1624066568) // Long-running nara
 	backfillRestarts := int64(1137)
@@ -214,7 +230,8 @@ func TestConsensusEvents_Backfill(t *testing.T) {
 	}
 
 	// Consensus should treat backfill events like regular observations
-	opinion := ledger.DeriveOpinionFromEvents(subject)
+	projection.RunToEnd(context.Background())
+	opinion := projection.DeriveOpinion(subject)
 
 	if opinion.StartTime != backfillStartTime {
 		t.Errorf("Expected backfill StartTime=%d, got %d", backfillStartTime, opinion.StartTime)
@@ -228,6 +245,7 @@ func TestConsensusEvents_Backfill(t *testing.T) {
 // Test consensus with mixed backfill and real-time events
 func TestConsensusEvents_MixedBackfillAndRealtime(t *testing.T) {
 	ledger := NewSyncLedger(1000)
+	projection := NewOpinionConsensusProjection(ledger)
 	subject := "nara-target"
 	historicalStartTime := int64(1624066568)
 	historicalRestarts := int64(1137)
@@ -248,7 +266,8 @@ func TestConsensusEvents_MixedBackfillAndRealtime(t *testing.T) {
 	}
 
 	// Consensus should prefer majority (newer restart count)
-	opinion := ledger.DeriveOpinionFromEvents(subject)
+	projection.RunToEnd(context.Background())
+	opinion := projection.DeriveOpinion(subject)
 
 	if opinion.Restarts != newRestarts {
 		t.Errorf("Expected consensus Restarts=%d (majority), got %d", newRestarts, opinion.Restarts)
@@ -258,10 +277,12 @@ func TestConsensusEvents_MixedBackfillAndRealtime(t *testing.T) {
 // Test consensus with no events (fallback behavior)
 func TestConsensusEvents_NoEvents(t *testing.T) {
 	ledger := NewSyncLedger(1000)
+	projection := NewOpinionConsensusProjection(ledger)
 	subject := "nara-unknown"
 
 	// No events about this subject
-	opinion := ledger.DeriveOpinionFromEvents(subject)
+	projection.RunToEnd(context.Background())
+	opinion := projection.DeriveOpinion(subject)
 
 	// Should return zero values or indicate no consensus
 	if opinion.StartTime != 0 {
@@ -302,6 +323,7 @@ func TestConsensusEvents_ImportanceAwareness(t *testing.T) {
 // Test consensus with restart count progression
 func TestConsensusEvents_RestartProgression(t *testing.T) {
 	ledger := NewSyncLedger(1000)
+	projection := NewOpinionConsensusProjection(ledger)
 	subject := "nara-target"
 	startTime := int64(1234567890)
 
@@ -315,7 +337,8 @@ func TestConsensusEvents_RestartProgression(t *testing.T) {
 	}
 
 	// Consensus should pick highest restart count (most recent)
-	opinion := ledger.DeriveOpinionFromEvents(subject)
+	projection.RunToEnd(context.Background())
+	opinion := projection.DeriveOpinion(subject)
 
 	if opinion.Restarts != 10 {
 		t.Errorf("Expected consensus Restarts=10 (highest), got %d", opinion.Restarts)
@@ -326,6 +349,8 @@ func TestConsensusEvents_RestartProgression(t *testing.T) {
 func TestConsensusEvents_Determinism(t *testing.T) {
 	ledger1 := NewSyncLedger(1000)
 	ledger2 := NewSyncLedger(1000)
+	projection1 := NewOpinionConsensusProjection(ledger1)
+	projection2 := NewOpinionConsensusProjection(ledger2)
 	subject := "nara-target"
 
 	// Add same events to both ledgers
@@ -347,8 +372,8 @@ func TestConsensusEvents_Determinism(t *testing.T) {
 	}
 
 	// Both should derive same opinion
-	opinion1 := ledger1.DeriveOpinionFromEvents(subject)
-	opinion2 := ledger2.DeriveOpinionFromEvents(subject)
+	opinion1 := projection1.DeriveOpinion(subject)
+	opinion2 := projection2.DeriveOpinion(subject)
 
 	if opinion1.StartTime != opinion2.StartTime {
 		t.Errorf("Expected deterministic StartTime, got %d and %d", opinion1.StartTime, opinion2.StartTime)
@@ -364,6 +389,7 @@ func TestConsensusEvents_PersonalityFiltered(t *testing.T) {
 	// Very chill personality (>85) filters Normal importance events
 	chillPersonality := NaraPersonality{Chill: 90, Sociability: 50, Agreeableness: 50}
 	ledger := NewSyncLedger(1000)
+	projection := NewOpinionConsensusProjection(ledger)
 	subject := "nara-target"
 
 	// Add critical event (should NOT be filtered)
@@ -378,7 +404,8 @@ func TestConsensusEvents_PersonalityFiltered(t *testing.T) {
 	ledger.AddEventFiltered(normalEvent, chillPersonality)
 
 	// Consensus should work even if some events were filtered
-	opinion := ledger.DeriveOpinionFromEvents(subject)
+	projection.RunToEnd(context.Background())
+	opinion := projection.DeriveOpinion(subject)
 
 	// Should have at least the critical event
 	if opinion.StartTime == 0 {
@@ -389,6 +416,7 @@ func TestConsensusEvents_PersonalityFiltered(t *testing.T) {
 // Test consensus with LastRestart field
 func TestConsensusEvents_LastRestart(t *testing.T) {
 	ledger := NewSyncLedger(1000)
+	projection := NewOpinionConsensusProjection(ledger)
 	subject := "nara-target"
 	startTime := int64(1234567890)
 	lastRestartTime := time.Now().Unix()
@@ -401,7 +429,8 @@ func TestConsensusEvents_LastRestart(t *testing.T) {
 		ledger.AddEvent(event)
 	}
 
-	opinion := ledger.DeriveOpinionFromEvents(subject)
+	projection.RunToEnd(context.Background())
+	opinion := projection.DeriveOpinion(subject)
 
 	// Should derive LastRestart from events
 	if opinion.LastRestart == 0 {
@@ -427,9 +456,94 @@ func TestConsensusEvents_VsNewspaperAccuracy(t *testing.T) {
 	// assertSimilar(newspaperOpinion, eventOpinion, tolerance=1%)
 }
 
+// Test consensus when observer changes their mind about StartTime.
+// Unlike the legacy newspaper-based system which only saw current observer state,
+// the projection accumulates ALL observations. When the same observer changes their
+// opinion, both values are used for clustering. The newer value needs network
+// corroboration (other observers) to form a winning cluster.
+func TestConsensusEvents_ChangeOfMind(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+	projection := NewOpinionConsensusProjection(ledger)
+	subject := "nara-target"
+
+	// Observer-a initially reports StartTime=1000
+	event1 := NewRestartObservationEvent("observer-a", subject, 1000, 5)
+	ledger.AddEvent(event1)
+
+	time.Sleep(time.Millisecond) // Ensure different timestamp
+
+	// Same observer later reports StartTime=2000 (changed their mind, e.g., after restart)
+	event2 := NewRestartObservationEvent("observer-a", subject, 2000, 6)
+	ledger.AddEvent(event2)
+
+	// With no other observers, both values form single-observer clusters.
+	// The algorithm picks the first cluster with equal weight (deterministic).
+	projection.RunToEnd(context.Background())
+	opinion := projection.DeriveOpinion(subject)
+
+	// Restarts uses "highest value wins" - so the newer observation wins
+	if opinion.Restarts != 6 {
+		t.Errorf("Expected Restarts=6 (highest value), got %d", opinion.Restarts)
+	}
+
+	// Now add corroborating observer that agrees with new StartTime
+	time.Sleep(time.Millisecond)
+	event3 := NewRestartObservationEvent("observer-b", subject, 2000, 6)
+	ledger.AddEvent(event3)
+
+	projection.RunOnce()
+	opinion = projection.DeriveOpinion(subject)
+
+	// With 2 observers agreeing on StartTime=2000, that cluster wins (Strategy 1)
+	if opinion.StartTime != 2000 {
+		t.Errorf("Expected StartTime=2000 (cluster with 2 observers), got %d", opinion.StartTime)
+	}
+}
+
+// slight modification of the one above
+func TestConsensusEvents_ChangeOfMind_two(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+	projection := NewOpinionConsensusProjection(ledger)
+	subject := "nara-target"
+
+	// Observer-a initially reports StartTime=1000
+	event1 := NewRestartObservationEvent("observer-a", subject, 1000, 5)
+	ledger.AddEvent(event1)
+
+	time.Sleep(time.Millisecond) // Ensure different timestamp
+
+	// Same observer later reports StartTime=2000 (changed their mind, e.g., after restart)
+	event2 := NewRestartObservationEvent("observer-a", subject, 2000, 6)
+	ledger.AddEvent(event2)
+
+	// With no other observers, both values form single-observer clusters.
+	// The algorithm picks the first cluster with equal weight (deterministic).
+	projection.RunToEnd(context.Background())
+	opinion := projection.DeriveOpinion(subject)
+
+	// Restarts uses "highest value wins" - so the newer observation wins
+	if opinion.Restarts != 6 {
+		t.Errorf("Expected Restarts=6 (highest value), got %d", opinion.Restarts)
+	}
+
+	// Now add corroborating observer that agrees with **original** StartTime
+	time.Sleep(time.Millisecond)
+	event3 := NewRestartObservationEvent("observer-b", subject, 1000, 6)
+	ledger.AddEvent(event3)
+
+	projection.RunOnce()
+	opinion = projection.DeriveOpinion(subject)
+
+	// With 2 observers agreeing on StartTime=1000, that cluster wins (Strategy 1)
+	if opinion.StartTime != 1000 {
+		t.Errorf("Expected StartTime=1000 (cluster with 2 observers), got %d", opinion.StartTime)
+	}
+}
+
 // Test consensus with sparse observations
 func TestConsensusEvents_SparseObservations(t *testing.T) {
 	ledger := NewSyncLedger(1000)
+	projection := NewOpinionConsensusProjection(ledger)
 	subject := "nara-target"
 
 	// Single first-seen event
@@ -437,7 +551,8 @@ func TestConsensusEvents_SparseObservations(t *testing.T) {
 	ledger.AddEvent(event)
 
 	// Consensus should work with minimal data
-	opinion := ledger.DeriveOpinionFromEvents(subject)
+	projection.RunToEnd(context.Background())
+	opinion := projection.DeriveOpinion(subject)
 
 	if opinion.StartTime != 1000 {
 		t.Errorf("Expected StartTime=1000 from sparse observation, got %d", opinion.StartTime)

@@ -1,6 +1,7 @@
 package nara
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -355,6 +356,7 @@ func TestIntegration_WorldJourney_DerivedClout(t *testing.T) {
 	// Alice: teases bob a lot (bob gets negative clout from alice's perspective)
 	//        has positive journey interactions with carol
 	ledger := NewSyncLedger(1000)
+	cloutProjection := NewCloutProjection(ledger)
 	personality := NaraPersonality{Chill: 50, Sociability: 50, Agreeableness: 50}
 	soul := "test-soul-alice"
 
@@ -423,7 +425,8 @@ func TestIntegration_WorldJourney_DerivedClout(t *testing.T) {
 	ledger.AddEvent(event)
 
 	// Derive clout from the ledger events
-	derivedClout := ledger.DeriveClout(soul, personality)
+	cloutProjection.RunToEnd(context.Background())
+	derivedClout := cloutProjection.DeriveClout(soul, personality)
 
 	t.Logf("Derived clout from events:")
 	for name, clout := range derivedClout {

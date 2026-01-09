@@ -378,13 +378,7 @@ func TestHttpEventsSyncHandler(t *testing.T) {
 
 	// Add some events to the SyncLedger
 	ln.SyncLedger.AddPingObservation("test-nara", "other", 42.5)
-	ln.SyncLedger.AddSocialEvent(SocialEvent{
-		Timestamp: 1234567890,
-		Type:      "tease",
-		Actor:     "test-nara",
-		Target:    "other",
-		Reason:    "high-restarts",
-	})
+	ln.SyncLedger.AddEvent(NewSocialSyncEvent("tease", "test-nara", "other", "high-restarts", ""))
 
 	// Create sync request
 	reqBody := SyncRequest{
@@ -441,13 +435,7 @@ func TestHttpEventsSyncHandler_FilterByService(t *testing.T) {
 
 	// Add mixed events
 	ln.SyncLedger.AddPingObservation("test-nara", "other", 42.5)
-	ln.SyncLedger.AddSocialEvent(SocialEvent{
-		Timestamp: 1234567890,
-		Type:      "tease",
-		Actor:     "test-nara",
-		Target:    "other",
-		Reason:    "high-restarts",
-	})
+	ln.SyncLedger.AddEvent(NewSocialSyncEvent("tease", "test-nara", "other", "high-restarts", ""))
 
 	// Request only ping events
 	reqBody := SyncRequest{
@@ -480,27 +468,9 @@ func TestHttpTeaseCountsHandler(t *testing.T) {
 	network := ln.Network
 
 	// Add some tease events
-	ln.SyncLedger.AddSocialEvent(SocialEvent{
-		Timestamp: 1234567890,
-		Type:      "tease",
-		Actor:     "alice",
-		Target:    "bob",
-		Reason:    "high-restarts",
-	})
-	ln.SyncLedger.AddSocialEvent(SocialEvent{
-		Timestamp: 1234567891,
-		Type:      "tease",
-		Actor:     "alice",
-		Target:    "charlie",
-		Reason:    "comeback",
-	})
-	ln.SyncLedger.AddSocialEvent(SocialEvent{
-		Timestamp: 1234567892,
-		Type:      "tease",
-		Actor:     "bob",
-		Target:    "alice",
-		Reason:    "random",
-	})
+	ln.SyncLedger.AddEvent(NewSocialSyncEvent("tease", "alice", "bob", "high-restarts", ""))
+	ln.SyncLedger.AddEvent(NewSocialSyncEvent("tease", "alice", "charlie", "comeback", ""))
+	ln.SyncLedger.AddEvent(NewSocialSyncEvent("tease", "bob", "alice", "random", ""))
 
 	req, err := http.NewRequest("GET", "/social/teases", nil)
 	if err != nil {

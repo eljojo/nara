@@ -62,9 +62,9 @@ func TestIntegration_DiscoverNarasFromEventStream(t *testing.T) {
 	}
 
 	// Alice creates an event mentioning "ghost" as the target
-	event := NewTeaseEvent("alice", "ghost", "spooky behavior")
-	event.Sign(alice.Keypair)
-	alice.SyncLedger.AddSocialEvent(event)
+	event := NewSocialSyncEvent("tease", "alice", "ghost", "spooky behavior", "")
+	event.Sign("alice", alice.Keypair)
+	alice.SyncLedger.AddEvent(event)
 
 	// Alice sends zine to Bob (performGossipRound will send to bob via testMeshURLs)
 	alice.Network.performGossipRound()
@@ -496,4 +496,70 @@ func TestIntegration_GossipOnlyPeerDiscovery(t *testing.T) {
 			t.Errorf("%s should know ghost's public key", test.name)
 		}
 	}
+}
+
+// TestIntegration_ChauSyncEventPropagation verifies that chau (graceful shutdown) events
+// propagate through gossip and mark naras as OFFLINE (not MISSING).
+func TestIntegration_ChauSyncEventPropagation(t *testing.T) {
+	logrus.SetLevel(logrus.DebugLevel)
+
+	// Setup: alice and bob, both in gossip mode
+	alice := NewLocalNara("alice", testPeerDiscoverySoul("alice-chau"), "", "", "", 50, 1000)
+	alice.Network.TransportMode = TransportGossip
+
+	bob := NewLocalNara("bob", testPeerDiscoverySoul("bob-chau"), "", "", "", 50, 1000)
+	bob.Network.TransportMode = TransportGossip
+
+	// Set up test servers for gossip
+	aliceMux := http.NewServeMux()
+	aliceMux.HandleFunc("/gossip/zine", alice.Network.httpGossipZineHandler)
+	aliceServer := httptest.NewServer(aliceMux)
+	defer aliceServer.Close()
+
+	bobMux := http.NewServeMux()
+	bobMux.HandleFunc("/gossip/zine", bob.Network.httpGossipZineHandler)
+	bobServer := httptest.NewServer(bobMux)
+	defer bobServer.Close()
+
+	sharedClient := &http.Client{Timeout: 5 * time.Second}
+
+	// Alice knows bob and has his public key
+	alice.Network.testHTTPClient = sharedClient
+	alice.Network.testMeshURLs = map[string]string{"bob": bobServer.URL}
+	bobNaraForAlice := NewNara("bob")
+	bobNaraForAlice.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
+	alice.Network.importNara(bobNaraForAlice)
+	alice.setObservation("bob", NaraObservation{Online: "ONLINE", LastSeen: time.Now().Unix()})
+
+	// Bob knows alice
+	bob.Network.testHTTPClient = sharedClient
+	bob.Network.testMeshURLs = map[string]string{"alice": aliceServer.URL}
+	aliceNaraForBob := NewNara("alice")
+	aliceNaraForBob.Status.PublicKey = FormatPublicKey(alice.Keypair.PublicKey)
+	bob.Network.importNara(aliceNaraForBob)
+	bob.setObservation("alice", NaraObservation{Online: "ONLINE", LastSeen: time.Now().Unix()})
+
+	// Verify bob is ONLINE from alice's perspective
+	obs := alice.getObservation("bob")
+	if obs.Online != "ONLINE" {
+		t.Fatalf("Bob should be ONLINE initially, got %s", obs.Online)
+	}
+
+	// Bob gracefully shuts down (emits chau sync event)
+	bob.Network.emitChauSyncEvent()
+
+	// Bob sends zine to alice (with the chau event)
+	bob.Network.performGossipRound()
+	time.Sleep(100 * time.Millisecond)
+
+	// Alice should now see bob as OFFLINE (not MISSING)
+	obs = alice.getObservation("bob")
+	if obs.Online != "OFFLINE" {
+		t.Errorf("Bob should be OFFLINE after chau, got %s", obs.Online)
+	}
+
+	t.Logf("✅ Chau sync event propagation working:")
+	t.Logf("   - Bob emitted chau sync event")
+	t.Logf("   - Alice received it via gossip")
+	t.Logf("   - Alice marked Bob as OFFLINE (graceful shutdown)")
 }

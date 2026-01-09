@@ -44,14 +44,7 @@ func TestSocialEvent_ID(t *testing.T) {
 }
 
 func TestTeaseResonates_Deterministic(t *testing.T) {
-	event := SocialEvent{
-		ID:        "test-event-123",
-		Timestamp: 1000,
-		Type:      "tease",
-		Actor:     "alice",
-		Target:    "bob",
-		Reason:    ReasonHighRestarts,
-	}
+	eventID := "test-event-123"
 
 	personality := NaraPersonality{
 		Agreeableness: 50,
@@ -62,8 +55,8 @@ func TestTeaseResonates_Deterministic(t *testing.T) {
 	soul := "test-soul-abc"
 
 	// Same inputs should always produce same result
-	result1 := TeaseResonates(event, soul, personality)
-	result2 := TeaseResonates(event, soul, personality)
+	result1 := TeaseResonates(eventID, soul, personality)
+	result2 := TeaseResonates(eventID, soul, personality)
 
 	if result1 != result2 {
 		t.Error("TeaseResonates should be deterministic")
@@ -71,14 +64,7 @@ func TestTeaseResonates_Deterministic(t *testing.T) {
 }
 
 func TestTeaseResonates_DifferentSouls(t *testing.T) {
-	event := SocialEvent{
-		ID:        "test-event-456",
-		Timestamp: 1000,
-		Type:      "tease",
-		Actor:     "alice",
-		Target:    "bob",
-		Reason:    ReasonHighRestarts,
-	}
+	eventID := "test-event-456"
 
 	personality := NaraPersonality{
 		Agreeableness: 50,
@@ -91,7 +77,7 @@ func TestTeaseResonates_DifferentSouls(t *testing.T) {
 	trueCount := 0
 	for i := 0; i < 100; i++ {
 		soul := string(rune('a'+i)) + "-soul"
-		if TeaseResonates(event, soul, personality) {
+		if TeaseResonates(eventID, soul, personality) {
 			trueCount++
 		}
 	}
@@ -103,15 +89,6 @@ func TestTeaseResonates_DifferentSouls(t *testing.T) {
 }
 
 func TestTeaseResonates_PersonalityInfluence(t *testing.T) {
-	event := SocialEvent{
-		ID:        "test-event-789",
-		Timestamp: 1000,
-		Type:      "tease",
-		Actor:     "alice",
-		Target:    "bob",
-		Reason:    ReasonHighRestarts,
-	}
-
 	soul := "consistent-soul"
 
 	// High sociability should appreciate teasing more (lower threshold)
@@ -133,13 +110,12 @@ func TestTeaseResonates_PersonalityInfluence(t *testing.T) {
 	lowSocCount := 0
 
 	for i := 0; i < 100; i++ {
-		testEvent := event
-		testEvent.ID = string(rune('a'+i)) + "-event"
+		eventID := string(rune('a'+i)) + "-event"
 
-		if TeaseResonates(testEvent, soul, highSociability) {
+		if TeaseResonates(eventID, soul, highSociability) {
 			highSocCount++
 		}
-		if TeaseResonates(testEvent, soul, lowSociabilityHighChill) {
+		if TeaseResonates(eventID, soul, lowSociabilityHighChill) {
 			lowSocCount++
 		}
 	}
@@ -260,20 +236,20 @@ func TestObservationEventType_Valid(t *testing.T) {
 	}
 }
 
-func TestNewObservationEvent(t *testing.T) {
-	event := NewObservationEvent("alice", "bob", ReasonOnline)
+func TestNewObservationSyncEvent(t *testing.T) {
+	event := NewSocialSyncEvent("observation", "alice", "bob", ReasonOnline, "")
 
-	if event.Type != "observation" {
-		t.Errorf("Expected type 'observation', got %s", event.Type)
+	if event.Social.Type != "observation" {
+		t.Errorf("Expected type 'observation', got %s", event.Social.Type)
 	}
-	if event.Actor != "alice" {
-		t.Errorf("Expected actor 'alice', got %s", event.Actor)
+	if event.Social.Actor != "alice" {
+		t.Errorf("Expected actor 'alice', got %s", event.Social.Actor)
 	}
-	if event.Target != "bob" {
-		t.Errorf("Expected target 'bob', got %s", event.Target)
+	if event.Social.Target != "bob" {
+		t.Errorf("Expected target 'bob', got %s", event.Social.Target)
 	}
-	if event.Reason != ReasonOnline {
-		t.Errorf("Expected reason '%s', got %s", ReasonOnline, event.Reason)
+	if event.Social.Reason != ReasonOnline {
+		t.Errorf("Expected reason '%s', got %s", ReasonOnline, event.Social.Reason)
 	}
 	if event.Timestamp == 0 {
 		t.Error("Timestamp should be set")
@@ -283,68 +259,21 @@ func TestNewObservationEvent(t *testing.T) {
 	}
 }
 
-func TestNewJourneyObservationEvent(t *testing.T) {
+func TestNewJourneyObservationSyncEvent(t *testing.T) {
 	journeyID := "journey-123"
-	event := NewJourneyObservationEvent("alice", "bob", ReasonJourneyPass, journeyID)
+	event := NewSocialSyncEvent("observation", "alice", "bob", ReasonJourneyPass, journeyID)
 
-	if event.Type != "observation" {
-		t.Errorf("Expected type 'observation', got %s", event.Type)
+	if event.Social.Type != "observation" {
+		t.Errorf("Expected type 'observation', got %s", event.Social.Type)
 	}
-	if event.Reason != ReasonJourneyPass {
-		t.Errorf("Expected reason '%s', got %s", ReasonJourneyPass, event.Reason)
+	if event.Social.Reason != ReasonJourneyPass {
+		t.Errorf("Expected reason '%s', got %s", ReasonJourneyPass, event.Social.Reason)
 	}
-	if event.Witness != journeyID {
-		t.Errorf("Expected witness (journey ID) '%s', got %s", journeyID, event.Witness)
+	if event.Social.Witness != journeyID {
+		t.Errorf("Expected witness (journey ID) '%s', got %s", journeyID, event.Social.Witness)
 	}
 }
 
 // Tests for teasing mechanics (IsNiceNumber, ShouldTeaseFor*, etc.)
 // are in teasing_test.go to avoid duplication
-
-// --- Signature Tests ---
-
-func TestSocialEvent_SignAndVerify(t *testing.T) {
-	// Create keypairs from test souls
-	soul := NativeSoulCustom([]byte("test-hw-fingerprint-1"), "alice")
-	keypair := DeriveKeypair(soul)
-
-	// Create and sign an event
-	event := NewTeaseEvent("alice", "bob", ReasonHighRestarts)
-	event.Sign(keypair)
-
-	if event.Signature == "" {
-		t.Error("Expected signature to be set after signing")
-	}
-
-	// Verify with correct public key
-	if !event.Verify(keypair.PublicKey) {
-		t.Error("Expected signature to verify with correct public key")
-	}
-
-	// Verify fails with wrong public key
-	wrongSoul := NativeSoulCustom([]byte("different-hw-fingerprint"), "bob")
-	wrongKeypair := DeriveKeypair(wrongSoul)
-	if event.Verify(wrongKeypair.PublicKey) {
-		t.Error("Expected signature to fail with wrong public key")
-	}
-
-	// Verify fails if event is tampered
-	tamperedEvent := event
-	tamperedEvent.Target = "charlie"
-	if tamperedEvent.Verify(keypair.PublicKey) {
-		t.Error("Expected signature to fail with tampered event")
-	}
-}
-
-func TestSocialEvent_VerifyUnsigned(t *testing.T) {
-	event := NewTeaseEvent("alice", "bob", ReasonHighRestarts)
-	// Don't sign it
-
-	soul := NativeSoulCustom([]byte("test-hw-fingerprint-2"), "alice")
-	keypair := DeriveKeypair(soul)
-
-	// Verify should return false for unsigned event
-	if event.Verify(keypair.PublicKey) {
-		t.Error("Expected Verify to return false for unsigned event")
-	}
-}
+// SyncEvent signature tests are in sync_test.go
