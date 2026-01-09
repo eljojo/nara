@@ -10,10 +10,20 @@ build:
 	@go build -mod=mod -o bin/nara cmd/nara/main.go
 	@echo "✓ Built bin/nara"
 
-# Run tests
+# Run all tests (includes slow integration tests)
 test:
-	@echo "Running tests..."
+	@echo "Running all tests..."
+	@go test ./...
+
+# Run tests with verbose output
+test-v:
+	@echo "Running tests with verbose output..."
 	@go test -v ./...
+
+# Run only fast tests (skip slow integration tests)
+test-fast:
+	@echo "Running fast tests (skipping integration tests)..."
+	@go test -short ./...
 
 # Run nara with web UI on port 8080
 run: build

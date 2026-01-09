@@ -1,11 +1,22 @@
 package nara
 
 import (
+	"hash/fnv"
 	"math"
+	"math/rand"
 	"testing"
 )
 
+// hashString converts a string to an int64 for deterministic seeding
+func hashString(s string) int64 {
+	h := fnv.New64a()
+	h.Write([]byte(s))
+	return int64(h.Sum64())
+}
+
 func TestNetworkCoordinate_NewCoordinate(t *testing.T) {
+	t.Parallel()
+	rand.Seed(hashString(t.Name()))
 	coord := NewNetworkCoordinate()
 
 	// Should start with small random position
@@ -28,6 +39,7 @@ func TestNetworkCoordinate_NewCoordinate(t *testing.T) {
 }
 
 func TestNetworkCoordinate_Distance(t *testing.T) {
+	t.Parallel()
 	config := DefaultVivaldiConfig()
 
 	// Two coordinates at known positions
@@ -51,6 +63,7 @@ func TestNetworkCoordinate_Distance(t *testing.T) {
 }
 
 func TestNetworkCoordinate_DistanceWithHeight(t *testing.T) {
+	t.Parallel()
 	// Height component adds to distance (handles asymmetric latency)
 	c1 := &NetworkCoordinate{X: 0, Y: 0, Height: 10, Error: 0.5}
 	c2 := &NetworkCoordinate{X: 0, Y: 0, Height: 5, Error: 0.5}
@@ -64,6 +77,7 @@ func TestNetworkCoordinate_DistanceWithHeight(t *testing.T) {
 }
 
 func TestNetworkCoordinate_Update_MovesTowardPeer(t *testing.T) {
+	t.Parallel()
 	config := DefaultVivaldiConfig()
 
 	// Start at origin
@@ -86,6 +100,7 @@ func TestNetworkCoordinate_Update_MovesTowardPeer(t *testing.T) {
 }
 
 func TestNetworkCoordinate_Update_MovesAwayFromPeer(t *testing.T) {
+	t.Parallel()
 	config := DefaultVivaldiConfig()
 
 	// Start at (5, 0)
@@ -106,6 +121,7 @@ func TestNetworkCoordinate_Update_MovesAwayFromPeer(t *testing.T) {
 }
 
 func TestNetworkCoordinate_Update_ErrorDecreases(t *testing.T) {
+	t.Parallel()
 	config := DefaultVivaldiConfig()
 
 	c1 := &NetworkCoordinate{X: 0, Y: 0, Height: config.MinHeight, Error: 1.0}
@@ -124,6 +140,7 @@ func TestNetworkCoordinate_Update_ErrorDecreases(t *testing.T) {
 }
 
 func TestNetworkCoordinate_Update_RespectsMinHeight(t *testing.T) {
+	t.Parallel()
 	config := DefaultVivaldiConfig()
 
 	c1 := &NetworkCoordinate{X: 0, Y: 0, Height: config.MinHeight, Error: 1.0}
@@ -140,6 +157,7 @@ func TestNetworkCoordinate_Update_RespectsMinHeight(t *testing.T) {
 }
 
 func TestNetworkCoordinate_Clone(t *testing.T) {
+	t.Parallel()
 	original := &NetworkCoordinate{X: 1.5, Y: 2.5, Height: 0.1, Error: 0.3}
 	clone := original.Clone()
 
@@ -159,6 +177,8 @@ func TestNetworkCoordinate_Clone(t *testing.T) {
 }
 
 func TestVivaldi_Convergence(t *testing.T) {
+	t.Parallel()
+	rand.Seed(hashString(t.Name()))
 	// Simulate a 4-node network with known latencies
 	// A -- 10ms -- B
 	// |           |
@@ -167,6 +187,9 @@ func TestVivaldi_Convergence(t *testing.T) {
 	// C -- 10ms -- D
 	//
 	// Diagonal A-D and B-C should be ~14ms (sqrt(2) * 10)
+
+	// Seed rand for deterministic test (safe for parallel execution)
+	rand.Seed(hashString(t.Name()))
 
 	config := DefaultVivaldiConfig()
 
@@ -213,6 +236,8 @@ func TestVivaldi_Convergence(t *testing.T) {
 }
 
 func TestVivaldi_Stability(t *testing.T) {
+	t.Parallel()
+	rand.Seed(hashString(t.Name()))
 	// After convergence, coordinates should remain stable with consistent measurements
 	config := DefaultVivaldiConfig()
 
@@ -241,6 +266,8 @@ func TestVivaldi_Stability(t *testing.T) {
 }
 
 func TestVivaldi_WeightsByError(t *testing.T) {
+	t.Parallel()
+	rand.Seed(hashString(t.Name()))
 	config := DefaultVivaldiConfig()
 
 	// Node with high error (uncertain)
@@ -266,6 +293,8 @@ func TestVivaldi_WeightsByError(t *testing.T) {
 }
 
 func TestDefaultVivaldiConfig(t *testing.T) {
+	t.Parallel()
+	rand.Seed(hashString(t.Name()))
 	config := DefaultVivaldiConfig()
 
 	// Verify sensible defaults
@@ -284,6 +313,7 @@ func TestDefaultVivaldiConfig(t *testing.T) {
 }
 
 func TestApplyProximityToClout(t *testing.T) {
+	t.Parallel()
 	// Test that proximity weighting works correctly
 	myCoords := &NetworkCoordinate{X: 0, Y: 0, Height: 0.01, Error: 0.1}
 
@@ -322,6 +352,7 @@ func TestApplyProximityToClout(t *testing.T) {
 }
 
 func TestApplyProximityToClout_NilCoords(t *testing.T) {
+	t.Parallel()
 	baseClout := map[string]float64{"peer": 5.0}
 
 	// Should return base clout when myCoords is nil
@@ -335,6 +366,7 @@ func TestApplyProximityToClout_NilCoords(t *testing.T) {
 }
 
 func TestProximityBonus(t *testing.T) {
+	t.Parallel()
 	myCoords := &NetworkCoordinate{X: 0, Y: 0, Height: 0, Error: 0.1}
 
 	tests := []struct {
@@ -363,6 +395,7 @@ func TestProximityBonus(t *testing.T) {
 }
 
 func TestProximityBonus_NilCoords(t *testing.T) {
+	t.Parallel()
 	myCoords := &NetworkCoordinate{X: 0, Y: 0, Height: 0, Error: 0.1}
 
 	// Should return 0 when either coord is nil
@@ -375,6 +408,7 @@ func TestProximityBonus_NilCoords(t *testing.T) {
 }
 
 func TestNetworkCoordinate_IsValid(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		coord *NetworkCoordinate
@@ -398,6 +432,8 @@ func TestNetworkCoordinate_IsValid(t *testing.T) {
 }
 
 func TestVivaldi_HighErrorNodeMovesMore(t *testing.T) {
+	t.Parallel()
+	rand.Seed(hashString(t.Name()))
 	config := DefaultVivaldiConfig()
 
 	// Two nodes at same position but different confidence

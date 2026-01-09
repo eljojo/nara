@@ -11,6 +11,10 @@ import (
 // TestDelayedMissingReporting validates that multiple observers don't all report MISSING events
 // when they detect the same nara going offline - uses "if no one says anything" algorithm
 func TestDelayedMissingReporting(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping slow test in short mode (requires 12s delay)")
+	}
+
 	logrus.SetLevel(logrus.ErrorLevel)
 
 	// Enable observation events
@@ -80,6 +84,10 @@ func TestDelayedMissingReporting(t *testing.T) {
 // TestDelayedMissingReporting_NoRedundancy validates that if one observer reports first,
 // others stay silent
 func TestDelayedMissingReporting_NoRedundancy(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping slow test in short mode (requires 11s delay)")
+	}
+
 	logrus.SetLevel(logrus.DebugLevel)
 
 	// Enable observation events

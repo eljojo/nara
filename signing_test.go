@@ -6,6 +6,7 @@ import (
 )
 
 func TestHeyThereEvent_SignAndVerify(t *testing.T) {
+	t.Parallel()
 	// Create a keypair from a test soul
 	soul := NativeSoulCustom([]byte("test-hw-heythere-1"), "alice")
 	keypair := DeriveKeypair(soul)
@@ -47,6 +48,7 @@ func TestHeyThereEvent_SignAndVerify(t *testing.T) {
 }
 
 func TestHeyThereEvent_VerifyUnsigned(t *testing.T) {
+	t.Parallel()
 	event := &HeyThereEvent{
 		From:      "alice",
 		PublicKey: "",
@@ -60,6 +62,7 @@ func TestHeyThereEvent_VerifyUnsigned(t *testing.T) {
 }
 
 func TestNewspaperEvent_SignAndVerify(t *testing.T) {
+	t.Parallel()
 	// Create a keypair from a test soul
 	soul := NativeSoulCustom([]byte("test-hw-newspaper-1"), "alice")
 	keypair := DeriveKeypair(soul)
@@ -103,6 +106,7 @@ func TestNewspaperEvent_SignAndVerify(t *testing.T) {
 }
 
 func TestNewspaperEvent_VerifyUnsigned(t *testing.T) {
+	t.Parallel()
 	event := NewspaperEvent{
 		From:   "alice",
 		Status: NaraStatus{Flair: "test"},
@@ -118,6 +122,7 @@ func TestNewspaperEvent_VerifyUnsigned(t *testing.T) {
 }
 
 func TestChauEvent_SignAndVerify(t *testing.T) {
+	t.Parallel()
 	// Create a keypair from a test soul
 	soul := NativeSoulCustom([]byte("test-hw-chau-1"), "alice")
 	keypair := DeriveKeypair(soul)
@@ -157,6 +162,7 @@ func TestChauEvent_SignAndVerify(t *testing.T) {
 }
 
 func TestChauEvent_VerifyUnsigned(t *testing.T) {
+	t.Parallel()
 	event := &ChauEvent{
 		From:      "alice",
 		PublicKey: "",

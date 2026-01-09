@@ -34,7 +34,7 @@ func TestHowdy_StartTimeRecovery(t *testing.T) {
 	defer nara1.Network.disconnectMQTT()
 
 	t.Log("✅ Started nara1")
-	time.Sleep(2 * time.Second)
+	time.Sleep(1500 * time.Millisecond)
 
 	// Step 2: Boot nara2 - it says hey_there, nara1 responds with howdy
 	nara2 := createTestNara(t, "howdy-nara-2", 11884)
@@ -43,7 +43,7 @@ func TestHowdy_StartTimeRecovery(t *testing.T) {
 	defer nara2.Network.disconnectMQTT()
 
 	t.Log("✅ Started nara2")
-	time.Sleep(3 * time.Second)
+	time.Sleep(1500 * time.Millisecond)
 
 	// Step 3: Verify nara1 discovered nara2 via howdy
 	nara1.Network.local.mu.Lock()
@@ -61,7 +61,7 @@ func TestHowdy_StartTimeRecovery(t *testing.T) {
 
 	// Step 5: Record nara2's start time as seen by nara1
 	// First, let nara1 form an opinion about nara2
-	time.Sleep(2 * time.Second)
+	time.Sleep(200 * time.Millisecond)
 
 	// nara1 should have recorded when it first saw nara2
 	obs1AboutNara2 := nara1.getObservation("howdy-nara-2")
@@ -98,14 +98,14 @@ func TestHowdy_NeighborDiscovery(t *testing.T) {
 	defer nara1.Network.Shutdown()
 	defer nara1.Network.disconnectMQTT()
 
-	time.Sleep(2 * time.Second)
+	time.Sleep(1500 * time.Millisecond)
 
 	nara2 := createTestNara(t, "discover-nara-2", 11885)
 	go nara2.Start(false, false, "", nil, TransportMQTT)
 	defer nara2.Network.Shutdown()
 	defer nara2.Network.disconnectMQTT()
 
-	time.Sleep(3 * time.Second)
+	time.Sleep(1500 * time.Millisecond)
 
 	// Now boot nara3 - it should learn about both nara1 and nara2 via howdy
 	nara3 := createTestNara(t, "discover-nara-3", 11885)
@@ -114,7 +114,7 @@ func TestHowdy_NeighborDiscovery(t *testing.T) {
 	defer nara3.Network.disconnectMQTT()
 
 	t.Log("✅ Started all 3 naras")
-	time.Sleep(5 * time.Second)
+	time.Sleep(2500 * time.Millisecond)
 
 	// Verify nara3 discovered both nara1 and nara2
 	nara3.Network.local.mu.Lock()
@@ -159,7 +159,7 @@ func TestHowdy_SelfSelection(t *testing.T) {
 	}
 
 	t.Log("✅ Started 14 naras, waiting for them to settle")
-	time.Sleep(5 * time.Second)
+	time.Sleep(2500 * time.Millisecond)
 
 	// Now start the 15th nara - it should trigger howdy responses from up to 10 naras
 	lastNara := createTestNara(t, "select-nara-14", 11886)
@@ -169,7 +169,7 @@ func TestHowdy_SelfSelection(t *testing.T) {
 	defer lastNara.Network.disconnectMQTT()
 
 	t.Log("✅ Started 15th nara, waiting for howdy responses")
-	time.Sleep(5 * time.Second)
+	time.Sleep(2500 * time.Millisecond)
 
 	// Check how many neighbors the last nara discovered
 	lastNara.Network.local.mu.Lock()

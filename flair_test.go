@@ -13,6 +13,7 @@ import (
 // - First 3 votes: scattered outliers, would pick 9000 (highest weight single-observer)
 // - All 10 votes: correct cluster around 2000 wins (5 observers, high total weight)
 func TestStartTimeConsensus_DeferredToFormOpinion(t *testing.T) {
+	t.Parallel()
 	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 
@@ -83,6 +84,7 @@ func TestStartTimeConsensus_DeferredToFormOpinion(t *testing.T) {
 // ≥2 observers are preferred over single-observer clusters, even if the single
 // observer has higher uptime.
 func TestStartTimeConsensus_PreferMultiObserverCluster(t *testing.T) {
+	t.Parallel()
 	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 
@@ -124,6 +126,7 @@ func TestStartTimeConsensus_PreferMultiObserverCluster(t *testing.T) {
 // TestStartTimeConsensus_FallbackToHighestWeight verifies that when no cluster
 // has ≥2 observers, the highest-weight single-observer cluster wins.
 func TestStartTimeConsensus_FallbackToHighestWeight(t *testing.T) {
+	t.Parallel()
 	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 
@@ -161,6 +164,7 @@ func TestStartTimeConsensus_FallbackToHighestWeight(t *testing.T) {
 // TestStartTimeConsensus_ToleranceGrouping verifies that values within 60 seconds
 // are grouped into the same cluster.
 func TestStartTimeConsensus_ToleranceGrouping(t *testing.T) {
+	t.Parallel()
 	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 
@@ -202,6 +206,7 @@ func TestStartTimeConsensus_ToleranceGrouping(t *testing.T) {
 
 // TestFlair_ShowsThinkingEmoji_WhenStartTimeUnknown verifies UI behavior during boot
 func TestFlair_ShowsThinkingEmoji_WhenStartTimeUnknown(t *testing.T) {
+	t.Parallel()
 	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 
@@ -229,6 +234,7 @@ func TestFlair_ShowsThinkingEmoji_WhenStartTimeUnknown(t *testing.T) {
 
 // TestFlair_ShowsAgeFlair_WhenStartTimeKnown verifies normal flair after opinions form
 func TestFlair_ShowsAgeFlair_WhenStartTimeKnown(t *testing.T) {
+	t.Parallel()
 	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 

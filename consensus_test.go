@@ -9,6 +9,7 @@ import (
 // See consensus_events_test.go for the projection-based consensus tests.
 
 func TestObservations_OnlineTransitions(t *testing.T) {
+	t.Parallel()
 	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
 	network := ln.Network
 	name := "target"
