@@ -1323,19 +1323,25 @@ func eventPruningPriority(e SyncEvent) int {
 		}
 	}
 
+	// High priority (1): hey_there and chau events - direct announcements from naras
+	// These are authoritative primary signals of online/offline status
+	if e.Service == ServiceHeyThere || e.Service == ServiceChau {
+		return 1
+	}
+
 	// Medium priority (2): social events (teases, gossip)
 	if e.Service == ServiceSocial {
 		return 2
 	}
 
-	// Low priority (3): ping observations - ephemeral, can be recalculated
-	if e.Service == ServicePing {
+	// Medium-low priority (3): seen events - secondary observations of online status
+	// Less authoritative than direct hey_there/chau announcements
+	if e.Service == ServiceSeen {
 		return 3
 	}
 
-	// Very low priority (4): seen events - mostly redundant vouching
-	// With the fix, we should have far fewer of these, but old ones should be pruned aggressively
-	if e.Service == ServiceSeen {
+	// Low priority (4): ping observations - ephemeral, can be recalculated
+	if e.Service == ServicePing {
 		return 4
 	}
 

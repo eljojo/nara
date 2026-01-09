@@ -526,10 +526,10 @@ func TestOnlineStatusAfterResetWithMixedTimestamps(t *testing.T) {
 
 	// Simulate the problematic scenario:
 	// 1. First add old events (simulating zine events received from the past)
-	// 2. Then add a recent seen event for lisa
-	// 3. Then add MORE old events for lisa (simulating receiving a zine with old history)
+	// 2. Then add both an old AND a recent hey_there from lisa (out of timestamp order)
+	// 3. Then add MORE padding events
 	// 4. Trigger pruning/reset
-	// 5. Lisa should still be ONLINE because the recent event should win
+	// 5. Lisa should still be ONLINE because the recent hey_there should win
 
 	// Add old events first (simulating zine events from the past)
 	for i := 0; i < 5; i++ {
@@ -556,19 +556,18 @@ func TestOnlineStatusAfterResetWithMixedTimestamps(t *testing.T) {
 	oldLisaEvent.ComputeID()
 	ledger.AddEvent(oldLisaEvent)
 
-	// Add a RECENT seen event for lisa (we just saw her newspaper)
+	// Add a RECENT hey_there from lisa (simulating receiving a more recent announcement)
 	// This is added AFTER the old event, but has a NEWER timestamp
-	recentSeenEvent := SyncEvent{
+	recentLisaEvent := SyncEvent{
 		Timestamp: oneMinuteAgo, // 1 minute ago - well within 5 min threshold
-		Service:   ServiceSeen,
-		Seen: &SeenEvent{
-			Observer: "me",
-			Subject:  "lisa",
-			Via:      "newspaper",
+		Service:   ServiceHeyThere,
+		HeyThere: &HeyThereEvent{
+			From:      "lisa",
+			PublicKey: "lisa-key-v2",
 		},
 	}
-	recentSeenEvent.ComputeID()
-	ledger.AddEvent(recentSeenEvent)
+	recentLisaEvent.ComputeID()
+	ledger.AddEvent(recentLisaEvent)
 
 	// Add more padding events
 	for i := 0; i < 5; i++ {

@@ -116,7 +116,7 @@ func TestHttpMetricsHandler(t *testing.T) {
 
 	otherNara := NewNara("other")
 	otherNara.Status.Flair = "🌟"
-	otherNara.Status.Observations["other"] = NaraObservation{Online: "ONLINE", Restarts: 5}
+	ln.Me.Status.Observations["other"] = NaraObservation{Online: "ONLINE", Restarts: 5}
 	network.Neighbourhood["other"] = otherNara
 
 	req, err := http.NewRequest("GET", "/metrics", nil)
@@ -236,7 +236,7 @@ func TestHttpNetworkMapHandler(t *testing.T) {
 	// Add a neighbor with coordinates
 	otherNara := NewNara("other")
 	otherNara.Status.Coordinates = NewNetworkCoordinate()
-	otherNara.Status.Observations["other"] = NaraObservation{Online: "ONLINE"}
+	ln.Me.Status.Observations["other"] = NaraObservation{Online: "ONLINE"}
 	network.Neighbourhood["other"] = otherNara
 
 	req, err := http.NewRequest("GET", "/network/map", nil)
