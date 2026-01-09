@@ -3080,11 +3080,15 @@ func (network *Network) fetchPublicKeysFromPeers(peers []DiscoveredPeer) []Disco
 				return
 			}
 
-			if pubKey, ok := pingResp["public_key"].(string); ok && pubKey != "" {
-				mu.Lock()
-				peers[idx].PublicKey = pubKey
-				mu.Unlock()
+			mu.Lock()
+			// Get the real nara name from the ping response (not Tailscale hostname)
+			if name, ok := pingResp["from"].(string); ok && name != "" {
+				peers[idx].Name = name
 			}
+			if pubKey, ok := pingResp["public_key"].(string); ok && pubKey != "" {
+				peers[idx].PublicKey = pubKey
+			}
+			mu.Unlock()
 		}(i)
 	}
 

@@ -380,7 +380,9 @@ func (t *TsnetMesh) Peers(ctx context.Context) ([]TsnetPeer, error) {
 		if len(peer.TailscaleIPs) == 0 {
 			continue
 		}
-		// Use hostname (without domain suffix)
+		// Use hostname as initial name - will be replaced with real name from /ping
+		// The Tailscale hostname may have a random suffix, but that's fine since
+		// fetchPublicKeysFromPeers will get the real name when it pings
 		name := peer.HostName
 		if name == "" {
 			continue
