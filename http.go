@@ -430,7 +430,8 @@ func (network *Network) httpMetricsHandler(w http.ResponseWriter, r *http.Reques
 	allNarae := network.getNarae()
 
 	for _, nara := range allNarae {
-		obs := nara.getObservation(nara.Name)
+		// Get our observation of this nara (what we think about them)
+		obs := network.local.getObservation(nara.Name)
 
 		nara.mu.Lock()
 		lines = append(lines, fmt.Sprintf(`nara_info{name="%s",flair="%s",license_plate="%s"} 1`, nara.Name, nara.Status.Flair, nara.Status.LicensePlate))
@@ -896,15 +897,13 @@ func (network *Network) httpNetworkMapHandler(w http.ResponseWriter, r *http.Req
 		coords := nara.Status.Coordinates
 		nara.mu.Unlock()
 
-		obs := nara.getObservation(name)
-
-		// Get our RTT observation to this peer
+		// Get our observation of this peer
 		myObs := network.local.getObservationLocked(name)
 
 		node := map[string]interface{}{
 			"name":        name,
 			"coordinates": coords,
-			"online":      obs.Online == "ONLINE",
+			"online":      myObs.Online == "ONLINE",
 			"is_self":     false,
 		}
 

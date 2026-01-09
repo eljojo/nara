@@ -379,7 +379,8 @@ func (network *Network) getOnlineNaraNames() []string {
 	names := []string{network.local.Me.Name}
 	skippedCount := 0
 	for name, nara := range network.Neighbourhood {
-		obs := nara.getObservation(name)
+		// Check our observation of this peer (not their self-observation)
+		obs := network.local.getObservation(name)
 		if obs.Online != "ONLINE" {
 			continue
 		}
