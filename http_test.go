@@ -514,3 +514,147 @@ func TestHttpTeaseCountsHandler(t *testing.T) {
 		t.Errorf("expected alice to have 2 teases, got %v", first["count"])
 	}
 }
+
+func TestHttpDMHandler(t *testing.T) {
+	// Create receiver nara
+	receiver := NewLocalNara("receiver", testSoul("receiver"), "", "", "", -1, 0)
+
+	// Create sender nara (we need their keypair to sign the event)
+	sender := NewLocalNara("sender", testSoul("sender"), "", "", "", -1, 0)
+
+	// Receiver must know about sender (public key) to verify signature
+	senderNara := NewNara("sender")
+	senderNara.Status.PublicKey = FormatPublicKey(sender.Keypair.PublicKey)
+	receiver.Network.importNara(senderNara)
+
+	// Create a signed tease event from sender to receiver
+	event := NewTeaseSyncEvent("sender", "receiver", "high-restarts", sender.Keypair)
+
+	// Marshal event to JSON
+	eventJSON, err := json.Marshal(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req, err := http.NewRequest("POST", "/dm", strings.NewReader(string(eventJSON)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(receiver.Network.httpDMHandler)
+	handler.ServeHTTP(rr, req)
+
+	if status := rr.Code; status != http.StatusOK {
+		t.Errorf("handler returned wrong status code: got %v want %v, body: %s", status, http.StatusOK, rr.Body.String())
+	}
+
+	var response map[string]interface{}
+	err = json.Unmarshal(rr.Body.Bytes(), &response)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if response["success"] != true {
+		t.Errorf("expected success to be true, got %v", response["success"])
+	}
+
+	// Verify event was added to receiver's ledger
+	events := receiver.SyncLedger.GetEventsByService(ServiceSocial)
+	found := false
+	for _, e := range events {
+		if e.Social != nil && e.Social.Type == "tease" && e.Social.Actor == "sender" && e.Social.Target == "receiver" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected tease event to be added to receiver's ledger")
+	}
+}
+
+func TestHttpDMHandler_UnsignedEvent(t *testing.T) {
+	receiver := NewLocalNara("receiver", testSoul("receiver"), "", "", "", -1, 0)
+
+	// Create an unsigned event
+	event := NewSocialSyncEvent("tease", "sender", "receiver", "high-restarts", "")
+
+	eventJSON, _ := json.Marshal(event)
+
+	req, _ := http.NewRequest("POST", "/dm", strings.NewReader(string(eventJSON)))
+	req.Header.Set("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(receiver.Network.httpDMHandler)
+	handler.ServeHTTP(rr, req)
+
+	// Should reject unsigned events
+	if status := rr.Code; status != http.StatusBadRequest {
+		t.Errorf("expected status 400 for unsigned event, got %v", status)
+	}
+}
+
+func TestHttpDMHandler_UnknownEmitter(t *testing.T) {
+	receiver := NewLocalNara("receiver", testSoul("receiver"), "", "", "", -1, 0)
+	sender := NewLocalNara("unknown-sender", testSoul("unknown-sender"), "", "", "", -1, 0)
+
+	// Create a signed event but receiver doesn't know sender
+	event := NewTeaseSyncEvent("unknown-sender", "receiver", "high-restarts", sender.Keypair)
+
+	eventJSON, _ := json.Marshal(event)
+
+	req, _ := http.NewRequest("POST", "/dm", strings.NewReader(string(eventJSON)))
+	req.Header.Set("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(receiver.Network.httpDMHandler)
+	handler.ServeHTTP(rr, req)
+
+	// Should reject events from unknown emitters
+	if status := rr.Code; status != http.StatusForbidden {
+		t.Errorf("expected status 403 for unknown emitter, got %v", status)
+	}
+}
+
+func TestHttpDMHandler_InvalidSignature(t *testing.T) {
+	receiver := NewLocalNara("receiver", testSoul("receiver"), "", "", "", -1, 0)
+	sender := NewLocalNara("sender", testSoul("sender"), "", "", "", -1, 0)
+	wrongSender := NewLocalNara("wrong-sender", testSoul("wrong-sender"), "", "", "", -1, 0)
+
+	// Receiver knows about sender
+	senderNara := NewNara("sender")
+	senderNara.Status.PublicKey = FormatPublicKey(sender.Keypair.PublicKey)
+	receiver.Network.importNara(senderNara)
+
+	// Create event claiming to be from sender but signed by wrong keypair
+	event := NewTeaseSyncEvent("sender", "receiver", "high-restarts", wrongSender.Keypair)
+
+	eventJSON, _ := json.Marshal(event)
+
+	req, _ := http.NewRequest("POST", "/dm", strings.NewReader(string(eventJSON)))
+	req.Header.Set("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(receiver.Network.httpDMHandler)
+	handler.ServeHTTP(rr, req)
+
+	// Should reject events with invalid signatures
+	if status := rr.Code; status != http.StatusForbidden {
+		t.Errorf("expected status 403 for invalid signature, got %v", status)
+	}
+}
+
+func TestHttpDMHandler_MethodNotAllowed(t *testing.T) {
+	receiver := NewLocalNara("receiver", testSoul("receiver"), "", "", "", -1, 0)
+
+	req, _ := http.NewRequest("GET", "/dm", nil)
+
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(receiver.Network.httpDMHandler)
+	handler.ServeHTTP(rr, req)
+
+	if status := rr.Code; status != http.StatusMethodNotAllowed {
+		t.Errorf("expected status 405 for GET, got %v", status)
+	}
+}

@@ -584,3 +584,239 @@ func TestIntegration_GossipOnlyBootRecovery(t *testing.T) {
 		t.Logf("✅ Gossip-only boot recovery: found %d peers via mesh discovery", len(online))
 	}
 }
+
+// TestIntegration_SendDM validates that SendDM correctly sends events to another nara
+func TestIntegration_SendDM(t *testing.T) {
+	logrus.SetLevel(logrus.ErrorLevel)
+
+	// Create sender and receiver naras
+	sender := NewLocalNara("sender", testSoul("sender"), "", "", "", -1, 0)
+	receiver := NewLocalNara("receiver", testSoul("receiver"), "", "", "", -1, 0)
+
+	// Create HTTP test server for receiver
+	mux := http.NewServeMux()
+	mux.HandleFunc("/dm", receiver.Network.httpDMHandler)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	// Set up sender to know about receiver
+	receiverNara := NewNara("receiver")
+	receiverNara.Status.PublicKey = FormatPublicKey(receiver.Keypair.PublicKey)
+	sender.Network.importNara(receiverNara)
+	sender.Network.testHTTPClient = &http.Client{Timeout: 5 * time.Second}
+	sender.Network.testMeshURLs = map[string]string{"receiver": server.URL}
+
+	// Receiver must know sender to verify signature
+	senderNara := NewNara("sender")
+	senderNara.Status.PublicKey = FormatPublicKey(sender.Keypair.PublicKey)
+	receiver.Network.importNara(senderNara)
+
+	// Create a signed event
+	event := NewTeaseSyncEvent("sender", "receiver", "high-restarts", sender.Keypair)
+
+	// Send DM
+	success := sender.Network.SendDM("receiver", event)
+	if !success {
+		t.Error("SendDM should return true on success")
+	}
+
+	// Verify receiver got the event
+	events := receiver.SyncLedger.GetEventsByService(ServiceSocial)
+	found := false
+	for _, e := range events {
+		if e.Social != nil && e.Social.Type == "tease" && e.Social.Actor == "sender" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("Receiver should have the tease event in their ledger")
+	}
+
+	t.Log("✅ SendDM: successfully sent event directly to receiver")
+}
+
+// TestIntegration_SendDM_UnreachableTarget validates that SendDM handles unreachable targets gracefully
+func TestIntegration_SendDM_UnreachableTarget(t *testing.T) {
+	logrus.SetLevel(logrus.ErrorLevel)
+
+	sender := NewLocalNara("sender", testSoul("sender"), "", "", "", -1, 0)
+	sender.Network.testHTTPClient = &http.Client{Timeout: 100 * time.Millisecond}
+	sender.Network.testMeshURLs = map[string]string{} // No URL for receiver
+
+	event := NewTeaseSyncEvent("sender", "receiver", "high-restarts", sender.Keypair)
+
+	// Should return false when target is unreachable
+	success := sender.Network.SendDM("receiver", event)
+	if success {
+		t.Error("SendDM should return false when target has no mesh URL")
+	}
+
+	t.Log("✅ SendDM: correctly handles unreachable target")
+}
+
+// TestIntegration_TeaseDM validates the full tease flow using DM instead of MQTT
+func TestIntegration_TeaseDM(t *testing.T) {
+	logrus.SetLevel(logrus.ErrorLevel)
+
+	// Create two naras
+	alice := NewLocalNara("alice", testSoul("alice"), "", "", "", -1, 0)
+	bob := NewLocalNara("bob", testSoul("bob"), "", "", "", -1, 0)
+
+	// Create HTTP test server for bob
+	mux := http.NewServeMux()
+	mux.HandleFunc("/dm", bob.Network.httpDMHandler)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	// Alice knows bob
+	bobNara := NewNara("bob")
+	bobNara.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
+	alice.Network.importNara(bobNara)
+	alice.Network.testHTTPClient = &http.Client{Timeout: 5 * time.Second}
+	alice.Network.testMeshURLs = map[string]string{"bob": server.URL}
+
+	// Bob knows alice (to verify signature)
+	aliceNara := NewNara("alice")
+	aliceNara.Status.PublicKey = FormatPublicKey(alice.Keypair.PublicKey)
+	bob.Network.importNara(aliceNara)
+
+	// Alice teases bob
+	success := alice.Network.Tease("bob", "high-restarts")
+	if !success {
+		t.Error("Tease should return true")
+	}
+
+	// Verify alice has the event in her ledger
+	aliceEvents := alice.SyncLedger.GetEventsByService(ServiceSocial)
+	aliceHasEvent := false
+	for _, e := range aliceEvents {
+		if e.Social != nil && e.Social.Type == "tease" && e.Social.Target == "bob" {
+			aliceHasEvent = true
+			break
+		}
+	}
+	if !aliceHasEvent {
+		t.Error("Alice should have the tease in her ledger")
+	}
+
+	// Verify bob received the DM
+	bobEvents := bob.SyncLedger.GetEventsByService(ServiceSocial)
+	bobHasEvent := false
+	for _, e := range bobEvents {
+		if e.Social != nil && e.Social.Type == "tease" && e.Social.Actor == "alice" && e.Social.Target == "bob" {
+			bobHasEvent = true
+			break
+		}
+	}
+	if !bobHasEvent {
+		t.Error("Bob should have received the tease via DM")
+	}
+
+	t.Log("✅ Tease DM: alice teased bob, both have the event in their ledgers")
+}
+
+// TestIntegration_TeaseDM_SpreadViaGossip validates that teases spread via gossip when DM fails
+func TestIntegration_TeaseDM_SpreadViaGossip(t *testing.T) {
+	logrus.SetLevel(logrus.ErrorLevel)
+
+	// Create three naras: alice, bob (unreachable), charlie
+	alice := NewLocalNara("alice", testSoul("alice"), "", "", "", -1, 0)
+	bob := NewLocalNara("bob", testSoul("bob"), "", "", "", -1, 0)
+	charlie := NewLocalNara("charlie", testSoul("charlie"), "", "", "", -1, 0)
+
+	// Mark as not booting
+	for _, ln := range []*LocalNara{alice, bob, charlie} {
+		me := ln.getMeObservation()
+		me.LastRestart = time.Now().Unix() - 200
+		me.LastSeen = time.Now().Unix()
+		ln.setMeObservation(me)
+	}
+
+	// Create HTTP test servers for gossip
+	aliceMux := http.NewServeMux()
+	aliceMux.HandleFunc("/gossip/zine", alice.Network.httpGossipZineHandler)
+	aliceServer := httptest.NewServer(aliceMux)
+	defer aliceServer.Close()
+
+	charlieMux := http.NewServeMux()
+	charlieMux.HandleFunc("/gossip/zine", charlie.Network.httpGossipZineHandler)
+	charlieServer := httptest.NewServer(charlieMux)
+	defer charlieServer.Close()
+
+	sharedClient := &http.Client{Timeout: 5 * time.Second}
+
+	// Alice knows bob and charlie, but bob is unreachable (no DM server)
+	bobNara := NewNara("bob")
+	bobNara.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
+	alice.Network.importNara(bobNara)
+	alice.setObservation("bob", NaraObservation{Online: "ONLINE"})
+
+	charlieNara := NewNara("charlie")
+	charlieNara.Status.PublicKey = FormatPublicKey(charlie.Keypair.PublicKey)
+	alice.Network.importNara(charlieNara)
+	alice.setObservation("charlie", NaraObservation{Online: "ONLINE"})
+
+	alice.Network.testHTTPClient = sharedClient
+	alice.Network.testMeshURLs = map[string]string{
+		// bob has no URL - simulates unreachable
+		"charlie": charlieServer.URL,
+	}
+	alice.Network.TransportMode = TransportGossip
+
+	// Charlie knows alice and bob
+	aliceNaraForCharlie := NewNara("alice")
+	aliceNaraForCharlie.Status.PublicKey = FormatPublicKey(alice.Keypair.PublicKey)
+	charlie.Network.importNara(aliceNaraForCharlie)
+	charlie.setObservation("alice", NaraObservation{Online: "ONLINE"})
+
+	bobNaraForCharlie := NewNara("bob")
+	bobNaraForCharlie.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
+	charlie.Network.importNara(bobNaraForCharlie)
+	charlie.setObservation("bob", NaraObservation{Online: "ONLINE"})
+
+	charlie.Network.testHTTPClient = sharedClient
+	charlie.Network.testMeshURLs = map[string]string{
+		"alice": aliceServer.URL,
+	}
+	charlie.Network.TransportMode = TransportGossip
+
+	// Bob knows alice (to verify when gossip arrives)
+	aliceNaraForBob := NewNara("alice")
+	aliceNaraForBob.Status.PublicKey = FormatPublicKey(alice.Keypair.PublicKey)
+	bob.Network.importNara(aliceNaraForBob)
+
+	// Alice teases bob (DM will fail since bob is unreachable)
+	success := alice.Network.Tease("bob", "high-restarts")
+	if !success {
+		t.Error("Tease should return true even if DM fails")
+	}
+
+	// Verify alice has the event
+	aliceEvents := alice.SyncLedger.GetEventsByService(ServiceSocial)
+	if len(aliceEvents) == 0 {
+		t.Error("Alice should have the tease in her ledger")
+	}
+
+	// Run gossip rounds - alice gossips with charlie
+	for round := 0; round < 3; round++ {
+		alice.Network.performGossipRound()
+		charlie.Network.performGossipRound()
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Verify charlie got the event via gossip
+	charlieEvents := charlie.SyncLedger.GetEventsByService(ServiceSocial)
+	charlieHasEvent := false
+	for _, e := range charlieEvents {
+		if e.Social != nil && e.Social.Type == "tease" && e.Social.Actor == "alice" && e.Social.Target == "bob" {
+			charlieHasEvent = true
+			break
+		}
+	}
+	if !charlieHasEvent {
+		t.Error("Charlie should have received the tease via gossip")
+	}
+
+	t.Log("✅ Tease DM fallback: tease spread via gossip when DM failed")
+}

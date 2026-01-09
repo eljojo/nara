@@ -130,6 +130,7 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 	// These require Ed25519 authentication (except /ping which needs to be fast)
 	mux.HandleFunc("/events/sync", network.loggingMiddleware("/events/sync", network.meshAuthMiddleware("/events/sync", network.httpEventsSyncHandler)))
 	mux.HandleFunc("/gossip/zine", network.loggingMiddleware("/gossip/zine", network.meshAuthMiddleware("/gossip/zine", network.httpGossipZineHandler)))
+	mux.HandleFunc("/dm", network.loggingMiddleware("/dm", network.meshAuthMiddleware("/dm", network.httpDMHandler)))
 	mux.HandleFunc("/world/relay", network.loggingMiddleware("/world/relay", network.meshAuthMiddleware("/world/relay", network.httpWorldRelayHandler)))
 	mux.HandleFunc("/ping", network.loggingMiddleware("/ping", network.httpPingHandler)) // No auth - latency critical
 	mux.HandleFunc("/coordinates", network.loggingMiddleware("/coordinates", network.httpCoordinatesHandler))
@@ -757,6 +758,68 @@ func (network *Network) httpGossipZineHandler(w http.ResponseWriter, r *http.Req
 	// Return our zine
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(myZine)
+}
+
+// POST /dm - Receive a direct message (arbitrary SyncEvent)
+// This is a generic endpoint for naras to send events directly to each other.
+// Events are added to the local ledger and spread via gossip.
+func (network *Network) httpDMHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var event SyncEvent
+	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Event must be signed
+	if !event.IsSigned() {
+		http.Error(w, "Unsigned event rejected", http.StatusBadRequest)
+		return
+	}
+
+	// Verify signature against emitter's public key
+	pubKey := network.getPublicKeyForNara(event.Emitter)
+	if pubKey == nil {
+		http.Error(w, "Unknown emitter", http.StatusForbidden)
+		return
+	}
+	if !event.Verify(pubKey) {
+		logrus.Warnf("📬 Invalid DM signature from %s, rejecting", event.Emitter)
+		http.Error(w, "Invalid signature", http.StatusForbidden)
+		return
+	}
+
+	// Add to local ledger (with personality filtering for social events)
+	added := false
+	if event.Service == ServiceSocial {
+		added = network.local.SyncLedger.AddSocialEventFiltered(event, network.local.Me.Status.Personality)
+	} else {
+		added = network.local.SyncLedger.AddEvent(event)
+	}
+
+	// Trigger projection updates
+	if added && network.local.Projections != nil {
+		network.local.Projections.Trigger()
+	}
+
+	// Broadcast to local SSE clients
+	if added && event.Service == ServiceSocial {
+		network.broadcastSSE(event)
+	}
+
+	// Mark sender as online
+	network.recordObservationOnlineNara(event.Emitter)
+	network.emitSeenEvent(event.Emitter, "dm")
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": added,
+		"from":    network.meName(),
+	})
 }
 
 // Network Coordinate HTTP handlers

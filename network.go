@@ -2038,7 +2038,9 @@ func (network *Network) broadcastSSE(event SyncEvent) {
 	}
 }
 
-// Tease broadcasts a tease event to the network.
+// Tease sends a tease event directly to the target nara.
+// The tease is added to our ledger and DM'd to the target.
+// If the DM fails, the tease will spread via gossip.
 // Returns true if the tease was sent, false if blocked by cooldown or readonly.
 func (network *Network) Tease(target, reason string) bool {
 	if network.ReadOnly {
@@ -2060,9 +2062,12 @@ func (network *Network) Tease(target, reason string) bool {
 		network.local.SyncLedger.AddSocialEventFiltered(event, network.local.Me.Status.Personality)
 	}
 
-	// Broadcast to network via MQTT (same format as event store)
-	topic := "nara/plaza/social"
-	network.postEvent(topic, event)
+	// DM the target directly (best-effort: if it fails, gossip will spread it)
+	if network.SendDM(target, event) {
+		logrus.Debugf("📬 DM'd tease to %s", target)
+	} else {
+		logrus.Debugf("📬 Could not DM %s, tease will spread via gossip", target)
+	}
 
 	// Broadcast to local SSE clients
 	network.broadcastSSE(event)
@@ -3289,6 +3294,68 @@ func (network *Network) exchangeZine(targetName string, myZine *Zine) {
 	// Mark peer as online - successful zine exchange proves they're reachable
 	network.recordObservationOnlineNara(targetName)
 	network.emitSeenEvent(targetName, "zine")
+}
+
+// SendDM sends a SyncEvent directly to a target nara via HTTP POST to /dm.
+// Returns true if the DM was successfully delivered.
+// If delivery fails, the event should already be in the sender's ledger and
+// will spread via gossip instead.
+func (network *Network) SendDM(targetName string, event SyncEvent) bool {
+	// Determine URL - use test override if available
+	var url string
+	if network.testMeshURLs != nil {
+		url = network.testMeshURLs[targetName]
+		if url == "" {
+			logrus.Debugf("📬 Cannot DM %s: no test URL", targetName)
+			return false
+		}
+		url = url + "/dm"
+	} else {
+		meshIP := network.getMeshIPForNara(targetName)
+		if meshIP == "" {
+			logrus.Debugf("📬 Cannot DM %s: no mesh IP", targetName)
+			return false
+		}
+		url = fmt.Sprintf("http://%s:%d/dm", meshIP, DefaultMeshPort)
+	}
+
+	// Encode the event
+	eventBytes, err := json.Marshal(event)
+	if err != nil {
+		logrus.Warnf("📬 Failed to encode DM for %s: %v", targetName, err)
+		return false
+	}
+
+	// Create request with auth headers
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(eventBytes))
+	if err != nil {
+		logrus.Warnf("📬 Failed to create DM request for %s: %v", targetName, err)
+		return false
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Add mesh authentication headers (Ed25519 signature)
+	network.AddMeshAuthHeaders(req)
+
+	// Use test client if available, otherwise use tsnet client
+	var client *http.Client
+	if network.testHTTPClient != nil {
+		client = network.testHTTPClient
+	} else if network.tsnetMesh != nil {
+		client = network.tsnetMesh.Server().HTTPClient()
+		client.Timeout = 10 * time.Second
+	} else {
+		return false
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		logrus.Debugf("📬 Failed to send DM to %s: %v", targetName, err)
+		return false
+	}
+	defer resp.Body.Close()
+
+	return resp.StatusCode == http.StatusOK
 }
 
 // backgroundSync performs lightweight periodic syncing to strengthen collective memory
