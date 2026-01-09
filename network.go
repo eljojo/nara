@@ -2310,7 +2310,7 @@ func (network *Network) bootRecovery() {
 }
 
 // BootRecoveryTargetEvents is the target number of events to fetch on boot
-const BootRecoveryTargetEvents = 10000
+const BootRecoveryTargetEvents = 50000
 
 // bootRecoveryViaMesh uses direct HTTP to sync events from neighbors (parallelized)
 func (network *Network) bootRecoveryViaMesh(online []string) {

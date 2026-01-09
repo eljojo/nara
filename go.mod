@@ -1,6 +1,6 @@
 module github.com/eljojo/nara
 
-go 1.25
+go 1.25.5
 
 require (
 	github.com/btcsuite/btcutil v1.0.2
