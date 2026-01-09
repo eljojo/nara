@@ -3213,7 +3213,12 @@ func (network *Network) performGossipRound() {
 		return
 	}
 
-	logrus.Infof("📰 Gossiping with %d neighbors [%s] (zine has %d events)", len(targets), strings.Join(targets, ", "), len(zine.Events))
+	// Count events by type for diagnostics
+	typeCounts := make(map[string]int)
+	for _, e := range zine.Events {
+		typeCounts[e.Service]++
+	}
+	logrus.Infof("📰 Gossiping with %d neighbors [%s] (zine has %d events: %v)", len(targets), strings.Join(targets, ", "), len(zine.Events), typeCounts)
 
 	// Exchange zines with each target
 	for _, targetName := range targets {
