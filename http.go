@@ -426,6 +426,18 @@ func (network *Network) httpMetricsHandler(w http.ResponseWriter, r *http.Reques
 	lines = append(lines, "# TYPE nara_restarts_total counter")
 	lines = append(lines, "# HELP nara_personality Personality traits (0-100 scale)")
 	lines = append(lines, "# TYPE nara_personality gauge")
+	lines = append(lines, "# HELP nara_memory_alloc_mb Current heap allocation in megabytes")
+	lines = append(lines, "# TYPE nara_memory_alloc_mb gauge")
+	lines = append(lines, "# HELP nara_memory_sys_mb Total memory obtained from OS in megabytes")
+	lines = append(lines, "# TYPE nara_memory_sys_mb gauge")
+	lines = append(lines, "# HELP nara_memory_heap_mb Heap memory (in use + free) in megabytes")
+	lines = append(lines, "# TYPE nara_memory_heap_mb gauge")
+	lines = append(lines, "# HELP nara_memory_stack_mb Stack memory in megabytes")
+	lines = append(lines, "# TYPE nara_memory_stack_mb gauge")
+	lines = append(lines, "# HELP nara_goroutines Number of active goroutines")
+	lines = append(lines, "# TYPE nara_goroutines gauge")
+	lines = append(lines, "# HELP nara_gc_cycles_total Number of completed GC cycles")
+	lines = append(lines, "# TYPE nara_gc_cycles_total counter")
 
 	allNarae := network.getNarae()
 
@@ -439,6 +451,12 @@ func (network *Network) httpMetricsHandler(w http.ResponseWriter, r *http.Reques
 		chattiness := nara.Status.Chattiness
 		uptime := nara.Status.HostStats.Uptime
 		personality := nara.Status.Personality
+		memAllocMB := nara.Status.HostStats.MemAllocMB
+		memSysMB := nara.Status.HostStats.MemSysMB
+		memHeapMB := nara.Status.HostStats.MemHeapMB
+		memStackMB := nara.Status.HostStats.MemStackMB
+		numGoroutines := nara.Status.HostStats.NumGoroutines
+		numGC := nara.Status.HostStats.NumGC
 		nara.mu.Unlock()
 
 		onlineValue := 0
@@ -467,6 +485,26 @@ func (network *Network) httpMetricsHandler(w http.ResponseWriter, r *http.Reques
 		lines = append(lines, fmt.Sprintf(`nara_personality{name="%s",trait="chill"} %d`, nara.Name, personality.Chill))
 		lines = append(lines, fmt.Sprintf(`nara_personality{name="%s",trait="sociability"} %d`, nara.Name, personality.Sociability))
 		lines = append(lines, fmt.Sprintf(`nara_personality{name="%s",trait="agreeableness"} %d`, nara.Name, personality.Agreeableness))
+
+		// Memory metrics
+		if memAllocMB > 0 {
+			lines = append(lines, fmt.Sprintf(`nara_memory_alloc_mb{name="%s"} %d`, nara.Name, memAllocMB))
+		}
+		if memSysMB > 0 {
+			lines = append(lines, fmt.Sprintf(`nara_memory_sys_mb{name="%s"} %d`, nara.Name, memSysMB))
+		}
+		if memHeapMB > 0 {
+			lines = append(lines, fmt.Sprintf(`nara_memory_heap_mb{name="%s"} %d`, nara.Name, memHeapMB))
+		}
+		if memStackMB > 0 {
+			lines = append(lines, fmt.Sprintf(`nara_memory_stack_mb{name="%s"} %d`, nara.Name, memStackMB))
+		}
+		if numGoroutines > 0 {
+			lines = append(lines, fmt.Sprintf(`nara_goroutines{name="%s"} %d`, nara.Name, numGoroutines))
+		}
+		if numGC > 0 {
+			lines = append(lines, fmt.Sprintf(`nara_gc_cycles_total{name="%s"} %d`, nara.Name, numGC))
+		}
 	}
 
 	// Sync ledger metrics (this server only)

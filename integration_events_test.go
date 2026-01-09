@@ -1416,7 +1416,7 @@ func TestIntegration_NoRedundantSeenEventsForActiveNaras(t *testing.T) {
 		t.Errorf("FAIL: Emitted %d redundant seen events for naras who just proved themselves", seenAfter-seenBefore)
 		t.Log("When we receive events emitted by a nara, they're proving themselves")
 		t.Log("We should NOT also emit a seen event for them - that's redundant")
-		
+
 		// Show which seen events were created
 		for _, e := range observer.SyncLedger.GetAllEvents() {
 			if e.Service == ServiceSeen && e.Seen != nil && e.Timestamp > time.Now().Add(-1*time.Second).UnixNano() {
@@ -1429,7 +1429,7 @@ func TestIntegration_NoRedundantSeenEventsForActiveNaras(t *testing.T) {
 
 	// Test 2: Verify we DO emit seen events for truly quiet naras
 	// (naras we interact with who haven't emitted recently)
-	
+
 	// Charlie is quiet (no recent events)
 	charlieSoul := NativeSoulCustom([]byte("test-hw-charlie"), "charlie")
 	charlieKeypair := DeriveKeypair(charlieSoul)

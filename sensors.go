@@ -10,8 +10,14 @@ import (
 )
 
 type HostStats struct {
-	Uptime  uint64
-	LoadAvg float64
+	Uptime        uint64
+	LoadAvg       float64
+	MemAllocMB    uint64 // Current heap allocation in MB
+	MemSysMB      uint64 // Total memory obtained from OS in MB
+	MemHeapMB     uint64 // Heap memory (in use + free) in MB
+	MemStackMB    uint64 // Stack memory in MB
+	NumGoroutines int    // Number of active goroutines
+	NumGC         uint32 // Number of completed GC cycles
 }
 
 func (ln *LocalNara) updateHostStatsForever() {
@@ -35,6 +41,16 @@ func (ln *LocalNara) updateHostStats() {
 	load, _ := load.Avg()
 	loadavg := load.Load1 / float64(runtime.NumCPU())
 	ln.Me.Status.HostStats.LoadAvg = float64(int64(loadavg*100)) / 100 // truncate to 2 digits
+
+	// Collect memory statistics from Go runtime
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+	ln.Me.Status.HostStats.MemAllocMB = memStats.Alloc / 1024 / 1024    // Current heap allocation
+	ln.Me.Status.HostStats.MemSysMB = memStats.Sys / 1024 / 1024        // Total memory from OS
+	ln.Me.Status.HostStats.MemHeapMB = memStats.HeapSys / 1024 / 1024   // Heap (in use + free)
+	ln.Me.Status.HostStats.MemStackMB = memStats.StackSys / 1024 / 1024 // Stack memory
+	ln.Me.Status.HostStats.NumGoroutines = runtime.NumGoroutine()       // Active goroutines
+	ln.Me.Status.HostStats.NumGC = memStats.NumGC                       // GC cycles
 
 	chattiness := int64(ln.Network.weightedBuzz())
 

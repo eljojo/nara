@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -3663,10 +3664,24 @@ func (network *Network) socialMaintenance() {
 				}
 				statsStr += fmt.Sprintf("%s=%d", service, count)
 			}
+
+			// Get memory stats
+			var memStats runtime.MemStats
+			runtime.ReadMemStats(&memStats)
+			memAllocMB := memStats.Alloc / 1024 / 1024
+			memSysMB := memStats.Sys / 1024 / 1024
+			memHeapMB := memStats.HeapSys / 1024 / 1024
+			memStackMB := memStats.StackSys / 1024 / 1024
+			numGoroutines := runtime.NumGoroutine()
+			// Calculate overhead: Sys - HeapSys - StackSys = other runtime structures
+			memOtherMB := memSysMB - memHeapMB - memStackMB
+
 			if beforeCount != afterCount {
-				logrus.Printf("📊 event store: %d events (%s, critical=%d) - pruned %d", afterCount, statsStr, criticalCount, beforeCount-afterCount)
+				logrus.Printf("📊 event store: %d events (%s, critical=%d) - pruned %d | mem: %dMB alloc, %dMB sys (heap:%dMB stack:%dMB other:%dMB) | goroutines:%d",
+					afterCount, statsStr, criticalCount, beforeCount-afterCount, memAllocMB, memSysMB, memHeapMB, memStackMB, memOtherMB, numGoroutines)
 			} else {
-				logrus.Printf("📊 event store: %d events (%s, critical=%d)", afterCount, statsStr, criticalCount)
+				logrus.Printf("📊 event store: %d events (%s, critical=%d) | mem: %dMB alloc, %dMB sys (heap:%dMB stack:%dMB other:%dMB) | goroutines:%d",
+					afterCount, statsStr, criticalCount, memAllocMB, memSysMB, memHeapMB, memStackMB, memOtherMB, numGoroutines)
 			}
 
 			// Cleanup rate limiter to prevent unbounded map growth
