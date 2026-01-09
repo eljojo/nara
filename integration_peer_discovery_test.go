@@ -62,9 +62,9 @@ func TestIntegration_DiscoverNarasFromEventStream(t *testing.T) {
 	}
 
 	// Alice creates an event mentioning "ghost" as the target
-	event := NewTeaseEvent("alice", "ghost", "spooky behavior")
-	event.Sign(alice.Keypair)
-	alice.SyncLedger.AddSocialEvent(event)
+	event := NewSocialSyncEvent("tease", "alice", "ghost", "spooky behavior", "")
+	event.Sign("alice", alice.Keypair)
+	alice.SyncLedger.AddEvent(event)
 
 	// Alice sends zine to Bob (performGossipRound will send to bob via testMeshURLs)
 	alice.Network.performGossipRound()

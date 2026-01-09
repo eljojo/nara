@@ -521,7 +521,24 @@ func NewSeenSyncEvent(observer, subject, via string, keypair NaraKeypair) SyncEv
 	return e
 }
 
+// NewTeaseSyncEvent creates a signed SyncEvent for teasing another nara.
+func NewTeaseSyncEvent(actor, target, reason string, keypair NaraKeypair) SyncEvent {
+	return NewSignedSocialSyncEvent("tease", actor, target, reason, "", actor, keypair)
+}
+
+// NewObservationSocialSyncEvent creates a signed SyncEvent for system observations.
+func NewObservationSocialSyncEvent(actor, target, reason string, keypair NaraKeypair) SyncEvent {
+	return NewSignedSocialSyncEvent("observation", actor, target, reason, "", actor, keypair)
+}
+
+// NewJourneyObservationSyncEvent creates a signed SyncEvent for journey observations.
+// The journeyID is stored in the Witness field for tracking.
+func NewJourneyObservationSyncEvent(observer, journeyOriginator, reason, journeyID string, keypair NaraKeypair) SyncEvent {
+	return NewSignedSocialSyncEvent("observation", observer, journeyOriginator, reason, journeyID, observer, keypair)
+}
+
 // SyncEventFromSocialEvent converts legacy SocialEvent to SyncEvent
+// Deprecated: Use NewSocialSyncEvent instead for new code.
 func SyncEventFromSocialEvent(se SocialEvent) SyncEvent {
 	e := SyncEvent{
 		Timestamp: se.Timestamp,
@@ -765,16 +782,19 @@ func (l *SyncLedger) AddEvent(e SyncEvent) bool {
 }
 
 // AddSocialEvent is a convenience method to add a legacy SocialEvent
+// Deprecated: Use AddEvent with SyncEvent for new code.
 func (l *SyncLedger) AddSocialEvent(se SocialEvent) bool {
 	return l.AddEvent(SyncEventFromSocialEvent(se))
 }
 
 // AddSocialEventFilteredLegacy adds a legacy SocialEvent with personality filtering
+// Deprecated: Use AddSocialEventFiltered with SyncEvent for new code.
 func (l *SyncLedger) AddSocialEventFilteredLegacy(se SocialEvent, personality NaraPersonality) bool {
 	return l.AddSocialEventFiltered(SyncEventFromSocialEvent(se), personality)
 }
 
 // MergeSocialEventsFiltered adds legacy SocialEvents with personality filtering
+// Deprecated: Convert events to SyncEvent format for new code.
 func (l *SyncLedger) MergeSocialEventsFiltered(events []SocialEvent, personality NaraPersonality) int {
 	added := 0
 	for _, se := range events {

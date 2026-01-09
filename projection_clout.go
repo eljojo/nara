@@ -89,32 +89,14 @@ func (p *CloutProjection) DeriveClout(observerSoul string, personality NaraPerso
 		switch record.Type {
 		case "tease":
 			// Check if tease resonates with observer
-			legacyEvent := SocialEvent{
-				ID:        record.ID,
-				Timestamp: record.Timestamp,
-				Type:      record.Type,
-				Actor:     record.Actor,
-				Target:    record.Target,
-				Reason:    record.Reason,
-				Witness:   record.Witness,
-			}
-			if TeaseResonates(legacyEvent, observerSoul, personality) {
+			if TeaseResonates(record.ID, observerSoul, personality) {
 				clout[record.Actor] += weight * 1.0 // good tease = clout
 			} else {
 				clout[record.Actor] -= weight * 0.3 // bad tease = cringe
 			}
 		case "observed":
 			// Third-party observation, smaller weight
-			legacyEvent := SocialEvent{
-				ID:        record.ID,
-				Timestamp: record.Timestamp,
-				Type:      record.Type,
-				Actor:     record.Actor,
-				Target:    record.Target,
-				Reason:    record.Reason,
-				Witness:   record.Witness,
-			}
-			if TeaseResonates(legacyEvent, observerSoul, personality) {
+			if TeaseResonates(record.ID, observerSoul, personality) {
 				clout[record.Actor] += weight * 0.5
 			}
 		case "gossip":

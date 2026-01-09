@@ -75,10 +75,10 @@ func (e *SocialEvent) IsValid() bool {
 // TeaseResonates determines if a tease resonates with an observer
 // This is subjective: same tease + different observer = potentially different reaction
 // The result is deterministic given the same inputs
-func TeaseResonates(event SocialEvent, observerSoul string, observerPersonality NaraPersonality) bool {
+func TeaseResonates(eventID string, observerSoul string, observerPersonality NaraPersonality) bool {
 	// Hash the event + observer to get a deterministic but observer-specific result
 	hasher := sha256.New()
-	hasher.Write([]byte(event.ID))
+	hasher.Write([]byte(eventID))
 	hasher.Write([]byte(observerSoul))
 	hash := hasher.Sum(nil)
 
@@ -109,48 +109,6 @@ func TeaseResonates(event SocialEvent, observerSoul string, observerPersonality 
 }
 
 // --- Teasing Mechanics ---
-
-// NewTeaseEvent creates a new tease social event
-func NewTeaseEvent(actor, target, reason string) SocialEvent {
-	event := SocialEvent{
-		Timestamp: time.Now().UnixNano(),
-		Type:      "tease",
-		Actor:     actor,
-		Target:    target,
-		Reason:    reason,
-	}
-	event.ComputeID()
-	return event
-}
-
-// NewObservationEvent creates a new observation social event
-// Type is "observation" for system observations (online/offline, etc.)
-func NewObservationEvent(actor, target, reason string) SocialEvent {
-	event := SocialEvent{
-		Timestamp: time.Now().UnixNano(),
-		Type:      "observation",
-		Actor:     actor,
-		Target:    target,
-		Reason:    reason,
-	}
-	event.ComputeID()
-	return event
-}
-
-// NewJourneyObservationEvent creates a journey-related observation event
-// The journeyID is stored in the Witness field for tracking
-func NewJourneyObservationEvent(observer, journeyOriginator, reason string, journeyID string) SocialEvent {
-	event := SocialEvent{
-		Timestamp: time.Now().UnixNano(),
-		Type:      "observation",
-		Actor:     observer,
-		Target:    journeyOriginator,
-		Reason:    reason,
-		Witness:   journeyID, // Repurpose Witness field for journey tracking
-	}
-	event.ComputeID()
-	return event
-}
 
 // ShouldTeaseForRestarts determines if we should tease based on restart RATE
 // A nara with 1000 restarts over 3 years is fine, but 10 restarts in a day is sus

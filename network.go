@@ -69,13 +69,13 @@ type Network struct {
 	startTimeVotes      []startTimeVote
 	startTimeVotesMu    sync.Mutex
 	startTimeApplied    bool // true once we've applied consensus
-	socialInbox         chan SocialEvent
+	socialInbox         chan SyncEvent
 	ledgerRequestInbox  chan LedgerRequest
 	ledgerResponseInbox chan LedgerResponse
 	TeaseState          *TeaseState
 	ReadOnly            bool
 	// SSE broadcast for web clients
-	sseClients   map[chan SocialEvent]bool
+	sseClients   map[chan SyncEvent]bool
 	sseClientsMu sync.RWMutex
 	// World journey state
 	worldJourneys   []*WorldMessage // Completed journeys
@@ -99,12 +99,12 @@ type Network struct {
 	bootRecoveryDone chan struct{}
 	formOpinionsDone chan struct{}
 	// Test hooks (only used in tests)
-	testHTTPClient        *http.Client                      // Override HTTP client for testing
-	testMeshURLs          map[string]string                 // Override mesh URLs for testing (nara name -> URL)
-	testTeaseDelay        *time.Duration                    // Override tease delay for testing (nil = use default 0-5s random)
-	testAnnounceCount     int                               // Counter for announce() calls (for testing)
-	testSkipHeyThereSleep bool                              // Skip the 1s sleep in handleHeyThereEvent (for testing)
-	testPingFunc          func(name string) (bool, error)   // Override ping behavior for testing (returns success, error)
+	testHTTPClient        *http.Client                    // Override HTTP client for testing
+	testMeshURLs          map[string]string               // Override mesh URLs for testing (nara name -> URL)
+	testTeaseDelay        *time.Duration                  // Override tease delay for testing (nil = use default 0-5s random)
+	testAnnounceCount     int                             // Counter for announce() calls (for testing)
+	testSkipHeyThereSleep bool                            // Skip the 1s sleep in handleHeyThereEvent (for testing)
+	testPingFunc          func(name string) (bool, error) // Override ping behavior for testing (returns success, error)
 }
 
 // PendingJourney tracks a journey we participated in, waiting for completion
@@ -295,11 +295,11 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	network.chauInbox = make(chan SyncEvent)
 	network.howdyInbox = make(chan HowdyEvent, 50)
 	network.newspaperInbox = make(chan NewspaperEvent)
-	network.socialInbox = make(chan SocialEvent, 100)
+	network.socialInbox = make(chan SyncEvent, 100)
 	network.ledgerRequestInbox = make(chan LedgerRequest, 50)
 	network.ledgerResponseInbox = make(chan LedgerResponse, 50)
 	network.TeaseState = NewTeaseState()
-	network.sseClients = make(map[chan SocialEvent]bool)
+	network.sseClients = make(map[chan SyncEvent]bool)
 	network.skippingEvents = false
 	network.Buzz = newBuzz()
 	network.worldJourneys = make([]*WorldMessage, 0)
@@ -950,8 +950,8 @@ func (network *Network) onWorldJourneyComplete(wm *WorldMessage) {
 
 	// Record journey-complete observation event
 	if network.local.SyncLedger != nil {
-		event := NewJourneyObservationEvent(network.meName(), wm.Originator, ReasonJourneyComplete, wm.ID)
-		network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
+		event := NewJourneyObservationSyncEvent(network.meName(), wm.Originator, ReasonJourneyComplete, wm.ID, network.local.Keypair)
+		network.local.SyncLedger.AddSocialEventFiltered(event, network.local.Me.Status.Personality)
 	}
 
 	// Remove from pending journeys (we were the originator)
@@ -998,8 +998,8 @@ func (network *Network) onWorldJourneyPassThrough(wm *WorldMessage) {
 
 	// Record journey-pass observation event
 	if network.local.SyncLedger != nil {
-		event := NewJourneyObservationEvent(network.meName(), wm.Originator, ReasonJourneyPass, wm.ID)
-		network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
+		event := NewJourneyObservationSyncEvent(network.meName(), wm.Originator, ReasonJourneyPass, wm.ID, network.local.Keypair)
+		network.local.SyncLedger.AddSocialEventFiltered(event, network.local.Me.Status.Personality)
 	}
 
 	logrus.Printf("observation: journey %s passed through (from %s)", wm.ID[:8], wm.Originator)
@@ -1746,8 +1746,8 @@ func (network *Network) handleChauEvent(syncEvent SyncEvent) {
 
 	// Record offline observation event if state changed
 	if previousState == "ONLINE" && !network.local.isBooting() && network.local.SyncLedger != nil {
-		obsEvent := NewObservationEvent(network.meName(), chau.From, ReasonOffline)
-		network.local.SyncLedger.AddSocialEventFilteredLegacy(obsEvent, network.local.Me.Status.Personality)
+		obsEvent := NewObservationSocialSyncEvent(network.meName(), chau.From, ReasonOffline, network.local.Keypair)
+		network.local.SyncLedger.AddSocialEventFiltered(obsEvent, network.local.Me.Status.Personality)
 		logrus.Printf("observation: %s went offline", chau.From)
 	}
 
@@ -1977,42 +1977,48 @@ func (network *Network) processSocialEvents() {
 	}
 }
 
-func (network *Network) handleSocialEvent(event SocialEvent) {
-	// Don't process our own events from the network
-	if event.Actor == network.meName() {
+func (network *Network) handleSocialEvent(event SyncEvent) {
+	if event.Service != ServiceSocial || event.Social == nil {
 		return
 	}
 
-	// Verify signature if present
-	if event.Signature != "" {
-		pubKey := network.getPublicKeyForNara(event.Actor)
+	social := event.Social
+
+	// Don't process our own events from the network
+	if social.Actor == network.meName() {
+		return
+	}
+
+	// Verify SyncEvent signature if present
+	if event.IsSigned() {
+		pubKey := network.getPublicKeyForNara(event.Emitter)
 		if pubKey != nil && !event.Verify(pubKey) {
-			logrus.Warnf("🚨 Invalid signature on tease from %s", event.Actor)
+			logrus.Warnf("🚨 Invalid signature on social event from %s", event.Emitter)
 			return
 		}
 	}
 
 	// Add to our ledger
-	if network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality) {
-		logrus.Printf("📢 %s teased %s: %s", event.Actor, event.Target, TeaseMessage(event.Reason, event.Actor, event.Target))
+	if network.local.SyncLedger.AddSocialEventFiltered(event, network.local.Me.Status.Personality) {
+		logrus.Printf("📢 %s teased %s: %s", social.Actor, social.Target, TeaseMessage(social.Reason, social.Actor, social.Target))
 		network.Buzz.increase(5)
 
-		// Broadcast to SSE clients (for the shooting star effect!)
+		// Broadcast to SSE clients
 		network.broadcastSSE(event)
 	}
 }
 
 // SSE client management
 
-func (network *Network) subscribeSSE() chan SocialEvent {
-	ch := make(chan SocialEvent, 10) // buffered to prevent blocking
+func (network *Network) subscribeSSE() chan SyncEvent {
+	ch := make(chan SyncEvent, 10) // buffered to prevent blocking
 	network.sseClientsMu.Lock()
 	network.sseClients[ch] = true
 	network.sseClientsMu.Unlock()
 	return ch
 }
 
-func (network *Network) unsubscribeSSE(ch chan SocialEvent) {
+func (network *Network) unsubscribeSSE(ch chan SyncEvent) {
 	network.sseClientsMu.Lock()
 	delete(network.sseClients, ch)
 	network.sseClientsMu.Unlock()
@@ -2021,7 +2027,7 @@ func (network *Network) unsubscribeSSE(ch chan SocialEvent) {
 	// the SSE handler returns and stops selecting on it.
 }
 
-func (network *Network) broadcastSSE(event SocialEvent) {
+func (network *Network) broadcastSSE(event SyncEvent) {
 	network.sseClientsMu.RLock()
 	defer network.sseClientsMu.RUnlock()
 
@@ -2048,20 +2054,19 @@ func (network *Network) Tease(target, reason string) bool {
 		return false
 	}
 
-	// Create, sign, and broadcast the event
-	event := NewTeaseEvent(actor, target, reason)
-	event.Sign(network.local.Keypair)
+	// Create signed SyncEvent
+	event := NewTeaseSyncEvent(actor, target, reason, network.local.Keypair)
 
 	// Add to our own ledger
 	if network.local.SyncLedger != nil {
-		network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
+		network.local.SyncLedger.AddSocialEventFiltered(event, network.local.Me.Status.Personality)
 	}
 
-	// Broadcast to network via MQTT
+	// Broadcast to network via MQTT (same format as event store)
 	topic := "nara/plaza/social"
 	network.postEvent(topic, event)
 
-	// Broadcast to local SSE clients (shooting star!)
+	// Broadcast to local SSE clients
 	network.broadcastSSE(event)
 
 	msg := TeaseMessage(reason, actor, target)
@@ -3587,8 +3592,8 @@ func (network *Network) handleJourneyCompletion(completion JourneyCompletion) {
 
 	// Record journey-complete observation event (we heard it completed)
 	if network.local.SyncLedger != nil {
-		event := NewJourneyObservationEvent(network.meName(), pending.Originator, ReasonJourneyComplete, completion.JourneyID)
-		network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
+		event := NewJourneyObservationSyncEvent(network.meName(), pending.Originator, ReasonJourneyComplete, completion.JourneyID, network.local.Keypair)
+		network.local.SyncLedger.AddSocialEventFiltered(event, network.local.Me.Status.Personality)
 	}
 
 	// Log with attestation chain if available
@@ -3632,8 +3637,8 @@ func (network *Network) journeyTimeoutMaintenance() {
 		// Record timeout events for each timed out journey
 		for _, pending := range timedOut {
 			if network.local.SyncLedger != nil {
-				event := NewJourneyObservationEvent(network.meName(), pending.Originator, ReasonJourneyTimeout, pending.JourneyID)
-				network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
+				event := NewJourneyObservationSyncEvent(network.meName(), pending.Originator, ReasonJourneyTimeout, pending.JourneyID, network.local.Keypair)
+				network.local.SyncLedger.AddSocialEventFiltered(event, network.local.Me.Status.Personality)
 			}
 
 			logrus.Printf("observation: journey %s timed out (from %s)", pending.JourneyID[:8], pending.Originator)

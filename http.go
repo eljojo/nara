@@ -291,12 +291,15 @@ func (network *Network) httpEventsSSEHandler(w http.ResponseWriter, r *http.Requ
 	for {
 		select {
 		case event := <-eventChan:
+			if event.Social == nil {
+				continue
+			}
 			data, _ := json.Marshal(map[string]interface{}{
-				"type":      event.Type,
-				"actor":     event.Actor,
-				"target":    event.Target,
-				"reason":    event.Reason,
-				"message":   TeaseMessage(event.Reason, event.Actor, event.Target),
+				"type":      event.Social.Type,
+				"actor":     event.Social.Actor,
+				"target":    event.Social.Target,
+				"reason":    event.Social.Reason,
+				"message":   TeaseMessage(event.Social.Reason, event.Social.Actor, event.Social.Target),
 				"timestamp": event.Timestamp,
 			})
 			fmt.Fprintf(w, "event: social\ndata: %s\n\n", data)

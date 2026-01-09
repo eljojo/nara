@@ -62,13 +62,7 @@ func TestSyncLedger_MergeEvents(t *testing.T) {
 	// Add events to ledger1
 	ledger1.AddPingObservation("alice", "bob", 10.0)
 	ledger1.AddPingObservation("alice", "charlie", 20.0)
-	ledger1.AddSocialEvent(SocialEvent{
-		Timestamp: time.Now().Unix(),
-		Type:      "tease",
-		Actor:     "alice",
-		Target:    "bob",
-		Reason:    "high-restarts",
-	})
+	ledger1.AddEvent(NewSocialSyncEvent("tease", "alice", "bob", "high-restarts", ""))
 
 	// Merge into ledger2
 	events := ledger1.GetEventsForSync(nil, nil, 0, 0, 1, 0)
@@ -137,13 +131,7 @@ func TestSyncLedger_GetEventsByService(t *testing.T) {
 	// Add mixed events
 	ledger.AddPingObservation("alice", "bob", 10.0)
 	ledger.AddPingObservation("alice", "charlie", 20.0)
-	ledger.AddSocialEvent(SocialEvent{
-		Timestamp: time.Now().Unix(),
-		Type:      "tease",
-		Actor:     "alice",
-		Target:    "bob",
-		Reason:    "high-restarts",
-	})
+	ledger.AddEvent(NewSocialSyncEvent("tease", "alice", "bob", "high-restarts", ""))
 
 	// Get only pings
 	pings := ledger.GetEventsByService(ServicePing)
@@ -300,13 +288,7 @@ func TestSyncResponse_Signing(t *testing.T) {
 	// Create some events
 	ledger := NewSyncLedger(1000)
 	ledger.AddPingObservation("alice", "bob", 42.5)
-	ledger.AddSocialEvent(SocialEvent{
-		Timestamp: time.Now().Unix(),
-		Type:      "tease",
-		Actor:     "alice",
-		Target:    "bob",
-		Reason:    "high-restarts",
-	})
+	ledger.AddEvent(NewSocialSyncEvent("tease", "alice", "bob", "high-restarts", ""))
 
 	events := ledger.GetEventsForSync(nil, nil, 0, 0, 1, 0)
 

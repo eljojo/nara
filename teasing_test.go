@@ -130,24 +130,24 @@ func TestTeaseTrigger_TrendAbandon(t *testing.T) {
 	}
 }
 
-func TestTeaseEvent_Creation(t *testing.T) {
+func TestTeaseSyncEvent_Creation(t *testing.T) {
 	actor := "alice"
 	target := "bob"
 	reason := ReasonHighRestarts
 
-	event := NewTeaseEvent(actor, target, reason)
+	event := NewSocialSyncEvent("tease", actor, target, reason, "")
 
-	if event.Type != "tease" {
-		t.Errorf("Expected type 'tease', got '%s'", event.Type)
+	if event.Social.Type != "tease" {
+		t.Errorf("Expected type 'tease', got '%s'", event.Social.Type)
 	}
-	if event.Actor != actor {
-		t.Errorf("Expected actor '%s', got '%s'", actor, event.Actor)
+	if event.Social.Actor != actor {
+		t.Errorf("Expected actor '%s', got '%s'", actor, event.Social.Actor)
 	}
-	if event.Target != target {
-		t.Errorf("Expected target '%s', got '%s'", target, event.Target)
+	if event.Social.Target != target {
+		t.Errorf("Expected target '%s', got '%s'", target, event.Social.Target)
 	}
-	if event.Reason != reason {
-		t.Errorf("Expected reason '%s', got '%s'", reason, event.Reason)
+	if event.Social.Reason != reason {
+		t.Errorf("Expected reason '%s', got '%s'", reason, event.Social.Reason)
 	}
 	if event.Timestamp == 0 {
 		t.Error("Expected non-zero timestamp")

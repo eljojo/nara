@@ -120,23 +120,38 @@ func (network *Network) chauHandler(client mqtt.Client, msg mqtt.Message) {
 }
 
 func (network *Network) socialHandler(client mqtt.Client, msg mqtt.Message) {
-	event := SocialEvent{}
-	if err := json.Unmarshal(msg.Payload(), &event); err != nil {
+	// Try parsing as SyncEvent first (new format)
+	syncEvent := SyncEvent{}
+	if err := json.Unmarshal(msg.Payload(), &syncEvent); err == nil {
+		if syncEvent.Service == ServiceSocial && syncEvent.Social != nil {
+			// Ignore our own events
+			if syncEvent.Social.Actor == network.meName() {
+				return
+			}
+			network.socialInbox <- syncEvent
+			return
+		}
+	}
+
+	// Fallback: try legacy SocialEvent format (for old nodes during rollout)
+	legacy := SocialEvent{}
+	if err := json.Unmarshal(msg.Payload(), &legacy); err != nil {
 		logrus.Infof("socialHandler: invalid JSON: %v", err)
 		return
 	}
 
 	// Ignore our own events
-	if event.Actor == network.meName() {
+	if legacy.Actor == network.meName() {
 		return
 	}
 
 	// Validate event
-	if !event.IsValid() || event.Actor == "" || event.Target == "" {
+	if !legacy.IsValid() || legacy.Actor == "" || legacy.Target == "" {
 		return
 	}
 
-	network.socialInbox <- event
+	// Convert to SyncEvent and send
+	network.socialInbox <- SyncEventFromSocialEvent(legacy)
 }
 
 func (network *Network) ledgerRequestHandler(client mqtt.Client, msg mqtt.Message) {
