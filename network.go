@@ -3282,8 +3282,11 @@ func (network *Network) exchangeZine(targetName string, myZine *Zine) {
 		return
 	}
 
-	// Create request with auth headers
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(zineBytes))
+	// Create request with 30s timeout to prevent goroutine leaks
+	ctx, cancel := context.WithTimeout(network.ctx, 30*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(zineBytes))
 	if err != nil {
 		logrus.Warnf("📰 Failed to create zine request for %s: %v", targetName, err)
 		return
