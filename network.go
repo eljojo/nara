@@ -1178,8 +1178,6 @@ func (network *Network) processNewspaperEvents() {
 }
 
 func (network *Network) handleNewspaperEvent(event NewspaperEvent) {
-	logrus.Debugf("newspaperHandler update from %s", event.From)
-
 	// Verify signature if present
 	if event.Signature != "" {
 		// Get public key - try from event status first, then from known neighbor
@@ -1213,6 +1211,23 @@ func (network *Network) handleNewspaperEvent(event NewspaperEvent) {
 				event.From,
 				truncateKey(nara.Status.PublicKey),
 				truncateKey(event.Status.PublicKey))
+		}
+		// Log key field differences before updating
+		var changes []string
+		if nara.Status.Flair != event.Status.Flair && event.Status.Flair != "" {
+			changes = append(changes, fmt.Sprintf("Flair:%s→%s", nara.Status.Flair, event.Status.Flair))
+		}
+		if nara.Status.Trend != event.Status.Trend && event.Status.Trend != "" {
+			changes = append(changes, fmt.Sprintf("Trend:%s→%s", nara.Status.Trend, event.Status.Trend))
+		}
+		if nara.Status.Chattiness != event.Status.Chattiness {
+			changes = append(changes, fmt.Sprintf("Chattiness:%d→%d", nara.Status.Chattiness, event.Status.Chattiness))
+		}
+		if nara.Version != "" && event.Status.Version != "" && nara.Version != event.Status.Version {
+			changes = append(changes, fmt.Sprintf("Version:%s→%s", nara.Version, event.Status.Version))
+		}
+		if len(changes) > 0 {
+			logrus.Debugf("📰 newspaper from %s: %s", event.From, strings.Join(changes, ", "))
 		}
 		nara.Status.setValuesFrom(event.Status)
 		nara.mu.Unlock()
@@ -3180,7 +3195,7 @@ func (network *Network) performGossipRound() {
 		return
 	}
 
-	logrus.Infof("📰 Gossiping with %d neighbors (zine has %d events)", len(targets), len(zine.Events))
+	logrus.Infof("📰 Gossiping with %d neighbors [%s] (zine has %d events)", len(targets), strings.Join(targets, ", "), len(zine.Events))
 
 	// Exchange zines with each target
 	for _, targetName := range targets {

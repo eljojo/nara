@@ -47,7 +47,6 @@ func (b *Buzz) decrease(howMuch int) {
 	// logrus.Debugf("decreasing buzz to %d", b.count)
 	if b.count < BuzzMin {
 		b.count = BuzzMin
-		logrus.Debugf("reached min buzz %d", b.count)
 	}
 }
 
