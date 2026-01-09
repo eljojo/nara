@@ -332,8 +332,10 @@ func TestIntegration_ZineCreationAndExchange(t *testing.T) {
 	bob.setObservation("alice", NaraObservation{Online: "ONLINE"})
 
 	// Alice creates some events
+	// NOTE: Each event must have unique content to avoid ID collisions when
+	// time.Now().UnixNano() returns the same value in a tight loop
 	for i := 0; i < 5; i++ {
-		event := NewSocialSyncEvent("tease", "alice", "bob", "test", "")
+		event := NewSocialSyncEvent("tease", "alice", "bob", fmt.Sprintf("test-%d", i), "")
 		alice.SyncLedger.AddEvent(event)
 	}
 

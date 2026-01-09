@@ -490,6 +490,11 @@ func (network *Network) observationMaintenance() {
 		}
 
 		for name, observation := range observations {
+			// Skip self - we can't observe ourselves as disappeared
+			if name == network.meName() {
+				continue
+			}
+
 			// Event-sourced status derivation
 			// This uses the event log to determine online status rather than LastSeen
 			if network.local.Projections != nil && !network.local.isBooting() {
@@ -523,9 +528,7 @@ func (network *Network) observationMaintenance() {
 					if previousState == "ONLINE" && derivedStatus == "MISSING" {
 						logrus.Printf("observation: %s has disappeared (verified)", name)
 						network.Buzz.increase(10)
-						if name != network.meName() {
-							go network.reportMissingWithDelay(name)
-						}
+						go network.reportMissingWithDelay(name)
 					} else if previousState == "ONLINE" && derivedStatus == "OFFLINE" {
 						logrus.Printf("observation: %s went offline gracefully", name)
 					}
