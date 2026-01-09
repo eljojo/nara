@@ -178,6 +178,15 @@ func (network *Network) formOpinion() {
 	if ghostCount > 0 {
 		logrus.Printf("👻 skipped %d ghost naras (no data from any neighbor)", ghostCount)
 	}
+
+	// Apply consensus for our own start time (using howdy votes collected during boot)
+	// This is deferred until now to have more data than the early 3-vote trigger
+	network.startTimeVotesMu.Lock()
+	if !network.startTimeApplied {
+		network.applyStartTimeConsensus()
+	}
+	network.startTimeVotesMu.Unlock()
+
 	logrus.Printf("👀  opinions formed")
 
 	// Garbage collect ghost naras that are safe to delete

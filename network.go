@@ -1328,10 +1328,8 @@ func (network *Network) collectStartTimeVote(obs NaraObservation, senderUptime u
 		uptime: senderUptime,
 	})
 
-	// If we have enough votes (e.g., 3), apply consensus
-	if len(network.startTimeVotes) >= 3 {
-		network.applyStartTimeConsensus()
-	}
+	// Don't apply consensus early - let formOpinion() handle it with more data
+	// after boot recovery completes (~3+ minutes)
 }
 
 // applyStartTimeConsensus applies consensus to determine our start time
