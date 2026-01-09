@@ -133,6 +133,57 @@ The transport layer automatically picks up events from SyncLedger and spreads th
 
 It's like some people use Twitter (MQTT - broadcast to all), some use Mastodon (gossip - federated P2P), and some use both - but they all see the same posts (SyncEvents).
 
+## Data Channel Reference
+
+Not all data flows through all channels. Understanding what goes where is critical for network resilience.
+
+### MQTT Newspapers Only (NaraStatus)
+
+These fields are broadcast via `nara/newspaper/{name}` and are **NOT** in the event store or zines. If MQTT stopped, this data would be lost:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Trend` | string | Current trend name (e.g., "robin-style") |
+| `TrendEmoji` | string | Trend emoji (e.g., "🔥") |
+| `HostStats.Uptime` | uint64 | System uptime in seconds |
+| `HostStats.LoadAvg` | float64 | System load average |
+| `Flair` | string | Derived status indicator |
+| `LicensePlate` | string | Visual identifier |
+| `Chattiness` | int64 | Posting frequency preference |
+| `Buzz` | int | Current activity level |
+| `Personality` | struct | Agreeableness, Sociability, Chill (0-100) |
+| `Version` | string | Software version |
+| `PublicUrl` | string | Public HTTP endpoint |
+| `Coordinates` | struct | Vivaldi network coordinates |
+| `TransportMode` | string | "mqtt", "gossip", or "hybrid" |
+
+Newspapers are **current state snapshots**, not history. They answer "what is this nara like right now?" rather than "what happened?"
+
+### Event Store (SyncLedger + Zines)
+
+These survive in the distributed event log and spread via zine gossip:
+
+| Service | Key Data | Purpose |
+|---------|----------|---------|
+| `hey-there` | PublicKey, MeshIP | Identity/discovery |
+| `chau` | From, PublicKey | Graceful shutdown signal |
+| `observation` | StartTime, RestartNum, LastRestart, OnlineState | Network state consensus |
+| `ping` | Observer, Target, RTT | Latency measurements |
+| `social` | Actor, Target, Reason | Teases and interactions |
+| `seen` | Observer, Subject, Via | Lightweight presence detection |
+
+Events are **state transitions** - they record what happened, not current state.
+
+### Implications
+
+1. **Trend tracking requires MQTT**: No events for trend join/leave. To track trends historically, we'd need to add trend events.
+
+2. **Host metrics are ephemeral**: Uptime and load only exist in the moment. No historical record.
+
+3. **Personality is broadcast, not recorded**: If you miss a newspaper, you don't know a nara's personality until the next broadcast.
+
+4. **Coordinates require newspapers**: Vivaldi coordinates only spread via status broadcasts.
+
 ### Mesh Discovery (Gossip-Only Mode)
 
 In gossip-only mode (no MQTT), naras discover each other by scanning the mesh network:
