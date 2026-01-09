@@ -544,6 +544,12 @@ func (network *Network) markEmittersAsSeen(events []SyncEvent) {
 		if emitter == "" || emitter == myName || seen[emitter] {
 			continue
 		}
+
+		// Skip chau events - they indicate the emitter is going OFFLINE, not online
+		if e.Service == ServiceChau {
+			continue
+		}
+
 		seen[emitter] = true
 
 		// Check if we already have this nara marked as online

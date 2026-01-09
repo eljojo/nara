@@ -1017,3 +1017,58 @@ func TestIntegration_PingVerificationBeforeMarkingMissing(t *testing.T) {
 	// Cleanup
 	network.testPingFunc = nil
 }
+
+// TestIntegration_ChauEventShouldNotMarkOnline validates that processing a chau event
+// via gossip/merge does NOT incorrectly mark the emitter as online.
+// Bug: When a zine contains a chau event, processChauSyncEvents correctly marks the
+// emitter as OFFLINE, but then markEmittersAsSeen would see the chau event's Emitter
+// and incorrectly mark them back as ONLINE.
+func TestIntegration_ChauEventShouldNotMarkOnline(t *testing.T) {
+	logrus.SetLevel(logrus.ErrorLevel)
+
+	// Create observer nara
+	observer := NewLocalNara("observer", testSoul("observer"), "", "", "", -1, 0)
+	observer.Network.TransportMode = TransportGossip
+
+	// Create the nara that will send chau
+	departing := NewLocalNara("departing-nara", testSoul("departing-nara"), "", "", "", -1, 0)
+
+	// Observer knows about departing nara
+	departingNara := NewNara("departing-nara")
+	departingNara.Status.PublicKey = FormatPublicKey(departing.Keypair.PublicKey)
+	observer.Network.importNara(departingNara)
+
+	// Mark departing nara as online initially
+	observer.setObservation("departing-nara", NaraObservation{
+		Online:   "ONLINE",
+		LastSeen: time.Now().Unix(),
+	})
+
+	// Mark observer as not booting (so markEmittersAsSeen runs)
+	me := observer.getMeObservation()
+	me.LastRestart = time.Now().Unix() - 200
+	me.LastSeen = time.Now().Unix()
+	observer.setMeObservation(me)
+
+	// Verify departing nara is online
+	obs := observer.getObservation("departing-nara")
+	if obs.Online != "ONLINE" {
+		t.Fatalf("Expected departing-nara to be ONLINE initially, got %s", obs.Online)
+	}
+
+	// Create a chau event from departing-nara
+	chauEvent := NewChauSyncEvent("departing-nara", FormatPublicKey(departing.Keypair.PublicKey), departing.Keypair)
+
+	// Process the chau event via MergeSyncEventsWithVerification (simulates receiving via gossip)
+	observer.Network.MergeSyncEventsWithVerification([]SyncEvent{chauEvent})
+
+	// The bug: After processing chau, the nara should be OFFLINE
+	// But markEmittersAsSeen was incorrectly marking them as ONLINE again
+	obs = observer.getObservation("departing-nara")
+	if obs.Online != "OFFLINE" {
+		t.Errorf("BUG: After processing chau event, departing-nara should be OFFLINE but got %s", obs.Online)
+		t.Log("The fix is to skip chau events in markEmittersAsSeen()")
+	} else {
+		t.Log("✅ Chau event correctly keeps nara OFFLINE")
+	}
+}

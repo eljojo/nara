@@ -811,9 +811,11 @@ func (network *Network) httpDMHandler(w http.ResponseWriter, r *http.Request) {
 		network.broadcastSSE(event)
 	}
 
-	// Mark sender as online
-	network.recordObservationOnlineNara(event.Emitter)
-	network.emitSeenEvent(event.Emitter, "dm")
+	// Mark sender as online (unless this is a chau event - those mean "I'm shutting down")
+	if event.Service != ServiceChau {
+		network.recordObservationOnlineNara(event.Emitter)
+		network.emitSeenEvent(event.Emitter, "dm")
+	}
 
 	logrus.Infof("📬 Received DM from %s: event %s added=%v", event.Emitter, event.ID, added)
 
