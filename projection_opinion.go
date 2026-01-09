@@ -4,6 +4,8 @@ import (
 	"context"
 	"sort"
 	"sync"
+
+	"github.com/sirupsen/logrus"
 )
 
 // ObservationRecord stores observation event data for consensus calculation.
@@ -102,7 +104,7 @@ func (p *OpinionConsensusProjection) DeriveOpinion(subject string) OpinionData {
 	startTime := deriveProjectionStartTimeConsensus(obsCopy, tolerance)
 
 	// Derive Restarts (use highest restart count)
-	restarts := deriveProjectionRestartsConsensus(obsCopy)
+	restarts := deriveProjectionRestartsConsensus(obsCopy, subject)
 
 	// Derive LastRestart (most recent)
 	lastRestart := deriveProjectionLastRestartConsensus(obsCopy)
@@ -138,13 +140,27 @@ func deriveProjectionStartTimeConsensus(observations []ObservationRecord, tolera
 }
 
 // deriveProjectionRestartsConsensus returns the highest restart count seen.
-func deriveProjectionRestartsConsensus(observations []ObservationRecord) int64 {
+func deriveProjectionRestartsConsensus(observations []ObservationRecord, subject string) int64 {
 	maxRestarts := int64(0)
 	for _, obs := range observations {
 		if obs.RestartNum > maxRestarts {
 			maxRestarts = obs.RestartNum
 		}
 	}
+
+	// Also calculate using uptime-weighted clustering for comparison
+	var values []projectionConsensusValue
+	for _, obs := range observations {
+		if obs.RestartNum > 0 {
+			values = append(values, projectionConsensusValue{value: obs.RestartNum, weight: obs.ObserverUptime})
+		}
+	}
+	clusteredRestarts := projectionConsensusByUptime(values, 1) // tolerance of 1 for restart counts
+
+	if clusteredRestarts != maxRestarts && clusteredRestarts > 0 {
+		logrus.Debugf("restarts consensus diff for %s: max=%d, clustered=%d", subject, maxRestarts, clusteredRestarts)
+	}
+
 	return maxRestarts
 }
 
