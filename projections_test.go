@@ -810,3 +810,45 @@ func TestOnlineStatusRaceWithVersionChange(t *testing.T) {
 		t.Log("This would indicate the timestamp-sorting fix isn't working")
 	}
 }
+
+// TestOnlineStatusSocialEventsMarkActorOnline verifies that social events (teases)
+// mark the Actor as ONLINE. This is critical because naras that actively tease
+// others should not be marked as MISSING/disappeared.
+func TestOnlineStatusSocialEventsMarkActorOnline(t *testing.T) {
+	ledger := NewSyncLedger(100)
+	projection := NewOnlineStatusProjection(ledger)
+
+	now := time.Now().UnixNano()
+
+	// tame-sun teases r2d2 - this should mark tame-sun as ONLINE
+	ledger.AddEvent(SyncEvent{
+		Timestamp: now,
+		Service:   ServiceSocial,
+		Emitter:   "tame-sun",
+		Social: &SocialEventPayload{
+			Type:   "tease",
+			Actor:  "tame-sun",
+			Target: "r2d2",
+			Reason: "r2d2 discovering the restart button",
+		},
+	})
+
+	// Process the social event
+	projection.RunOnce()
+
+	// tame-sun should be ONLINE because they just teased someone
+	status := projection.GetStatus("tame-sun")
+	if status != "ONLINE" {
+		t.Errorf("Expected tame-sun to be ONLINE after teasing (Actor in social event), got: %q", status)
+		t.Log("Social events should mark the Actor as ONLINE - they are actively participating")
+	}
+
+	// Verify the state was properly recorded
+	state := projection.GetState("tame-sun")
+	if state == nil {
+		t.Fatal("Expected tame-sun to have state after social event, got nil")
+	}
+	if state.LastEventType != ServiceSocial {
+		t.Errorf("Expected LastEventType to be %q, got %q", ServiceSocial, state.LastEventType)
+	}
+}

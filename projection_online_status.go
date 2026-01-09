@@ -100,6 +100,12 @@ func (p *OnlineStatusProjection) handleEvent(event SyncEvent) error {
 				newStatus = "ONLINE"
 			}
 		}
+	case ServiceSocial:
+		// Social events (tease, observed, gossip) prove the Actor is active/online
+		if event.Social != nil {
+			targetName = event.Social.Actor
+			newStatus = "ONLINE"
+		}
 	}
 
 	if targetName == "" || newStatus == "" {
