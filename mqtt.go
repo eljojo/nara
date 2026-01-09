@@ -265,6 +265,14 @@ func (network *Network) disconnectMQTT() {
 func (network *Network) Shutdown() {
 	logrus.Printf("🛑 Initiating graceful shutdown...")
 
+	// Perform final gossip round to spread our chau event (if gossip is enabled)
+	if network.tsnetMesh != nil && network.TransportMode != TransportMQTT && !network.ReadOnly {
+		logrus.Printf("📰 Sending final zine with chau event...")
+		network.performGossipRound()
+		// Give the HTTP requests a moment to complete
+		time.Sleep(500 * time.Millisecond)
+	}
+
 	// Cancel context to signal all goroutines to stop
 	if network.cancelFunc != nil {
 		network.cancelFunc()
