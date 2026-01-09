@@ -16,7 +16,12 @@ func (network *Network) mqttOnConnectHandler() mqtt.OnConnectHandler {
 		logrus.Println("Connected to MQTT")
 
 		network.subscribeHandlers(client)
-		network.heyThere()
+
+		// Add jitter (0-5s) to prevent thundering herd when multiple narae reconnect simultaneously
+		jitter := time.Duration(rand.Intn(5000)) * time.Millisecond
+		time.AfterFunc(jitter, func() {
+			network.heyThere()
+		})
 	}
 	return connectHandler
 }

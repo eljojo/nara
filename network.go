@@ -1085,6 +1085,10 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 	}
 
 	if !network.ReadOnly {
+		// Add jitter (0-5s) to prevent thundering herd when multiple narae start simultaneously
+		jitter := time.Duration(rand.Intn(5000)) * time.Millisecond
+		time.Sleep(jitter)
+
 		network.heyThere() // MQTT broadcast (old style - to be deprecated)
 		network.announce()
 		network.InitGossipIdentity() // Emit hey_there sync event (new style)
