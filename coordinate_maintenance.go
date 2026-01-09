@@ -57,7 +57,8 @@ func (network *Network) selectPingTarget() string {
 	var targets []pingTarget
 
 	for name, nara := range network.Neighbourhood {
-		obs := nara.getObservation(name)
+		// Get our observation of this peer (not their self-observation)
+		obs := network.local.getObservationLocked(name)
 		if obs.Online != "ONLINE" {
 			continue
 		}
@@ -71,18 +72,15 @@ func (network *Network) selectPingTarget() string {
 			continue // Can't ping without mesh IP
 		}
 
-		// Get our observation of this peer
-		myObs := network.local.getObservationLocked(name)
-
 		// Calculate priority
 		var priority float64
 
 		// Never pinged = highest priority (1000)
-		if myObs.LastPingTime == 0 {
+		if obs.LastPingTime == 0 {
 			priority = 1000 + rand.Float64()*10 // Add jitter
 		} else {
 			// Calculate staleness (seconds since last ping)
-			staleness := float64(now - myObs.LastPingTime)
+			staleness := float64(now - obs.LastPingTime)
 
 			// High error = needs more measurements
 			errorBonus := 0.0
