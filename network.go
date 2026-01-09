@@ -559,8 +559,9 @@ func (network *Network) markEmittersAsSeen(events []SyncEvent) {
 		}
 
 		// Mark them as seen - we received events they emitted
+		// NOTE: We do NOT emit a seen event here - the emitter is proving themselves
+		// through their own events. Seen events are only for vouching for quiet naras.
 		network.recordObservationOnlineNara(emitter)
-		network.emitSeenEvent(emitter, "event")
 		logrus.Debugf("📖 Marked %s as seen via event emission", emitter)
 	}
 }
@@ -1251,8 +1252,8 @@ func (network *Network) handleNewspaperEvent(event NewspaperEvent) {
 		network.importNara(nara)
 	}
 
+	// The newspaper itself is an event emitted by them - they prove themselves
 	network.recordObservationOnlineNara(event.From)
-	network.emitSeenEvent(event.From, "newspaper")
 }
 
 func (network *Network) processHowdyEvents() {
@@ -1278,8 +1279,8 @@ func (network *Network) handleHowdyEvent(howdy HowdyEvent) {
 	sender := NewNara(howdy.From)
 	sender.Status = howdy.Me
 	network.importNara(sender)
+	// The howdy itself is an event they emitted - they prove themselves
 	network.recordObservationOnlineNara(howdy.From)
-	network.emitSeenEvent(howdy.From, "howdy")
 
 	// 2. If this howdy is for us, process it fully
 	if howdy.To == network.meName() {
@@ -1419,8 +1420,8 @@ func (network *Network) handleHeyThereEvent(event SyncEvent) {
 	}
 
 	logrus.Printf("%s says: hey there!", heyThere.From)
+	// The hey_there itself is an event they emitted - they prove themselves
 	network.recordObservationOnlineNara(heyThere.From)
-	network.emitSeenEvent(heyThere.From, "hey_there")
 
 	// Add to ledger for gossip propagation
 	if network.local.SyncLedger != nil {
@@ -3307,8 +3308,8 @@ func (network *Network) exchangeZine(targetName string, myZine *Zine) {
 	}
 
 	// Mark peer as online - successful zine exchange proves they're reachable
+	// Their events in the zine already prove they're active, no need for seen event
 	network.recordObservationOnlineNara(targetName)
-	network.emitSeenEvent(targetName, "zine")
 }
 
 // SendDM sends a SyncEvent directly to a target nara via HTTP POST to /dm.

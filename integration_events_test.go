@@ -1252,3 +1252,117 @@ func TestIntegration_MissingToOnlineViaSeenEvent_NoRestartIncrement(t *testing.T
 		}
 	}
 }
+func TestIntegration_NoRedundantSeenEventsForActiveNaras(t *testing.T) {
+	// Regression test for the seen event leak bug.
+	// When we receive events via gossip that were emitted by other naras,
+	// we should NOT emit seen events for those naras - they're proving themselves
+	// through their own events.
+	//
+	// Before the fix: We would emit seen events for every emitter we encountered,
+	// resulting in 40%+ of all events being redundant seen events.
+	//
+	// After the fix: We only emit seen events for truly quiet naras (haven't
+	// emitted in 5+ minutes), not for naras whose events we just received.
+
+	logrus.SetLevel(logrus.ErrorLevel)
+
+	os.Setenv("USE_OBSERVATION_EVENTS", "true")
+	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
+
+	observer := NewLocalNara("observer", testSoul("observer"), "", "", "", 50, 1000)
+	network := observer.Network
+
+	// Set up so we're not in booting mode
+	me := observer.getMeObservation()
+	me.LastRestart = time.Now().Unix() - 200
+	me.LastSeen = time.Now().Unix()
+	observer.setMeObservation(me)
+
+	// Create keypairs for test naras
+	aliceSoul := NativeSoulCustom([]byte("test-hw-alice"), "alice")
+	aliceKeypair := DeriveKeypair(aliceSoul)
+
+	bobSoul := NativeSoulCustom([]byte("test-hw-bob"), "bob")
+	bobKeypair := DeriveKeypair(bobSoul)
+
+	// Import them
+	aliceNara := NewNara("alice")
+	aliceNara.Status.PublicKey = FormatPublicKey(aliceKeypair.PublicKey)
+	network.importNara(aliceNara)
+
+	bobNara := NewNara("bob")
+	bobNara.Status.PublicKey = FormatPublicKey(bobKeypair.PublicKey)
+	network.importNara(bobNara)
+
+	// Count seen events before processing
+	countSeenEvents := func() int {
+		count := 0
+		for _, e := range observer.SyncLedger.GetAllEvents() {
+			if e.Service == ServiceSeen {
+				count++
+			}
+		}
+		return count
+	}
+
+	seenBefore := countSeenEvents()
+
+	// Simulate receiving events via gossip (zine exchange)
+	// These events were emitted by alice and bob - they're proving themselves
+	aliceTease := NewSignedSocialSyncEvent("tease", "alice", "someone", ReasonHighRestarts, "witness", "alice", aliceKeypair)
+	bobTease := NewSignedSocialSyncEvent("tease", "bob", "someone", ReasonHighRestarts, "witness", "bob", bobKeypair)
+
+	// Process these events as if we received them in a zine
+	network.MergeSyncEventsWithVerification([]SyncEvent{aliceTease, bobTease})
+
+	seenAfter := countSeenEvents()
+
+	// Check: We should NOT have emitted seen events for alice or bob
+	// They just proved they're active by emitting events!
+	if seenAfter > seenBefore {
+		t.Errorf("FAIL: Emitted %d redundant seen events for naras who just proved themselves", seenAfter-seenBefore)
+		t.Log("When we receive events emitted by a nara, they're proving themselves")
+		t.Log("We should NOT also emit a seen event for them - that's redundant")
+		
+		// Show which seen events were created
+		for _, e := range observer.SyncLedger.GetAllEvents() {
+			if e.Service == ServiceSeen && e.Seen != nil && e.Timestamp > time.Now().Add(-1*time.Second).UnixNano() {
+				t.Logf("  - Redundant seen event: %s saw %s", e.Seen.Observer, e.Seen.Subject)
+			}
+		}
+	} else {
+		t.Log("✅ Correctly did NOT emit seen events for naras who emitted events")
+	}
+
+	// Test 2: Verify we DO emit seen events for truly quiet naras
+	// (naras we interact with who haven't emitted recently)
+	
+	// Charlie is quiet (no recent events)
+	charlieSoul := NativeSoulCustom([]byte("test-hw-charlie"), "charlie")
+	charlieKeypair := DeriveKeypair(charlieSoul)
+	charlieNara := NewNara("charlie")
+	charlieNara.Status.PublicKey = FormatPublicKey(charlieKeypair.PublicKey)
+	network.importNara(charlieNara)
+
+	// Charlie had events 10 minutes ago (old, beyond the 5 minute threshold)
+	oldEvent := NewSignedSocialSyncEvent("tease", "charlie", "someone", ReasonHighRestarts, "witness", "charlie", charlieKeypair)
+	oldEvent.Timestamp = time.Now().Add(-10 * time.Minute).UnixNano()
+	oldEvent.ComputeID()
+	oldEvent.Sign("charlie", charlieKeypair)
+	observer.SyncLedger.AddEvent(oldEvent)
+
+	seenBeforeMesh := countSeenEvents()
+
+	// Now we discover charlie on the mesh (they're not actively emitting, just present)
+	network.emitSeenEvent("charlie", "mesh")
+
+	seenAfterMesh := countSeenEvents()
+
+	// Check: We SHOULD have emitted a seen event for charlie (they're quiet)
+	if seenAfterMesh <= seenBeforeMesh {
+		t.Error("FAIL: Should emit seen event for quiet nara discovered on mesh")
+		t.Log("Charlie hasn't emitted in 10 minutes - they need vouching")
+	} else {
+		t.Log("✅ Correctly emitted seen event for quiet nara")
+	}
+}

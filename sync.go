@@ -1333,12 +1333,18 @@ func eventPruningPriority(e SyncEvent) int {
 		return 3
 	}
 
+	// Very low priority (4): seen events - mostly redundant vouching
+	// With the fix, we should have far fewer of these, but old ones should be pruned aggressively
+	if e.Service == ServiceSeen {
+		return 4
+	}
+
 	// Default medium priority
 	return 2
 }
 
 // Prune removes old events to stay within MaxEvents limit.
-// Uses priority-based pruning: ping events are pruned first, then social events,
+// Uses priority-based pruning: seen events pruned first, then pings, then social,
 // then status-change. Critical events (restart, first-seen) are NEVER pruned.
 func (l *SyncLedger) Prune() {
 	l.mu.Lock()
