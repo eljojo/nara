@@ -3776,10 +3776,11 @@ func (network *Network) getRecentEventsFor(name string) []SyncEvent {
 	return relevant
 }
 
-// emitSeenEvent emits a "seen" event when we interact with a nara.
-// This is a lightweight event that proves we received something from them.
-// Signed so other naras can verify who made the observation.
-// Rate-limited to avoid spamming the ledger.
+// emitSeenEvent emits a "seen" event to vouch for a quiet nara.
+// Only emits if the subject hasn't emitted any events themselves in the last 5 minutes.
+// This way, active naras prove themselves through their own events,
+// while quiet naras get vouched for by those who interact with them.
+// Also rate-limited to 1 per 2 minutes per subject to avoid spam.
 func (network *Network) emitSeenEvent(subject, via string) {
 	if network.local.SyncLedger == nil || network.local.isBooting() {
 		return
@@ -3790,23 +3791,58 @@ func (network *Network) emitSeenEvent(subject, via string) {
 		return
 	}
 
-	// Rate limit: check if WE emitted a seen event for this subject recently
-	// Only check our own seen events, not other event types (hey_there, chau, etc.)
+	// Don't emit if subject is already known to be online
+	obs := network.local.getObservation(subject)
+	if obs.Online == "ONLINE" {
+		return
+	}
+
 	me := network.meName()
 	allEvents := network.local.SyncLedger.GetAllEvents()
 	now := time.Now().UnixNano()
+	quietThreshold := int64(5 * time.Minute)
+	rateLimit := int64(2 * time.Minute)
 
+	// Check two things:
+	// 1. Has the subject emitted any events recently? (if so, they don't need vouching)
+	// 2. Have we already emitted a seen event for them recently? (rate limit)
+	subjectIsQuiet := true
+	weEmittedRecently := false
+
+	// Scan all events (can't break early since events aren't sorted by timestamp)
 	for i := len(allEvents) - 1; i >= 0; i-- {
 		e := allEvents[i]
-		// Only check seen events we emitted about this subject
-		if e.Service == ServiceSeen && e.Seen != nil &&
-			e.Seen.Observer == me && e.Seen.Subject == subject {
-			age := now - e.Timestamp
-			if age < int64(time.Minute) {
-				return // We already emitted a seen event recently
-			}
-			break // Found our most recent seen for this subject, it's old enough
+		age := now - e.Timestamp
+
+		// Skip events outside our time windows
+		if age > quietThreshold {
+			continue
 		}
+
+		// Check if subject emitted this event (they're active, don't need vouching)
+		if subjectIsQuiet && e.Emitter == subject {
+			subjectIsQuiet = false
+		}
+
+		// Check if we emitted a seen event for this subject recently
+		if !weEmittedRecently && age < rateLimit &&
+			e.Service == ServiceSeen && e.Seen != nil &&
+			e.Seen.Observer == me && e.Seen.Subject == subject {
+			weEmittedRecently = true
+		}
+
+		// Early exit if we've found both conditions
+		if !subjectIsQuiet && weEmittedRecently {
+			break
+		}
+	}
+
+	// Only emit if: subject is quiet AND we haven't emitted recently
+	if !subjectIsQuiet {
+		return // Subject is active, their own events prove they're online
+	}
+	if weEmittedRecently {
+		return // We already vouched for them recently
 	}
 
 	event := NewSeenSyncEvent(me, subject, via, network.local.Keypair)

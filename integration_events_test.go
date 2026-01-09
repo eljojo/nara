@@ -882,7 +882,9 @@ func TestIntegration_ZineMergeMarksEmittersAsSeen(t *testing.T) {
 		t.Log("Actual: r2d2 is discovered but not marked online until we receive their newspaper directly")
 	}
 
-	// Additionally, we should have emitted a seen event for r2d2
+	// With the new "quiet nara" logic, we should NOT emit a seen event for r2d2
+	// because they have recent events (the tease we just received proves they're active).
+	// Seen events are only emitted for quiet naras who haven't emitted anything recently.
 	seenEvents := 0
 	for _, e := range ln.SyncLedger.GetAllEvents() {
 		if e.Service == ServiceSeen && e.Seen != nil && e.Seen.Subject == "r2d2" {
@@ -890,8 +892,8 @@ func TestIntegration_ZineMergeMarksEmittersAsSeen(t *testing.T) {
 		}
 	}
 
-	if seenEvents == 0 {
-		t.Error("BUG: Should have emitted a seen event for r2d2 after receiving events they emitted")
+	if seenEvents > 0 {
+		t.Error("Should NOT emit seen event for r2d2 - their own events prove they're active")
 	}
 }
 
@@ -1070,5 +1072,183 @@ func TestIntegration_ChauEventShouldNotMarkOnline(t *testing.T) {
 		t.Log("The fix is to skip chau events in markEmittersAsSeen()")
 	} else {
 		t.Log("✅ Chau event correctly keeps nara OFFLINE")
+	}
+}
+
+func TestIntegration_SeenEventsOnlyForQuietNaras(t *testing.T) {
+	// Seen events should only be emitted for "quiet" naras - those who haven't
+	// emitted any events themselves in the last 5 minutes. Active naras prove
+	// themselves through their own events and don't need vouching.
+
+	logrus.SetLevel(logrus.ErrorLevel)
+
+	os.Setenv("USE_OBSERVATION_EVENTS", "true")
+	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
+
+	ln := NewLocalNara("observer", testSoul("observer"), "", "", "", 50, 1000)
+	network := ln.Network
+
+	// Set up so we're not in booting mode
+	me := ln.getMeObservation()
+	me.LastRestart = time.Now().Unix() - 200
+	me.LastSeen = time.Now().Unix()
+	ln.setMeObservation(me)
+
+	// Create keypairs for test naras
+	activeSoul := NativeSoulCustom([]byte("test-hw-active"), "active-nara")
+	activeKeypair := DeriveKeypair(activeSoul)
+
+	quietSoul := NativeSoulCustom([]byte("test-hw-quiet"), "quiet-nara")
+	quietKeypair := DeriveKeypair(quietSoul)
+
+	// Import both naras with their public keys
+	activeNara := NewNara("active-nara")
+	activeNara.Status.PublicKey = FormatPublicKey(activeKeypair.PublicKey)
+	network.importNara(activeNara)
+
+	quietNara := NewNara("quiet-nara")
+	quietNara.Status.PublicKey = FormatPublicKey(quietKeypair.PublicKey)
+	network.importNara(quietNara)
+
+	// Active nara has emitted a recent event (within last 5 minutes)
+	recentEvent := NewSignedSocialSyncEvent("tease", "active-nara", "someone", ReasonHighRestarts, "witness", "active-nara", activeKeypair)
+	ln.SyncLedger.AddEvent(recentEvent)
+
+	// Quiet nara has only old events (6 minutes ago = older than 5 min threshold)
+	oldEvent := NewSignedSocialSyncEvent("tease", "quiet-nara", "someone", ReasonHighRestarts, "witness", "quiet-nara", quietKeypair)
+	// Manually set timestamp to 6 minutes ago
+	oldEvent.Timestamp = time.Now().Add(-6 * time.Minute).UnixNano()
+	oldEvent.ComputeID() // Recompute ID with new timestamp
+	oldEvent.Sign("quiet-nara", quietKeypair)
+	ln.SyncLedger.AddEvent(oldEvent)
+
+	// Count seen events before
+	countSeenFor := func(subject string) int {
+		count := 0
+		for _, e := range ln.SyncLedger.GetAllEvents() {
+			if e.Service == ServiceSeen && e.Seen != nil && e.Seen.Subject == subject {
+				count++
+			}
+		}
+		return count
+	}
+
+	seenForActiveBefore := countSeenFor("active-nara")
+	seenForQuietBefore := countSeenFor("quiet-nara")
+
+	// Now emit seen events for both naras (simulating an interaction like gossip)
+	network.emitSeenEvent("active-nara", "test")
+	network.emitSeenEvent("quiet-nara", "test")
+
+	seenForActiveAfter := countSeenFor("active-nara")
+	seenForQuietAfter := countSeenFor("quiet-nara")
+
+	// Check: active nara should NOT get a seen event (they're proving themselves)
+	if seenForActiveAfter > seenForActiveBefore {
+		t.Errorf("FAIL: Should NOT emit seen event for active nara (has recent events)")
+		t.Logf("Active nara seen events: before=%d, after=%d", seenForActiveBefore, seenForActiveAfter)
+		t.Log("Active naras prove themselves through their own events - no vouching needed")
+	} else {
+		t.Log("✅ Correctly skipped seen event for active nara")
+	}
+
+	// Check: quiet nara SHOULD get a seen event (they need vouching)
+	if seenForQuietAfter <= seenForQuietBefore {
+		t.Errorf("FAIL: Should emit seen event for quiet nara (no recent events)")
+		t.Logf("Quiet nara seen events: before=%d, after=%d", seenForQuietBefore, seenForQuietAfter)
+		t.Log("Quiet naras need vouching since they haven't emitted events themselves")
+	} else {
+		t.Log("✅ Correctly emitted seen event for quiet nara")
+	}
+
+	// Test 3: Nara already marked ONLINE should NOT get seen events
+	// even if they're quiet (no recent events)
+	onlineNara := NewNara("online-nara")
+	network.importNara(onlineNara)
+	// Mark as ONLINE in observations
+	ln.setObservation("online-nara", NaraObservation{Online: "ONLINE", LastSeen: time.Now().Unix()})
+
+	seenForOnlineBefore := countSeenFor("online-nara")
+	network.emitSeenEvent("online-nara", "test")
+	seenForOnlineAfter := countSeenFor("online-nara")
+
+	if seenForOnlineAfter > seenForOnlineBefore {
+		t.Errorf("FAIL: Should NOT emit seen event for nara already marked ONLINE")
+		t.Logf("Online nara seen events: before=%d, after=%d", seenForOnlineBefore, seenForOnlineAfter)
+		t.Log("No need to vouch for naras we already know are online")
+	} else {
+		t.Log("✅ Correctly skipped seen event for already-online nara")
+	}
+}
+
+func TestIntegration_MissingToOnlineViaSeenEvent_NoRestartIncrement(t *testing.T) {
+	// When a nara goes MISSING → ONLINE via someone else's seen event,
+	// the restart count should NOT increment. The nara never actually restarted,
+	// we just temporarily lost contact with them.
+	//
+	// There are two paths for status changes:
+	// 1. Via observationMaintenance (projection-derived) - sets Online directly, no restart increment
+	// 2. Via recordObservationOnlineNara - would incorrectly increment restarts
+	//
+	// This test verifies that receiving a seen event about a nara uses path #1.
+
+	logrus.SetLevel(logrus.ErrorLevel)
+
+	os.Setenv("USE_OBSERVATION_EVENTS", "true")
+	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
+
+	ln := NewLocalNara("observer", testSoul("observer"), "", "", "", 50, 1000)
+	network := ln.Network
+
+	// Set up so we're not in booting mode
+	me := ln.getMeObservation()
+	me.LastRestart = time.Now().Unix() - 200
+	me.LastSeen = time.Now().Unix()
+	ln.setMeObservation(me)
+
+	// Create Bob who will be MISSING
+	bobNara := NewNara("bob")
+	network.importNara(bobNara)
+
+	// Set Bob as MISSING with a restart count of 5
+	bobObs := NaraObservation{
+		Online:      "MISSING",
+		LastSeen:    time.Now().Unix() - 600, // 10 minutes ago
+		StartTime:   time.Now().Unix() - 3600,
+		Restarts:    5,
+		LastRestart: time.Now().Unix() - 3600,
+	}
+	ln.setObservation("bob", bobObs)
+
+	// Create a seen event from Alice saying she saw Bob
+	aliceSoul := NativeSoulCustom([]byte("test-hw-alice"), "alice")
+	aliceKeypair := DeriveKeypair(aliceSoul)
+	seenEvent := NewSeenSyncEvent("alice", "bob", "mesh", aliceKeypair)
+
+	// Simulate receiving this event through MergeSyncEventsWithVerification
+	// (the normal gossip path)
+	network.MergeSyncEventsWithVerification([]SyncEvent{seenEvent})
+
+	// Check that Bob's restart count didn't change
+	// The seen event should NOT trigger recordObservationOnlineNara for Bob
+	// because Alice is the emitter, not Bob
+	finalObs := ln.getObservation("bob")
+
+	if finalObs.Restarts != 5 {
+		t.Errorf("FAIL: Restart count changed when receiving seen event about Bob")
+		t.Logf("Expected restarts=5, got restarts=%d", finalObs.Restarts)
+		t.Log("Receiving someone else's seen event should NOT increment restart count")
+	} else {
+		t.Log("✅ Restart count correctly unchanged when receiving seen event about Bob")
+	}
+
+	// Bob should still be MISSING after just receiving a seen event
+	// (the projection would eventually mark them ONLINE, but that happens
+	// through observationMaintenance which also doesn't increment restarts)
+	if finalObs.Online == "ONLINE" {
+		// If Bob is somehow ONLINE, ensure restarts didn't change
+		if finalObs.Restarts != 5 {
+			t.Error("FAIL: Bob became ONLINE but restart count also changed")
+		}
 	}
 }
