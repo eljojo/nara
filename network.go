@@ -536,6 +536,16 @@ func (network *Network) markEmittersAsSeen(events []SyncEvent) {
 		return // Don't mark during boot to avoid noise
 	}
 
+	// First pass: identify which emitters have chau events in this batch
+	// These naras are shutting down and should NOT be marked as online,
+	// even if they have other events in the batch (e.g., events created before shutdown).
+	shuttingDown := make(map[string]bool)
+	for _, e := range events {
+		if e.Service == ServiceChau && e.Chau != nil && e.Chau.From != "" {
+			shuttingDown[e.Chau.From] = true
+		}
+	}
+
 	seen := make(map[string]bool)
 	myName := network.meName()
 
@@ -547,6 +557,13 @@ func (network *Network) markEmittersAsSeen(events []SyncEvent) {
 
 		// Skip chau events - they indicate the emitter is going OFFLINE, not online
 		if e.Service == ServiceChau {
+			continue
+		}
+
+		// Skip if this emitter has a chau event in the same batch
+		// This prevents marking a shutting-down nara as online based on their
+		// older events (social, ping, etc.) that were created before shutdown.
+		if shuttingDown[emitter] {
 			continue
 		}
 

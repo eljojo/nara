@@ -1075,6 +1075,99 @@ func TestIntegration_ChauEventShouldNotMarkOnline(t *testing.T) {
 	}
 }
 
+// TestIntegration_ChauWithOtherEventsFromSameNara validates the scenario where a zine
+// contains multiple events from a nara including their chau event.
+// Bug: When a nara shuts down, their zine might contain:
+// 1. Social/ping events they created before shutdown (with Emitter=their_name)
+// 2. Their chau event
+// markEmittersAsSeen was processing the non-chau events and marking the nara ONLINE,
+// even though they had a chau event in the same batch.
+func TestIntegration_ChauWithOtherEventsFromSameNara(t *testing.T) {
+	logrus.SetLevel(logrus.ErrorLevel)
+
+	// Create observer nara
+	observer := NewLocalNara("observer", testSoul("observer-chau-multi"), "", "", "", -1, 0)
+	observer.Network.TransportMode = TransportGossip
+
+	// Create the nara that will shut down
+	departing := NewLocalNara("condorito", testSoul("condorito-chau-multi"), "", "", "", -1, 0)
+
+	// Observer knows about condorito - CRITICAL: Set public key for signature verification
+	condoritoNara := NewNara("condorito")
+	condoritoNara.Status.PublicKey = FormatPublicKey(departing.Keypair.PublicKey)
+	observer.Network.importNara(condoritoNara)
+
+	// Mark condorito as online initially
+	observer.setObservation("condorito", NaraObservation{
+		Online:   "ONLINE",
+		LastSeen: time.Now().Unix(),
+	})
+
+	// Mark observer as not booting (so markEmittersAsSeen runs)
+	me := observer.getMeObservation()
+	me.LastRestart = time.Now().Unix() - 200
+	me.LastSeen = time.Now().Unix()
+	observer.setMeObservation(me)
+
+	// Create multiple events from condorito, simulating a zine they sent before/during shutdown
+	baseTime := time.Now().UnixNano()
+
+	// Create unsigned events for testing the logic (not signature verification)
+	// Event 1: Social event created before shutdown (Emitter=condorito)
+	socialEvent := SyncEvent{
+		Timestamp: baseTime - int64(10*time.Second),
+		Service:   ServiceSocial,
+		Emitter:   "condorito",
+		Social: &SocialEventPayload{
+			Type:   "tease",
+			Actor:  "condorito",
+			Target: "observer",
+			Reason: ReasonRandom,
+		},
+	}
+	socialEvent.ComputeID()
+
+	// Event 2: Ping event created before shutdown (Emitter=condorito)
+	pingEvent := SyncEvent{
+		Timestamp: baseTime - int64(5*time.Second),
+		Service:   ServicePing,
+		Emitter:   "condorito",
+		Ping: &PingObservation{
+			Observer: "condorito",
+			Target:   "observer",
+			RTT:      5.0,
+		},
+	}
+	pingEvent.ComputeID()
+
+	// Event 3: Chau event (condorito is shutting down)
+	chauEvent := SyncEvent{
+		Timestamp: baseTime,
+		Service:   ServiceChau,
+		Emitter:   "condorito",
+		Chau: &ChauEvent{
+			From:      "condorito",
+			PublicKey: FormatPublicKey(departing.Keypair.PublicKey),
+		},
+	}
+	chauEvent.ComputeID()
+
+	// Process all events together (simulates receiving a zine with multiple events)
+	observer.Network.MergeSyncEventsWithVerification([]SyncEvent{socialEvent, pingEvent, chauEvent})
+
+	// After processing, condorito should be OFFLINE (chau wins)
+	// The bug was that markEmittersAsSeen would see the social/ping events
+	// with Emitter=condorito and mark them ONLINE, ignoring the chau event.
+	obs := observer.getObservation("condorito")
+	if obs.Online != "OFFLINE" {
+		t.Errorf("BUG: After processing multiple events including chau, condorito should be OFFLINE but got %s", obs.Online)
+		t.Log("The fix is for markEmittersAsSeen to check if the emitter has a chau event in the same batch")
+		t.Log("and skip marking them ONLINE if they do")
+	} else {
+		t.Log("✅ Chau event correctly overrides other events from same nara in batch")
+	}
+}
+
 func TestIntegration_SeenEventsOnlyForQuietNaras(t *testing.T) {
 	// Seen events should only be emitted for "quiet" naras - those who haven't
 	// emitted any events themselves in the last 5 minutes. Active naras prove
