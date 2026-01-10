@@ -429,3 +429,74 @@ func TestGarbageCollectGhostNaras(t *testing.T) {
 		t.Error("neighbor-a→neighbor-b observation event should still exist")
 	}
 }
+
+// TestPingVerificationRateLimitBug reproduces a production bug where:
+// 1. Maintenance cycle detects MISSING, pings successfully, keeps ONLINE
+// 2. The reportMissingWithDelay goroutine fires (from before the ping)
+// 3. It calls verifyOnlineWithPing again within 60s (rate-limited)
+// 4. BUG: Rate-limit returns false, treated as failed ping, emits MISSING event
+//
+// Expected: Rate-limited ping should return cached result (true), not false
+//
+// Production logs showed:
+//   🔍 Verification ping to racoon succeeded (4.00ms) - still online!
+//   🔍 Disagreement resolved: racoon reported MISSING but ping succeeded - keeping ONLINE
+//   observation: racoon has disappeared (verified)
+//   📊 Status-change observation event: racoon → MISSING (after 9s delay, verified)
+func TestPingVerificationRateLimitBug(t *testing.T) {
+	// Setup
+	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
+	network := ln.Network
+	other := NewNara("other")
+	network.importNara(other)
+
+	// Ensure nara is not in booting state (set LastRestart to 200 seconds ago)
+	meObs := ln.getMeObservation()
+	meObs.LastRestart = time.Now().Unix() - 200
+	meObs.LastSeen = time.Now().Unix()
+	ln.setMeObservation(meObs)
+
+	// Reset rate limit state (in case previous tests ran)
+	resetVerifyPingRateLimit()
+
+	// Configure test ping that succeeds
+	pingCallCount := 0
+	network.testPingFunc = func(name string) (bool, error) {
+		pingCallCount++
+		t.Logf("Test ping called (call #%d) for %s", pingCallCount, name)
+		return true, nil // ping succeeds
+	}
+
+	// 1. Mark nara as ONLINE initially
+	network.recordObservationOnlineNara("other")
+	obs := network.local.getObservation("other")
+	if obs.Online != "ONLINE" {
+		t.Fatalf("expected ONLINE, got %s", obs.Online)
+	}
+
+	// 2. First ping verification (simulating maintenance cycle or delayed report)
+	result1 := network.verifyOnlineWithPing("other")
+	if !result1 {
+		t.Fatal("First ping should succeed")
+	}
+	if pingCallCount != 1 {
+		t.Errorf("First call: expected 1 ping, got %d", pingCallCount)
+	}
+	t.Logf("First verification: success=%v, pings=%d", result1, pingCallCount)
+
+	// 3. Second ping verification within 60s (simulating reportMissingWithDelay)
+	// This should be rate-limited and return the cached result
+	result2 := network.verifyOnlineWithPing("other")
+
+	// BUG: Without the fix, this returns false (treating rate-limit as failed ping)
+	// EXPECTED: Should return true (cached result from successful ping)
+	if !result2 {
+		t.Errorf("Second verification (rate-limited): expected true (cached result), got false - THIS IS THE BUG")
+	}
+
+	// Verify ping wasn't called again (rate-limited)
+	if pingCallCount != 1 {
+		t.Errorf("Second call: expected no new ping (rate-limited), but got %d total calls", pingCallCount)
+	}
+	t.Logf("Second verification (rate-limited): success=%v, pings=%d", result2, pingCallCount)
+}

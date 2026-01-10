@@ -12,8 +12,11 @@ import (
 
 // verifyPingRateLimit tracks last verification ping attempts to prevent spam.
 // Maps nara name → last ping attempt time (Unix timestamp).
+// verifyPingLastResult caches the result of the last ping verification.
+// Maps nara name → ping success (true if online, false if unreachable).
 var (
 	verifyPingLastAttempt   = make(map[string]int64)
+	verifyPingLastResult    = make(map[string]bool)
 	verifyPingLastAttemptMu sync.Mutex
 )
 
@@ -21,6 +24,7 @@ var (
 func resetVerifyPingRateLimit() {
 	verifyPingLastAttemptMu.Lock()
 	verifyPingLastAttempt = make(map[string]int64)
+	verifyPingLastResult = make(map[string]bool)
 	verifyPingLastAttemptMu.Unlock()
 }
 
@@ -697,11 +701,14 @@ func (network *Network) verifyOnlineWithPing(name string) bool {
 	// Rate limit: don't ping the same nara more than once per 60 seconds
 	verifyPingLastAttemptMu.Lock()
 	lastAttempt := verifyPingLastAttempt[name]
+	lastResult := verifyPingLastResult[name]
 	now := time.Now().Unix()
 	if now-lastAttempt < 60 {
 		verifyPingLastAttemptMu.Unlock()
-		logrus.Debugf("🔍 Skipping ping verification for %s - rate limited (last attempt %ds ago)", name, now-lastAttempt)
-		return false
+		logrus.Debugf("🔍 Skipping ping verification for %s - rate limited (last attempt %ds ago, last result: %v)", name, now-lastAttempt, lastResult)
+		// Return the cached result from our recent verification instead of false
+		// This prevents treating rate-limiting as a failed ping
+		return lastResult
 	}
 	verifyPingLastAttempt[name] = now
 	verifyPingLastAttemptMu.Unlock()
@@ -712,6 +719,10 @@ func (network *Network) verifyOnlineWithPing(name string) bool {
 		if success {
 			network.markOnlineFromPing(name, 1.0) // Use 1ms for test RTT
 		}
+		// Cache the test result
+		verifyPingLastAttemptMu.Lock()
+		verifyPingLastResult[name] = success
+		verifyPingLastAttemptMu.Unlock()
 		return success
 	}
 
@@ -743,6 +754,10 @@ func (network *Network) verifyOnlineWithPing(name string) bool {
 	rtt, err := network.tsnetMesh.Ping(meshIP, network.meName(), 2*time.Second)
 	if err != nil {
 		logrus.Debugf("🔍 Verification ping to %s failed: %v - confirmed offline", name, err)
+		// Cache the failed result
+		verifyPingLastAttemptMu.Lock()
+		verifyPingLastResult[name] = false
+		verifyPingLastAttemptMu.Unlock()
 		return false
 	}
 
@@ -750,6 +765,11 @@ func (network *Network) verifyOnlineWithPing(name string) bool {
 	rttMs := float64(rtt.Milliseconds())
 	logrus.Infof("🔍 Verification ping to %s succeeded (%.2fms) - still online!", name, rttMs)
 	network.markOnlineFromPing(name, rttMs)
+
+	// Cache the successful result
+	verifyPingLastAttemptMu.Lock()
+	verifyPingLastResult[name] = true
+	verifyPingLastAttemptMu.Unlock()
 
 	return true
 }
