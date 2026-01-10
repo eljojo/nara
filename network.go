@@ -487,7 +487,9 @@ func (network *Network) VerifySyncEvent(e *SyncEvent) bool {
 	// Get the emitter's public key
 	pubKey := network.getPublicKeyForNara(e.Emitter)
 	if pubKey == nil {
-		logrus.Warnf("Cannot verify event %s: unknown emitter %s", e.ID[:8], e.Emitter)
+		if !network.local.isBooting() {
+			logrus.Warnf("Cannot verify event %s: unknown emitter %s", e.ID[:8], e.Emitter)
+		}
 		return false // Signed but can't verify - suspicious
 	}
 
@@ -727,7 +729,9 @@ func (network *Network) processChauSyncEvents(events []SyncEvent) {
 		// Check if there's a more recent hey_there from this nara
 		// This prevents stale chau events from incorrectly marking naras offline during backfill
 		if network.hasMoreRecentHeyThere(c.From, e.Timestamp) {
-			logrus.Debugf("📡 Skipping stale chau from %s (has more recent hey_there)", c.From)
+			if !network.local.isBooting() {
+				logrus.Debugf("📡 Skipping stale chau from %s (has more recent hey_there)", c.From)
+			}
 			continue
 		}
 
@@ -737,7 +741,9 @@ func (network *Network) processChauSyncEvents(events []SyncEvent) {
 			observation.Online = "OFFLINE"
 			observation.LastSeen = time.Now().Unix()
 			network.local.setObservation(c.From, observation)
-			logrus.Infof("📡 %s: chau! (via gossip)", c.From)
+			if !network.local.isBooting() {
+				logrus.Infof("📡 %s: chau! (via gossip)", c.From)
+			}
 			network.Buzz.increase(2)
 		}
 	}
