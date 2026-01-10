@@ -439,10 +439,11 @@ func TestGarbageCollectGhostNaras(t *testing.T) {
 // Expected: Rate-limited ping should return cached result (true), not false
 //
 // Production logs showed:
-//   🔍 Verification ping to racoon succeeded (4.00ms) - still online!
-//   🔍 Disagreement resolved: racoon reported MISSING but ping succeeded - keeping ONLINE
-//   observation: racoon has disappeared (verified)
-//   📊 Status-change observation event: racoon → MISSING (after 9s delay, verified)
+//
+//	🔍 Verification ping to racoon succeeded (4.00ms) - still online!
+//	🔍 Disagreement resolved: racoon reported MISSING but ping succeeded - keeping ONLINE
+//	observation: racoon has disappeared (verified)
+//	📊 Status-change observation event: racoon → MISSING (after 9s delay, verified)
 func TestPingVerificationRateLimitBug(t *testing.T) {
 	// Setup
 	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
