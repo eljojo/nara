@@ -84,3 +84,21 @@ func testIdentity(name string) IdentityResult {
 		IsNative:    true,
 	}
 }
+
+// testLocalNaraWithSoulAndParams creates a LocalNara for testing with a specific soul and parameters.
+func testLocalNaraWithSoulAndParams(name string, soul string, chattiness int, ledgerCapacity int) *LocalNara {
+	parsed, _ := ParseSoul(soul)
+	id, _ := ComputeNaraID(soul, name)
+	identity := IdentityResult{
+		Name:        name,
+		Soul:        parsed,
+		ID:          id,
+		IsValidBond: true,
+		IsNative:    true,
+	}
+	ln, err := NewLocalNara(identity, "", "", "", chattiness, ledgerCapacity)
+	if err != nil {
+		panic(err)
+	}
+	return ln
+}

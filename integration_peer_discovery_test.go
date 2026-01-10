@@ -573,13 +573,13 @@ func TestIntegration_ZineVerificationTriggersResolution(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
 	// Setup: alice <-> bob <-> carol
-	alice := NewLocalNara("alice", testPeerDiscoverySoul("alice-zv"), "", "", "", 50, 1000)
+	alice := testLocalNaraWithSoulAndParams("alice", testPeerDiscoverySoul("alice-zv"), 50, 1000)
 	alice.Network.TransportMode = TransportGossip
 
-	bob := NewLocalNara("bob", testPeerDiscoverySoul("bob-zv"), "", "", "", 50, 1000)
+	bob := testLocalNaraWithSoulAndParams("bob", testPeerDiscoverySoul("bob-zv"), 50, 1000)
 	bob.Network.TransportMode = TransportGossip
 
-	carol := NewLocalNara("carol", testPeerDiscoverySoul("carol-zv"), "", "", "", 50, 1000)
+	carol := testLocalNaraWithSoulAndParams("carol", testPeerDiscoverySoul("carol-zv"), 50, 1000)
 	carol.Network.TransportMode = TransportGossip
 
 	// Set up test servers
@@ -668,9 +668,9 @@ func TestIntegration_WorldJourneyTriggersResolution(t *testing.T) {
 	logrus.SetLevel(logrus.DebugLevel)
 
 	// Setup: alice <-> bob <-> carol
-	alice := NewLocalNara("alice", testPeerDiscoverySoul("alice-wj"), "", "", "", 50, 1000)
-	bob := NewLocalNara("bob", testPeerDiscoverySoul("bob-wj"), "", "", "", 50, 1000)
-	carol := NewLocalNara("carol", testPeerDiscoverySoul("carol-wj"), "", "", "", 50, 1000)
+	alice := testLocalNaraWithSoulAndParams("alice", testPeerDiscoverySoul("alice-wj"), 50, 1000)
+	bob := testLocalNaraWithSoulAndParams("bob", testPeerDiscoverySoul("bob-wj"), 50, 1000)
+	carol := testLocalNaraWithSoulAndParams("carol", testPeerDiscoverySoul("carol-wj"), 50, 1000)
 
 	// Set up test servers
 	aliceMux := http.NewServeMux()
@@ -769,9 +769,9 @@ func TestIntegration_MeshAuthTriggersResolution(t *testing.T) {
 	logrus.SetLevel(logrus.DebugLevel)
 
 	// Setup: alice <-> bob <-> carol
-	alice := NewLocalNara("alice", testPeerDiscoverySoul("alice-ma"), "", "", "", 50, 1000)
-	bob := NewLocalNara("bob", testPeerDiscoverySoul("bob-ma"), "", "", "", 50, 1000)
-	carol := NewLocalNara("carol", testPeerDiscoverySoul("carol-ma"), "", "", "", 50, 1000)
+	alice := testLocalNaraWithSoulAndParams("alice", testPeerDiscoverySoul("alice-ma"), 50, 1000)
+	bob := testLocalNaraWithSoulAndParams("bob", testPeerDiscoverySoul("bob-ma"), 50, 1000)
+	carol := testLocalNaraWithSoulAndParams("carol", testPeerDiscoverySoul("carol-ma"), 50, 1000)
 
 	// Set up test servers
 	// Alice's server has meshAuthMiddleware
