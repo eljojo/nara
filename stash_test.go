@@ -883,19 +883,22 @@ func TestCloutRewardForStoring(t *testing.T) {
 	cloutProjection := NewCloutProjection(ledger)
 
 	// Record stash stored event
-	event := SyncEvent{
-		Timestamp: time.Now().Unix(),
-		Service:   ServiceSocial,
-		Social: &SocialEventPayload{
-			Type:   "service", // service events always give positive clout
-			Actor:  "bob",
-			Target: "alice",
-			Reason: ReasonStashStored,
-		},
+	event := SocialEventPayload{
+		Type:   "service", // service events always give positive clout
+		Actor:  "bob",
+		Target: "alice",
+		Reason: ReasonStashStored,
 	}
-	event.ComputeID()
 
-	added := ledger.AddEvent(event)
+	syncEvent := SyncEvent{
+		Service:   ServiceSocial,
+		Timestamp: time.Now().UnixNano(),
+		Emitter:   "bob",
+		Social:    &event,
+	}
+	syncEvent.ComputeID()
+
+	added := ledger.AddEvent(syncEvent)
 	if !added {
 		t.Error("Should add stash stored event")
 	}
@@ -906,7 +909,7 @@ func TestCloutRewardForStoring(t *testing.T) {
 	// Bob should gain clout
 	clout := cloutProjection.DeriveClout("observer-soul", personality)
 	if clout["bob"] <= 0 {
-		t.Error("Bob should gain clout for storing stash")
+		t.Errorf("Bob should gain clout for storing stash, got %f", clout["bob"])
 	}
 }
 

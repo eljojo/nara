@@ -4475,14 +4475,25 @@ func (network *Network) handleStashStore(msg StashStore) {
 
 	// Record social event: we're helping them!
 	if network.local.SyncLedger != nil {
-		event := SocialEvent{
-			Timestamp: time.Now().Unix(),
-			Type:      "service",
-			Actor:     network.meName(),
-			Target:    msg.From,
-			Reason:    ReasonStashStored,
+		event := SocialEventPayload{
+			Type:    "service",
+			Actor:   network.meName(),
+			Target:  msg.From,
+			Reason:  ReasonStashStored,
+			Witness: network.meName(),
 		}
-		network.local.SyncLedger.AddSocialEventFilteredLegacy(event, network.local.Me.Status.Personality)
+
+		// Create SyncEvent
+		syncEvent := SyncEvent{
+			Service:   ServiceSocial,
+			Timestamp: time.Now().UnixNano(),
+			Emitter:   network.meName(),
+			Social:    &event,
+		}
+		syncEvent.ComputeID()
+
+		// Add personality filtered event
+		network.local.SyncLedger.AddSocialEventFiltered(syncEvent, network.local.Me.Status.Personality)
 	}
 }
 
