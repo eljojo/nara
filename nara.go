@@ -19,6 +19,7 @@ type LocalNara struct {
 	Me              *Nara
 	Network         *Network
 	Soul            string
+	ID              string // Nara ID: deterministic hash of soul+name for unique identity
 	Keypair         NaraKeypair
 	SyncLedger      *SyncLedger      // Unified event store for all syncable data (social + ping + future types)
 	Projections     *ProjectionStore // Event-sourced projections for derived state
@@ -34,6 +35,7 @@ type Nara struct {
 	Hostname string `json:"-"`
 	Version  string
 	Status   NaraStatus
+	ID       string // Nara ID from other naras (redundant with Status.ID but convenient)
 	mu       sync.Mutex
 	// remember to sync with setValuesFrom
 }
@@ -58,6 +60,7 @@ type NaraStatus struct {
 	Version       string
 	PublicUrl     string
 	PublicKey     string             // Base64-encoded Ed25519 public key
+	ID            string             // Nara ID: deterministic hash of soul+name
 	MeshEnabled   bool               // True if this nara is connected to the Headscale mesh
 	MeshIP        string             // Tailscale IP for direct mesh communication (no DNS needed)
 	Coordinates   *NetworkCoordinate `json:"coordinates,omitempty"`    // Vivaldi network coordinates
@@ -66,12 +69,15 @@ type NaraStatus struct {
 	// NOTE: Soul was removed - NEVER serialize private keys!
 }
 
-func NewLocalNara(name string, soul string, mqtt_host string, mqtt_user string, mqtt_pass string, forceChattiness int, ledgerCapacity int) *LocalNara {
-	logrus.Printf("📟 Booting nara: %s", name)
+func NewLocalNara(identity IdentityResult, mqtt_host string, mqtt_user string, mqtt_pass string, forceChattiness int, ledgerCapacity int) (*LocalNara, error) {
+	logrus.Printf("📟 Booting nara: %s (%s)", identity.Name, identity.ID)
+
+	soulStr := FormatSoul(identity.Soul)
 
 	ln := &LocalNara{
-		Me:              NewNara(name),
-		Soul:            soul,
+		Me:              NewNara(identity.Name),
+		Soul:            soulStr,
+		ID:              identity.ID,
 		forceChattiness: forceChattiness,
 		isRaspberryPi:   isRaspberryPi(),
 		isNixOs:         isNixOs(),
@@ -80,16 +86,13 @@ func NewLocalNara(name string, soul string, mqtt_host string, mqtt_user string, 
 	ln.Me.Version = NaraVersion
 	ln.Me.Status.Version = NaraVersion
 	ln.Me.Status.Coordinates = NewNetworkCoordinate() // Initialize Vivaldi coordinates
+	ln.Me.Status.ID = identity.ID
 	// NOTE: Soul is NEVER set in Status - private keys must not be serialized!
 
 	// Derive Ed25519 keypair from soul
-	if parsedSoul, err := ParseSoul(soul); err == nil {
-		ln.Keypair = DeriveKeypair(parsedSoul)
-		ln.Me.Status.PublicKey = FormatPublicKey(ln.Keypair.PublicKey)
-		logrus.Printf("🔑 Keypair derived from soul")
-	} else {
-		logrus.Warnf("⚠️  Could not derive keypair from soul: %v", err)
-	}
+	ln.Keypair = DeriveKeypair(identity.Soul)
+	ln.Me.Status.PublicKey = FormatPublicKey(ln.Keypair.PublicKey)
+	logrus.Printf("🔑 Keypair derived from soul")
 
 	ln.Network = NewNetwork(ln, mqtt_host, mqtt_user, mqtt_pass)
 
@@ -120,7 +123,7 @@ func NewLocalNara(name string, soul string, mqtt_host string, mqtt_user string, 
 	observation.LastRestart = time.Now().Unix()
 	ln.setMeObservation(observation)
 
-	return ln
+	return ln, nil
 }
 
 func NewNara(name string) *Nara {
@@ -245,6 +248,9 @@ func (ns *NaraStatus) setValuesFrom(other NaraStatus) {
 	}
 	if other.PublicKey != "" {
 		ns.PublicKey = other.PublicKey
+	}
+	if other.ID != "" {
+		ns.ID = other.ID
 	}
 	ns.MeshEnabled = other.MeshEnabled
 	ns.MeshIP = other.MeshIP

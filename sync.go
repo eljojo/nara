@@ -598,11 +598,12 @@ func NewSignedPingSyncEvent(observer, target string, rtt float64, emitter string
 // This allows hey_there events to propagate through gossip, enabling peer discovery
 // without MQTT broadcasts. The SyncEvent signature is the attestation - inner event
 // is just payload data.
-func NewHeyThereSyncEvent(name string, publicKey string, meshIP string, keypair NaraKeypair) SyncEvent {
+func NewHeyThereSyncEvent(name string, publicKey string, meshIP string, id string, keypair NaraKeypair) SyncEvent {
 	heyThere := &HeyThereEvent{
 		From:      name,
 		PublicKey: publicKey,
 		MeshIP:    meshIP,
+		ID:        id,
 	}
 
 	e := SyncEvent{
@@ -619,10 +620,11 @@ func NewHeyThereSyncEvent(name string, publicKey string, meshIP string, keypair 
 // This allows chau events to propagate through gossip, enabling gossip-only naras
 // to distinguish OFFLINE (graceful) from MISSING (timeout). The SyncEvent signature
 // is the attestation - inner event is just payload data.
-func NewChauSyncEvent(name string, publicKey string, keypair NaraKeypair) SyncEvent {
+func NewChauSyncEvent(name string, publicKey string, id string, keypair NaraKeypair) SyncEvent {
 	chau := &ChauEvent{
 		From:      name,
 		PublicKey: publicKey,
+		ID:        id,
 	}
 
 	e := SyncEvent{

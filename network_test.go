@@ -7,12 +7,12 @@ import (
 )
 
 func TestNetwork_ImportNara(t *testing.T) {
-	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
+	ln := testLocalNara("me")
 	network := ln.Network
 
-	other := NewNara("other")
+	identity := testIdentity("other")
+	other := NewNara(identity.Name)
 	other.Status.Flair = "🌈"
-
 	network.importNara(other)
 
 	if len(network.Neighbourhood) != 1 {
@@ -29,7 +29,7 @@ func TestNetwork_ImportNara(t *testing.T) {
 }
 
 func TestNetwork_NaraOrdering(t *testing.T) {
-	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
+	ln := testLocalNara("me")
 	network := ln.Network
 
 	// Set me observation
@@ -62,7 +62,7 @@ func TestNetwork_NaraOrdering(t *testing.T) {
 }
 
 func TestNetwork_NeighbourhoodNames(t *testing.T) {
-	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
+	ln := testLocalNara("me")
 	network := ln.Network
 
 	network.importNara(NewNara("a"))
@@ -91,9 +91,13 @@ func TestNetwork_NeighbourhoodNames(t *testing.T) {
 
 func TestNara_SoulNotLeakedInJSON(t *testing.T) {
 	// Create a nara with a real soul (the kind that gets serialized over MQTT/HTTP)
-	soul := "8Qv9xR3kM7nL2pY5wJ4hT6fD1gS0aZ8cB3vN9mK7qE5rU2yX4iO6lP"
-	ln := NewLocalNara("testnara", soul, "host", "user", "pass", -1, 0)
-
+	name := "testnara"
+	soul := testSoul(name)
+	identity := DetermineIdentity(name, soul, name, nil)
+	ln, err := NewLocalNara(identity, "host", "user", "pass", -1, 0)
+	if err != nil {
+		t.Fatalf("Failed to create LocalNara: %v", err)
+	}
 	// Serialize the Nara (this is what selfie() sends over MQTT)
 	naraJSON, err := json.Marshal(ln.Me)
 	if err != nil {
@@ -128,7 +132,7 @@ func TestNara_SoulNotLeakedInJSON(t *testing.T) {
 // causes the nara to start a howdy coordinator to potentially respond.
 // This is the howdy protocol - up to 10 naras self-select to respond with howdy.
 func TestHeyThere_StartsHowdyCoordinator(t *testing.T) {
-	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
+	ln := testLocalNara("me")
 	network := ln.Network
 
 	// Configure for testing:
@@ -169,7 +173,7 @@ func TestHeyThere_StartsHowdyCoordinator(t *testing.T) {
 // TestHeyThere_ReadOnlySkipsHowdy verifies that ReadOnly mode
 // prevents starting a howdy coordinator (as expected for read-only naras).
 func TestHeyThere_ReadOnlySkipsHowdy(t *testing.T) {
-	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
+	ln := testLocalNara("me")
 	network := ln.Network
 
 	// ReadOnly mode should skip howdy coordinator
@@ -202,11 +206,12 @@ func TestNewspaperEvent_JSONParsing(t *testing.T) {
 	// 1. Setup sender and create a signed event using real code
 	senderName := "blue-jay"
 	// Generate a valid native soul for the sender
-	senderSoulV1 := NativeSoulCustom([]byte("test-hw-fingerprint"), senderName)
-	senderSoul := FormatSoul(senderSoulV1)
+	identity := DetermineIdentity("", "", senderName, []byte("test-hw-fingerprint"))
 
-	sender := NewLocalNara(senderName, senderSoul, "host", "user", "pass", -1, 0)
-
+	sender, err := NewLocalNara(identity, "host", "user", "pass", -1, 0)
+	if err != nil {
+		t.Fatalf("Failed to create LocalNara: %v", err)
+	}
 	sender.Me.Status.Flair = "🐦"
 	sender.Me.Status.Chattiness = 75
 	sender.Me.Status.Buzz = 42
@@ -230,8 +235,7 @@ func TestNewspaperEvent_JSONParsing(t *testing.T) {
 	}
 
 	// 3. Setup receiver and process the event using real code
-	receiver := NewLocalNara("receiver", testSoul("receiver"), "host", "user", "pass", -1, 0)
-
+	receiver := testLocalNara("receiver")
 	// Parse the JSON the way the MQTT handler does (newspaperHandler in mqtt.go)
 	var parsedEvent NewspaperEvent
 	if err := json.Unmarshal(eventJSON, &parsedEvent); err != nil {

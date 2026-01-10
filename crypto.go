@@ -4,6 +4,8 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"errors"
+
+	"github.com/sirupsen/logrus"
 )
 
 // NaraKeypair holds an Ed25519 keypair derived from a soul
@@ -54,18 +56,25 @@ func ParsePublicKey(s string) (ed25519.PublicKey, error) {
 // VerifySignature verifies a signature against a public key and message
 func VerifySignature(publicKey ed25519.PublicKey, message, signature []byte) bool {
 	if len(publicKey) != ed25519.PublicKeySize {
+		logrus.Warnf("❌ Invalid public key size: got %d, want %d", len(publicKey), ed25519.PublicKeySize)
 		return false
 	}
 	if len(signature) != ed25519.SignatureSize {
+		logrus.Warnf("❌ Invalid signature size: got %d, want %d", len(signature), ed25519.SignatureSize)
 		return false
 	}
-	return ed25519.Verify(publicKey, message, signature)
+	success := ed25519.Verify(publicKey, message, signature)
+	if !success {
+		logrus.Debugf("❌ Signature verification failed using public key %s for message: %s", FormatPublicKey(publicKey), string(message))
+	}
+	return success
 }
 
 // VerifySignatureBase64 verifies a base64-encoded signature
 func VerifySignatureBase64(publicKey []byte, message []byte, signatureBase64 string) bool {
 	signature, err := base64.StdEncoding.DecodeString(signatureBase64)
 	if err != nil {
+		logrus.Warnf("❌ Failed to decode signature: %v", err)
 		return false
 	}
 	return VerifySignature(publicKey, message, signature)

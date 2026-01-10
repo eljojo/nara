@@ -6,10 +6,9 @@ import (
 )
 
 func TestPersonalitySeeding(t *testing.T) {
-	ln1 := NewLocalNara("alice", testSoul("alice"), "host", "user", "pass", -1, 0)
-	ln2 := NewLocalNara("alice", testSoul("alice"), "host", "user", "pass", -1, 0)
-	ln3 := NewLocalNara("bob", testSoul("bob"), "host", "user", "pass", -1, 0)
-
+	ln1 := testLocalNara("alice")
+	ln2 := testLocalNara("alice")
+	ln3 := testLocalNara("bob")
 	if ln1.Me.Status.Personality != ln2.Me.Status.Personality {
 		t.Errorf("expected same personality for same name")
 	}
@@ -25,7 +24,7 @@ func TestPersonalitySeeding(t *testing.T) {
 }
 
 func TestFlairIncludesTrendAndPersonality(t *testing.T) {
-	ln := NewLocalNara("test-nara", testSoul("test-nara"), "host", "user", "pass", -1, 0)
+	ln := testLocalNara("test-nara")
 	ln.Me.Status.Trend = "cool-style"
 	ln.Me.Status.TrendEmoji = "🌈"
 	ln.Me.Status.Personality.Sociability = 100 // should have many flairs
@@ -46,7 +45,7 @@ func TestFlairIncludesTrendAndPersonality(t *testing.T) {
 }
 
 func TestTrendJoiningLogic(t *testing.T) {
-	ln := NewLocalNara("follower", testSoul("follower"), "host", "user", "pass", -1, 0)
+	ln := testLocalNara("follower")
 	ln.Me.Status.Personality.Agreeableness = 150 // guaranteed to join
 	network := ln.Network
 
@@ -71,7 +70,7 @@ func TestTrendJoiningLogic(t *testing.T) {
 }
 
 func TestTrendLeavingLogic(t *testing.T) {
-	ln := NewLocalNara("loner", testSoul("loner"), "host", "user", "pass", -1, 0)
+	ln := testLocalNara("loner")
 	ln.Me.Status.Trend = "dead-trend"
 	ln.Me.Status.Personality.Chill = 0 // not chill at all, will leave
 	network := ln.Network
@@ -86,7 +85,7 @@ func TestTrendLeavingLogic(t *testing.T) {
 }
 
 func TestTrendVersionCompatibility(t *testing.T) {
-	ln := NewLocalNara("modern", testSoul("modern"), "host", "user", "pass", -1, 0)
+	ln := testLocalNara("modern")
 	ln.Me.Status.Version = "0.2.0"
 	network := ln.Network
 
@@ -107,7 +106,7 @@ func TestTrendVersionCompatibility(t *testing.T) {
 }
 
 func TestUndergroundTrend_ContrarianStartsWhenMainstreamDominates(t *testing.T) {
-	ln := NewLocalNara("rebel", testSoul("rebel"), "host", "user", "pass", -1, 0)
+	ln := testLocalNara("rebel")
 	ln.Me.Status.Personality.Agreeableness = 0 // maximum contrarian
 	ln.Me.Status.Personality.Sociability = 100 // high base chance
 	network := ln.Network
@@ -152,7 +151,7 @@ func TestTrendCreation_ScalesDownWithMoreTrends(t *testing.T) {
 	// We test this by comparing behavior with 0 trends vs 3 trends
 
 	// Scenario 1: No trends exist - high sociability nara should start one easily
-	ln1 := NewLocalNara("pioneer", testSoul("pioneer"), "host", "user", "pass", -1, 0)
+	ln1 := testLocalNara("pioneer")
 	ln1.Me.Status.Personality.Sociability = 100 // 10% base chance
 	network1 := ln1.Network
 
@@ -166,7 +165,7 @@ func TestTrendCreation_ScalesDownWithMoreTrends(t *testing.T) {
 	}
 
 	// Scenario 2: 3 trends exist - should be much harder to start a 4th
-	ln2 := NewLocalNara("latecomer", testSoul("latecomer"), "host", "user", "pass", -1, 0)
+	ln2 := testLocalNara("latecomer")
 	ln2.Me.Status.Personality.Sociability = 100
 	ln2.Me.Status.Personality.Agreeableness = 0 // won't join existing trends
 	network2 := ln2.Network
@@ -203,7 +202,7 @@ func TestTrendCreation_ScalesDownWithMoreTrends(t *testing.T) {
 }
 
 func TestTrendCreation_HighAgreeablenessJoinsInsteadOfStarting(t *testing.T) {
-	ln := NewLocalNara("agreeable", testSoul("agreeable"), "host", "user", "pass", -1, 0)
+	ln := testLocalNara("agreeable")
 	ln.Me.Status.Personality.Agreeableness = 100 // very agreeable, will join not rebel
 	ln.Me.Status.Personality.Sociability = 100   // high sociability
 	network := ln.Network

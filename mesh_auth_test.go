@@ -222,7 +222,7 @@ func TestVerifyMeshResponse_TamperedBody(t *testing.T) {
 }
 
 func TestMeshAuthMiddleware_SkipsPing(t *testing.T) {
-	ln := NewLocalNara("test", testSoul("test"), "host", "user", "pass", -1, 0)
+	ln := testLocalNara("test")
 	network := ln.Network
 
 	called := false
@@ -245,7 +245,7 @@ func TestMeshAuthMiddleware_SkipsPing(t *testing.T) {
 }
 
 func TestMeshAuthMiddleware_RejectsUnauthenticated(t *testing.T) {
-	ln := NewLocalNara("test", testSoul("test"), "host", "user", "pass", -1, 0)
+	ln := testLocalNara("test")
 	network := ln.Network
 
 	called := false
@@ -281,8 +281,8 @@ func TestMeshAuthMiddleware_AcceptsValidAuth(t *testing.T) {
 	aliceSoul := testMeshSoul("alice")
 	bobSoul := testMeshSoul("bob")
 
-	ln1 := NewLocalNara("alice", aliceSoul, "host", "user", "pass", -1, 0)
-	ln2 := NewLocalNara("bob", bobSoul, "host", "user", "pass", -1, 0)
+	ln1 := testLocalNaraWithSoul("alice", aliceSoul)
+	ln2 := testLocalNaraWithSoul("bob", bobSoul)
 
 	// Bob imports Alice so he knows her public key
 	alice := NewNara("alice")

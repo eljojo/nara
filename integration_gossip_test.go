@@ -24,7 +24,7 @@ func TestIntegration_GossipOnlyMode(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		name := fmt.Sprintf("gossip-nara-%c", 'a'+i)
-		ln := NewLocalNara(name, testSoul(name), "", "", "", 50, 1000)
+		ln := testLocalNaraWithParams(name, 50, 1000)
 		ln.Network.TransportMode = TransportGossip
 
 		// Mark as not booting
@@ -114,7 +114,7 @@ func TestIntegration_HybridMode(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		name := fmt.Sprintf("hybrid-nara-%c", 'a'+i)
-		ln := NewLocalNara(name, testSoul(name), "", "", "", 50, 1000)
+		ln := testLocalNaraWithParams(name, 50, 1000)
 		ln.Network.TransportMode = TransportHybrid
 
 		me := ln.getMeObservation()
@@ -195,7 +195,7 @@ func TestIntegration_MixedNetworkTopology(t *testing.T) {
 
 	for i := 0; i < 6; i++ {
 		name := fmt.Sprintf("mixed-nara-%c", 'a'+i)
-		ln := NewLocalNara(name, testSoul(name), "", "", "", 50, 1000)
+		ln := testLocalNaraWithParams(name, 50, 1000)
 		ln.Network.TransportMode = modes[i]
 
 		me := ln.getMeObservation()
@@ -287,9 +287,8 @@ func TestIntegration_ZineCreationAndExchange(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
 	// Create 2 naras with valid souls for keypair generation
-	alice := NewLocalNara("alice", testSoul("alice"), "", "", "", 50, 1000)
-	bob := NewLocalNara("bob", testSoul("bob"), "", "", "", 50, 1000)
-
+	alice := testLocalNaraWithParams("alice", 50, 1000)
+	bob := testLocalNaraWithParams("bob", 50, 1000)
 	// Verify keypairs were generated
 	if len(alice.Keypair.PrivateKey) == 0 {
 		t.Fatal("Alice keypair not generated - soul invalid")
@@ -387,7 +386,7 @@ func TestIntegration_ZineCreationAndExchange(t *testing.T) {
 func TestIntegration_GossipTargetSelection(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
-	ln := NewLocalNara("test-nara", testSoul("test-nara"), "", "", "", 50, 1000)
+	ln := testLocalNaraWithParams("test-nara", 50, 1000)
 	ln.Network.TransportMode = TransportGossip
 
 	// Add 10 mesh-enabled neighbors
@@ -468,7 +467,7 @@ func TestIntegration_MeshDiscovery(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
 	// Create a nara that will discover peers (use testSoul for valid keypair)
-	discoverer := NewLocalNara("discovery-nara-a", testSoul("discovery-nara-a"), "", "", "", 50, 1000)
+	discoverer := testLocalNaraWithParams("discovery-nara-a", 50, 1000)
 	discoverer.Network.TransportMode = TransportGossip
 
 	// Verify no neighbors initially
@@ -551,7 +550,7 @@ func TestIntegration_GossipOnlyBootRecovery(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
 	// Create a nara in gossip-only mode
-	nara := NewLocalNara("boot-recovery-nara", testSoul("boot-recovery-nara"), "", "", "", 50, 1000)
+	nara := testLocalNaraWithParams("boot-recovery-nara", 50, 1000)
 	nara.Network.TransportMode = TransportGossip
 
 	// Set up mock peer discovery that returns peers
@@ -590,9 +589,8 @@ func TestIntegration_SendDM(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
 	// Create sender and receiver naras
-	sender := NewLocalNara("sender", testSoul("sender"), "", "", "", -1, 0)
-	receiver := NewLocalNara("receiver", testSoul("receiver"), "", "", "", -1, 0)
-
+	sender := testLocalNara("sender")
+	receiver := testLocalNara("receiver")
 	// Create HTTP test server for receiver
 	mux := http.NewServeMux()
 	mux.HandleFunc("/dm", receiver.Network.httpDMHandler)
@@ -640,7 +638,7 @@ func TestIntegration_SendDM(t *testing.T) {
 func TestIntegration_SendDM_UnreachableTarget(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
-	sender := NewLocalNara("sender", testSoul("sender"), "", "", "", -1, 0)
+	sender := testLocalNara("sender")
 	sender.Network.testHTTPClient = &http.Client{Timeout: 100 * time.Millisecond}
 	sender.Network.testMeshURLs = map[string]string{} // No URL for receiver
 
@@ -660,9 +658,8 @@ func TestIntegration_TeaseDM(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
 	// Create two naras
-	alice := NewLocalNara("alice", testSoul("alice"), "", "", "", -1, 0)
-	bob := NewLocalNara("bob", testSoul("bob"), "", "", "", -1, 0)
-
+	alice := testLocalNara("alice")
+	bob := testLocalNara("bob")
 	// Create HTTP test server for bob
 	mux := http.NewServeMux()
 	mux.HandleFunc("/dm", bob.Network.httpDMHandler)
@@ -721,10 +718,9 @@ func TestIntegration_TeaseDM_SpreadViaGossip(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
 	// Create three naras: alice, bob (unreachable), charlie
-	alice := NewLocalNara("alice", testSoul("alice"), "", "", "", -1, 0)
-	bob := NewLocalNara("bob", testSoul("bob"), "", "", "", -1, 0)
-	charlie := NewLocalNara("charlie", testSoul("charlie"), "", "", "", -1, 0)
-
+	alice := testLocalNara("alice")
+	bob := testLocalNara("bob")
+	charlie := testLocalNara("charlie")
 	// Mark as not booting
 	for _, ln := range []*LocalNara{alice, bob, charlie} {
 		me := ln.getMeObservation()
