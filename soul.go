@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcutil/base58"
@@ -25,6 +26,7 @@ type SoulV1 struct {
 type IdentityResult struct {
 	Name        string
 	Soul        SoulV1
+	ID          string // Nara ID: deterministic hash of soul+name
 	IsValidBond bool
 	IsNative    bool
 }
@@ -127,6 +129,7 @@ func DetermineIdentity(nameArg, soulArg, hostname string, hwFingerprint []byte) 
 			return IdentityResult{
 				Name:        effectiveName,
 				Soul:        SoulV1{},
+				ID:          "",
 				IsValidBond: false,
 				IsNative:    false,
 			}
@@ -161,9 +164,18 @@ func DetermineIdentity(nameArg, soulArg, hostname string, hwFingerprint []byte) 
 	}
 	isNative := soul.Seed == expectedSoul.Seed && soul.Tag == expectedSoul.Tag
 
+	// Compute nara ID from soul + name
+	soulBase58 := FormatSoul(soul)
+	id, err := ComputeNaraID(soulBase58, name)
+	if err != nil {
+		// This should never happen since we control soul format
+		panic(fmt.Sprintf("Failed to compute nara ID: %v (soul=%s, name=%s)", err, soulBase58, name))
+	}
+
 	return IdentityResult{
 		Name:        name,
 		Soul:        soul,
+		ID:          id,
 		IsValidBond: isValidBond,
 		IsNative:    isNative,
 	}

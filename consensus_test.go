@@ -10,7 +10,7 @@ import (
 
 func TestObservations_OnlineTransitions(t *testing.T) {
 	t.Parallel()
-	ln := NewLocalNara("me", testSoul("me"), "host", "user", "pass", -1, 0)
+	ln := testLocalNara("me")
 	network := ln.Network
 	name := "target"
 

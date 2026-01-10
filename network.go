@@ -147,10 +147,12 @@ func (network *Network) SignNewspaper(status NaraStatus) NewspaperEvent {
 // VerifyNewspaper verifies a newspaper event signature
 func (event *NewspaperEvent) Verify(publicKey []byte) bool {
 	if event.Signature == "" {
+		logrus.Warnf("Newspaper from %s is missing signature", event.From)
 		return false
 	}
 	statusJSON, err := json.Marshal(event.Status)
 	if err != nil {
+		logrus.Warnf("Failed to marshal newspaper status from %s: %v", event.From, err)
 		return false
 	}
 	return VerifySignatureBase64(publicKey, statusJSON, event.Signature)
@@ -160,12 +162,13 @@ type HeyThereEvent struct {
 	From      string
 	PublicKey string // Base64-encoded Ed25519 public key
 	MeshIP    string // Tailscale IP for mesh communication
-	Signature string // Base64-encoded signature of "hey_there:{From}:{PublicKey}:{MeshIP}"
+	ID        string // Nara ID: deterministic hash of soul+name
+	Signature string // Base64-encoded signature of "hey_there:{From}:{PublicKey}:{MeshIP}:{ID}"
 }
 
 // Sign signs the HeyThereEvent with the given keypair
 func (h *HeyThereEvent) Sign(kp NaraKeypair) {
-	message := fmt.Sprintf("hey_there:%s:%s:%s", h.From, h.PublicKey, h.MeshIP)
+	message := h.signatureMessage()
 	h.Signature = kp.SignBase64([]byte(message))
 }
 
@@ -178,13 +181,34 @@ func (h *HeyThereEvent) Verify() bool {
 	if err != nil {
 		return false
 	}
-	message := fmt.Sprintf("hey_there:%s:%s:%s", h.From, h.PublicKey, h.MeshIP)
-	return VerifySignatureBase64(pubKey, []byte(message), h.Signature)
+
+	// Try new format first (with ID)
+	message := h.signatureMessage()
+	if VerifySignatureBase64(pubKey, []byte(message), h.Signature) {
+		return true
+	}
+
+	// Fall back to old format (without ID) for backwards compatibility
+	if h.ID != "" {
+		oldMessage := fmt.Sprintf("hey_there:%s:%s:%s", h.From, h.PublicKey, h.MeshIP)
+		return VerifySignatureBase64(pubKey, []byte(oldMessage), h.Signature)
+	}
+
+	return false
+}
+
+// signatureMessage returns the message to sign based on whether ID is present
+func (h *HeyThereEvent) signatureMessage() string {
+	if h.ID != "" && false { // TODO(signature) temporarily turned off
+		return fmt.Sprintf("hey_there:%s:%s:%s:%s", h.From, h.PublicKey, h.MeshIP, h.ID)
+	}
+	// Legacy format for naras without ID
+	return fmt.Sprintf("hey_there:%s:%s:%s", h.From, h.PublicKey, h.MeshIP)
 }
 
 // ContentString implements Payload interface for HeyThereEvent
 func (h *HeyThereEvent) ContentString() string {
-	return fmt.Sprintf("hey_there:%s:%s:%s", h.From, h.PublicKey, h.MeshIP)
+	return h.signatureMessage()
 }
 
 // IsValid implements Payload interface for HeyThereEvent
@@ -221,12 +245,13 @@ func (h *HeyThereEvent) LogFormat() string {
 type ChauEvent struct {
 	From      string
 	PublicKey string // Base64-encoded Ed25519 public key
-	Signature string // Base64-encoded signature of "chau:{From}:{PublicKey}"
+	ID        string // Nara ID: deterministic hash of soul+name
+	Signature string // Base64-encoded signature of "chau:{From}:{PublicKey}:{ID}"
 }
 
 // Sign signs the ChauEvent with the given keypair
 func (c *ChauEvent) Sign(kp NaraKeypair) {
-	message := fmt.Sprintf("chau:%s:%s", c.From, c.PublicKey)
+	message := c.signatureMessage()
 	c.Signature = kp.SignBase64([]byte(message))
 }
 
@@ -239,13 +264,34 @@ func (c *ChauEvent) Verify() bool {
 	if err != nil {
 		return false
 	}
-	message := fmt.Sprintf("chau:%s:%s", c.From, c.PublicKey)
-	return VerifySignatureBase64(pubKey, []byte(message), c.Signature)
+
+	// Try new format first (with ID)
+	message := c.signatureMessage()
+	if VerifySignatureBase64(pubKey, []byte(message), c.Signature) {
+		return true
+	}
+
+	// Fall back to old format (without ID) for backwards compatibility
+	if c.ID != "" {
+		oldMessage := fmt.Sprintf("chau:%s:%s", c.From, c.PublicKey)
+		return VerifySignatureBase64(pubKey, []byte(oldMessage), c.Signature)
+	}
+
+	return false
+}
+
+// signatureMessage returns the message to sign based on whether ID is present
+func (c *ChauEvent) signatureMessage() string {
+	if c.ID != "" && false { // TODO(signature) temporarily turned off
+		return fmt.Sprintf("chau:%s:%s:%s", c.From, c.PublicKey, c.ID)
+	}
+	// Legacy format for naras without ID
+	return fmt.Sprintf("chau:%s:%s", c.From, c.PublicKey)
 }
 
 // ContentString implements Payload interface for ChauEvent
 func (c *ChauEvent) ContentString() string {
-	return fmt.Sprintf("chau:%s:%s", c.From, c.PublicKey)
+	return c.signatureMessage()
 }
 
 // IsValid implements Payload interface for ChauEvent
@@ -288,6 +334,7 @@ type NeighborInfo struct {
 	Name        string
 	PublicKey   string
 	MeshIP      string
+	ID          string          // Nara ID: deterministic hash of soul+name
 	Observation NaraObservation // What I know about this neighbor
 }
 
@@ -710,7 +757,7 @@ func (network *Network) emitHeyThereSyncEvent() {
 	publicKey := FormatPublicKey(network.local.Keypair.PublicKey)
 	meshIP := network.local.Me.Status.MeshIP
 
-	event := NewHeyThereSyncEvent(network.meName(), publicKey, meshIP, network.local.Keypair)
+	event := NewHeyThereSyncEvent(network.meName(), publicKey, meshIP, network.local.ID, network.local.Keypair)
 	network.local.SyncLedger.MergeEvents([]SyncEvent{event})
 	if network.local.Projections != nil {
 		network.local.Projections.Trigger()
@@ -787,7 +834,7 @@ func (network *Network) hasMoreRecentHeyThere(from string, thanTimestamp int64) 
 // This allows graceful shutdown to propagate through gossip.
 func (network *Network) emitChauSyncEvent() {
 	publicKey := FormatPublicKey(network.local.Keypair.PublicKey)
-	event := NewChauSyncEvent(network.meName(), publicKey, network.local.Keypair)
+	event := NewChauSyncEvent(network.meName(), publicKey, network.local.ID, network.local.Keypair)
 	network.local.SyncLedger.MergeEvents([]SyncEvent{event})
 	if network.local.Projections != nil {
 		network.local.Projections.Trigger()
@@ -1377,6 +1424,10 @@ func (network *Network) handleHowdyEvent(howdy HowdyEvent) {
 			if neighbor.MeshIP != "" {
 				n.Status.MeshEnabled = true
 			}
+			if neighbor.ID != "" {
+				n.Status.ID = neighbor.ID
+				n.ID = neighbor.ID
+			}
 			network.importNara(n)
 			// Store their observation about this neighbor
 			network.mergeExternalObservation(neighbor.Name, neighbor.Observation)
@@ -1534,11 +1585,16 @@ func (network *Network) handleHeyThereEvent(event SyncEvent) {
 				nara.Status.MeshIP = heyThere.MeshIP
 				nara.Status.MeshEnabled = true
 			}
+			if heyThere.ID != "" {
+				nara.Status.ID = heyThere.ID
+				nara.ID = heyThere.ID
+			}
 			nara.mu.Unlock()
-			logrus.Infof("📝 Updated %s: PublicKey=%s..., MeshIP=%s",
+			logrus.Infof("📝 Updated %s: PublicKey=%s..., MeshIP=%s, ID=%s",
 				heyThere.From,
 				truncateKey(heyThere.PublicKey),
-				heyThere.MeshIP)
+				heyThere.MeshIP,
+				heyThere.ID)
 		}
 	}
 
@@ -1696,6 +1752,7 @@ func (network *Network) selectNeighborsForHowdy(exclude string, alreadyMentioned
 			Name:        nara.Name,
 			PublicKey:   nara.Status.PublicKey,
 			MeshIP:      nara.Status.MeshIP,
+			ID:          nara.Status.ID,
 			Observation: network.local.getObservationLocked(nara.Name),
 		}
 		nara.mu.Unlock()
@@ -1736,6 +1793,7 @@ func (network *Network) heyThere() {
 		network.meName(),
 		network.local.Me.Status.PublicKey,
 		network.local.Me.Status.MeshIP,
+		network.local.ID,
 		network.local.Keypair,
 	)
 
@@ -1815,9 +1873,13 @@ func (network *Network) handleChauEvent(syncEvent SyncEvent) {
 		}
 	}
 
-	// Update the nara's public key if provided
+	// Update the nara's public key and ID if provided
 	if present && chau.PublicKey != "" {
 		existingNara.Status.PublicKey = chau.PublicKey
+	}
+	if present && chau.ID != "" {
+		existingNara.Status.ID = chau.ID
+		existingNara.ID = chau.ID
 	}
 
 	// Add to ledger for gossip propagation
@@ -1861,6 +1923,7 @@ func (network *Network) Chau() {
 	event := NewChauSyncEvent(
 		network.meName(),
 		network.local.Me.Status.PublicKey,
+		network.local.ID,
 		network.local.Keypair,
 	)
 

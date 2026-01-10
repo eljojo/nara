@@ -33,3 +33,54 @@ func TestMain(m *testing.M) {
 
 	os.Exit(exitCode)
 }
+
+// testLocalNara creates a LocalNara for testing with a valid identity bonded to the name.
+func testLocalNara(name string) *LocalNara {
+	identity := testIdentity(name)
+	ln, err := NewLocalNara(identity, "host", "user", "pass", -1, 0)
+	if err != nil {
+		panic(err)
+	}
+	return ln
+}
+
+// testLocalNaraWithParams creates a LocalNara for testing with specific chattiness and ledger capacity.
+func testLocalNaraWithParams(name string, chattiness int, ledgerCapacity int) *LocalNara {
+	identity := testIdentity(name)
+	ln, err := NewLocalNara(identity, "", "", "", chattiness, ledgerCapacity)
+	if err != nil {
+		panic(err)
+	}
+	return ln
+}
+
+// testLocalNaraWithSoul creates a LocalNara for testing with a specific soul string.
+func testLocalNaraWithSoul(name string, soul string) *LocalNara {
+	parsed, _ := ParseSoul(soul)
+	id, _ := ComputeNaraID(soul, name)
+	identity := IdentityResult{
+		Name:        name,
+		Soul:        parsed,
+		ID:          id,
+		IsValidBond: true,
+		IsNative:    true,
+	}
+	ln, err := NewLocalNara(identity, "host", "user", "pass", -1, 0)
+	if err != nil {
+		panic(err)
+	}
+	return ln
+}
+
+func testIdentity(name string) IdentityResult {
+	soulStr := testSoul(name)
+	parsed, _ := ParseSoul(soulStr)
+	id, _ := ComputeNaraID(soulStr, name)
+	return IdentityResult{
+		Name:        name,
+		Soul:        parsed,
+		ID:          id,
+		IsValidBond: true,
+		IsNative:    true,
+	}
+}

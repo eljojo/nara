@@ -20,7 +20,7 @@ func TestIntegration_EventEmissionNoDuplicates(t *testing.T) {
 	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
 
 	// Create nara with proper Network initialization
-	ln1 := NewLocalNara("nara-1", testSoul("nara-1"), "host", "user", "pass", 50, 1000)
+	ln1 := testLocalNaraWithParams("nara-1", 50, 1000)
 	network := ln1.Network
 
 	// Fake an older start time so we're not in booting mode (uptime > 120s)
@@ -81,7 +81,7 @@ func TestIntegration_EventEmissionNoDuplicates(t *testing.T) {
 func TestIntegration_NoSelfObservationEvents(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
-	ln := NewLocalNara("test-nara", testSoul("test-nara"), "host", "user", "pass", 50, 1000)
+	ln := testLocalNaraWithParams("test-nara", 50, 1000)
 	network := ln.Network
 
 	// Try to record observation about ourselves (should be filtered)
@@ -113,8 +113,7 @@ func TestIntegration_SlimNewspapersInEventMode(t *testing.T) {
 	os.Setenv("USE_OBSERVATION_EVENTS", "true")
 	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
 
-	ln := NewLocalNara("test-nara", testSoul("test-nara"), "", "", "", 50, 1000)
-
+	ln := testLocalNaraWithParams("test-nara", 50, 1000)
 	// Add some observations to the local nara
 	obs1 := NaraObservation{
 		StartTime:   time.Now().Unix(),
@@ -176,7 +175,7 @@ func TestIntegration_EventEmissionDuringTransitions(t *testing.T) {
 	os.Setenv("USE_OBSERVATION_EVENTS", "true")
 	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
 
-	ln := NewLocalNara("observer", testSoul("observer"), "host", "user", "pass", 50, 1000)
+	ln := testLocalNaraWithParams("observer", 50, 1000)
 	network := ln.Network
 
 	// Fake an older start time so we're not in booting mode (uptime > 120s)
@@ -388,7 +387,7 @@ func TestIntegration_MissingDetectionNotTooSensitive(t *testing.T) {
 	os.Setenv("USE_OBSERVATION_EVENTS", "true")
 	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
 
-	ln1 := NewLocalNara("observer", testSoul("observer"), "", "", "", 50, 1000)
+	ln1 := testLocalNaraWithParams("observer", 50, 1000)
 	network := ln1.Network
 
 	// Not booting
@@ -490,7 +489,7 @@ func TestIntegration_TeasingDeduplication(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		name := fmt.Sprintf("observer-%d", i)
-		ln := NewLocalNara(name, testSoul(name), "", "", "", 50, 1000)
+		ln := testLocalNaraWithParams(name, 50, 1000)
 		ln.SyncLedger = sharedLedger
 		ln.Network.TeaseState = NewTeaseState()
 		// Set deterministic delay for testing
@@ -586,7 +585,7 @@ func TestIntegration_GossipModeThreshold(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
 	// Create the observer nara
-	observer := NewLocalNara("observer", testSoul("observer"), "", "", "", 100, 1000)
+	observer := testLocalNaraWithParams("observer", 100, 1000)
 	network := observer.Network
 	network.ReadOnly = true
 
@@ -670,7 +669,7 @@ func TestIntegration_GossipObserverThreshold(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
 	// Create a gossip-only observer
-	observer := NewLocalNara("gossip-observer", testSoul("gossip-observer"), "", "", "", 100, 1000)
+	observer := testLocalNaraWithParams("gossip-observer", 100, 1000)
 	network := observer.Network
 	network.TransportMode = TransportGossip // Observer is in gossip mode
 	network.ReadOnly = true
@@ -749,7 +748,7 @@ func TestIntegration_MeshPeerDiscoverySetsLastSeen(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
 	// Create a local nara
-	ln := NewLocalNara("test-nara", testSoul("test"), "", "", "", 100, 1000)
+	ln := testLocalNaraWithParams("test-nara", 100, 1000)
 	network := ln.Network
 	network.ReadOnly = true
 
@@ -799,8 +798,7 @@ func TestIntegration_MeshPeerDiscoverySetsLastSeen(t *testing.T) {
 func TestIntegration_DirectObservationSetMissingLastSeen(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
-	ln := NewLocalNara("test-nara", testSoul("test"), "", "", "", 100, 1000)
-
+	ln := testLocalNaraWithParams("test-nara", 100, 1000)
 	// This is the buggy pattern that was in discoverMeshPeers
 	peerName := "buggy-peer"
 	ln.setObservation(peerName, NaraObservation{Online: "ONLINE"})
@@ -840,7 +838,7 @@ func TestIntegration_ZineMergeMarksEmittersAsSeen(t *testing.T) {
 	os.Setenv("USE_OBSERVATION_EVENTS", "true")
 	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
 
-	ln := NewLocalNara("observer", testSoul("observer"), "", "", "", 50, 1000)
+	ln := testLocalNaraWithParams("observer", 50, 1000)
 	network := ln.Network
 
 	// Fake an older start time so we're not in booting mode
@@ -903,7 +901,7 @@ func TestIntegration_ZineMergeMarksEmittersAsSeen(t *testing.T) {
 func TestIntegration_PingVerificationBeforeMarkingMissing(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
-	ln := NewLocalNara("observer", testSoul("observer"), "host", "user", "pass", 50, 1000)
+	ln := testLocalNaraWithParams("observer", 50, 1000)
 	network := ln.Network
 
 	// Fake an older start time so we're not in booting mode
@@ -1029,12 +1027,11 @@ func TestIntegration_ChauEventShouldNotMarkOnline(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
 	// Create observer nara
-	observer := NewLocalNara("observer", testSoul("observer"), "", "", "", -1, 0)
+	observer := testLocalNara("observer")
 	observer.Network.TransportMode = TransportGossip
 
 	// Create the nara that will send chau
-	departing := NewLocalNara("departing-nara", testSoul("departing-nara"), "", "", "", -1, 0)
-
+	departing := testLocalNara("departing-nara")
 	// Observer knows about departing nara
 	departingNara := NewNara("departing-nara")
 	departingNara.Status.PublicKey = FormatPublicKey(departing.Keypair.PublicKey)
@@ -1059,7 +1056,7 @@ func TestIntegration_ChauEventShouldNotMarkOnline(t *testing.T) {
 	}
 
 	// Create a chau event from departing-nara
-	chauEvent := NewChauSyncEvent("departing-nara", FormatPublicKey(departing.Keypair.PublicKey), departing.Keypair)
+	chauEvent := NewChauSyncEvent("departing-nara", FormatPublicKey(departing.Keypair.PublicKey), departing.ID, departing.Keypair)
 
 	// Process the chau event via MergeSyncEventsWithVerification (simulates receiving via gossip)
 	observer.Network.MergeSyncEventsWithVerification([]SyncEvent{chauEvent})
@@ -1086,12 +1083,11 @@ func TestIntegration_ChauWithOtherEventsFromSameNara(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
 	// Create observer nara
-	observer := NewLocalNara("observer", testSoul("observer-chau-multi"), "", "", "", -1, 0)
+	observer := testLocalNara("observer")
 	observer.Network.TransportMode = TransportGossip
 
 	// Create the nara that will shut down
-	departing := NewLocalNara("condorito", testSoul("condorito-chau-multi"), "", "", "", -1, 0)
-
+	departing := testLocalNara("condorito")
 	// Observer knows about condorito - CRITICAL: Set public key for signature verification
 	condoritoNara := NewNara("condorito")
 	condoritoNara.Status.PublicKey = FormatPublicKey(departing.Keypair.PublicKey)
@@ -1178,7 +1174,7 @@ func TestIntegration_SeenEventsOnlyForQuietNaras(t *testing.T) {
 	os.Setenv("USE_OBSERVATION_EVENTS", "true")
 	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
 
-	ln := NewLocalNara("observer", testSoul("observer"), "", "", "", 50, 1000)
+	ln := testLocalNaraWithParams("observer", 50, 1000)
 	network := ln.Network
 
 	// Set up so we're not in booting mode
@@ -1290,7 +1286,7 @@ func TestIntegration_MissingToOnlineViaSeenEvent_NoRestartIncrement(t *testing.T
 	os.Setenv("USE_OBSERVATION_EVENTS", "true")
 	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
 
-	ln := NewLocalNara("observer", testSoul("observer"), "", "", "", 50, 1000)
+	ln := testLocalNaraWithParams("observer", 50, 1000)
 	network := ln.Network
 
 	// Set up so we're not in booting mode
@@ -1362,7 +1358,7 @@ func TestIntegration_NoRedundantSeenEventsForActiveNaras(t *testing.T) {
 	os.Setenv("USE_OBSERVATION_EVENTS", "true")
 	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
 
-	observer := NewLocalNara("observer", testSoul("observer"), "", "", "", 50, 1000)
+	observer := testLocalNaraWithParams("observer", 50, 1000)
 	network := observer.Network
 
 	// Set up so we're not in booting mode

@@ -85,7 +85,7 @@ func TestPingVerificationUpdatesProjectionImmediately(t *testing.T) {
 // 5. RunOnce() returns empty, projection never sees new ping event
 // 6. GetStatus() still returns MISSING, creating log spam every second for 60 seconds
 func TestMarkOnlineFromPingUpdatesProjectionSynchronously(t *testing.T) {
-	ln := NewLocalNara("jojo-m1", testSoul("jojo-m1"), "host", "user", "pass", -1, 0)
+	ln := testLocalNara("jojo-m1")
 	network := ln.Network
 	network.local.Projections = NewProjectionStore(network.local.SyncLedger)
 

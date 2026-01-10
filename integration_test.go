@@ -39,20 +39,20 @@ func TestIntegration_MultiNaraNetwork(t *testing.T) {
 	for i := 0; i < numNaras; i++ {
 		name := fmt.Sprintf("test-nara-%d", i)
 		hwFingerprint := []byte(fmt.Sprintf("test-hw-fingerprint-%d", i))
-		soulV1 := NativeSoulCustom(hwFingerprint, name)
-		soul := FormatSoul(soulV1) // Valid base58-encoded soul
+		identity := DetermineIdentity("", "", name, hwFingerprint)
 
 		// Create LocalNara with embedded MQTT broker address
-		ln := NewLocalNara(
-			name,
-			soul,
+		ln, err := NewLocalNara(
+			identity,
 			"tcp://127.0.0.1:11883", // embedded broker
 			"",                      // no user
 			"",                      // no pass
 			-1,                      // auto chattiness
 			1000,                    // ledger capacity
 		)
-
+		if err != nil {
+			t.Fatalf("Failed to create LocalNara: %v", err)
+		}
 		naras[i] = ln
 
 		// Start the nara (this spawns all goroutines)
@@ -284,17 +284,18 @@ func TestIntegration_HeyThereDiscovery(t *testing.T) {
 	// Create two naras
 	createNara := func(name string) *LocalNara {
 		hwFingerprint := []byte(fmt.Sprintf("test-hw-fingerprint-%s", name))
-		soulV1 := NativeSoulCustom(hwFingerprint, name)
-		soul := FormatSoul(soulV1)
+		identity := DetermineIdentity("", "", name, hwFingerprint)
 
-		ln := NewLocalNara(
-			name,
-			soul,
+		ln, err := NewLocalNara(
+			identity,
 			"tcp://127.0.0.1:11883",
 			"", "",
 			-1,   // auto chattiness
 			1000, // ledger capacity
 		)
+		if err != nil {
+			t.Fatalf("Failed to create LocalNara: %v", err)
+		}
 		// Skip jitter delays for faster discovery in tests
 		ln.Network.testSkipJitter = true
 		return ln

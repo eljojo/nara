@@ -126,9 +126,12 @@ func main() {
 	hwFingerprint := nara.HashHardware(strings.Join([]string{info.HostID, macs}, "-"))
 
 	identity := nara.DetermineIdentity(*naraIdPtr, *soulPtr, getHostname(), hwFingerprint)
-	soulStr := nara.FormatSoul(identity.Soul)
 
-	localNara := nara.NewLocalNara(identity.Name, soulStr, *mqttHostPtr, *mqttUserPtr, *mqttPassPtr, *forceChattinessPtr, *ledgerCapacityPtr)
+	// Use NewLocalNara with the identity result
+	localNara, err := nara.NewLocalNara(identity, *mqttHostPtr, *mqttUserPtr, *mqttPassPtr, *forceChattinessPtr, *ledgerCapacityPtr)
+	if err != nil {
+		logrus.Fatalf("Failed to initialize nara: %v", err)
+	}
 	localNara.Me.Status.PublicUrl = *publicUrlPtr
 
 	// Parse transport mode
@@ -136,13 +139,15 @@ func main() {
 	logrus.Infof("🚀 Transport mode: %s", transportModeString(transportMode))
 
 	// Log identity status
-	if !identity.IsValidBond {
+	if identity.ID == "" {
+		logrus.Warn("⚠️  Identity initialization failed: ID is empty")
+	} else if !identity.IsValidBond {
 		logrus.Warn("⚠️  Inauthentic: soul does not match name")
 	} else if !identity.IsNative {
 		logrus.Info("🧳 Traveler: foreign soul (valid bond)")
 	}
 
-	logrus.Infof("🔮 Soul: %s", soulStr)
+	logrus.Infof("🔮 Soul: %s", nara.FormatSoul(identity.Soul))
 
 	// Configure mesh (enabled by default)
 	var meshConfig *nara.TsnetConfig

@@ -28,7 +28,10 @@ func TestHowdy_StartTimeRecovery(t *testing.T) {
 	t.Log("🧪 Testing start time recovery via howdy protocol")
 
 	// Step 1: Boot nara1
-	nara1 := createTestNara(t, "howdy-nara-1", 11884)
+	nara1, err := createTestNara(t, "howdy-nara-1", 11884)
+	if err != nil {
+		t.Fatalf("Failed to create test nara: %v", err)
+	}
 	go nara1.Start(false, false, "", nil, TransportMQTT)
 	defer nara1.Network.Shutdown()
 	defer nara1.Network.disconnectMQTT()
@@ -40,7 +43,10 @@ func TestHowdy_StartTimeRecovery(t *testing.T) {
 	}, "nara1 should connect to MQTT")
 
 	// Step 2: Boot nara2 - it says hey_there, nara1 responds with howdy
-	nara2 := createTestNara(t, "howdy-nara-2", 11884)
+	nara2, err := createTestNara(t, "howdy-nara-2", 11884)
+	if err != nil {
+		t.Fatalf("Failed to create test nara: %v", err)
+	}
 	go nara2.Start(false, false, "", nil, TransportMQTT)
 	defer nara2.Network.Shutdown()
 	defer nara2.Network.disconnectMQTT()
@@ -126,7 +132,10 @@ func TestHowdy_NeighborDiscovery(t *testing.T) {
 	t.Log("🧪 Testing neighbor discovery via howdy protocol")
 
 	// Boot nara1 and nara2 first
-	nara1 := createTestNara(t, "discover-nara-1", 11885)
+	nara1, err := createTestNara(t, "discover-nara-1", 11885)
+	if err != nil {
+		t.Fatalf("Failed to create test nara: %v", err)
+	}
 	go nara1.Start(false, false, "", nil, TransportMQTT)
 	defer nara1.Network.Shutdown()
 	defer nara1.Network.disconnectMQTT()
@@ -135,7 +144,10 @@ func TestHowdy_NeighborDiscovery(t *testing.T) {
 		return nara1.Network.Mqtt != nil && nara1.Network.Mqtt.IsConnected()
 	}, "nara1 should connect to MQTT")
 
-	nara2 := createTestNara(t, "discover-nara-2", 11885)
+	nara2, err := createTestNara(t, "discover-nara-2", 11885)
+	if err != nil {
+		t.Fatalf("Failed to create test nara: %v", err)
+	}
 	go nara2.Start(false, false, "", nil, TransportMQTT)
 	defer nara2.Network.Shutdown()
 	defer nara2.Network.disconnectMQTT()
@@ -153,7 +165,10 @@ func TestHowdy_NeighborDiscovery(t *testing.T) {
 	}, "nara1 should discover nara2")
 
 	// Now boot nara3 - it should learn about both nara1 and nara2 via howdy
-	nara3 := createTestNara(t, "discover-nara-3", 11885)
+	nara3, err := createTestNara(t, "discover-nara-3", 11885)
+	if err != nil {
+		t.Fatalf("Failed to create test nara: %v", err)
+	}
 	go nara3.Start(false, false, "", nil, TransportMQTT)
 	defer nara3.Network.Shutdown()
 	defer nara3.Network.disconnectMQTT()
@@ -207,7 +222,11 @@ func TestHowdy_SelfSelection(t *testing.T) {
 	// Start 14 naras first
 	for i := 0; i < numNaras-1; i++ {
 		name := fmt.Sprintf("select-nara-%d", i)
-		naras[i] = createTestNara(t, name, 11886)
+		var err error
+		naras[i], err = createTestNara(t, name, 11886)
+		if err != nil {
+			t.Fatalf("Failed to create test nara: %v", err)
+		}
 		go naras[i].Start(false, false, "", nil, TransportMQTT)
 		defer naras[i].Network.Shutdown()
 		defer naras[i].Network.disconnectMQTT()
@@ -227,7 +246,10 @@ func TestHowdy_SelfSelection(t *testing.T) {
 	time.Sleep(1000 * time.Millisecond)
 
 	// Now start the 15th nara - it should trigger howdy responses from up to 10 naras
-	lastNara := createTestNara(t, "select-nara-14", 11886)
+	lastNara, err := createTestNara(t, "select-nara-14", 11886)
+	if err != nil {
+		t.Fatalf("Failed to create test nara: %v", err)
+	}
 	naras[numNaras-1] = lastNara
 	go lastNara.Start(false, false, "", nil, TransportMQTT)
 	defer lastNara.Network.Shutdown()
@@ -268,7 +290,7 @@ func startHowdyTestBroker(t *testing.T, port int) *mqttserver.Server {
 
 	err := server.AddHook(new(auth.AllowHook), nil)
 	if err != nil {
-		t.Fatalf("Failed to add auth hook: %v", err)
+		t.Fatalf("Failed to create LocalNara: %v", err)
 	}
 
 	tcp := listeners.NewTCP(listeners.Config{
@@ -277,7 +299,7 @@ func startHowdyTestBroker(t *testing.T, port int) *mqttserver.Server {
 	})
 	err = server.AddListener(tcp)
 	if err != nil {
-		t.Fatalf("Failed to add listener: %v", err)
+		t.Fatalf("Failed to create LocalNara: %v", err)
 	}
 
 	go func() {
@@ -290,25 +312,25 @@ func startHowdyTestBroker(t *testing.T, port int) *mqttserver.Server {
 	return server
 }
 
-func createTestNara(t *testing.T, name string, port int) *LocalNara {
-	hwFingerprint := []byte(fmt.Sprintf("howdy-test-hw-%s", name))
-	soulV1 := NativeSoulCustom(hwFingerprint, name)
-	soul := FormatSoul(soulV1)
+func createTestNara(t *testing.T, name string, port int) (*LocalNara, error) {
+	identity := testIdentity(name)
 
-	ln := NewLocalNara(
-		name,
-		soul,
+	ln, err := NewLocalNara(
+		identity,
 		fmt.Sprintf("tcp://127.0.0.1:%d", port),
 		"",
 		"",
 		-1,
 		1000,
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	// Skip the 1s sleep in handleHeyThereEvent for faster tests
 	ln.Network.testSkipHeyThereSleep = true
 	// Skip jitter delays for faster discovery in tests
 	ln.Network.testSkipJitter = true
 
-	return ln
+	return ln, nil
 }

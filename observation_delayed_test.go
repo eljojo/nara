@@ -28,7 +28,7 @@ func TestDelayedMissingReporting(t *testing.T) {
 	observers := make([]*LocalNara, 5)
 	for i := 0; i < 5; i++ {
 		name := "observer-" + string(rune('a'+i))
-		ln := NewLocalNara(name, testSoul(name), "host", "user", "pass", 50, 1000)
+		ln := testLocalNaraWithParams(name, 50, 1000)
 		ln.SyncLedger = sharedLedger // Share the same ledger
 
 		// Fake older start time to not be in booting mode
@@ -97,7 +97,7 @@ func TestDelayedMissingReporting_NoRedundancy(t *testing.T) {
 	sharedLedger := NewSyncLedger(1000)
 
 	// Create first observer who reports immediately
-	ln1 := NewLocalNara("observer-fast", testSoul("observer-fast"), "host", "user", "pass", 50, 1000)
+	ln1 := testLocalNaraWithParams("observer-fast", 50, 1000)
 	ln1.SyncLedger = sharedLedger
 	me1 := ln1.getMeObservation()
 	me1.LastRestart = time.Now().Unix() - 200
@@ -105,7 +105,7 @@ func TestDelayedMissingReporting_NoRedundancy(t *testing.T) {
 	ln1.setMeObservation(me1)
 
 	// Create second observer who will check later
-	ln2 := NewLocalNara("observer-slow", testSoul("observer-slow"), "host", "user", "pass", 50, 1000)
+	ln2 := testLocalNaraWithParams("observer-slow", 50, 1000)
 	ln2.SyncLedger = sharedLedger
 	me2 := ln2.getMeObservation()
 	me2.LastRestart = time.Now().Unix() - 200
