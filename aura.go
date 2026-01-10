@@ -23,6 +23,19 @@ const (
 	ModNeon                     // higher chroma, a bit brighter
 )
 
+type Illuminant struct {
+	A float64 // OKLab a axis bias (green<->red)
+	B float64 // OKLab b axis bias (blue<->yellow)
+}
+
+var (
+	IllDaylight = Illuminant{A: 0.00, B: 0.00}   // neutral
+	IllTungsten = Illuminant{A: 0.02, B: 0.06}   // warm indoor
+	IllSodium   = Illuminant{A: 0.01, B: 0.10}   // streetlight orange
+	IllLED      = Illuminant{A: -0.02, B: -0.03} // cool LED
+	IllMoon     = Illuminant{A: -0.01, B: -0.06} // cool night
+)
+
 type ColorPair struct {
 	Primary   RGB
 	Secondary RGB
@@ -51,6 +64,8 @@ func (ln *LocalNara) computeAura() Aura {
 	ln.Me.mu.Lock()
 	p := ln.Me.Status.Personality
 	name := ln.Me.Name
+	observation := ln.Me.Status.Observations[ln.Me.Name]
+	uptime := uint64(observation.LastSeen - observation.LastRestart)
 	ln.Me.mu.Unlock()
 
 	soul := ln.Soul
@@ -62,7 +77,7 @@ func (ln *LocalNara) computeAura() Aura {
 	mod := choosePaletteModifier(p)
 
 	// Generate color pair using OKLCH color science
-	colors := NaraColorsFromString(id, p, mod)
+	colors := NaraColorsFromStringWithUptime(id, p, mod, uptime)
 
 	return Aura{
 		Primary:   colors.Primary.Hex(),
@@ -96,77 +111,6 @@ func choosePaletteModifier(p NaraPersonality) PaletteModifier {
 	}
 
 	return ModDefault
-}
-
-// --- Public entrypoints ---
-
-func NaraColorsFromString(id string, p NaraPersonality, mod PaletteModifier) ColorPair {
-	h := fnv32a(id)
-	return NaraColorsFromHash(h, p, mod)
-}
-
-func NaraColorsFromHash(h uint32, p NaraPersonality, mod PaletteModifier) ColorPair {
-	a := clamp01(float64(p.Agreeableness) / 100.0)
-	s := clamp01(float64(p.Sociability) / 100.0)
-	c := clamp01(float64(p.Chill) / 100.0)
-
-	// 1) Base hue from hash (0..360), then golden-angle shuffle for better spread.
-	baseHue := float64(h%360) + fract(hashToUnit(h, 0xA2C2A1))*137.50776405003785
-	baseHue = wrapHue(baseHue)
-
-	// 2) Personality -> OKLCH "style"
-	// Sociability: chroma (muted -> neon)
-	// Chill: lightness (calmer -> slightly lighter/softer)
-	L := 0.52 + 0.18*c - 0.06*s     // 0.28..0.76ish
-	C := 0.06 + 0.22*s + 0.05*(1-c) // 0.06..0.33ish
-
-	// Agreeableness: more agreeable => more "safe/neighborly" harmonies (analogous),
-	// less agreeable => more "contrast/edge" (split/triad-ish).
-	harmony := chooseHarmony(a, h)
-
-	// 3) Modifier tweaks (small, art-directable)
-	switch mod {
-	case ModWarmBias:
-		baseHue = wrapHue(baseHue + 12)
-	case ModCoolBias:
-		baseHue = wrapHue(baseHue - 12)
-	case ModNoir:
-		L -= 0.12
-		C *= 0.75
-	case ModNeon:
-		L += 0.04
-		C *= 1.18
-	}
-
-	// keep sane bounds
-	L = clamp(L, 0.18, 0.88)
-	C = clamp(C, 0.02, 0.40)
-
-	// 4) Primary color in OKLCH, then gamut-map to sRGB
-	primary := oklchToSRGBGamutMapped(L, C, baseHue)
-
-	// 5) Secondary color: harmony strategy + ensure clear separation
-	secondaryHue := wrapHue(baseHue + harmonyOffsetDegrees(harmony, h))
-	secondaryL := L
-	secondaryC := C
-
-	// Build "human" pairs: push the secondary to be meaningfully different.
-	// - If primary is vivid, make secondary a bit calmer.
-	// - If primary is muted, let secondary carry more chroma.
-	secondaryC = clamp(secondaryC*(0.78+0.44*(1-s)), 0.02, 0.38)
-
-	// Ensure lightness contrast between the two (simple, robust).
-	// Chill tends to prefer lower drama, so contrast is slightly smaller when chill is high.
-	minDeltaL := 0.10 + 0.06*(1-c)
-	if s > 0.65 {
-		// sociable naras pop: a bit more contrast
-		minDeltaL += 0.03
-	}
-	secondaryL = adjustLightnessAway(secondaryL, L, minDeltaL, h)
-
-	secondary := oklchToSRGBGamutMapped(secondaryL, secondaryC, secondaryHue)
-
-	return ColorPair{Primary: primary, Secondary: secondary}
 }
 
 // --- Harmony logic (agreeableness-driven) ---
@@ -241,24 +185,31 @@ func adjustLightnessAway(L float64, base float64, minDelta float64, h uint32) fl
 	return clamp(L, 0.18, 0.88)
 }
 
-// --- OKLCH -> sRGB with gamut mapping ---
+// --- OKLCH -> sRGB with illuminant (memory tint) and gamut mapping ---
 
-func oklchToSRGBGamutMapped(L, C, Hdeg float64) RGB {
-	// Convert OKLCH -> OKLab
+func oklchToSRGBGamutMappedIlluminated(L, C, Hdeg float64, ill Illuminant, strength float64) RGB {
 	hrad := Hdeg * (math.Pi / 180.0)
-	a := C * math.Cos(hrad)
-	b := C * math.Sin(hrad)
+	a0 := C * math.Cos(hrad)
+	b0 := C * math.Sin(hrad)
 
-	// Gamut map: reduce chroma until sRGB is in gamut
-	c := C
-	for i := 0; i < 14; i++ { // usually converges quickly
-		r, g, bb := oklabToLinearSRGB(L, aFromCH(c, Hdeg), bFromCH(c, Hdeg))
+	shiftA := ill.A * strength
+	shiftB := ill.B * strength
+
+	// Reduce only the chroma component until in gamut; keep the illuminant shift intact.
+	k := 1.0
+	for i := 0; i < 14; i++ {
+		a := k*a0 + shiftA
+		b := k*b0 + shiftB
+		r, g, bb := oklabToLinearSRGB(L, a, b)
 		if inGamut01(r) && inGamut01(g) && inGamut01(bb) {
 			return linearToSRGB8(r, g, bb)
 		}
-		c *= 0.88
+		k *= 0.88
 	}
-	// Fallback: hard clamp (rare)
+
+	// Fallback: clamp (rare)
+	a := k*a0 + shiftA
+	b := k*b0 + shiftB
 	r, g, bb := oklabToLinearSRGB(L, a, b)
 	return linearToSRGB8(clamp01(r), clamp01(g), clamp01(bb))
 }
@@ -360,4 +311,138 @@ func Uint32FromBytes(b []byte) uint32 {
 		return binary.LittleEndian.Uint32(tmp[:])
 	}
 	return binary.LittleEndian.Uint32(b[:4])
+}
+
+func uptimeFactorSeconds(u uint64) float64 {
+	// Map ~0..30 days to 0..1 (log curve)
+	const max = 30 * 24 * 3600
+	x := float64(u)
+	return clamp01(math.Log1p(x) / math.Log1p(max))
+}
+
+func chooseIlluminant(h uint32, p NaraPersonality, mod PaletteModifier, uptimeSeconds uint64) (Illuminant, float64) {
+	a := clamp01(float64(p.Agreeableness) / 100.0)
+	s := clamp01(float64(p.Sociability) / 100.0)
+	c := clamp01(float64(p.Chill) / 100.0)
+	u := uptimeFactorSeconds(uptimeSeconds)
+
+	// Warmth: uptime + chill pull warm; sociability pulls cool (LED/club)
+	warm := clamp01(0.55*u + 0.35*c + 0.10*(1.0-s))
+	cool := clamp01(0.55*s + 0.25*(1.0-c) + 0.20*(1.0-u))
+
+	// Modifier nudges
+	switch mod {
+	case ModWarmBias:
+		warm = clamp01(warm + 0.15)
+	case ModCoolBias:
+		cool = clamp01(cool + 0.15)
+	case ModNoir:
+		// noir feels like night + sodium/tungsten
+		warm = clamp01(warm + 0.08)
+	case ModNeon:
+		// neon feels like LED-heavy spaces
+		cool = clamp01(cool + 0.10)
+	}
+
+	// Agreeableness: more agreeable => closer to neutral daylight (less “filter”)
+	neutralPull := 0.35 + 0.45*a // 0.35..0.80
+
+	// Deterministic “environment lottery” between warm indoor vs streetlight vs cool LED vs moonlight.
+	r := hashToUnit(h, 0x1A11A7ED)
+	var ill Illuminant
+	if warm >= cool {
+		ill = IllTungsten
+		if r < 0.25+0.35*u {
+			ill = IllSodium // older naras drift into sodium-night vibes more often
+		}
+	} else {
+		ill = IllLED
+		if r < 0.20+0.25*(1.0-u) {
+			ill = IllMoon // younger / rebooted naras can feel “cold”
+		}
+	}
+
+	// Strength: subtle, but present. Uptime increases “memory tint”.
+	// Agreeableness reduces tint (socially “neutral”)
+	strength := clamp(0.12+0.55*u+0.15*(1.0-c), 0.08, 0.80)
+	strength *= (1.0 - 0.55*a)
+
+	// Pull toward daylight (keeps it tasteful, Pantone-ish)
+	ill = lerpIlluminant(ill, IllDaylight, neutralPull)
+
+	return ill, strength
+}
+
+func lerpIlluminant(a, b Illuminant, t float64) Illuminant {
+	return Illuminant{
+		A: a.A + (b.A-a.A)*t,
+		B: a.B + (b.B-a.B)*t,
+	}
+}
+
+// --- Public entrypoints (with uptime / illuminant) ---
+
+func NaraColorsFromStringWithUptime(id string, p NaraPersonality, mod PaletteModifier, uptimeSeconds uint64) ColorPair {
+	h := fnv32a(id)
+	return NaraColorsFromHashWithUptime(h, p, mod, uptimeSeconds)
+}
+
+func NaraColorsFromHashWithUptime(h uint32, p NaraPersonality, mod PaletteModifier, uptimeSeconds uint64) ColorPair {
+	ill, strength := chooseIlluminant(h, p, mod, uptimeSeconds)
+	return naraColorsCore(h, p, mod, ill, strength)
+}
+
+// naraColorsCore is the same palette logic as NaraColorsFromHash, but “remembered under light”.
+// We apply an illuminant bias in OKLab during OKLCH->sRGB conversion (with gamut-mapped chroma).
+func naraColorsCore(h uint32, p NaraPersonality, mod PaletteModifier, ill Illuminant, illStrength float64) ColorPair {
+	a := clamp01(float64(p.Agreeableness) / 100.0)
+	s := clamp01(float64(p.Sociability) / 100.0)
+	c := clamp01(float64(p.Chill) / 100.0)
+
+	// 1) Base hue from hash (0..360), then golden-angle shuffle for better spread.
+	baseHue := float64(h%360) + fract(hashToUnit(h, 0xA2C2A1))*137.50776405003785
+	baseHue = wrapHue(baseHue)
+
+	// 2) Personality -> OKLCH "style"
+	L := 0.52 + 0.18*c - 0.06*s     // 0.28..0.76ish
+	C := 0.06 + 0.22*s + 0.05*(1-c) // 0.06..0.33ish
+
+	harmony := chooseHarmony(a, h)
+
+	// 3) Modifier tweaks (small, art-directable)
+	switch mod {
+	case ModWarmBias:
+		baseHue = wrapHue(baseHue + 12)
+	case ModCoolBias:
+		baseHue = wrapHue(baseHue - 12)
+	case ModNoir:
+		L -= 0.12
+		C *= 0.75
+	case ModNeon:
+		L += 0.04
+		C *= 1.18
+	}
+
+	L = clamp(L, 0.18, 0.88)
+	C = clamp(C, 0.02, 0.40)
+
+	// 4) Primary color (remembered under light)
+	primary := oklchToSRGBGamutMappedIlluminated(L, C, baseHue, ill, illStrength)
+
+	// 5) Secondary color: harmony strategy + ensure clear separation
+	secondaryHue := wrapHue(baseHue + harmonyOffsetDegrees(harmony, h))
+	secondaryL := L
+	secondaryC := C
+
+	secondaryC = clamp(secondaryC*(0.78+0.44*(1-s)), 0.02, 0.38)
+
+	minDeltaL := 0.10 + 0.06*(1-c)
+	if s > 0.65 {
+		minDeltaL += 0.03
+	}
+	secondaryL = adjustLightnessAway(secondaryL, L, minDeltaL, h)
+
+	secondary := oklchToSRGBGamutMappedIlluminated(secondaryL, secondaryC, secondaryHue, ill, illStrength)
+
+	return ColorPair{Primary: primary, Secondary: secondary}
 }
