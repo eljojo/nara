@@ -1,11 +1,13 @@
 package nara
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestHttpNaraeJsonHandler(t *testing.T) {
@@ -656,5 +658,122 @@ func TestHttpDMHandler_MethodNotAllowed(t *testing.T) {
 
 	if status := rr.Code; status != http.StatusMethodNotAllowed {
 		t.Errorf("expected status 405 for GET, got %v", status)
+	}
+}
+
+func TestHttpEventsSSEHandler(t *testing.T) {
+	sender := NewLocalNara("sender", testSoul("sender"), "", "", "", 50, 1000)
+	receiver := NewLocalNara("receiver", testSoul("receiver"), "", "", "", 50, 1000)
+
+	// Add sender to receiver's neighbourhood so we can verify events
+	receiver.Network.importNara(sender.Me)
+
+	// Create test events of various types to ensure UIFormat works
+	socialEvent := NewTeaseSyncEvent("sender", "receiver", "test-reason", sender.Keypair)
+
+	pingEvent := SyncEvent{
+		ID:        "ping-test",
+		Timestamp: 1000000000,
+		Service:   ServicePing,
+		Ping: &PingObservation{
+			Observer: "sender",
+			Target:   "receiver",
+			RTT:      12.5,
+		},
+	}
+	pingEvent.Sign("sender", sender.Keypair)
+
+	// Test that we can marshal events with UI format without errors
+	testEvents := []SyncEvent{socialEvent, pingEvent}
+
+	for i, event := range testEvents {
+		// Simulate what the SSE handler does
+		var uiFormat map[string]string
+		if event.Social != nil {
+			uiFormat = event.Social.UIFormat()
+		} else if event.Ping != nil {
+			uiFormat = event.Ping.UIFormat()
+		}
+
+		if uiFormat == nil {
+			t.Errorf("event %d: failed to get UI format", i)
+			continue
+		}
+
+		data := map[string]interface{}{
+			"service":   event.Service,
+			"timestamp": event.Timestamp,
+			"emitter":   event.Emitter,
+			"icon":      uiFormat["icon"],
+			"text":      uiFormat["text"],
+			"detail":    uiFormat["detail"],
+		}
+
+		// Try to marshal - this is where a panic/error would occur
+		jsonData, err := json.Marshal(data)
+		if err != nil {
+			t.Errorf("event %d: failed to marshal event data: %v", i, err)
+		}
+
+		// Verify UI format fields are present
+		var result map[string]interface{}
+		if err := json.Unmarshal(jsonData, &result); err != nil {
+			t.Errorf("event %d: failed to unmarshal: %v", i, err)
+		}
+
+		if result["icon"] == nil || result["text"] == nil {
+			t.Errorf("event %d: icon or text field is missing from marshaled data", i)
+		}
+
+		t.Logf("event %d marshaled successfully: %s", i, string(jsonData))
+	}
+
+	// Test the actual SSE endpoint WITH middleware to catch issues like responseLogger not implementing http.Flusher
+	// Use a context with timeout so the handler doesn't block forever
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	req, err := http.NewRequest("GET", "/events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req = req.WithContext(ctx)
+
+	rr := httptest.NewRecorder()
+
+	// Use the middleware-wrapped handler, not the raw handler
+	handler := receiver.Network.loggingMiddleware("/events", receiver.Network.httpEventsSSEHandler)
+
+	// Run handler in goroutine since it blocks
+	done := make(chan bool)
+	go func() {
+		handler.ServeHTTP(rr, req)
+		done <- true
+	}()
+
+	// Wait for handler to start and send initial event, or timeout
+	select {
+	case <-done:
+		// Handler completed (due to context timeout)
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("handler didn't complete within timeout")
+	}
+
+	// The handler should start successfully (status 200) and set SSE headers
+	if status := rr.Code; status != http.StatusOK {
+		t.Errorf("handler with middleware returned wrong status code: got %v want %v, body: %s",
+			status, http.StatusOK, rr.Body.String())
+	}
+
+	// Verify it's actually an SSE endpoint
+	contentType := rr.Header().Get("Content-Type")
+	if !strings.Contains(contentType, "text/event-stream") {
+		t.Errorf("expected Content-Type to contain text/event-stream, got %s", contentType)
+	}
+
+	// Verify the initial connection event is sent
+	body := rr.Body.String()
+	if !strings.Contains(body, "event: connected") {
+		t.Errorf("expected initial connection event, got: %s", body)
 	}
 }

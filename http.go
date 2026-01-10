@@ -97,6 +97,13 @@ func (rl *responseLogger) WriteHeader(code int) {
 	rl.ResponseWriter.WriteHeader(code)
 }
 
+// Flush implements http.Flusher interface by delegating to underlying ResponseWriter
+func (rl *responseLogger) Flush() {
+	if f, ok := rl.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 //go:embed nara-web/public/*
 var staticContent embed.FS
 
@@ -267,6 +274,12 @@ func (network *Network) getNarae() []*Nara {
 
 // SSE endpoint for real-time social events (shooting stars!)
 func (network *Network) httpEventsSSEHandler(w http.ResponseWriter, r *http.Request) {
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.Errorf("SSE handler panic: %v", r)
+		}
+	}()
+
 	// Set SSE headers
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -276,6 +289,7 @@ func (network *Network) httpEventsSSEHandler(w http.ResponseWriter, r *http.Requ
 	// Get flusher for streaming
 	flusher, ok := w.(http.Flusher)
 	if !ok {
+		logrus.Error("SSE not supported - ResponseWriter doesn't implement http.Flusher")
 		http.Error(w, "SSE not supported", http.StatusInternalServerError)
 		return
 	}
@@ -292,18 +306,43 @@ func (network *Network) httpEventsSSEHandler(w http.ResponseWriter, r *http.Requ
 	for {
 		select {
 		case event := <-eventChan:
-			if event.Social == nil {
+			// Get UI format from the payload
+			var uiFormat map[string]string
+			if event.Social != nil {
+				uiFormat = event.Social.UIFormat()
+			} else if event.Ping != nil {
+				uiFormat = event.Ping.UIFormat()
+			} else if event.Observation != nil {
+				uiFormat = event.Observation.UIFormat()
+			} else if event.HeyThere != nil {
+				uiFormat = event.HeyThere.UIFormat()
+			} else if event.Chau != nil {
+				uiFormat = event.Chau.UIFormat()
+			} else if event.Seen != nil {
+				uiFormat = event.Seen.UIFormat()
+			}
+
+			// Skip if no UI format available
+			if uiFormat == nil {
 				continue
 			}
-			data, _ := json.Marshal(map[string]interface{}{
-				"type":      event.Social.Type,
-				"actor":     event.Social.Actor,
-				"target":    event.Social.Target,
-				"reason":    event.Social.Reason,
-				"message":   TeaseMessage(event.Social.Reason, event.Social.Actor, event.Social.Target),
+
+			// Send simple event with just UI data
+			data := map[string]interface{}{
+				"service":   event.Service,
 				"timestamp": event.Timestamp,
-			})
-			fmt.Fprintf(w, "event: social\ndata: %s\n\n", data)
+				"emitter":   event.Emitter,
+				"icon":      uiFormat["icon"],
+				"text":      uiFormat["text"],
+				"detail":    uiFormat["detail"],
+			}
+
+			jsonData, err := json.Marshal(data)
+			if err != nil {
+				logrus.Errorf("SSE: failed to marshal event: %v", err)
+				continue
+			}
+			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Service, jsonData)
 			flusher.Flush()
 		case <-r.Context().Done():
 			return
@@ -799,6 +838,7 @@ func (network *Network) httpGossipZineHandler(w http.ResponseWriter, r *http.Req
 	json.NewEncoder(w).Encode(myZine)
 }
 
+
 // POST /dm - Receive a direct message (arbitrary SyncEvent)
 // This is a generic endpoint for naras to send events directly to each other.
 // Events are added to the local ledger and spread via gossip.
@@ -845,8 +885,8 @@ func (network *Network) httpDMHandler(w http.ResponseWriter, r *http.Request) {
 		network.local.Projections.Trigger()
 	}
 
-	// Broadcast to local SSE clients
-	if added && event.Service == ServiceSocial {
+	// Broadcast to local SSE clients (all event types, not just social)
+	if added {
 		network.broadcastSSE(event)
 	}
 
@@ -856,7 +896,12 @@ func (network *Network) httpDMHandler(w http.ResponseWriter, r *http.Request) {
 		network.recordObservationOnlineNara(event.Emitter)
 	}
 
-	logrus.Infof("📬 Received DM from %s: event %s added=%v", event.Emitter, event.ID, added)
+	// Format event content for logging
+	contentStr := "unknown event"
+	if payload := event.Payload(); payload != nil {
+		contentStr = payload.LogFormat()
+	}
+	logrus.Infof("📬 Received DM from %s: %s (added=%v)", event.Emitter, contentStr, added)
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(map[string]interface{}{

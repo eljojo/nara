@@ -414,6 +414,7 @@ func (network *Network) recordObservationOnlineNara(name string) {
 			if network.local.SyncLedger.AddEventWithDedup(event) && network.local.Projections != nil {
 				network.local.Projections.Trigger()
 			}
+			network.broadcastSSE(event)
 			logrus.Infof("📊 First-seen observation event: %s", name)
 		}
 	}
@@ -455,6 +456,7 @@ func (network *Network) recordObservationOnlineNara(name string) {
 			if network.local.SyncLedger.AddEventWithDedup(event) && network.local.Projections != nil {
 				network.local.Projections.Trigger()
 			}
+			network.broadcastSSE(event)
 			logrus.Infof("📊 Restart observation event: %s (restart #%d)", name, observation.Restarts)
 		}
 	}
@@ -472,6 +474,7 @@ func (network *Network) recordObservationOnlineNara(name string) {
 			if network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality) && network.local.Projections != nil {
 				network.local.Projections.Trigger()
 			}
+			network.broadcastSSE(event)
 			logrus.Infof("📊 Status-change observation event: %s → ONLINE", name)
 		}
 	}
@@ -628,6 +631,7 @@ func (network *Network) reportMissingWithDelay(subject string) {
 	if network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality) && network.local.Projections != nil {
 		network.local.Projections.Trigger()
 	}
+	network.broadcastSSE(event)
 	logrus.Infof("📊 Status-change observation event: %s → MISSING (after %v delay, verified)", subject, delay)
 }
 

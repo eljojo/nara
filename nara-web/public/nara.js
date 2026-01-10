@@ -122,8 +122,15 @@ function ShootingStarContainer() {
     const eventSource = new EventSource('/events');
 
     eventSource.addEventListener('social', (e) => {
-      const event = JSON.parse(e.data);
-      maybeAddStar(event);
+      const data = JSON.parse(e.data);
+      if (data.social) {
+        const event = {
+          actor: data.social.actor,
+          target: data.social.target,
+          message: data.social.reason,
+        };
+        maybeAddStar(event);
+      }
     });
 
     return () => {
@@ -194,7 +201,7 @@ function NaraRow(props) {
   );
 }
 
-// Social panel showing opinions and recent teases
+// Social panel showing opinions and network activity
 function SocialPanel() {
   const { useState, useEffect } = React;
   const [clout, setClout] = useState({});
@@ -206,7 +213,9 @@ function SocialPanel() {
     if (timestamp === 0 || timestamp < 0) {
       return "never";
     }
-    const seconds = moment().unix() - timestamp;
+    // Convert from nanoseconds to seconds if needed
+    const ts = timestamp > 10000000000000 ? timestamp / 1000000000 : timestamp;
+    const seconds = moment().unix() - ts;
     if (seconds < 60) {
       return `${Math.round(seconds)}s ago`;
     }
@@ -228,18 +237,39 @@ function SocialPanel() {
           setServer(data.server);
         })
         .catch(() => {});
-
-      window.fetch("/social/recent")
-        .then(response => response.json())
-        .then(data => {
-          setRecentEvents(data.events || []);
-        })
-        .catch(() => {});
     };
 
     refresh();
-    const interval = setInterval(refresh, 10000); // every 10s instead of 2s
-    return () => clearInterval(interval);
+    const interval = setInterval(refresh, 10000);
+
+    // Listen to SSE for real-time events
+    const eventSource = new EventSource('/events');
+    const handleEvent = (e) => {
+      try {
+        const evt = JSON.parse(e.data);
+        if (evt.icon && evt.text) {
+          setRecentEvents(prev => [evt, ...prev].slice(0, 10));
+        }
+      } catch (err) {
+        console.error('Error parsing SSE event:', err, e.data);
+      }
+    };
+
+    eventSource.addEventListener('social', handleEvent);
+    eventSource.addEventListener('ping', handleEvent);
+    eventSource.addEventListener('observation', handleEvent);
+    eventSource.addEventListener('hey-there', handleEvent);
+    eventSource.addEventListener('chau', handleEvent);
+    eventSource.addEventListener('seen', handleEvent);
+
+    eventSource.onerror = (err) => {
+      console.error('SSE error:', err);
+    };
+
+    return () => {
+      clearInterval(interval);
+      eventSource.close();
+    };
   }, []);
 
   // Sort clout by score descending
@@ -270,16 +300,19 @@ function SocialPanel() {
         </div>
       </div>
       <div style={{ flex: 1, padding: '10px', border: '1px solid #ddd', borderRadius: '8px' }}>
-        <strong>📜 Recent Teases:</strong>
-        {recentEvents.length === 0 && <div style={{ color: '#888', marginTop: '8px' }}>No teases yet...</div>}
-        <div style={{ marginTop: '8px' }}>
+        <strong>📡 Network Activity:</strong>
+        {recentEvents.length === 0 && <div style={{ color: '#888', marginTop: '8px' }}>No activity yet...</div>}
+        <div style={{ marginTop: '8px', maxHeight: '200px', overflowY: 'auto' }}>
           {recentEvents.map((event, i) => (
             <div key={i} style={{ padding: '4px 0', borderBottom: i < recentEvents.length - 1 ? '1px solid #eee' : 'none' }}>
               <div style={{ fontSize: '0.9em' }}>
-                <strong>{event.actor}</strong> → <strong>{event.target}</strong>
-                <span style={{ color: '#888', marginLeft: '8px' }}>{timeAgo(event.timestamp)}</span>
+                <span style={{ marginRight: '4px' }}>{event.icon}</span>
+                <span>{event.text}</span>
+                <span style={{ color: '#888', marginLeft: '8px', fontSize: '0.85em' }}>{timeAgo(event.timestamp)}</span>
               </div>
-              <div style={{ fontSize: '0.85em', color: '#666', fontStyle: 'italic' }}>"{event.message}"</div>
+              {event.detail && (
+                <div style={{ fontSize: '0.85em', color: '#666', marginLeft: '20px' }}>{event.detail}</div>
+              )}
             </div>
           ))}
         </div>

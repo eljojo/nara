@@ -200,6 +200,24 @@ func (h *HeyThereEvent) GetActor() string { return h.From }
 // GetTarget implements Payload interface for HeyThereEvent
 func (h *HeyThereEvent) GetTarget() string { return h.From }
 
+// UIFormat returns UI-friendly representation
+func (h *HeyThereEvent) UIFormat() map[string]string {
+	detail := "hey there!"
+	if h.MeshIP != "" {
+		detail = fmt.Sprintf("mesh: %s", h.MeshIP)
+	}
+	return map[string]string{
+		"icon":   "👋",
+		"text":   fmt.Sprintf("%s joined the network", h.From),
+		"detail": detail,
+	}
+}
+
+// LogFormat returns technical log description
+func (h *HeyThereEvent) LogFormat() string {
+	return fmt.Sprintf("hey-there from %s (mesh: %s)", h.From, h.MeshIP)
+}
+
 type ChauEvent struct {
 	From      string
 	PublicKey string // Base64-encoded Ed25519 public key
@@ -242,6 +260,20 @@ func (c *ChauEvent) GetActor() string { return c.From }
 
 // GetTarget implements Payload interface for ChauEvent
 func (c *ChauEvent) GetTarget() string { return c.From }
+
+// UIFormat returns UI-friendly representation
+func (c *ChauEvent) UIFormat() map[string]string {
+	return map[string]string{
+		"icon":   "👋",
+		"text":   fmt.Sprintf("%s left the network", c.From),
+		"detail": "chau!",
+	}
+}
+
+// LogFormat returns technical log description
+func (c *ChauEvent) LogFormat() string {
+	return fmt.Sprintf("chau from %s", c.From)
+}
 
 // PeerResponse contains identity information about a peer.
 // Used by the peer resolution protocol to return discovered peer info.
@@ -1453,6 +1485,7 @@ func (network *Network) handleHeyThereEvent(event SyncEvent) {
 		if network.local.Projections != nil {
 			network.local.Projections.Trigger()
 		}
+		network.broadcastSSE(event)
 	}
 
 	// Store PublicKey and MeshIP from the hey_there event
@@ -1769,6 +1802,7 @@ func (network *Network) handleChauEvent(syncEvent SyncEvent) {
 		if network.local.Projections != nil {
 			network.local.Projections.Trigger()
 		}
+		network.broadcastSSE(syncEvent)
 	}
 
 	observation := network.local.getObservation(chau.From)

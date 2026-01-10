@@ -76,12 +76,37 @@ func (s *SeenEvent) GetActor() string { return s.Observer }
 // GetTarget implements Payload (Subject is the target)
 func (s *SeenEvent) GetTarget() string { return s.Subject }
 
+// UIFormat returns UI-friendly representation
+func (s *SeenEvent) UIFormat() map[string]string {
+	viaText := map[string]string{
+		"zine": "via zine",
+		"mesh": "on the mesh",
+		"ping": "by ping",
+		"sync": "while syncing",
+	}
+	detail := viaText[s.Via]
+	if detail == "" {
+		detail = fmt.Sprintf("via %s", s.Via)
+	}
+	return map[string]string{
+		"icon":   "👀",
+		"text":   fmt.Sprintf("%s spotted %s", s.Observer, s.Subject),
+		"detail": detail,
+	}
+}
+
+// LogFormat returns technical log description
+func (s *SeenEvent) LogFormat() string {
+	return fmt.Sprintf("seen: %s saw %s via %s", s.Observer, s.Subject, s.Via)
+}
+
 // Payload is the interface for service-specific event data
 type Payload interface {
 	ContentString() string
 	IsValid() bool
 	GetActor() string
 	GetTarget() string
+	LogFormat() string // Returns technical log-friendly description
 }
 
 // SocialEventPayload is the social event data within a SyncEvent
@@ -113,6 +138,35 @@ func (p *SocialEventPayload) GetActor() string { return p.Actor }
 // GetTarget implements Payload
 func (p *SocialEventPayload) GetTarget() string { return p.Target }
 
+// UIFormat returns UI-friendly representation
+func (p *SocialEventPayload) UIFormat() map[string]string {
+	// Use TeaseMessage if available for more interesting messages
+	message := TeaseMessage(p.Reason, p.Actor, p.Target)
+	if message == "" {
+		message = p.Reason
+	}
+
+	icon := "💬"
+	if p.Type == "tease" {
+		icon = "😈"
+	} else if p.Type == "observed" {
+		icon = "👀"
+	} else if p.Type == "gossip" {
+		icon = "🗣️"
+	}
+
+	return map[string]string{
+		"icon":   icon,
+		"text":   fmt.Sprintf("%s → %s", p.Actor, p.Target),
+		"detail": message,
+	}
+}
+
+// LogFormat returns technical log description
+func (p *SocialEventPayload) LogFormat() string {
+	return fmt.Sprintf("social event: %s %s → %s (reason: %s)", p.Type, p.Actor, p.Target, p.Reason)
+}
+
 // PingObservation records a latency measurement between two naras
 type PingObservation struct {
 	Observer string  `json:"observer"` // who took the measurement
@@ -136,6 +190,34 @@ func (p *PingObservation) GetActor() string { return p.Observer }
 
 // GetTarget implements Payload
 func (p *PingObservation) GetTarget() string { return p.Target }
+
+// UIFormat returns UI-friendly representation
+func (p *PingObservation) UIFormat() map[string]string {
+	// Add some personality based on latency
+	quality := ""
+	if p.RTT < 10 {
+		quality = "besties"
+	} else if p.RTT < 50 {
+		quality = "i can see you nearby"
+	} else if p.RTT < 150 {
+		quality = "not too shabby"
+	} else if p.RTT < 300 {
+		quality = "i wouldn't wanna play counter strike with you"
+	} else {
+		quality = "where u at?"
+	}
+
+	return map[string]string{
+		"icon":   "🏓",
+		"text":   fmt.Sprintf("%s pinged %s", p.Observer, p.Target),
+		"detail": fmt.Sprintf("%.1fms · %s", p.RTT, quality),
+	}
+}
+
+// LogFormat returns technical log description
+func (p *PingObservation) LogFormat() string {
+	return fmt.Sprintf("ping: %s → %s (%.2fms)", p.Observer, p.Target, p.RTT)
+}
 
 // ObservationEventPayload records network state observations (restarts, status changes)
 // Used for distributed consensus on network state without O(N²) newspaper broadcasts
@@ -218,6 +300,56 @@ func (p *ObservationEventPayload) GetActor() string { return p.Observer }
 
 // GetTarget implements Payload (Subject is the target being observed)
 func (p *ObservationEventPayload) GetTarget() string { return p.Subject }
+
+// UIFormat returns UI-friendly representation
+func (p *ObservationEventPayload) UIFormat() map[string]string {
+	var text, detail string
+	icon := "👁️"
+
+	switch p.Type {
+	case "restart":
+		icon = "🔄"
+		text = fmt.Sprintf("%s restarted", p.Subject)
+		if p.RestartNum > 1 {
+			detail = fmt.Sprintf("restart #%d", p.RestartNum)
+		} else {
+			detail = "first restart"
+		}
+	case "first-seen":
+		icon = "✨"
+		text = fmt.Sprintf("%s appeared", p.Subject)
+		detail = "new nara spotted"
+	case "status-change":
+		if p.OnlineState == "ONLINE" {
+			icon = "🟢"
+			text = fmt.Sprintf("%s came online", p.Subject)
+			detail = "back!"
+		} else if p.OnlineState == "MISSING" {
+			icon = "❓"
+			text = fmt.Sprintf("%s went missing", p.Subject)
+			detail = "where'd they go?"
+		} else {
+			icon = "🔴"
+			text = fmt.Sprintf("%s went offline", p.Subject)
+			detail = "see you later"
+		}
+	default:
+		text = fmt.Sprintf("%s observed %s", p.Observer, p.Subject)
+		detail = p.OnlineState
+	}
+
+	return map[string]string{
+		"icon":   icon,
+		"text":   text,
+		"detail": detail,
+	}
+}
+
+// LogFormat returns technical log description
+func (p *ObservationEventPayload) LogFormat() string {
+	return fmt.Sprintf("observation: %s observed %s as %s (type: %s)",
+		p.Observer, p.Subject, p.OnlineState, p.Type)
+}
 
 // Payload returns the service-specific payload, or nil if none set
 func (e *SyncEvent) Payload() Payload {
