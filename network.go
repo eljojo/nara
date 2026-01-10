@@ -729,9 +729,6 @@ func (network *Network) processChauSyncEvents(events []SyncEvent) {
 		// Check if there's a more recent hey_there from this nara
 		// This prevents stale chau events from incorrectly marking naras offline during backfill
 		if network.hasMoreRecentHeyThere(c.From, e.Timestamp) {
-			if !network.local.isBooting() {
-				logrus.Debugf("📡 Skipping stale chau from %s (has more recent hey_there)", c.From)
-			}
 			continue
 		}
 
