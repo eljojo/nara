@@ -536,8 +536,12 @@ func (network *Network) observationMaintenanceOnce() {
 				// Log which observer(s) triggered this status change
 				state := network.local.Projections.OnlineStatus().GetState(name)
 				if state != nil && previousState == "ONLINE" && derivedStatus == "MISSING" {
-					logrus.Debugf("🔍 Status change %s: ONLINE → MISSING (last event: %s, age: %v)",
-						name, state.LastEventType, time.Since(time.Unix(0, state.LastEventTime)))
+					observer := state.Observer
+					if observer == "" {
+						observer = "unknown"
+					}
+					logrus.Debugf("🔍 Status change %s: ONLINE → MISSING (reported by %s, last event: %s, age: %v)",
+						name, observer, state.LastEventType, time.Since(time.Unix(0, state.LastEventTime)))
 				}
 
 				// Before transitioning ONLINE → MISSING, verify with a ping
@@ -554,7 +558,12 @@ func (network *Network) observationMaintenanceOnce() {
 						logrus.Debugf("🔍 Skipping ping verification for %s - event is old (%v)", name, eventAge)
 					} else if network.verifyOnlineWithPing(name) {
 						// Ping succeeded - they're still online, don't mark as MISSING
-						logrus.Infof("🔍 Disagreement resolved: %s reported MISSING but ping succeeded - keeping ONLINE", name)
+						// Log who reported the false MISSING to help debug buggy nodes
+						observer := "unknown"
+						if state != nil && state.Observer != "" {
+							observer = state.Observer
+						}
+						logrus.Debugf("🔍 Disagreement resolved: %s reported MISSING by %s but ping succeeded - keeping ONLINE", name, observer)
 						continue
 					}
 				}

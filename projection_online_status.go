@@ -17,6 +17,7 @@ type OnlineState struct {
 	Status        string // "ONLINE", "OFFLINE", "MISSING", or "" (unknown)
 	LastEventTime int64  // Timestamp of the determining event (nanoseconds)
 	LastEventType string // Service type of the determining event
+	Observer      string // Who reported this status (for observation events)
 }
 
 // MissingThresholdFunc returns the MISSING threshold (in nanoseconds) for a given nara.
@@ -73,17 +74,20 @@ func (p *OnlineStatusProjection) handleEvent(event SyncEvent) error {
 	// Determine which nara this event affects and what status it implies
 	var targetName string
 	var newStatus string
+	var observer string
 
 	switch event.Service {
 	case ServiceHeyThere:
 		if event.HeyThere != nil {
 			targetName = event.HeyThere.From
 			newStatus = "ONLINE"
+			observer = event.HeyThere.From
 		}
 	case ServiceChau:
 		if event.Chau != nil {
 			targetName = event.Chau.From
 			newStatus = "OFFLINE"
+			observer = event.Chau.From
 		}
 	case ServiceSeen:
 		// NOTE: ServiceSeen may be redundant now that we handle ServicePing and ServiceSocial.
@@ -91,10 +95,12 @@ func (p *OnlineStatusProjection) handleEvent(event SyncEvent) error {
 		if event.Seen != nil {
 			targetName = event.Seen.Subject
 			newStatus = "ONLINE"
+			observer = event.Seen.Observer
 		}
 	case ServiceObservation:
 		if event.Observation != nil {
 			targetName = event.Observation.Subject
+			observer = event.Observation.Observer
 			switch event.Observation.Type {
 			case "status-change":
 				newStatus = event.Observation.OnlineState
@@ -107,15 +113,17 @@ func (p *OnlineStatusProjection) handleEvent(event SyncEvent) error {
 		if event.Social != nil {
 			targetName = event.Social.Actor
 			newStatus = "ONLINE"
+			observer = event.Social.Actor
 		}
 	case ServicePing:
 		// Ping events prove both Observer and Target are active
 		if event.Ping != nil {
 			// Handle Observer - they sent the ping, definitely online
-			p.updateState(event.Ping.Observer, "ONLINE", event.Timestamp, event.Service)
+			p.updateState(event.Ping.Observer, "ONLINE", event.Timestamp, event.Service, event.Ping.Observer)
 			// Handle Target - they responded (RTT exists), also online
 			targetName = event.Ping.Target
 			newStatus = "ONLINE"
+			observer = event.Ping.Observer
 		}
 	}
 
@@ -123,12 +131,12 @@ func (p *OnlineStatusProjection) handleEvent(event SyncEvent) error {
 		return nil
 	}
 
-	p.updateState(targetName, newStatus, event.Timestamp, event.Service)
+	p.updateState(targetName, newStatus, event.Timestamp, event.Service, observer)
 	return nil
 }
 
 // updateState updates the state for a nara if this event is newer than the current state.
-func (p *OnlineStatusProjection) updateState(name, status string, timestamp int64, service string) {
+func (p *OnlineStatusProjection) updateState(name, status string, timestamp int64, service string, observer string) {
 	if name == "" {
 		return
 	}
@@ -142,6 +150,7 @@ func (p *OnlineStatusProjection) updateState(name, status string, timestamp int6
 			Status:        status,
 			LastEventTime: timestamp,
 			LastEventType: service,
+			Observer:      observer,
 		}
 	}
 }
