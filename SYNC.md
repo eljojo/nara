@@ -45,7 +45,9 @@ These events use **importance levels** (1-3) and have anti-abuse protection (per
 ### Social Events (`service: "social"`)
 Social interactions between naras:
 - **tease**: One nara teasing another (for high restarts, comebacks, etc.)
+- **observed**: One nara reporting a tease they saw elsewhere
 - **observation**: Legacy system observations (online/offline, journey events)
+- **service**: Helpful actions (like `stash-stored`) that award clout to the actor
 - **gossip**: Hearsay about what happened
 
 ### Ping Observations (`service: "ping"`)
@@ -174,13 +176,13 @@ These survive in the distributed event log and spread via zine gossip:
 
 | Service | Key Data | Purpose |
 |---------|----------|---------|
-| `hey-there` | PublicKey, MeshIP | Identity/discovery |
-| `chau` | From, PublicKey | Graceful shutdown signal |
+| `chau` | From, PublicKey | Identity/discovery |
 | `observation` | StartTime, RestartNum, LastRestart, OnlineState | Network state consensus |
 | `ping` | Observer, Target, RTT | Latency measurements |
-| `social` | Actor, Target, Reason | Teases and interactions |
+| `social` | Actor, Target, Reason | Teases, helpful services, and interactions |
 | `seen` | Observer, Subject, Via | Lightweight presence detection |
 
+### Implications
 Events are **state transitions** - they record what happened, not current state.
 
 ### Implications
