@@ -1,6 +1,6 @@
 # Stash - Distributed Encrypted Storage
 
-Naras store their encrypted tsnet state on other naras ("confidents") instead of local disk. This enables stateless operation where a nara can reboot on any machine and recover its mesh identity.
+Naras store their encrypted identity data (emojis) on other naras ("confidents") instead of local disk. This enables stateless operation where a nara can reboot on any machine and recover its identity sequence.
 
 ## How It Works
 
