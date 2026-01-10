@@ -3637,7 +3637,6 @@ func (network *Network) performBackgroundSyncViaMesh(neighbor, ip string) {
 // - Zombies (never seen): pruned immediately if old enough
 func (network *Network) pruneInactiveNaras() {
 	network.local.mu.Lock()
-	defer network.local.mu.Unlock()
 
 	now := time.Now().Unix()
 
@@ -3736,13 +3735,24 @@ func (network *Network) pruneInactiveNaras() {
 
 	// Remove inactive naras
 	if len(toRemove) > 0 {
+		// First remove from Neighbourhood (protected by network.local.mu)
 		for _, name := range toRemove {
 			delete(network.Neighbourhood, name)
+		}
+		network.local.mu.Unlock()
+
+		// Then remove from our observations (protected by network.local.Me.mu)
+		network.local.Me.mu.Lock()
+		for _, name := range toRemove {
 			delete(network.local.Me.Status.Observations, name)
 		}
+		network.local.Me.mu.Unlock()
+
 		logrus.Printf("🧹 Pruned %d inactive naras: %d zombies, %d newcomers (24h), %d established (7d) | kept %d established, %d veterans (30d+)",
 			len(toRemove), zombies, prunedNewcomers, prunedEstablished, established-prunedEstablished, veterans)
 		logrus.Printf("🕯️ 🪦 🕯️  In memory of: %v", toRemove)
+	} else {
+		network.local.mu.Unlock()
 	}
 }
 

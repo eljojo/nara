@@ -1,6 +1,7 @@
 package nara
 
 import (
+	"sync"
 	"testing"
 	"time"
 )
@@ -261,4 +262,139 @@ func TestPruneInactiveNaras_Integration(t *testing.T) {
 	}
 
 	t.Logf("✅ Pruned %d/%d naras as expected", actualRemoved, expectedRemoved)
+}
+
+func TestPruneInactiveNaras_RemovesFromObservations(t *testing.T) {
+	// This test verifies that pruning removes naras from BOTH the Neighbourhood
+	// AND from our own Observations. The bug was that we only removed from
+	// Neighbourhood but forgot to properly lock and remove from Observations.
+	ln := NewLocalNara("test-nara", testSoul("test-nara"), "", "", "", 50, 1000)
+	now := time.Now().Unix()
+
+	// Add a newcomer that should be pruned (offline for 25 hours)
+	newcomerOffline := NewNara("newcomer-offline")
+	newcomerOffline.Status.Buzz = 5
+	ln.Network.importNara(newcomerOffline)
+	ln.setObservation("newcomer-offline", NaraObservation{
+		LastSeen:  now - (25 * 3600), // 25 hours offline
+		StartTime: now - (30 * 3600), // First seen 30 hours ago (newcomer)
+		Online:    "OFFLINE",
+	})
+
+	// Add a zombie that should be pruned immediately
+	zombieNara := NewNara("zombie-nara")
+	ln.Network.importNara(zombieNara)
+	ln.setObservation("zombie-nara", NaraObservation{
+		LastSeen:  0,           // Never seen (malformed)
+		StartTime: now - 86400, // "First seen" 1 day ago but never actually active
+		Online:    "OFFLINE",
+	})
+
+	// Add an established nara that should NOT be pruned (only 3 days offline)
+	establishedOk := NewNara("established-ok")
+	establishedOk.Status.Flair = "🌟"
+	ln.Network.importNara(establishedOk)
+	ln.setObservation("established-ok", NaraObservation{
+		LastSeen:  now - (3 * 86400), // 3 days offline
+		StartTime: now - (5 * 86400), // First seen 5 days ago (established)
+		Online:    "OFFLINE",
+	})
+
+	// Verify observations exist before pruning
+	ln.Me.mu.Lock()
+	if _, exists := ln.Me.Status.Observations["newcomer-offline"]; !exists {
+		t.Error("newcomer-offline observation should exist before pruning")
+	}
+	if _, exists := ln.Me.Status.Observations["zombie-nara"]; !exists {
+		t.Error("zombie-nara observation should exist before pruning")
+	}
+	if _, exists := ln.Me.Status.Observations["established-ok"]; !exists {
+		t.Error("established-ok observation should exist before pruning")
+	}
+	ln.Me.mu.Unlock()
+
+	// Run pruning
+	ln.Network.pruneInactiveNaras()
+
+	// Verify naras are removed from Neighbourhood
+	if ln.Network.Neighbourhood["newcomer-offline"] != nil {
+		t.Error("newcomer-offline should be removed from Neighbourhood")
+	}
+	if ln.Network.Neighbourhood["zombie-nara"] != nil {
+		t.Error("zombie-nara should be removed from Neighbourhood")
+	}
+	if ln.Network.Neighbourhood["established-ok"] == nil {
+		t.Error("established-ok should NOT be removed from Neighbourhood")
+	}
+
+	// THE KEY TEST: Verify observations are also removed
+	ln.Me.mu.Lock()
+	if _, exists := ln.Me.Status.Observations["newcomer-offline"]; exists {
+		t.Error("newcomer-offline observation should be removed after pruning")
+	}
+	if _, exists := ln.Me.Status.Observations["zombie-nara"]; exists {
+		t.Error("zombie-nara observation should be removed after pruning")
+	}
+	if _, exists := ln.Me.Status.Observations["established-ok"]; !exists {
+		t.Error("established-ok observation should NOT be removed (nara kept)")
+	}
+	ln.Me.mu.Unlock()
+}
+
+func TestPruneInactiveNaras_RaceCondition(t *testing.T) {
+	// This test verifies that pruning properly locks when removing from observations.
+	// Without proper locking, concurrent access to observations would cause a race.
+	ln := NewLocalNara("test-nara", testSoul("test-nara"), "", "", "", 50, 1000)
+	now := time.Now().Unix()
+
+	// Add multiple naras that should be pruned
+	for i := 0; i < 10; i++ {
+		name := "zombie-" + string(rune('a'+i))
+		zombieNara := NewNara(name)
+		ln.Network.importNara(zombieNara)
+		ln.setObservation(name, NaraObservation{
+			LastSeen:  0,           // Never seen
+			StartTime: now - 86400, // Old zombie
+			Online:    "OFFLINE",
+		})
+	}
+
+	// Concurrent access: one goroutine pruning, another reading observations
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Goroutine 1: Prune naras
+	go func() {
+		defer wg.Done()
+		ln.Network.pruneInactiveNaras()
+	}()
+
+	// Goroutine 2: Concurrently iterate observations (this would race without proper locking)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			ln.Me.mu.Lock()
+			for k, v := range ln.Me.Status.Observations {
+				_ = k
+				_ = v.Online
+			}
+			ln.Me.mu.Unlock()
+			time.Sleep(1 * time.Microsecond)
+		}
+	}()
+
+	wg.Wait()
+
+	// Verify all zombies were removed
+	for i := 0; i < 10; i++ {
+		name := "zombie-" + string(rune('a'+i))
+		if ln.Network.Neighbourhood[name] != nil {
+			t.Errorf("%s should be removed from Neighbourhood", name)
+		}
+		ln.Me.mu.Lock()
+		if _, exists := ln.Me.Status.Observations[name]; exists {
+			t.Errorf("%s observation should be removed", name)
+		}
+		ln.Me.mu.Unlock()
+	}
 }
