@@ -1017,6 +1017,8 @@ func (l *SyncLedger) AddSignedPingObservationWithReplace(observer, target string
 		}
 		l.Events = newEvents
 		delete(l.eventIDs, toRemove.id)
+		// Increment version - structure has changed, projections need to reset
+		l.version++
 	}
 
 	// Create and add the new signed ping

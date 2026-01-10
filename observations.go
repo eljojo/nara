@@ -796,12 +796,15 @@ func (network *Network) markOnlineFromPing(name string, rttMs float64) {
 
 	// Emit a ping event to prove they're still alive
 	if network.local.SyncLedger != nil {
-		network.local.SyncLedger.AddSignedPingObservationWithReplace(
+		added := network.local.SyncLedger.AddSignedPingObservationWithReplace(
 			network.meName(), name, rttMs,
 			network.meName(), network.local.Keypair,
 		)
+		logrus.Debugf("🔍 Added ONLINE ping event for %s (added=%v, timestamp=%d)", name, added, time.Now().UnixNano())
 		if network.local.Projections != nil {
-			network.local.Projections.Trigger()
+			// Process the new event SYNCHRONOUSLY to update projection state immediately
+			// This prevents the next maintenance cycle from seeing stale MISSING status
+			network.local.Projections.OnlineStatus().RunOnce()
 		}
 	}
 }
