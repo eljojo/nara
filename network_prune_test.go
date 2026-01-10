@@ -598,3 +598,49 @@ func TestPruneInactiveNaras_FullCleanup(t *testing.T) {
 		}
 	}
 }
+
+func TestPruneInactiveNaras_PrunesEvents(t *testing.T) {
+	// This test verifies that pruning removes events from the SyncLedger.
+	// This prevents "ghost naras" from being re-discovered by discoverNarasFromEvents.
+	ln := testLocalNaraWithParams("test-nara", 50, 1000)
+	now := time.Now().Unix()
+
+	// Add a zombie nara that should be pruned
+	zombieName := "ghost-nara"
+	zombieNara := NewNara(zombieName)
+	ln.Network.importNara(zombieNara)
+	ln.setObservation(zombieName, NaraObservation{
+		LastSeen:  0,           // Never seen
+		StartTime: now - 86400, // Old zombie
+		Online:    "OFFLINE",
+	})
+
+	// Add some events for this ghost nara
+	event := NewPingSyncEvent("test-nara", zombieName, 42.0)
+	ln.Network.local.SyncLedger.AddEvent(event)
+
+	if !ln.Network.local.SyncLedger.HasEvent(event.ID) {
+		t.Fatal("Event should exist before pruning")
+	}
+
+	// Run pruning
+	ln.Network.pruneInactiveNaras()
+
+	// Verify nara is gone from Neighbourhood
+	if ln.Network.Neighbourhood[zombieName] != nil {
+		t.Error("ghost-nara should be removed from Neighbourhood")
+	}
+
+	// THE KEY TEST: Verify events are gone
+	if ln.Network.local.SyncLedger.HasEvent(event.ID) {
+		t.Error("Events for ghost-nara should be removed from SyncLedger")
+	}
+
+	// Verify re-discovery doesn't happen when processing the ledger
+	allEvents := ln.Network.local.SyncLedger.GetAllEvents()
+	ln.Network.discoverNarasFromEvents(allEvents)
+
+	if ln.Network.Neighbourhood[zombieName] != nil {
+		t.Error("ghost-nara should NOT be re-discovered after pruning events")
+	}
+}
