@@ -118,7 +118,6 @@ func (p *OpinionConsensusProjection) DeriveOpinion(subject string) OpinionData {
 	}
 }
 
-
 // deriveProjectionStartTimeConsensus uses trimmed mean for startTime consensus.
 func deriveProjectionStartTimeConsensus(observations []ObservationRecord, tolerance int64) int64 {
 	if len(observations) == 0 {
@@ -309,8 +308,8 @@ func trimmedMeanConsensus(values []int64) int64 {
 	// Remove outliers: keep values within [median*0.2, median*5.0]
 	// This filters out values that are more than 5x or less than 0.2x the median
 	var filtered []int64
-	lowerBound := median / 5        // 0.2x median
-	upperBound := median * 5        // 5x median
+	lowerBound := median / 5 // 0.2x median
+	upperBound := median * 5 // 5x median
 	var removed []int64
 
 	for _, v := range nonZero {

@@ -838,7 +838,6 @@ func (network *Network) httpGossipZineHandler(w http.ResponseWriter, r *http.Req
 	json.NewEncoder(w).Encode(myZine)
 }
 
-
 // POST /dm - Receive a direct message (arbitrary SyncEvent)
 // This is a generic endpoint for naras to send events directly to each other.
 // Events are added to the local ledger and spread via gossip.

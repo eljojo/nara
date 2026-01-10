@@ -3769,6 +3769,10 @@ func (network *Network) pruneInactiveNaras() {
 
 	// Remove inactive naras
 	if len(toRemove) > 0 {
+		// Lock ordering: We release local.mu before taking Me.mu to avoid holding both simultaneously
+		// This is safe because we're only deleting (not checking existence then acting on it)
+		// Other code that needs both locks must follow: local.mu → Me.mu (never the reverse)
+
 		// First remove from Neighbourhood (protected by network.local.mu)
 		for _, name := range toRemove {
 			delete(network.Neighbourhood, name)

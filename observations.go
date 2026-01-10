@@ -104,8 +104,14 @@ func (nara *Nara) getObservation(name string) NaraObservation {
 
 func (nara *Nara) setObservation(name string, observation NaraObservation) {
 	nara.mu.Lock()
-	nara.Status.Observations[name] = observation
+	nara.setObservationLocked(name, observation)
 	nara.mu.Unlock()
+}
+
+// setObservationLocked sets an observation without acquiring the lock.
+// Caller must hold nara.mu.
+func (nara *Nara) setObservationLocked(name string, observation NaraObservation) {
+	nara.Status.Observations[name] = observation
 }
 
 func (network *Network) formOpinion() {
@@ -486,92 +492,134 @@ func (network *Network) recordObservationOnlineNara(name string) {
 	}
 }
 
-func (network *Network) observationMaintenance() {
-	for {
-		network.local.Me.mu.Lock()
-		observations := make(map[string]NaraObservation)
-		for name, obs := range network.local.Me.Status.Observations {
-			observations[name] = obs
-		}
-		network.local.Me.mu.Unlock()
+// observationMaintenanceOnce runs a single cycle of observation maintenance
+// Used for testing and as the core logic for observationMaintenance loop
+//
+// Lock ordering: Always take local.mu before Me.mu when both are needed.
+// This prevents deadlock with pruning which also follows local.mu → Me.mu order.
+func (network *Network) observationMaintenanceOnce() {
+	// Take local.mu first to enforce lock ordering, even though we only need Me.mu for snapshot
+	// This prevents potential deadlock if any code path does Me.mu → local.mu
+	network.local.mu.Lock()
+	network.local.Me.mu.Lock()
+	observations := make(map[string]NaraObservation)
+	for name, obs := range network.local.Me.Status.Observations {
+		observations[name] = obs
+	}
+	network.local.Me.mu.Unlock()
+	network.local.mu.Unlock()
 
-		// Ensure projection is up-to-date before checking statuses
-		// This synchronously processes any pending events, avoiding race
-		// conditions where we read stale data during/after a zine merge.
+	// Ensure projection is up-to-date before checking statuses
+	// This synchronously processes any pending events, avoiding race
+	// conditions where we read stale data during/after a zine merge.
+	if network.local.Projections != nil && !network.local.isBooting() {
+		network.local.Projections.OnlineStatus().RunOnce()
+	}
+
+	for name, observation := range observations {
+		// Skip self - we can't observe ourselves as disappeared
+		if name == network.meName() {
+			continue
+		}
+
+		// Event-sourced status derivation
+		// This uses the event log to determine online status rather than LastSeen
 		if network.local.Projections != nil && !network.local.isBooting() {
-			network.local.Projections.OnlineStatus().RunOnce()
-		}
+			derivedStatus := network.local.Projections.OnlineStatus().GetStatus(name)
+			if derivedStatus != "" && derivedStatus != observation.Online {
+				previousState := observation.Online
 
-		for name, observation := range observations {
-			// Skip self - we can't observe ourselves as disappeared
-			if name == network.meName() {
-				continue
-			}
+				// Log which observer(s) triggered this status change
+				state := network.local.Projections.OnlineStatus().GetState(name)
+				if state != nil && previousState == "ONLINE" && derivedStatus == "MISSING" {
+					logrus.Debugf("🔍 Status change %s: ONLINE → MISSING (last event: %s, age: %v)",
+						name, state.LastEventType, time.Since(time.Unix(0, state.LastEventTime)))
+				}
 
-			// Event-sourced status derivation
-			// This uses the event log to determine online status rather than LastSeen
-			if network.local.Projections != nil && !network.local.isBooting() {
-				derivedStatus := network.local.Projections.OnlineStatus().GetStatus(name)
-				if derivedStatus != "" && derivedStatus != observation.Online {
-					previousState := observation.Online
-
-					// Log which observer(s) triggered this status change
+				// Before transitioning ONLINE → MISSING, verify with a ping
+				// This guards against buggy naras spreading false "offline" observations
+				if previousState == "ONLINE" && derivedStatus == "MISSING" {
+					// Skip ping verification for old events (>1 hour) - likely historical data
 					state := network.local.Projections.OnlineStatus().GetState(name)
-					if state != nil && previousState == "ONLINE" && derivedStatus == "MISSING" {
-						logrus.Debugf("🔍 Status change %s: ONLINE → MISSING (last event: %s, age: %v)",
-							name, state.LastEventType, time.Since(time.Unix(0, state.LastEventTime)))
+					eventAge := time.Duration(0)
+					if state != nil {
+						eventAge = time.Since(time.Unix(0, state.LastEventTime))
 					}
 
-					// Before transitioning ONLINE → MISSING, verify with a ping
-					// This guards against buggy naras spreading false "offline" observations
-					if previousState == "ONLINE" && derivedStatus == "MISSING" {
-						// Skip ping verification for old events (>1 hour) - likely historical data
-						state := network.local.Projections.OnlineStatus().GetState(name)
-						eventAge := time.Duration(0)
-						if state != nil {
-							eventAge = time.Since(time.Unix(0, state.LastEventTime))
-						}
-
-						if eventAge > 1*time.Hour {
-							logrus.Debugf("🔍 Skipping ping verification for %s - event is old (%v)", name, eventAge)
-						} else if network.verifyOnlineWithPing(name) {
-							// Ping succeeded - they're still online, don't mark as MISSING
-							logrus.Infof("🔍 Disagreement resolved: %s reported MISSING but ping succeeded - keeping ONLINE", name)
-							continue
-						}
-					}
-
-					observation.Online = derivedStatus
-					network.local.setObservation(name, observation)
-
-					// Log status changes
-					if previousState == "ONLINE" && derivedStatus == "MISSING" {
-						logrus.Printf("observation: %s has disappeared (verified)", name)
-						network.Buzz.increase(10)
-						go network.reportMissingWithDelay(name)
-					} else if previousState == "ONLINE" && derivedStatus == "OFFLINE" {
-						logrus.Printf("observation: %s went offline gracefully", name)
+					if eventAge > 1*time.Hour {
+						logrus.Debugf("🔍 Skipping ping verification for %s - event is old (%v)", name, eventAge)
+					} else if network.verifyOnlineWithPing(name) {
+						// Ping succeeded - they're still online, don't mark as MISSING
+						logrus.Infof("🔍 Disagreement resolved: %s reported MISSING but ping succeeded - keeping ONLINE", name)
+						continue
 					}
 				}
 
-				// Reset cluster for non-online naras
-				if !observation.isOnline() && observation.ClusterName != "" {
+				// Only update observation if nara still exists in neighbourhood
+				// (prevents race where pruning removed nara but we have stale copy)
+				// Must hold network.local.mu during check AND write to prevent TOCTOU
+				network.local.mu.Lock()
+				_, exists := network.Neighbourhood[name]
+				if exists {
+					observation.Online = derivedStatus
+					// Use locked helper since we already hold local.mu
+					network.local.Me.mu.Lock()
+					network.local.Me.setObservationLocked(name, observation)
+					network.local.Me.mu.Unlock()
+				}
+				network.local.mu.Unlock()
+
+				if !exists {
+					continue
+				}
+
+				// Log status changes
+				if previousState == "ONLINE" && derivedStatus == "MISSING" {
+					logrus.Printf("observation: %s has disappeared (verified)", name)
+					network.Buzz.increase(10)
+					go network.reportMissingWithDelay(name)
+				} else if previousState == "ONLINE" && derivedStatus == "OFFLINE" {
+					logrus.Printf("observation: %s went offline gracefully", name)
+				}
+			}
+
+			// Reset cluster for non-online naras
+			if !observation.isOnline() && observation.ClusterName != "" {
+				// Only update if nara still exists in neighbourhood
+				// Must hold network.local.mu during check AND write to prevent TOCTOU
+				network.local.mu.Lock()
+				_, exists := network.Neighbourhood[name]
+				if exists {
 					observation.ClusterName = ""
 					observation.ClusterEmoji = ""
-					network.local.setObservation(name, observation)
+					// Use locked helper since we already hold local.mu
+					network.local.Me.mu.Lock()
+					network.local.Me.setObservationLocked(name, observation)
+					network.local.Me.mu.Unlock()
 				}
+				network.local.mu.Unlock()
 			}
 		}
+	}
 
-		network.neighbourhoodMaintenance()
+	network.neighbourhoodMaintenance()
 
-		// set own Flair
-		newFlair := network.local.Flair()
-		if newFlair != network.local.Me.Status.Flair {
-			network.Buzz.increase(2)
-		}
-		network.local.Me.Status.Flair = newFlair
-		network.local.Me.Status.LicensePlate = network.local.LicensePlate()
+	// set own Flair (must lock Me.mu since HTTP handlers may be reading Status)
+	newFlair := network.local.Flair()
+	newLicensePlate := network.local.LicensePlate()
+
+	network.local.Me.mu.Lock()
+	if newFlair != network.local.Me.Status.Flair {
+		network.Buzz.increase(2)
+	}
+	network.local.Me.Status.Flair = newFlair
+	network.local.Me.Status.LicensePlate = newLicensePlate
+	network.local.Me.mu.Unlock()
+}
+
+func (network *Network) observationMaintenance() {
+	for {
+		network.observationMaintenanceOnce()
 
 		select {
 		case <-time.After(1 * time.Second):

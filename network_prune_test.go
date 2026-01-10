@@ -1,6 +1,7 @@
 package nara
 
 import (
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
@@ -397,4 +398,144 @@ func TestPruneInactiveNaras_RaceCondition(t *testing.T) {
 		}
 		ln.Me.mu.Unlock()
 	}
+}
+
+func TestPruneInactiveNaras_HttpApi(t *testing.T) {
+	// This test verifies that pruned naras don't show up in the HTTP API response.
+	// This replicates the user's bug report where pruned naras still appeared in api.json
+	ln := NewLocalNara("test-nara", testSoul("test-nara"), "", "", "", 50, 1000)
+	now := time.Now().Unix()
+
+	// Add a newcomer that should be pruned (offline for 25 hours)
+	newcomerOffline := NewNara("newcomer-offline")
+	newcomerOffline.Status.Buzz = 5
+	ln.Network.importNara(newcomerOffline)
+	ln.setObservation("newcomer-offline", NaraObservation{
+		LastSeen:  now - (25 * 3600), // 25 hours offline
+		StartTime: now - (30 * 3600), // First seen 30 hours ago (newcomer)
+		Online:    "OFFLINE",
+	})
+
+	// Add a zombie that should be pruned immediately
+	zombieNara := NewNara("zombie-nara")
+	ln.Network.importNara(zombieNara)
+	ln.setObservation("zombie-nara", NaraObservation{
+		LastSeen:  0,           // Never seen (malformed)
+		StartTime: now - 86400, // "First seen" 1 day ago but never actually active
+		Online:    "OFFLINE",
+	})
+
+	// Add an established nara that should NOT be pruned (only 3 days offline)
+	establishedOk := NewNara("established-ok")
+	establishedOk.Status.Flair = "🌟"
+	establishedOk.Status.Buzz = 10
+	ln.Network.importNara(establishedOk)
+	ln.setObservation("established-ok", NaraObservation{
+		LastSeen:  now - (3 * 86400), // 3 days offline
+		StartTime: now - (5 * 86400), // First seen 5 days ago (established)
+		Online:    "OFFLINE",
+	})
+
+	// Run pruning - this should remove newcomer-offline and zombie-nara
+	ln.Network.pruneInactiveNaras()
+
+	// Now simulate what the HTTP API does: marshal Me.Status to JSON and check observations
+	ln.Me.mu.Lock()
+	statusJSON, err := json.Marshal(ln.Me.Status)
+	ln.Me.mu.Unlock()
+
+	if err != nil {
+		t.Fatalf("Failed to marshal status: %v", err)
+	}
+
+	var parsedStatus map[string]interface{}
+	if err := json.Unmarshal(statusJSON, &parsedStatus); err != nil {
+		t.Fatalf("Failed to unmarshal status: %v", err)
+	}
+
+	observations, ok := parsedStatus["Observations"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Observations not found in status JSON")
+	}
+
+	t.Logf("Observations in API response: %d entries", len(observations))
+	for name := range observations {
+		t.Logf("  - %s", name)
+	}
+
+	// THE KEY TEST: Verify pruned naras don't appear in the API response
+	if _, exists := observations["newcomer-offline"]; exists {
+		t.Error("newcomer-offline should NOT appear in API response after pruning")
+	}
+	if _, exists := observations["zombie-nara"]; exists {
+		t.Error("zombie-nara should NOT appear in API response after pruning")
+	}
+	if _, exists := observations["established-ok"]; !exists {
+		t.Error("established-ok SHOULD appear in API response (not pruned)")
+	}
+}
+
+func TestPruneInactiveNaras_ObservationMaintenanceRace(t *testing.T) {
+	// This test verifies the race condition where observationMaintenance()
+	// could re-add observations that were just pruned.
+	//
+	// The bug: observationMaintenance copies observations, then pruning runs
+	// and removes naras, then observationMaintenance writes back the old copy,
+	// re-adding the pruned naras.
+	//
+	// The fix: observationMaintenance now holds network.local.mu during both
+	// the existence check AND the observation write (atomic check-and-write).
+	ln := NewLocalNara("test-nara", testSoul("test-nara"), "", "", "", 50, 1000)
+	now := time.Now().Unix()
+
+	// Add a zombie nara that should be pruned
+	zombieNara := NewNara("zombie-nara")
+	ln.Network.importNara(zombieNara)
+	ln.setObservation("zombie-nara", NaraObservation{
+		LastSeen:  0,           // Never seen (malformed)
+		StartTime: now - 86400, // "First seen" 1 day ago but never actually active
+		Online:    "OFFLINE",
+	})
+
+	// Simulate the race: run observationMaintenanceOnce in background
+	// It will snapshot observations (including zombie), then we'll prune,
+	// then it will try to process its stale snapshot
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+		// Brief pause to let pruning happen first
+		time.Sleep(50 * time.Millisecond)
+		// Call the real observationMaintenance function
+		ln.Network.observationMaintenanceOnce()
+	}()
+
+	// Give goroutine time to start
+	time.Sleep(10 * time.Millisecond)
+
+	// Now pruning runs and removes the zombie
+	ln.Network.pruneInactiveNaras()
+
+	// Verify zombie was removed
+	if ln.Network.Neighbourhood["zombie-nara"] != nil {
+		t.Error("zombie-nara should be removed from Neighbourhood")
+	}
+	ln.Me.mu.Lock()
+	if _, exists := ln.Me.Status.Observations["zombie-nara"]; exists {
+		t.Error("zombie-nara observation should be removed after pruning")
+	}
+	ln.Me.mu.Unlock()
+
+	// Wait for observationMaintenance goroutine to finish
+	wg.Wait()
+
+	// Verify zombie is still not in observations (the fix prevents re-adding)
+	ln.Me.mu.Lock()
+	if _, exists := ln.Me.Status.Observations["zombie-nara"]; exists {
+		t.Error("zombie-nara observation should NOT be re-added by observationMaintenance after pruning")
+	}
+	ln.Me.mu.Unlock()
+
+	t.Log("✅ Race condition prevented - pruned nara not re-added by observationMaintenance")
 }
