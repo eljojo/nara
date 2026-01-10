@@ -1126,7 +1126,7 @@ func (network *Network) onWorldJourneyComplete(wm *WorldMessage) {
 	}
 
 	// Log journey completion with attestation chain
-	logrus.Infof("🌍 Journey complete! %s: "%s" (%d hops)", wm.Originator, wm.OriginalMessage, len(wm.Hops))
+	logrus.Infof("🌍 Journey complete! %s: '%s' (%d hops)", wm.Originator, wm.OriginalMessage, len(wm.Hops))
 	for i, hop := range wm.Hops {
 		sig := hop.Signature
 		if len(sig) > 12 {
@@ -4026,7 +4026,7 @@ func (network *Network) handleJourneyCompletion(completion JourneyCompletion) {
 
 	// Log with attestation chain if available
 	if len(completion.Hops) > 0 {
-		logrus.Infof("🌍 Heard journey complete! %s: "%s" (%d hops, reported by %s)", pending.Originator, completion.Message, len(completion.Hops), completion.ReportedBy)
+		logrus.Infof("🌍 Heard journey complete! %s: '%s' (%d hops, reported by %s)", pending.Originator, completion.Message, len(completion.Hops), completion.ReportedBy)
 		for i, hop := range completion.Hops {
 			sig := hop.Signature
 			if len(sig) > 12 {
@@ -4230,15 +4230,26 @@ func (network *Network) handleStashStore(msg StashStore) {
 	network.postEvent(topic, ack)
 
 	// Record social event: we're helping them!
-	if network.local.SocialLedger != nil {
-		event := SocialEvent{
-			Timestamp: time.Now().Unix(),
-			Type:      "service",
-			Actor:     network.meName(),
-			Target:    msg.From,
-			Reason:    ReasonStashStored,
+	if network.local.SyncLedger != nil {
+		event := SocialEventPayload{
+			Type:    "service",
+			Actor:   network.meName(),
+			Target:  msg.From,
+			Reason:  ReasonStashStored,
+			Witness: network.meName(),
 		}
-		network.local.SocialLedger.AddEvent(event)
+
+		// Create SyncEvent
+		syncEvent := SyncEvent{
+			Service:   ServiceSocial,
+			Timestamp: time.Now().UnixNano(),
+			Emitter:   network.meName(),
+			Social:    &event,
+		}
+		syncEvent.ComputeID()
+
+		// Add personality filtered event
+		network.local.SyncLedger.AddSocialEventFiltered(syncEvent, network.local.Me.Status.Personality)
 	}
 }
 

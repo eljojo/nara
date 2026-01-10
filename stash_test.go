@@ -878,26 +878,37 @@ func TestTooManyConfidents(t *testing.T) {
 func TestCloutRewardForStoring(t *testing.T) {
 	// Confident gets clout when storing stash
 	personality := NaraPersonality{Sociability: 50, Agreeableness: 50, Chill: 50}
-	ledger := NewSocialLedger(personality, 1000)
+	ledger := NewSyncLedger(1000)
+	cloutProjection := NewCloutProjection(ledger)
 
 	// Record stash stored event
-	event := SocialEvent{
-		Timestamp: time.Now().Unix(),
-		Type:      "service", // service events always give positive clout
-		Actor:     "bob",
-		Target:    "alice",
-		Reason:    ReasonStashStored,
+	event := SocialEventPayload{
+		Type:   "service", // service events always give positive clout
+		Actor:  "bob",
+		Target: "alice",
+		Reason: ReasonStashStored,
 	}
 
-	added := ledger.AddEvent(event)
+	syncEvent := SyncEvent{
+		Service:   ServiceSocial,
+		Timestamp: time.Now().UnixNano(),
+		Emitter:   "bob",
+		Social:    &event,
+	}
+	syncEvent.ComputeID()
+
+	added := ledger.AddEvent(syncEvent)
 	if !added {
 		t.Error("Should add stash stored event")
 	}
 
+	// Trigger projection processing
+	cloutProjection.Trigger()
+
 	// Bob should gain clout
-	clout := ledger.DeriveClout("observer")
+	clout := cloutProjection.DeriveClout("observer", personality)
 	if clout["bob"] <= 0 {
-		t.Error("Bob should gain clout for storing stash")
+		t.Errorf("Bob should gain clout for storing stash, got %f", clout["bob"])
 	}
 }
 

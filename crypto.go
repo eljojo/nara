@@ -6,15 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
-<<<<<<< HEAD
-
 	"github.com/sirupsen/logrus"
-=======
 	"io"
 
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/hkdf"
->>>>>>> e36ed2e (implement STASH)
 )
 
 // NaraKeypair holds an Ed25519 keypair derived from a soul
