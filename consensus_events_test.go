@@ -82,7 +82,9 @@ func TestConsensusEvents_Disagreement(t *testing.T) {
 
 	// Consensus should pick:
 	// - StartTime: 1000 (clustering majority)
-	// - Restarts: 11 (highest value = most recent knowledge)
+	// - Restarts: 10 (cluster with more observers: 3 vs 2)
+	// Note: With tolerance=1, values 10 and 11 are in the same cluster,
+	// so median of [10,10,10,11,11] = 10
 	projection.RunToEnd(context.Background())
 	opinion := projection.DeriveOpinion(subject)
 
@@ -90,8 +92,8 @@ func TestConsensusEvents_Disagreement(t *testing.T) {
 		t.Errorf("Expected consensus StartTime=1000 (clustering), got %d", opinion.StartTime)
 	}
 
-	if opinion.Restarts != 11 {
-		t.Errorf("Expected consensus Restarts=11 (highest/most recent), got %d", opinion.Restarts)
+	if opinion.Restarts != 10 {
+		t.Errorf("Expected consensus Restarts=10 (median of cluster), got %d", opinion.Restarts)
 	}
 }
 
@@ -116,19 +118,17 @@ func TestConsensusEvents_UptimeWeighting(t *testing.T) {
 	event3 := NewRestartObservationEventWithUptime("observer-elder", subject, 2000, 5, 10000)
 	ledger.AddEvent(event3)
 
-	// Even though 2 observers say 1000 vs 1 saying 2000,
-	// the high-uptime elder observer should win due to uptime weighting
-	// (Cluster with 2+ observers wins via Strategy 1, but they're in same cluster)
-	// Actually, 1000 and 2000 are in DIFFERENT clusters (diff > 60s tolerance)
-	// So this tests Strategy 2: single-observer clusters ranked by uptime
+	// With trimmed mean:
+	// Values: [1000, 1000, 2000]
+	// Median: 1000
+	// All values within [500, 2000] (0.5x to 2x median)
+	// Average: (1000+1000+2000)/3 = 1333
 	projection.RunToEnd(context.Background())
 	opinion := projection.DeriveOpinion(subject)
 
-	// Cluster [1000, 1000] has 2 observers with total uptime 200
-	// Cluster [2000] has 1 observer with uptime 10000
-	// Strategy 1 (2+ observers) should pick cluster 1000
-	if opinion.StartTime != 1000 {
-		t.Errorf("Expected StartTime=1000 (cluster with 2 agreeing observers), got %d", opinion.StartTime)
+	expectedAvg := int64(1333) // trimmed mean
+	if opinion.StartTime != expectedAvg {
+		t.Errorf("Expected StartTime=%d (trimmed mean), got %d", expectedAvg, opinion.StartTime)
 	}
 }
 
@@ -147,12 +147,17 @@ func TestConsensusEvents_UptimeWeighting_SingleObserverClusters(t *testing.T) {
 	ledger.AddEvent(event2)
 	ledger.AddEvent(event3)
 
-	// With no cluster having 2+ observers, Strategy 2 picks highest uptime
+	// With trimmed mean:
+	// Values: [1000, 2000, 3000]
+	// Median: 2000
+	// All values within [1000, 4000] (0.5x to 2x median)
+	// Average: (1000+2000+3000)/3 = 2000
 	projection.RunToEnd(context.Background())
 	opinion := projection.DeriveOpinion(subject)
 
-	if opinion.StartTime != 3000 {
-		t.Errorf("Expected StartTime=3000 (highest uptime observer), got %d", opinion.StartTime)
+	expectedAvg := int64(2000) // trimmed mean
+	if opinion.StartTime != expectedAvg {
+		t.Errorf("Expected StartTime=%d (trimmed mean), got %d", expectedAvg, opinion.StartTime)
 	}
 }
 
@@ -265,12 +270,13 @@ func TestConsensusEvents_MixedBackfillAndRealtime(t *testing.T) {
 		ledger.AddEvent(event)
 	}
 
-	// Consensus should prefer majority (newer restart count)
+	// Consensus should average: (1137+1137+1140+1140+1140)/5 = 1138.8 → 1138
 	projection.RunToEnd(context.Background())
 	opinion := projection.DeriveOpinion(subject)
 
-	if opinion.Restarts != newRestarts {
-		t.Errorf("Expected consensus Restarts=%d (majority), got %d", newRestarts, opinion.Restarts)
+	expectedAvg := int64(1138) // trimmed mean of values
+	if opinion.Restarts != expectedAvg {
+		t.Errorf("Expected consensus Restarts=%d (trimmed mean), got %d", expectedAvg, opinion.Restarts)
 	}
 }
 
@@ -494,9 +500,12 @@ func TestConsensusEvents_ChangeOfMind(t *testing.T) {
 	projection.RunOnce()
 	opinion = projection.DeriveOpinion(subject)
 
-	// With 2 observers agreeing on StartTime=2000, that cluster wins (Strategy 1)
-	if opinion.StartTime != 2000 {
-		t.Errorf("Expected StartTime=2000 (cluster with 2 observers), got %d", opinion.StartTime)
+	// With trimmed mean:
+	// Values: [1000, 2000, 2000] (observer-a's two reports + observer-b)
+	// Median: 2000, Average: (1000+2000+2000)/3 = 1666
+	expectedAvg := int64(1666)
+	if opinion.StartTime != expectedAvg {
+		t.Errorf("Expected StartTime=%d (trimmed mean), got %d", expectedAvg, opinion.StartTime)
 	}
 }
 
@@ -534,9 +543,12 @@ func TestConsensusEvents_ChangeOfMind_two(t *testing.T) {
 	projection.RunOnce()
 	opinion = projection.DeriveOpinion(subject)
 
-	// With 2 observers agreeing on StartTime=1000, that cluster wins (Strategy 1)
-	if opinion.StartTime != 1000 {
-		t.Errorf("Expected StartTime=1000 (cluster with 2 observers), got %d", opinion.StartTime)
+	// With trimmed mean:
+	// Values: [1000, 2000, 1000] (observer-a's two reports + observer-b)
+	// Median: 1000, Average: (1000+2000+1000)/3 = 1333
+	expectedAvg := int64(1333)
+	if opinion.StartTime != expectedAvg {
+		t.Errorf("Expected StartTime=%d (trimmed mean), got %d", expectedAvg, opinion.StartTime)
 	}
 }
 

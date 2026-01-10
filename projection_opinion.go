@@ -10,7 +10,8 @@ import (
 
 // ObservationRecord stores observation event data for consensus calculation.
 type ObservationRecord struct {
-	Subject        string
+	Observer       string // Who made the observation
+	Subject        string // Who is being observed
 	Type           string // "restart" or "first-seen"
 	StartTime      int64
 	RestartNum     int64
@@ -70,6 +71,7 @@ func (p *OpinionConsensusProjection) handleEvent(event SyncEvent) error {
 	}
 
 	record := ObservationRecord{
+		Observer:       obs.Observer,
 		Subject:        obs.Subject,
 		Type:           obs.Type,
 		StartTime:      obs.StartTime,
@@ -116,52 +118,149 @@ func (p *OpinionConsensusProjection) DeriveOpinion(subject string) OpinionData {
 	}
 }
 
-// projectionConsensusValue for clustering algorithm
-type projectionConsensusValue struct {
-	value  int64
-	weight uint64
-}
 
-// projectionConsensusCluster groups values within tolerance
-type projectionConsensusCluster struct {
-	values      []int64
-	totalWeight uint64
-}
-
-// deriveProjectionStartTimeConsensus uses uptime-weighted clustering for startTime.
+// deriveProjectionStartTimeConsensus uses trimmed mean for startTime consensus.
 func deriveProjectionStartTimeConsensus(observations []ObservationRecord, tolerance int64) int64 {
-	var values []projectionConsensusValue
+	if len(observations) == 0 {
+		return 0
+	}
+
+	subject := observations[0].Subject // All observations are for same subject
+	var values []int64
+	maxStartTime := int64(0)
+
 	for _, obs := range observations {
 		if obs.StartTime > 0 {
-			values = append(values, projectionConsensusValue{value: obs.StartTime, weight: obs.ObserverUptime})
+			values = append(values, obs.StartTime)
+			if obs.StartTime > maxStartTime {
+				maxStartTime = obs.StartTime
+			}
 		}
 	}
-	return projectionConsensusByUptime(values, tolerance)
+
+	if len(values) == 0 {
+		return 0
+	}
+
+	trimmed := trimmedMeanConsensus(values)
+
+	// Log with context
+	if len(values) > 2 {
+		// Calculate stats for logging
+		sorted := make([]int64, len(values))
+		copy(sorted, values)
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i] < sorted[j]
+		})
+		median := sorted[len(sorted)/2]
+
+		// Count agreement
+		freqMap := make(map[int64]int)
+		for _, v := range values {
+			freqMap[v]++
+		}
+		maxFreq := 0
+		var mostCommon int64
+		for val, freq := range freqMap {
+			if freq > maxFreq {
+				maxFreq = freq
+				mostCommon = val
+			}
+		}
+		agreement := float64(maxFreq) / float64(len(values)) * 100
+
+		logrus.Debugf("starttime consensus for %s: %d observers, median=%d, avg=%d, agreement=%.0f%% on %d",
+			subject, len(values), median, trimmed, agreement, mostCommon)
+
+		// Warn about max difference
+		if trimmed != maxStartTime && trimmed > 0 {
+			diff := maxStartTime - trimmed
+			if diff > 60 {
+				logrus.Debugf("starttime consensus for %s: max=%d, trimmed=%d (diff=%ds)",
+					subject, maxStartTime, trimmed, diff)
+			}
+		}
+	}
+
+	return trimmed
 }
 
-// deriveProjectionRestartsConsensus returns the highest restart count seen.
+// deriveProjectionRestartsConsensus returns the restart count using trimmed mean consensus.
+// Filters out outliers and averages the remaining observations for a robust consensus.
 func deriveProjectionRestartsConsensus(observations []ObservationRecord, subject string) int64 {
 	maxRestarts := int64(0)
+	uniqueObservers := make(map[string]bool)
+	var values []int64
+
 	for _, obs := range observations {
 		if obs.RestartNum > maxRestarts {
 			maxRestarts = obs.RestartNum
 		}
-	}
-
-	// Also calculate using uptime-weighted clustering for comparison
-	var values []projectionConsensusValue
-	for _, obs := range observations {
-		if obs.RestartNum > 0 {
-			values = append(values, projectionConsensusValue{value: obs.RestartNum, weight: obs.ObserverUptime})
+		// Track unique observers and collect non-zero values
+		if obs.RestartNum > 0 && obs.Type == "restart" {
+			uniqueObservers[obs.Observer] = true
+			values = append(values, obs.RestartNum)
 		}
 	}
-	clusteredRestarts := projectionConsensusByUptime(values, 1) // tolerance of 1 for restart counts
 
-	if clusteredRestarts != maxRestarts && clusteredRestarts > 0 {
-		logrus.Debugf("restarts consensus diff for %s: max=%d, clustered=%d", subject, maxRestarts, clusteredRestarts)
+	// If only one observer is reporting restarts, use max (most recent from that observer)
+	if len(uniqueObservers) <= 1 {
+		if maxRestarts > 0 {
+			logrus.Debugf("restarts consensus for %s: using max algorithm (single observer fallback) → %d", subject, maxRestarts)
+		}
+		return maxRestarts
 	}
 
-	return maxRestarts
+	// Use trimmed mean: remove outliers and average
+	trimmedRestarts := trimmedMeanConsensus(values)
+
+	// Fallback to max if trimmed mean returns 0
+	if trimmedRestarts == 0 {
+		if maxRestarts > 0 {
+			logrus.Debugf("restarts consensus for %s: using max algorithm (trimmed mean returned 0) → %d", subject, maxRestarts)
+		}
+		return maxRestarts
+	}
+
+	// Calculate stats for logging
+	if len(values) > 2 {
+		sorted := make([]int64, len(values))
+		copy(sorted, values)
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i] < sorted[j]
+		})
+		median := sorted[len(sorted)/2]
+
+		// Count agreement
+		freqMap := make(map[int64]int)
+		for _, v := range values {
+			freqMap[v]++
+		}
+		maxFreq := 0
+		var mostCommon int64
+		for val, freq := range freqMap {
+			if freq > maxFreq {
+				maxFreq = freq
+				mostCommon = val
+			}
+		}
+		agreement := float64(maxFreq) / float64(len(values)) * 100
+
+		logrus.Debugf("restarts consensus for %s: %d observers, median=%d, avg=%d, agreement=%.0f%% on %d",
+			subject, len(values), median, trimmedRestarts, agreement, mostCommon)
+	}
+
+	// Warn if the difference is significant (>10% or >5 absolute)
+	diff := maxRestarts - trimmedRestarts
+	if diff > 0 {
+		percentDiff := float64(diff) / float64(maxRestarts) * 100
+		if diff >= 5 || percentDiff >= 10.0 {
+			logrus.Warnf("🔍 restarts consensus diff for %s: max=%d, trimmed=%d (diff=%d, %.1f%%)",
+				subject, maxRestarts, trimmedRestarts, diff, percentDiff)
+		}
+	}
+
+	return trimmedRestarts
 }
 
 // deriveProjectionLastRestartConsensus returns the most recent LastRestart timestamp.
@@ -175,60 +274,66 @@ func deriveProjectionLastRestartConsensus(observations []ObservationRecord) int6
 	return maxLastRestart
 }
 
-// projectionConsensusByUptime implements uptime-weighted clustering for consensus.
-// Uses a strategy hierarchy:
-// 1. Prefer clusters with ≥2 observers (sorted by total weight)
-// 2. Fall back to highest-weight single-observer cluster
-func projectionConsensusByUptime(values []projectionConsensusValue, tolerance int64) int64 {
+// trimmedMeanConsensus calculates a robust average by removing outliers.
+// Ignores zeros, calculates median, removes values >2x or <0.5x median, returns average.
+func trimmedMeanConsensus(values []int64) int64 {
 	if len(values) == 0 {
 		return 0
 	}
 
-	// Sort by value
-	sort.Slice(values, func(i, j int) bool {
-		return values[i].value < values[j].value
-	})
-
-	// Build clusters
-	var clusters []projectionConsensusCluster
-	current := projectionConsensusCluster{
-		values:      []int64{values[0].value},
-		totalWeight: values[0].weight,
-	}
-	clusterStart := values[0].value
-
-	for i := 1; i < len(values); i++ {
-		if values[i].value-clusterStart <= tolerance {
-			current.values = append(current.values, values[i].value)
-			current.totalWeight += values[i].weight
-		} else {
-			clusters = append(clusters, current)
-			current = projectionConsensusCluster{
-				values:      []int64{values[i].value},
-				totalWeight: values[i].weight,
-			}
-			clusterStart = values[i].value
-		}
-	}
-	clusters = append(clusters, current)
-
-	// Sort clusters by total weight (highest first)
-	sort.Slice(clusters, func(i, j int) bool {
-		return clusters[i].totalWeight > clusters[j].totalWeight
-	})
-
-	// Strategy 1: Prefer clusters with ≥2 observers
-	for _, cluster := range clusters {
-		if len(cluster.values) >= 2 {
-			return cluster.values[len(cluster.values)/2]
+	// Filter out zeros (these are not real observations)
+	var nonZero []int64
+	for _, v := range values {
+		if v > 0 {
+			nonZero = append(nonZero, v)
 		}
 	}
 
-	// Strategy 2: Fall back to highest-weight cluster
-	if len(clusters) == 0 || len(clusters[0].values) == 0 {
+	if len(nonZero) == 0 {
 		return 0
 	}
-	return clusters[0].values[len(clusters[0].values)/2]
+
+	// Single value: just return it
+	if len(nonZero) == 1 {
+		return nonZero[0]
+	}
+
+	// Calculate median
+	sorted := make([]int64, len(nonZero))
+	copy(sorted, nonZero)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i] < sorted[j]
+	})
+	median := sorted[len(sorted)/2]
+
+	// Remove outliers: keep values within [median*0.2, median*5.0]
+	// This filters out values that are more than 5x or less than 0.2x the median
+	var filtered []int64
+	lowerBound := median / 5        // 0.2x median
+	upperBound := median * 5        // 5x median
+	var removed []int64
+
+	for _, v := range nonZero {
+		if v >= lowerBound && v <= upperBound {
+			filtered = append(filtered, v)
+		} else {
+			removed = append(removed, v)
+		}
+	}
+
+	// If we filtered everything out, fall back to median
+	if len(filtered) == 0 {
+		return median
+	}
+
+	// Calculate average of filtered values
+	var sum int64
+	for _, v := range filtered {
+		sum += v
+	}
+	avg := sum / int64(len(filtered))
+
+	return avg
 }
 
 // GetObservationsFor returns the observation records for a subject.

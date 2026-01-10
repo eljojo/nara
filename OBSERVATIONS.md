@@ -17,11 +17,12 @@ These events spread organically through the network via:
 
 ## Consensus Formation
 
-Each nara collects observation events from neighbors and forms their own opinion using weighted clustering:
+Each nara collects observation events from neighbors and forms their own opinion using **trimmed mean**:
 
-- Events from naras with higher uptime carry more weight
-- Multiple observers must agree (within 60s tolerance) for strong consensus
-- If consensus unclear, use coin flip or fallback to direct observation
+- Collect all reported values from observers
+- Remove statistical outliers (values >5× or <0.2× median)
+- Average the remaining values (naturally weighted by how many observers agree)
+- Single observer fallback: use their latest value if only one reporting
 
 This is **subjective consensus** - each nara may have slightly different views, and that's OK. It's a hazy collective memory.
 
@@ -238,17 +239,22 @@ To help the collective memory stay strong, naras perform lightweight periodic sy
 
 ## Consensus Algorithm
 
-Same as current formOpinion() but reading from events instead of newspapers:
+Uses **trimmed mean** to calculate robust consensus from observation events:
 
 1. **Query events:** Get all observation events about subject from SyncLedger
-2. **Weight by uptime:** Events from high-uptime naras carry more weight
-3. **Cluster values:** Group similar values (±60s tolerance)
-4. **Pick consensus:**
-   - Strong: ≥2 observers agree → pick highest-weight cluster
-   - Weak: <2 observers → coin flip or highest weight
-   - Fallback: Use direct observation if no events
+2. **Collect values:** Extract reported values (StartTime, Restarts, etc.) from each observer
+3. **Filter outliers:** Remove values outside [median×0.2, median×5.0] range
+4. **Calculate average:** Average remaining values (naturally weighted by frequency)
+   - If 5 observers report "270" and 2 report "271", the average weights toward 270
+   - Single-observer fallback: Use max value if only one observer reporting
+5. **Log quality metrics:**
+   - Agreement % - how many observers agree on most common value
+   - Std deviation - spread of opinions (low = tight consensus, high = noisy)
+   - Outliers removed - which values were filtered as suspicious
 
 **Result:** Distributed consensus on StartTime, Restarts, LastRestart without centralized broadcast.
+
+**Key insight:** Large discrepancies indicate bugs (false MISSING detections, backfill failures) rather than natural variance.
 
 ## Code Locations
 

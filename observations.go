@@ -512,6 +512,13 @@ func (network *Network) observationMaintenance() {
 				if derivedStatus != "" && derivedStatus != observation.Online {
 					previousState := observation.Online
 
+					// Log which observer(s) triggered this status change
+					state := network.local.Projections.OnlineStatus().GetState(name)
+					if state != nil && previousState == "ONLINE" && derivedStatus == "MISSING" {
+						logrus.Debugf("🔍 Status change %s: ONLINE → MISSING (last event: %s, age: %v)",
+							name, state.LastEventType, time.Since(time.Unix(0, state.LastEventTime)))
+					}
+
 					// Before transitioning ONLINE → MISSING, verify with a ping
 					// This guards against buggy naras spreading false "offline" observations
 					if previousState == "ONLINE" && derivedStatus == "MISSING" {
