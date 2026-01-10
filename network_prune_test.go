@@ -536,6 +536,65 @@ func TestPruneInactiveNaras_ObservationMaintenanceRace(t *testing.T) {
 		t.Error("zombie-nara observation should NOT be re-added by observationMaintenance after pruning")
 	}
 	ln.Me.mu.Unlock()
+}
 
-	t.Log("✅ Race condition prevented - pruned nara not re-added by observationMaintenance")
+func TestPruneInactiveNaras_FullCleanup(t *testing.T) {
+	// This test verifies that pruning removes all traces of a nara,
+	// preventing re-discovery from any event type.
+	ln := testLocalNaraWithParams("test-nara", 50, 1000)
+	now := time.Now().Unix()
+
+	zombieName := "ghost-nara"
+	zombieNara := NewNara(zombieName)
+	ln.Network.importNara(zombieNara)
+	ln.setObservation(zombieName, NaraObservation{
+		LastSeen:  0,
+		StartTime: now - 86400,
+		Online:    "OFFLINE",
+	})
+
+	// Add various events where ghost is involved
+	events := []SyncEvent{
+		NewPingSyncEvent("test-nara", zombieName, 42.0),
+		NewSocialSyncEvent("tease", zombieName, "test-nara", "random", ""),
+		NewHeyThereSyncEvent(zombieName, "pubkey", "1.2.3.4", "id", ln.Keypair),
+	}
+
+	for _, e := range events {
+		ln.Network.local.SyncLedger.AddEvent(e)
+		if !ln.Network.local.SyncLedger.HasEvent(e.ID) {
+			t.Errorf("Event %s should exist before pruning", e.Service)
+		}
+	}
+
+	// Run pruning
+	ln.Network.pruneInactiveNaras()
+
+	// 1. Verify nara is gone from Neighbourhood
+	if ln.Network.Neighbourhood[zombieName] != nil {
+		t.Error("ghost-nara should be removed from Neighbourhood")
+	}
+
+	// 2. Verify all events are gone
+	for _, e := range events {
+		if ln.Network.local.SyncLedger.HasEvent(e.ID) {
+			t.Errorf("Event %s should be removed from SyncLedger", e.Service)
+		}
+	}
+
+	// 3. Verify re-discovery doesn't happen when processing the ledger
+	allEvents := ln.Network.local.SyncLedger.GetAllEvents()
+	ln.Network.discoverNarasFromEvents(allEvents)
+
+	if ln.Network.Neighbourhood[zombieName] != nil {
+		t.Error("ghost-nara should NOT be re-discovered after pruning events")
+	}
+
+	// 4. Verify no ping events for the ghost nara
+	pingEvents := ln.Network.local.SyncLedger.GetPingObservations()
+	for _, ping := range pingEvents {
+		if ping.Observer == zombieName || ping.Target == zombieName {
+			t.Errorf("Ping event for ghost nara (%s -> %s) found after pruning", ping.Observer, ping.Target)
+		}
+	}
 }

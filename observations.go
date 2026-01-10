@@ -30,6 +30,17 @@ func resetVerifyPingRateLimit() {
 
 const BlueJayURL = "https://nara.network/narae.json"
 
+// pruneVerifyPingCache removes entries for pruned naras from the verification cache.
+func (network *Network) pruneVerifyPingCache(names []string) {
+	verifyPingLastAttemptMu.Lock()
+	defer verifyPingLastAttemptMu.Unlock()
+	for _, name := range names {
+		delete(verifyPingLastAttempt, name)
+		delete(verifyPingLastResult, name)
+	}
+}
+
+
 // MissingThresholdSeconds is the duration (in SECONDS) without updates before a nara is marked MISSING.
 // This must be long enough to account for:
 // - Variable posting intervals (naras post every 10-30 seconds, but can go quieter)
@@ -397,12 +408,24 @@ func (network *Network) fetchOpinionsFromBlueJay() {
 	}
 }
 
-func (network *Network) recordObservationOnlineNara(name string) {
+func (network *Network) recordObservationOnlineNara(name string, timestamp int64) {
+	if timestamp == 0 {
+		timestamp = time.Now().Unix()
+	}
+
+	isRecent := (time.Now().Unix() - timestamp) < MissingThresholdSeconds
+
 	network.local.mu.Lock()
 	_, present := network.Neighbourhood[name]
 	network.local.mu.Unlock()
+
 	if !present && name != network.meName() {
-		network.importNara(NewNara(name))
+		// Only discovery-by-observation if recent or booting
+		if isRecent || network.local.isBooting() {
+			network.importNara(NewNara(name))
+		} else {
+			return
+		}
 	}
 
 	observation := network.local.getObservation(name)
@@ -420,7 +443,7 @@ func (network *Network) recordObservationOnlineNara(name string) {
 
 		// Emit first-seen observation event
 		if !network.local.isBooting() && network.local.SyncLedger != nil {
-			event := NewFirstSeenObservationEvent(network.meName(), name, time.Now().Unix())
+			event := NewFirstSeenObservationEvent(network.meName(), name, timestamp)
 			if network.local.SyncLedger.AddEventWithDedup(event) && network.local.Projections != nil {
 				network.local.Projections.Trigger()
 			}
@@ -454,7 +477,7 @@ func (network *Network) recordObservationOnlineNara(name string) {
 	// Track if we detected a restart (to avoid duplicate event emissions)
 	wasRestart := false
 	if !observation.isOnline() && observation.Online != "" {
-		observation.LastRestart = time.Now().Unix()
+		observation.LastRestart = timestamp
 		observation.Restarts = observation.Restarts + 1
 		logrus.Printf("observation: %s came back online", name)
 		network.Buzz.increase(3)
@@ -471,15 +494,18 @@ func (network *Network) recordObservationOnlineNara(name string) {
 		}
 	}
 
-	observation.Online = "ONLINE"
-	observation.LastSeen = time.Now().Unix()
+	// Only mark as ONLINE if the evidence is recent
+	if isRecent {
+		observation.Online = "ONLINE"
+	}
+	observation.LastSeen = timestamp
 	network.local.setObservation(name, observation)
 
 	// Record observation event when state changes to ONLINE
 	// Only emit status-change if this wasn't already handled by restart event
 	// This avoids duplicate events for the same transition
 	if name != network.meName() && !network.local.isBooting() && network.local.SyncLedger != nil {
-		if previousState != "" && previousState != "ONLINE" && !wasRestart {
+		if isRecent && previousState != "" && previousState != "ONLINE" && !wasRestart {
 			event := NewStatusChangeObservationEvent(network.meName(), name, "ONLINE")
 			if network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality) && network.local.Projections != nil {
 				network.local.Projections.Trigger()

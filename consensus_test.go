@@ -21,7 +21,7 @@ func TestObservations_OnlineTransitions(t *testing.T) {
 		t.Errorf("expected initial state to be empty, got %s", obs.Online)
 	}
 
-	network.recordObservationOnlineNara(name)
+	network.recordObservationOnlineNara(name, 0)
 	obs = network.local.getObservation(name)
 	if obs.Online != "ONLINE" {
 		t.Errorf("expected state ONLINE, got %s", obs.Online)

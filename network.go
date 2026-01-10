@@ -624,9 +624,11 @@ func (network *Network) discoverNarasFromEvents(events []SyncEvent) {
 			network.local.mu.Unlock()
 
 			if !known {
-				// Create a basic entry for this nara
-				network.importNara(NewNara(name))
-				logrus.Debugf("📖 Discovered nara %s from event stream", name)
+				isRecent := (time.Now().Unix() - e.Timestamp/1e9) < MissingThresholdSeconds
+				if isRecent || network.local.isBooting() || e.Service == ServiceHeyThere {
+					network.importNara(NewNara(name))
+					logrus.Debugf("📖 Discovered nara %s from event stream", name)
+				}
 			}
 		}
 	}
@@ -683,7 +685,7 @@ func (network *Network) markEmittersAsSeen(events []SyncEvent) {
 		// Mark them as seen - we received events they emitted
 		// NOTE: We do NOT emit a seen event here - the emitter is proving themselves
 		// through their own events. Seen events are only for vouching for quiet naras.
-		network.recordObservationOnlineNara(emitter)
+		network.recordObservationOnlineNara(emitter, e.Timestamp/1e9)
 		logrus.Debugf("📖 Marked %s as seen via event emission", emitter)
 	}
 }
@@ -1282,7 +1284,7 @@ func (network *Network) announce() {
 	}
 	network.testAnnounceCount++ // Track for testing
 	topic := fmt.Sprintf("%s/%s", "nara/newspaper", network.meName())
-	network.recordObservationOnlineNara(network.meName())
+	network.recordObservationOnlineNara(network.meName(), 0)
 
 	// Broadcast slim newspapers without Observations (observations are event-sourced)
 	network.local.Me.mu.Lock()
@@ -1380,7 +1382,7 @@ func (network *Network) handleNewspaperEvent(event NewspaperEvent) {
 	}
 
 	// The newspaper itself is an event emitted by them - they prove themselves
-	network.recordObservationOnlineNara(event.From)
+	network.recordObservationOnlineNara(event.From, 0)
 }
 
 func (network *Network) processHowdyEvents() {
@@ -1407,7 +1409,7 @@ func (network *Network) handleHowdyEvent(howdy HowdyEvent) {
 	sender.Status = howdy.Me
 	network.importNara(sender)
 	// The howdy itself is an event they emitted - they prove themselves
-	network.recordObservationOnlineNara(howdy.From)
+	network.recordObservationOnlineNara(howdy.From, 0)
 
 	// 2. If this howdy is for us, process it fully
 	if howdy.To == network.meName() {
@@ -1552,7 +1554,7 @@ func (network *Network) handleHeyThereEvent(event SyncEvent) {
 
 	logrus.Printf("%s says: hey there!", heyThere.From)
 	// The hey_there itself is an event they emitted - they prove themselves
-	network.recordObservationOnlineNara(heyThere.From)
+	network.recordObservationOnlineNara(heyThere.From, event.Timestamp/1e9)
 
 	// Add to ledger for gossip propagation
 	if network.local.SyncLedger != nil {
@@ -1780,7 +1782,7 @@ func (network *Network) heyThere() {
 	}
 
 	// Always record our own online observation (needed for local state)
-	network.recordObservationOnlineNara(network.meName())
+	network.recordObservationOnlineNara(network.meName(), 0)
 
 	ts := int64(5) // seconds
 	if (time.Now().Unix() - network.LastHeyThere) <= ts {
@@ -3165,7 +3167,7 @@ func (network *Network) discoverMeshPeers() {
 			nara.Status.MeshEnabled = true
 			nara.Status.PublicKey = peer.PublicKey
 			network.importNara(nara)
-			network.recordObservationOnlineNara(peer.Name) // Properly sets both Online and LastSeen
+			network.recordObservationOnlineNara(peer.Name, 0) // Properly sets both Online and LastSeen
 			network.emitSeenEvent(peer.Name, "mesh")
 			discovered++
 			if peer.PublicKey != "" {
@@ -3446,7 +3448,7 @@ func (network *Network) exchangeZine(targetName string, myZine *Zine) {
 
 	// Mark peer as online - successful zine exchange proves they're reachable
 	// Their events in the zine already prove they're active, no need for seen event
-	network.recordObservationOnlineNara(targetName)
+	network.recordObservationOnlineNara(targetName, theirZine.CreatedAt)
 }
 
 // SendDM sends a SyncEvent directly to a target nara via HTTP POST to /dm.
@@ -3863,6 +3865,20 @@ func (network *Network) pruneInactiveNaras() {
 		// First remove from Neighbourhood (protected by network.local.mu)
 		for _, name := range toRemove {
 			delete(network.Neighbourhood, name)
+			network.howdyCoordinators.Delete(name)
+		}
+
+		// Also remove their events from the sync ledger to prevent re-discovery
+		if network.local.SyncLedger != nil {
+			for _, name := range toRemove {
+				network.local.SyncLedger.RemoveEventsFor(name)
+			}
+		}
+
+		// Clean up verification caches and trigger projection updates
+		network.pruneVerifyPingCache(toRemove)
+		if network.local.Projections != nil {
+			network.local.Projections.Trigger()
 		}
 		network.local.mu.Unlock()
 

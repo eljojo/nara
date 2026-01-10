@@ -1133,6 +1133,9 @@ func (l *SyncLedger) RemoveEventsFor(name string) int {
 
 // eventInvolvesNara checks if an event involves a specific nara (as actor or target).
 func (l *SyncLedger) eventInvolvesNara(e SyncEvent, name string) bool {
+	if e.Emitter == name {
+		return true
+	}
 	switch e.Service {
 	case ServiceHeyThere:
 		if e.HeyThere != nil && e.HeyThere.From == name {
@@ -1147,7 +1150,7 @@ func (l *SyncLedger) eventInvolvesNara(e SyncEvent, name string) bool {
 			return true
 		}
 	case ServiceSocial:
-		if e.Social != nil && (e.Social.Witness == name || e.Social.Target == name) {
+		if e.Social != nil && (e.Social.Actor == name || e.Social.Target == name || e.Social.Witness == name) {
 			return true
 		}
 	case ServicePing:

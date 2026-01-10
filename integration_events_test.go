@@ -33,7 +33,7 @@ func TestIntegration_EventEmissionNoDuplicates(t *testing.T) {
 	network.importNara(NewNara("nara-2"))
 
 	// Simulate nara-2 being seen for the first time
-	network.recordObservationOnlineNara("nara-2")
+	network.recordObservationOnlineNara("nara-2", 0)
 
 	// Wait a bit, then simulate nara-2 going offline
 	time.Sleep(100 * time.Millisecond)
@@ -50,7 +50,7 @@ func TestIntegration_EventEmissionNoDuplicates(t *testing.T) {
 	ln1.SyncLedger.eventIDs = make(map[string]bool)
 
 	// Simulate nara-2 coming back online (should trigger restart detection)
-	network.recordObservationOnlineNara("nara-2")
+	network.recordObservationOnlineNara("nara-2", 0)
 
 	// Check events - should have exactly 1 restart event, not 2 events
 	events := ln1.SyncLedger.GetObservationEventsAbout("nara-2")
@@ -85,7 +85,7 @@ func TestIntegration_NoSelfObservationEvents(t *testing.T) {
 	network := ln.Network
 
 	// Try to record observation about ourselves (should be filtered)
-	network.recordObservationOnlineNara("test-nara")
+	network.recordObservationOnlineNara("test-nara", 0)
 
 	// Check that no observation events were created about ourselves
 	events := ln.SyncLedger.GetObservationEventsAbout("test-nara")
@@ -188,7 +188,7 @@ func TestIntegration_EventEmissionDuringTransitions(t *testing.T) {
 	network.importNara(NewNara("subject-1"))
 
 	// Scenario 1: First seen (ONLINE) - should emit first-seen event
-	network.recordObservationOnlineNara("subject-1")
+	network.recordObservationOnlineNara("subject-1", 0)
 	events := ln.SyncLedger.GetObservationEventsAbout("subject-1")
 	firstSeenCount := 0
 	for _, e := range events {
@@ -236,7 +236,7 @@ func TestIntegration_EventEmissionDuringTransitions(t *testing.T) {
 		ln.setObservation("subject-1", obsCheck)
 	}
 
-	network.recordObservationOnlineNara("subject-1")
+	network.recordObservationOnlineNara("subject-1", 0)
 
 	events = ln.SyncLedger.GetObservationEventsAbout("subject-1")
 	restartCount := 0
@@ -400,7 +400,7 @@ func TestIntegration_MissingDetectionNotTooSensitive(t *testing.T) {
 	network.importNara(NewNara("quiet-nara"))
 
 	// Quiet-nara is seen for the first time
-	network.recordObservationOnlineNara("quiet-nara")
+	network.recordObservationOnlineNara("quiet-nara", 0)
 
 	// Verify initial state is ONLINE
 	obs := ln1.getObservation("quiet-nara")
@@ -439,7 +439,7 @@ func TestIntegration_MissingDetectionNotTooSensitive(t *testing.T) {
 		// Record them coming online again (this triggers "came back online" logic)
 		ln1.SyncLedger.Events = []SyncEvent{}
 		ln1.SyncLedger.eventIDs = make(map[string]bool)
-		network.recordObservationOnlineNara("quiet-nara")
+		network.recordObservationOnlineNara("quiet-nara", 0)
 	}
 
 	// Get the final state
@@ -766,7 +766,7 @@ func TestIntegration_MeshPeerDiscoverySetsLastSeen(t *testing.T) {
 	beforeTime := time.Now().Unix()
 
 	// This simulates what discoverMeshPeers should do after the fix
-	network.recordObservationOnlineNara(peerName)
+	network.recordObservationOnlineNara(peerName, 0)
 
 	afterTime := time.Now().Unix()
 

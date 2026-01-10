@@ -24,7 +24,7 @@ func TestObservations_Online(t *testing.T) {
 	network.importNara(NewNara(name))
 
 	// 1. Initial observation via recording online
-	network.recordObservationOnlineNara(name)
+	network.recordObservationOnlineNara(name, 0)
 	obs := network.local.getObservation(name)
 	if obs.Online != "ONLINE" {
 		t.Errorf("expected state ONLINE, got %s", obs.Online)
@@ -44,7 +44,7 @@ func TestObservations_Online(t *testing.T) {
 	}
 
 	// 3. Transition back to ONLINE (should increment restarts)
-	network.recordObservationOnlineNara(name)
+	network.recordObservationOnlineNara(name, 0)
 	obs = network.local.getObservation(name)
 	if obs.Online != "ONLINE" {
 		t.Errorf("expected back to ONLINE, got %s", obs.Online)
@@ -468,7 +468,7 @@ func TestPingVerificationRateLimitBug(t *testing.T) {
 	}
 
 	// 1. Mark nara as ONLINE initially
-	network.recordObservationOnlineNara("other")
+	network.recordObservationOnlineNara("other", 0)
 	obs := network.local.getObservation("other")
 	if obs.Online != "ONLINE" {
 		t.Fatalf("expected ONLINE, got %s", obs.Online)

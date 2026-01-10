@@ -818,7 +818,7 @@ func (network *Network) httpGossipZineHandler(w http.ResponseWriter, r *http.Req
 	}
 	if !senderIsShuttingDown {
 		// Their events in the zine already prove they're active, no need for seen event
-		network.recordObservationOnlineNara(theirZine.From)
+		network.recordObservationOnlineNara(theirZine.From, theirZine.CreatedAt)
 	}
 
 	// Create our zine to send back (bidirectional exchange)
@@ -895,7 +895,7 @@ func (network *Network) httpDMHandler(w http.ResponseWriter, r *http.Request) {
 	// Mark sender as online (unless this is a chau event - those mean "I'm shutting down")
 	if event.Service != ServiceChau {
 		// The DM itself is an event they emitted - they prove themselves
-		network.recordObservationOnlineNara(event.Emitter)
+		network.recordObservationOnlineNara(event.Emitter, event.Timestamp/1e9)
 	}
 
 	// Format event content for logging
