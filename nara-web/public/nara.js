@@ -168,7 +168,18 @@ function NaraRow(props) {
     return moment().to(olderTime * 1000, true)
   }
 
-  const uptime = nara.Online == "ONLINE" ? timeAgo(nara.LastSeen - nara.LastRestart) : nara.Online;
+  // Calculate uptime, but guard against invalid LastRestart (0 or missing)
+  let uptime = nara.Online;
+  if (nara.Online == "ONLINE") {
+    const uptimeSeconds = nara.LastSeen - nara.LastRestart;
+    // If LastRestart is 0 or uptime is > 1 year (clearly wrong), use nara lifetime with "?"
+    if (nara.LastRestart === 0 || uptimeSeconds > 31536000) {
+      const lifetime = nara.LastSeen - nara.StartTime;
+      uptime = timeAgo(lifetime) + "?";
+    } else {
+      uptime = timeAgo(uptimeSeconds);
+    }
+  }
 
   const nameOrLink = (nara.Online == "ONLINE" && nara.PublicUrl)
     ? (<a href={nara.PublicUrl} target="_blank">{ nara.Name }</a>)
