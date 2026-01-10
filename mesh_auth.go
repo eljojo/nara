@@ -228,14 +228,14 @@ func (network *Network) meshAuthMiddleware(path string, handler http.HandlerFunc
 		}
 
 		// Verify request signature
-		sender, err := VerifyMeshRequest(r, network.getPublicKeyForNara)
+		sender, err := VerifyMeshRequest(r, network.resolvePublicKeyForNara)
 
 		// If sender is unknown, try to discover them via /ping
 		if err != nil && strings.Contains(err.Error(), "unknown sender") {
 			senderName := r.Header.Get(HeaderNaraName)
 			if senderName != "" && network.tryDiscoverUnknownSender(senderName, r.RemoteAddr) {
 				// Retry verification with newly discovered key
-				sender, err = VerifyMeshRequest(r, network.getPublicKeyForNara)
+				sender, err = VerifyMeshRequest(r, network.resolvePublicKeyForNara)
 			}
 		}
 
@@ -313,7 +313,7 @@ func (network *Network) VerifyMeshResponseBody(resp *http.Response) ([]byte, boo
 		return nil, false
 	}
 
-	sender, err := VerifyMeshResponse(resp, body, network.getPublicKeyForNara)
+	sender, err := VerifyMeshResponse(resp, body, network.resolvePublicKeyForNara)
 	if err != nil {
 		logrus.Warnf("🚫 mesh response auth failed: %v", err)
 		return body, false // Return body anyway, but indicate not verified

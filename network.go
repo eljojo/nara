@@ -363,7 +363,7 @@ func (network *Network) InitWorldJourney(mesh MeshTransport) {
 		mesh,
 		network.getMyClout,
 		network.getOnlineNaraNames,
-		network.getPublicKeyForNara,
+		network.resolvePublicKeyForNara,
 		network.getMeshIPForNara,
 		network.onWorldJourneyComplete,
 		network.onWorldJourneyPassThrough,
@@ -469,6 +469,25 @@ func (network *Network) getPublicKeyForNara(name string) []byte {
 	return pubKey
 }
 
+// resolvePublicKeyForNara returns the public key for a nara, attempting to resolve it
+// via neighbors if not already known.
+func (network *Network) resolvePublicKeyForNara(name string) []byte {
+	pubKey := network.getPublicKeyForNara(name)
+	if pubKey != nil {
+		return pubKey
+	}
+
+	// Not found locally, try to resolve via neighbors (blocking)
+	resp := network.resolvePeer(name)
+	if resp != nil && resp.PublicKey != "" {
+		logrus.Infof("📡 Resolved public key for %s via peer resolution", name)
+		return network.getPublicKeyForNara(name)
+	}
+
+	logrus.Warnf("📡 Unable to resolve public key for %s", name)
+	return nil
+}
+
 // hasPublicKeyFor returns true if we have a valid public key for the named nara.
 // Used to determine if a nara is "known" for pruning priority.
 func (network *Network) hasPublicKeyFor(name string) bool {
@@ -489,6 +508,8 @@ func (network *Network) VerifySyncEvent(e *SyncEvent) bool {
 	if pubKey == nil {
 		if !network.local.isBooting() {
 			logrus.Warnf("Cannot verify event %s: unknown emitter %s", e.ID[:8], e.Emitter)
+			// Trigger resolution in background so we might know them for future events
+			go network.resolvePeer(e.Emitter)
 		}
 		return false // Signed but can't verify - suspicious
 	}
@@ -1261,7 +1282,7 @@ func (network *Network) handleNewspaperEvent(event NewspaperEvent) {
 			}
 		} else {
 			// Try to get from known neighbor
-			pubKey = network.getPublicKeyForNara(event.From)
+			pubKey = network.resolvePublicKeyForNara(event.From)
 		}
 
 		if pubKey != nil && !event.Verify(pubKey) {
@@ -1774,7 +1795,7 @@ func (network *Network) handleChauEvent(syncEvent SyncEvent) {
 				return
 			}
 		} else {
-			pubKey = network.getPublicKeyForNara(chau.From)
+			pubKey = network.resolvePublicKeyForNara(chau.From)
 		}
 		if pubKey != nil && !syncEvent.Verify(pubKey) {
 			logrus.Warnf("⚠️  chau from %s has invalid signature, ignoring", chau.From)
@@ -2061,7 +2082,7 @@ func (network *Network) handleSocialEvent(event SyncEvent) {
 
 	// Verify SyncEvent signature if present
 	if event.IsSigned() {
-		pubKey := network.getPublicKeyForNara(event.Emitter)
+		pubKey := network.resolvePublicKeyForNara(event.Emitter)
 		if pubKey != nil && !event.Verify(pubKey) {
 			logrus.Warnf("🚨 Invalid signature on social event from %s", event.Emitter)
 			return
@@ -2849,7 +2870,7 @@ func (network *Network) createZine() *Zine {
 	}
 
 	// Sign the zine for authenticity
-	sig, err := signZine(zine, network.local.Keypair)
+	sig, err := SignZine(zine, network.local.Keypair)
 	if err != nil {
 		logrus.Warnf("📰 Failed to sign zine: %v", err)
 		return nil
@@ -2859,8 +2880,8 @@ func (network *Network) createZine() *Zine {
 	return zine
 }
 
-// signZine computes the signature for a zine
-func signZine(z *Zine, keypair NaraKeypair) (string, error) {
+// SignZine computes the signature for a zine
+func SignZine(z *Zine, keypair NaraKeypair) (string, error) {
 	if len(keypair.PrivateKey) == 0 {
 		return "", fmt.Errorf("no private key available")
 	}
@@ -2876,8 +2897,8 @@ func signZine(z *Zine, keypair NaraKeypair) (string, error) {
 	return keypair.SignBase64(signingData), nil
 }
 
-// verifyZine verifies a zine's signature
-func verifyZine(z *Zine, publicKey ed25519.PublicKey) bool {
+// VerifyZine verifies a zine's signature
+func VerifyZine(z *Zine, publicKey ed25519.PublicKey) bool {
 	if z.Signature == "" || len(publicKey) == 0 {
 		return false
 	}
@@ -3348,8 +3369,8 @@ func (network *Network) exchangeZine(targetName string, myZine *Zine) {
 	}
 
 	// Verify signature
-	pubKey := network.getPublicKeyForNara(targetName)
-	if len(pubKey) > 0 && !verifyZine(&theirZine, pubKey) {
+	pubKey := network.resolvePublicKeyForNara(targetName)
+	if len(pubKey) > 0 && !VerifyZine(&theirZine, pubKey) {
 		logrus.Warnf("📰 Invalid zine signature from %s, rejecting", targetName)
 		return
 	}

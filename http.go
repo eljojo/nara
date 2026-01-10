@@ -794,8 +794,8 @@ func (network *Network) httpGossipZineHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	// Verify signature if we know their public key
-	pubKey := network.getPublicKeyForNara(theirZine.From)
-	if len(pubKey) > 0 && !verifyZine(&theirZine, pubKey) {
+	pubKey := network.resolvePublicKeyForNara(theirZine.From)
+	if len(pubKey) > 0 && !VerifyZine(&theirZine, pubKey) {
 		logrus.Warnf("📰 Invalid zine signature from %s, rejecting", theirZine.From)
 		http.Error(w, "Invalid signature", http.StatusForbidden)
 		return
@@ -831,7 +831,7 @@ func (network *Network) httpGossipZineHandler(w http.ResponseWriter, r *http.Req
 			Events:    []SyncEvent{},
 		}
 		// Sign the empty zine for consistency
-		if sig, err := signZine(myZine, network.local.Keypair); err == nil {
+		if sig, err := SignZine(myZine, network.local.Keypair); err == nil {
 			myZine.Signature = sig
 		}
 	}
@@ -863,7 +863,7 @@ func (network *Network) httpDMHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify signature against emitter's public key
-	pubKey := network.getPublicKeyForNara(event.Emitter)
+	pubKey := network.resolvePublicKeyForNara(event.Emitter)
 	if pubKey == nil {
 		http.Error(w, "Unknown emitter", http.StatusForbidden)
 		return
