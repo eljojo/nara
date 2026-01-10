@@ -128,6 +128,7 @@ func (p *SocialEventPayload) ContentString() string {
 func (p *SocialEventPayload) IsValid() bool {
 	validTypes := map[string]bool{
 		"tease": true, "observed": true, "gossip": true, "observation": true,
+		"service": true,
 	}
 	return validTypes[p.Type] && p.Actor != "" && p.Target != ""
 }
