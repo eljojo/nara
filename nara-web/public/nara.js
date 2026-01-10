@@ -399,20 +399,32 @@ function TrendSummary({ naras }) {
 function NaraList() {
   const { useState, useEffect } = React;
   const [data, setData] = useState({filteredNaras: [], server: 'unknown' });
-  const yesterday = moment().subtract(1, 'days').unix()
 
   useEffect(() => {
     var lastDate = 0;
 
     const refresh = () => {
       const fetchDate = new Date;
+      const now = moment().unix();
+      const yesterday = now - 24 * 3600;
+      const tenMinutesAgo = now - 10 * 60;
 
       window.fetch("/narae.json")
         .then(response => response.json())
         .then(function(data) {
           if(fetchDate > lastDate) {
             const filteredNaras = data.naras
-              .filter(nara => nara.LastSeen > yesterday)
+              .filter(nara => {
+                // Must be seen in the last 24 hours
+                if (nara.LastSeen <= yesterday) return false;
+
+                // Don't show missing nara if they're less than a day old and been missing for more than 10 minutes
+                const isNew = nara.StartTime > yesterday;
+                const isMissing = nara.LastSeen < tenMinutesAgo;
+                if (isNew && isMissing) return false;
+
+                return true;
+              })
               .sort((a, b) => a.Name.localeCompare(b.Name));
             const newData = Object.assign(data, { filteredNaras: filteredNaras });
             setData(newData);
