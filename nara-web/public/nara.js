@@ -1,4 +1,6 @@
 'use strict';
+dayjs.extend(window.dayjs_plugin_relativeTime);
+
 
 function stringToColor(str) {
   var hash = 0;
@@ -154,7 +156,7 @@ function ShootingStarContainer() {
 function NaraRow(props) {
   const nara = props.nara;
 
-  function timeAgo(a) {
+  function timeAgo(a, addAgo = false) {
     // Fix "20462 days ago" bug - return "never" for invalid values
     if (a <= 0 || !isFinite(a)) {
       return "never";
@@ -162,10 +164,10 @@ function NaraRow(props) {
     var difference_in_seconds = a;
     if (difference_in_seconds < 60) {
       difference_in_seconds = Math.round(difference_in_seconds/5) * 5
-      return ("" + difference_in_seconds + "s");
+      return ("" + difference_in_seconds + "s") + (addAgo ? " ago" : "");
     }
-    const olderTime = (moment().unix() - a);
-    return moment().to(olderTime * 1000, true)
+    const olderTime = (dayjs().unix() - a);
+    return dayjs().to(dayjs(olderTime * 1000), true) + (addAgo ? " ago" : "");
   }
 
   // Calculate uptime, but guard against invalid LastRestart (0 or missing)
@@ -231,9 +233,9 @@ function NaraRow(props) {
       <td>{ nara.Buzz  }</td>
       <td>{ trend }</td>
       <td>{ nara.Chattiness  }</td>
-      <td>{ nara.LastSeen === 0 || nara.LastSeen < 0 ? "never" : timeAgo(moment().unix() - nara.LastSeen) + " ago" }</td>
+      <td>{ (nara.LastSeen < 5 && nara.Online == "ONLINE") ? "just now" : timeAgo(dayjs().unix() - nara.LastSeen, true) }</td>
       <td>{ uptime }</td>
-      <td>{ timeAgo(nara.LastSeen - nara.StartTime) }</td>
+      <td>{ timeAgo(nara.LastSeen - nara.StartTime, true) }</td>
       <td>{ timeAgo(nara.Uptime)  }</td>
       <td>{ nara.Restarts }</td>
     </tr>
@@ -255,7 +257,7 @@ function SocialPanel() {
     }
     // Convert from nanoseconds to seconds if needed
     const ts = timestamp > 10000000000000 ? timestamp / 1000000000 : timestamp;
-    const seconds = moment().unix() - ts;
+    const seconds = dayjs().unix() - ts;
     if (seconds < 60) {
       return `${Math.round(seconds)}s ago`;
     }
@@ -405,7 +407,7 @@ function NaraList() {
 
     const refresh = () => {
       const fetchDate = new Date;
-      const now = moment().unix();
+      const now = dayjs().unix();
       const yesterday = now - 24 * 3600;
       const tenMinutesAgo = now - 10 * 60;
 
@@ -449,9 +451,9 @@ function NaraList() {
             <th>Buzz</th>
             <th>Trend</th>
             <th>Chat</th>
-            <th>Last Ping</th>
-            <th>Nara Uptime</th>
-            <th>Nara Lifetime</th>
+            <th>Last Seen</th>
+            <th>Running For</th>
+            <th>First Seen</th>
             <th>Host Uptime</th>
             <th>Restarts</th>
           </tr>
@@ -519,7 +521,7 @@ function WorldJourneyPanel() {
   };
 
   const formatTime = (timestamp) => {
-    return moment.unix(timestamp).format('HH:mm:ss');
+    return dayjs.unix(timestamp).format('HH:mm:ss');
   };
 
   return (
@@ -582,7 +584,7 @@ function WorldJourneyPanel() {
 // Journey Receipt Component
 function JourneyReceipt({ journey }) {
   const formatTime = (timestamp) => {
-    return moment.unix(timestamp).format('MMM D, HH:mm:ss');
+    return dayjs.unix(timestamp).format('MMM D, HH:mm:ss');
   };
 
   const totalTime = journey.hops.length > 0
