@@ -604,9 +604,10 @@ func (network *Network) observationMaintenanceOnce() {
 
 	network.neighbourhoodMaintenance()
 
-	// set own Flair (must lock Me.mu since HTTP handlers may be reading Status)
+	// set own Flair and Aura (must lock Me.mu since HTTP handlers may be reading Status)
 	newFlair := network.local.Flair()
 	newLicensePlate := network.local.LicensePlate()
+	newAura := network.local.computeAura()
 
 	network.local.Me.mu.Lock()
 	if newFlair != network.local.Me.Status.Flair {
@@ -614,6 +615,7 @@ func (network *Network) observationMaintenanceOnce() {
 	}
 	network.local.Me.Status.Flair = newFlair
 	network.local.Me.Status.LicensePlate = newLicensePlate
+	network.local.Me.Status.Aura = newAura
 	network.local.Me.mu.Unlock()
 }
 

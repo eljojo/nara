@@ -54,6 +54,7 @@ type NaraStatus struct {
 	Trend         string
 	TrendEmoji    string
 	Personality   NaraPersonality
+	Aura          Aura // Visual identity (colors, glow, etc.) derived from personality and soul
 	Version       string
 	PublicUrl     string
 	PublicKey     string             // Base64-encoded Ed25519 public key
@@ -93,6 +94,9 @@ func NewLocalNara(name string, soul string, mqtt_host string, mqtt_user string, 
 	ln.Network = NewNetwork(ln, mqtt_host, mqtt_user, mqtt_pass)
 
 	ln.seedPersonality()
+
+	// Set aura after personality is initialized
+	ln.Me.Status.Aura = ln.computeAura()
 
 	// Initialize unified sync ledger for all service types (social + ping + observation)
 	// GUARANTEE: SyncLedger is ALWAYS non-nil after NewLocalNara() completes
@@ -222,6 +226,9 @@ func (ns *NaraStatus) setValuesFrom(other NaraStatus) {
 	ns.Trend = other.Trend
 	ns.TrendEmoji = other.TrendEmoji
 	ns.Personality = other.Personality
+	if other.Aura.Primary != "" {
+		ns.Aura = other.Aura
+	}
 	// NOTE: Soul is never copied - private keys must not be shared!
 	if other.LicensePlate != "" {
 		ns.LicensePlate = other.LicensePlate

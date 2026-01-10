@@ -174,6 +174,31 @@ function NaraRow(props) {
     ? (<a href={nara.PublicUrl} target="_blank">{ nara.Name }</a>)
     : nara.Name;
 
+  // Aura color dot with secondary border and dynamic glow
+  const primaryColor = nara.Aura || '#888';
+  const secondaryColor = nara.AuraSecondary || nara.Aura || '#666';
+  const sociability = nara.Sociability || 50;
+  const buzz = nara.Buzz || 0;
+
+  // Glow intensity based on sociability (0-100 -> 2-8px blur)
+  const glowBlur = 2 + (sociability / 100) * 6;
+
+  // Buzz creates pulsing animation
+  const pulseAnimation = buzz > 5 ? 'aura-pulse 2s ease-in-out infinite' : 'none';
+
+  const auraStyle = {
+    display: 'inline-block',
+    width: '10px',
+    height: '10px',
+    borderRadius: '50%',
+    backgroundColor: primaryColor,
+    border: `1.5px solid ${secondaryColor}`,
+    marginRight: '6px',
+    boxShadow: `0 0 ${glowBlur}px ${primaryColor}`,
+    verticalAlign: 'middle',
+    animation: pulseAnimation
+  };
+
   const trendColor = nara.Trend ? stringToColor(nara.Trend) : 'transparent';
   const trendStyle = {
     backgroundColor: trendColor,
@@ -187,7 +212,10 @@ function NaraRow(props) {
 
   return (
     <tr>
-      <td>{ nara.LicensePlate } { nameOrLink }</td>
+      <td>
+        <span style={auraStyle}></span>
+        { nara.LicensePlate } { nameOrLink }
+      </td>
       <td>{ nara.Flair }</td>
       <td>{ nara.Buzz  }</td>
       <td>{ trend }</td>
@@ -207,6 +235,7 @@ function SocialPanel() {
   const [clout, setClout] = useState({});
   const [recentEvents, setRecentEvents] = useState([]);
   const [server, setServer] = useState('');
+  const [naraColors, setNaraColors] = useState({}); // Map of nara names to aura colors
 
   function timeAgo(timestamp) {
     // Fix "20462 days ago" bug - return "never" for zero/invalid timestamps
@@ -285,6 +314,22 @@ function SocialPanel() {
     return '👎';
   };
 
+  const auraDot = (naraName) => {
+    const color = naraColors[naraName] || '#888';
+    return (
+      <span style={{
+        display: 'inline-block',
+        width: '8px',
+        height: '8px',
+        borderRadius: '50%',
+        backgroundColor: color,
+        marginRight: '6px',
+        boxShadow: `0 0 3px ${color}`,
+        verticalAlign: 'middle'
+      }}></span>
+    );
+  };
+
   return (
     <div style={{ display: 'flex', gap: '20px', marginBottom: '20px' }}>
       <div style={{ flex: 1, padding: '10px', border: '1px solid #ddd', borderRadius: '8px' }}>
@@ -293,7 +338,7 @@ function SocialPanel() {
         <div style={{ marginTop: '8px' }}>
           {sortedClout.map(([name, score]) => (
             <div key={name} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
-              <span>{name}</span>
+              <span>{auraDot(name)}{name}</span>
               <span>{cloutEmoji(score)} {score.toFixed(1)}</span>
             </div>
           ))}

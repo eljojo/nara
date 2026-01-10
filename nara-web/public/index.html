@@ -249,6 +249,22 @@
     .legend-dot.online { background: #48bb78; }
     .legend-dot.offline { background: #a0aec0; }
     .legend-dot.self { background: #ffd700; border: 2px solid #fff; }
+
+    /* Aura pulse animation for high-buzz naras */
+    @keyframes aura-pulse {
+      0% {
+        box-shadow: 0 0 var(--glow-blur, 4px) var(--primary-color, #888);
+        transform: scale(1);
+      }
+      50% {
+        box-shadow: 0 0 calc(var(--glow-blur, 4px) * 1.5) var(--primary-color, #888);
+        transform: scale(1.1);
+      }
+      100% {
+        box-shadow: 0 0 var(--glow-blur, 4px) var(--primary-color, #888);
+        transform: scale(1);
+      }
+    }
   </style>
   </head>
   <body>

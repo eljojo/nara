@@ -41,6 +41,17 @@ func TestHttpNaraeJsonHandler(t *testing.T) {
 	if len(naras) != 1 {
 		t.Errorf("expected 1 nara, got %v", len(naras))
 	}
+
+	// Check that Aura field is present
+	firstNara := naras[0].(map[string]interface{})
+	aura, hasAura := firstNara["Aura"]
+	if !hasAura {
+		t.Error("expected nara to have Aura field in /narae.json response")
+	}
+	if aura == "" {
+		t.Error("expected Aura to be non-empty")
+	}
+	t.Logf("Aura in /narae.json: %v", aura)
 }
 
 func TestHttpApiJsonHandler(t *testing.T) {

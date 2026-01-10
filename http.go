@@ -218,20 +218,23 @@ func (network *Network) httpNaraeJsonHandler(w http.ResponseWriter, r *http.Requ
 		obs := network.local.getObservationLocked(nara.Name)
 		nara.mu.Lock()
 		naraMap := map[string]interface{}{
-			"Name":         nara.Name,
-			"PublicUrl":    nara.Status.PublicUrl,
-			"Flair":        nara.Status.Flair,
-			"LicensePlate": nara.Status.LicensePlate,
-			"Buzz":         nara.Status.Buzz,
-			"Chattiness":   nara.Status.Chattiness,
-			"LastSeen":     obs.LastSeen,
-			"LastRestart":  obs.LastRestart,
-			"Online":       obs.Online,
-			"StartTime":    obs.StartTime,
-			"Restarts":     obs.Restarts,
-			"Uptime":       nara.Status.HostStats.Uptime,
-			"Trend":        nara.Status.Trend,
-			"TrendEmoji":   nara.Status.TrendEmoji,
+			"Name":          nara.Name,
+			"PublicUrl":     nara.Status.PublicUrl,
+			"Flair":         nara.Status.Flair,
+			"LicensePlate":  nara.Status.LicensePlate,
+			"Buzz":          nara.Status.Buzz,
+			"Chattiness":    nara.Status.Chattiness,
+			"LastSeen":      obs.LastSeen,
+			"LastRestart":   obs.LastRestart,
+			"Online":        obs.Online,
+			"StartTime":     obs.StartTime,
+			"Restarts":      obs.Restarts,
+			"Uptime":        nara.Status.HostStats.Uptime,
+			"Trend":         nara.Status.Trend,
+			"TrendEmoji":    nara.Status.TrendEmoji,
+			"Aura":          nara.Status.Aura.Primary,   // Flatten for backward compat
+			"AuraSecondary": nara.Status.Aura.Secondary, // Flatten for backward compat
+			"Sociability":   nara.Status.Personality.Sociability,
 		}
 		nara.mu.Unlock()
 		naras = append(naras, naraMap)
