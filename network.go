@@ -1192,15 +1192,6 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 		}
 	}
 
-	// Only connect to MQTT if not in gossip-only mode
-	if network.TransportMode != TransportGossip {
-		if token := network.Mqtt.Connect(); token.Wait() && token.Error() != nil {
-			logrus.Fatalf("MQTT connection error: %v", token.Error())
-		}
-	} else {
-		logrus.Info("📡 Gossip-only mode: MQTT disabled")
-	}
-
 	// Initialize world journey handler
 	if !network.ReadOnly {
 		if meshConfig != nil {
@@ -1252,6 +1243,15 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 			network.InitWorldJourney(network.worldTransport)
 			logrus.Info("World journey using mock mesh (local only)")
 		}
+	}
+
+	// Only connect to MQTT if not in gossip-only mode (after mesh init for MeshIP)
+	if network.TransportMode != TransportGossip {
+		if token := network.Mqtt.Connect(); token.Wait() && token.Error() != nil {
+			logrus.Fatalf("MQTT connection error: %v", token.Error())
+		}
+	} else {
+		logrus.Info("📡 Gossip-only mode: MQTT disabled")
 	}
 
 	if !network.ReadOnly {
