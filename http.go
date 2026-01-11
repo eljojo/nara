@@ -236,8 +236,13 @@ func (network *Network) httpNaraeJsonHandler(w http.ResponseWriter, r *http.Requ
 	for _, nara := range allNarae {
 		obs := network.local.getObservationLocked(nara.Name)
 		nara.mu.Lock()
+		id := nara.Status.ID
+		if id == "" {
+			id = nara.ID
+		}
 		naraMap := map[string]interface{}{
 			"Name":          nara.Name,
+			"ID":            id,
 			"PublicUrl":     nara.Status.PublicUrl,
 			"Flair":         nara.Status.Flair,
 			"LicensePlate":  nara.Status.LicensePlate,
@@ -254,6 +259,8 @@ func (network *Network) httpNaraeJsonHandler(w http.ResponseWriter, r *http.Requ
 			"Aura":          nara.Status.Aura.Primary,   // Flatten for backward compat
 			"AuraSecondary": nara.Status.Aura.Secondary, // Flatten for backward compat
 			"Sociability":   nara.Status.Personality.Sociability,
+			"Chill":         nara.Status.Personality.Chill,
+			"Agreeableness": nara.Status.Personality.Agreeableness,
 		}
 		nara.mu.Unlock()
 		naras = append(naras, naraMap)

@@ -15,6 +15,11 @@ function stringToColor(str) {
   return colour;
 }
 
+var AvatarCanvas = window.NaraAvatar ? window.NaraAvatar.AvatarCanvas : null;
+var clamp01 = window.NaraAvatar ? window.NaraAvatar.clamp01 : function(v) {
+  return Math.max(0, Math.min(1, v));
+};
+
 // Sparkle particle component
 function Sparkle({ x, y, color, delay }) {
   const style = {
@@ -155,6 +160,9 @@ function ShootingStarContainer() {
 
 function NaraRow(props) {
   const nara = props.nara;
+  const { useRef } = React;
+  const pointerRef = useRef({ x: 0, y: 0, active: false });
+  const isOnline = nara.Online === "ONLINE";
 
   function timeAgo(a, addAgo = false) {
     // Fix "20462 days ago" bug - return "never" for invalid values
@@ -192,6 +200,8 @@ function NaraRow(props) {
   const secondaryColor = nara.AuraSecondary || nara.Aura || '#666';
   const sociability = nara.Sociability || 50;
   const buzz = nara.Buzz || 0;
+  const chill = nara.Chill || 50;
+  const agreeableness = nara.Agreeableness || 50;
 
   // Glow intensity based on sociability (0-100 -> 2-8px blur)
   const glowBlur = 2 + (sociability / 100) * 6;
@@ -226,8 +236,48 @@ function NaraRow(props) {
   return (
     <tr>
       <td>
-        <span style={auraStyle}></span>
-        { nara.LicensePlate } { nameOrLink }
+        <span
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+        >
+          {isOnline && nara.ID && AvatarCanvas ? (
+            <span
+              style={{ display: 'inline-flex', width: '40px', height: '40px', alignItems: 'center', justifyContent: 'center' }}
+              onMouseEnter={() => {
+                pointerRef.current.active = true;
+              }}
+              onMouseMove={(e) => {
+                var rect = e.currentTarget.getBoundingClientRect();
+                var cx = rect.left + rect.width / 2;
+                var cy = rect.top + rect.height / 2;
+                var nx = (e.clientX - cx) / (rect.width / 2);
+                var ny = (e.clientY - cy) / (rect.height / 2);
+                pointerRef.current.x = clamp01(Math.abs(nx)) * Math.sign(nx);
+                pointerRef.current.y = clamp01(Math.abs(ny)) * Math.sign(ny);
+                pointerRef.current.active = true;
+              }}
+              onMouseLeave={() => {
+                pointerRef.current.x = 0;
+                pointerRef.current.y = 0;
+                pointerRef.current.active = false;
+              }}
+            >
+              <AvatarCanvas
+                id={nara.ID}
+                primary={primaryColor}
+                secondary={secondaryColor}
+                sociability={sociability}
+                chill={chill}
+                agreeableness={agreeableness}
+                buzz={buzz}
+                size={36}
+                pointerRef={pointerRef}
+              />
+            </span>
+          ) : (
+            <span className="nara-avatar nara-avatar-placeholder" aria-hidden="true"></span>
+          )}
+          <span>{ nara.LicensePlate } { nameOrLink }</span>
+        </span>
       </td>
       <td>{ nara.Flair }</td>
       <td>{ nara.Buzz  }</td>
