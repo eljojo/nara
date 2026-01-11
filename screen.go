@@ -21,9 +21,18 @@ type neighbour struct {
 }
 
 func (ln LocalNara) PrintNeigbourhoodForever(refreshRate int) {
+	ticker := time.NewTicker(time.Duration(refreshRate) * time.Second)
+	defer ticker.Stop()
+
 	for {
 		ln.printNeigbourhood()
-		time.Sleep(time.Duration(refreshRate) * time.Second)
+
+		select {
+		case <-ticker.C:
+			// continue
+		case <-ln.Network.Context().Done():
+			return
+		}
 	}
 }
 

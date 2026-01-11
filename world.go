@@ -347,11 +347,20 @@ func (h *WorldJourneyHandler) chooseNext(wm *WorldMessage) string {
 
 // Listen starts listening for incoming world messages
 func (h *WorldJourneyHandler) Listen() {
+	done := h.localNara.Network.ctx.Done()
 	go func() {
-		for msg := range h.mesh.Receive() {
-			if err := h.HandleIncoming(msg); err != nil {
-				// Log error but continue
-				fmt.Printf("world journey error: %v\n", err)
+		for {
+			select {
+			case msg, ok := <-h.mesh.Receive():
+				if !ok {
+					return
+				}
+				if err := h.HandleIncoming(msg); err != nil {
+					// Log error but continue
+					logrus.Errorf("world journey error: %v", err)
+				}
+			case <-done:
+				return
 			}
 		}
 	}()

@@ -12,7 +12,12 @@ import (
 // Self-throttles to max 2 pings per minute regardless of network size
 func (network *Network) coordinateMaintenance() {
 	// Wait for mesh to be ready
-	time.Sleep(30 * time.Second)
+	select {
+	case <-time.After(30 * time.Second):
+		// continue
+	case <-network.ctx.Done():
+		return
+	}
 
 	config := DefaultVivaldiConfig()
 	ticker := time.NewTicker(30 * time.Second) // 2 pings per minute
@@ -32,6 +37,8 @@ func (network *Network) coordinateMaintenance() {
 			}
 
 			network.pingAndUpdateCoordinates(target, config)
+		case <-network.ctx.Done():
+			return
 		}
 	}
 }

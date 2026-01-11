@@ -47,6 +47,11 @@ func NewTestWorld(names []string) *TestWorld {
 			Soul:    FormatSoul(soul),
 			Keypair: keypair,
 		}
+		ctx, cancel := context.WithCancel(context.Background())
+		ln.Network = &Network{
+			ctx:        ctx,
+			cancelFunc: cancel,
+		}
 		ln.Me.Status.PublicKey = FormatPublicKey(keypair.PublicKey)
 
 		transport := NewMockMeshTransport()

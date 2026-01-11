@@ -22,10 +22,17 @@ func newBuzz() *Buzz {
 }
 
 func (network *Network) maintenanceBuzz() {
+	ticker := time.NewTicker(BuzzUpdateEvery * time.Second)
+	defer ticker.Stop()
+
 	for {
-		time.Sleep(BuzzUpdateEvery * time.Second)
-		network.Buzz.decrease(BuzzDecrease * BuzzUpdateEvery)
-		network.local.Me.Status.Buzz = network.weightedBuzz()
+		select {
+		case <-ticker.C:
+			network.Buzz.decrease(BuzzDecrease * BuzzUpdateEvery)
+			network.local.Me.Status.Buzz = network.weightedBuzz()
+		case <-network.ctx.Done():
+			return
+		}
 	}
 }
 

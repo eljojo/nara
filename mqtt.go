@@ -1,6 +1,7 @@
 package nara
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -303,13 +304,23 @@ func (network *Network) Shutdown() {
 		network.cancelFunc()
 	}
 
+	// Shutdown HTTP servers
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if network.httpServer != nil {
+		network.httpServer.Shutdown(ctx)
+	}
+	if network.meshHttpServer != nil {
+		network.meshHttpServer.Shutdown(ctx)
+	}
+
 	// Give goroutines a moment to finish their current work
 	time.Sleep(100 * time.Millisecond)
 
 	logrus.Printf("✅ Graceful shutdown complete")
 }
 
-func initializeMQTT(onConnect mqtt.OnConnectHandler, name string, host string, user string, pass string) mqtt.Client {
+func (network *Network) initializeMQTT(onConnect mqtt.OnConnectHandler, name string, host string, user string, pass string) mqtt.Client {
 	opts := mqtt.NewClientOptions()
 	opts.AddBroker(host)
 	opts.SetClientID(name)
@@ -328,10 +339,23 @@ func initializeMQTT(onConnect mqtt.OnConnectHandler, name string, host string, u
 		logrus.Printf("MQTT Connection lost: %v", err)
 		go func() {
 			for {
+				select {
+				case <-network.ctx.Done():
+					logrus.Debug("MQTT Reconnect loop: shutting down")
+					return
+				default:
+				}
+
 				// wait between 5 and 35 seconds
 				wait := rand.Intn(30) + 5
 				logrus.Printf("MQTT: Waiting %d seconds before reconnecting...", wait)
-				time.Sleep(time.Duration(wait) * time.Second)
+
+				select {
+				case <-time.After(time.Duration(wait) * time.Second):
+					// continue
+				case <-network.ctx.Done():
+					return
+				}
 
 				token := client.Connect()
 				if token.Wait() && token.Error() == nil {

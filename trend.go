@@ -33,9 +33,16 @@ func (ln *LocalNara) seedPersonality() {
 }
 
 func (network *Network) trendMaintenance() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
 	for {
-		time.Sleep(30 * time.Second)
-		network.maintenanceStep()
+		select {
+		case <-ticker.C:
+			network.maintenanceStep()
+		case <-network.ctx.Done():
+			return
+		}
 	}
 }
 

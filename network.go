@@ -107,6 +107,11 @@ type Network struct {
 	testSkipHeyThereSleep bool                            // Skip the 1s sleep in handleHeyThereEvent (for testing)
 	testSkipJitter        bool                            // Skip jitter delays in hey_there for faster tests
 	testPingFunc          func(name string) (bool, error) // Override ping behavior for testing (returns success, error)
+	// HTTP servers for graceful shutdown
+	httpServer     *http.Server
+	meshHttpServer *http.Server
+	// Peer resolution tracking
+	pendingResolutions sync.Map // map[string]uint64 (seconds) - tracks when we last tried to resolve a peer
 }
 
 // PendingJourney tracks a journey we participated in, waiting for completion
@@ -391,7 +396,7 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	// Initialize startup sequencing channels
 	network.bootRecoveryDone = make(chan struct{})
 	network.formOpinionsDone = make(chan struct{})
-	network.Mqtt = initializeMQTT(network.mqttOnConnectHandler(), network.meName(), host, user, pass)
+	network.Mqtt = network.initializeMQTT(network.mqttOnConnectHandler(), network.meName(), host, user, pass)
 
 	// Set up pruning priority for unknown naras (events from naras without public keys are pruned first)
 	if localNara.SyncLedger != nil {
@@ -401,6 +406,11 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	}
 
 	return network
+}
+
+// Context returns the network's context, which is canceled when the network shuts down.
+func (network *Network) Context() context.Context {
+	return network.ctx
 }
 
 // InitWorldJourney sets up the world journey handler with the given mesh transport
@@ -556,7 +566,7 @@ func (network *Network) VerifySyncEvent(e *SyncEvent) bool {
 		if !network.local.isBooting() {
 			logrus.Warnf("Cannot verify event %s: unknown emitter %s", e.ID[:8], e.Emitter)
 			// Trigger resolution in background so we might know them for future events
-			go network.resolvePeer(e.Emitter)
+			network.resolvePeerBackground(e.Emitter)
 		}
 		return false // Signed but can't verify - suspicious
 	}
@@ -848,9 +858,38 @@ func (network *Network) emitChauSyncEvent() {
 // When we don't know a peer's identity (public key), we can query neighbors.
 // Uses HTTP redirects: if a neighbor doesn't know, they redirect us to try someone else.
 
+// resolvePeerBackground triggers resolvePeer in a goroutine with rate limiting
+func (network *Network) resolvePeerBackground(target string) {
+	now := time.Now().Unix()
+	const retryInterval = 600 // 10 minutes
+
+	// Check if we're already resolving or tried recently
+	if lastTry, loaded := network.pendingResolutions.LoadOrStore(target, now); loaded {
+		if now-lastTry.(int64) < retryInterval {
+			// Too soon to retry or already in progress
+			return
+		}
+		// Update the timestamp for the new attempt
+		network.pendingResolutions.Store(target, now)
+	}
+
+	go func() {
+		// Ensure we eventually allow retries even if it fails/panics
+		// (though the LoadOrStore above handles the interval)
+		network.resolvePeer(target)
+	}()
+}
+
 // resolvePeer queries neighbors to discover the identity of an unknown peer.
 // Returns nil if no one knows the target within the timeout.
 func (network *Network) resolvePeer(target string) *PeerResponse {
+	// Double check we don't already have it (e.g. if another resolution finished)
+	if network.getPublicKeyForNara(target) != nil {
+		return nil
+	}
+
+	logrus.Debugf("📡 Attempting to resolve unknown peer: %s", target)
+
 	// Check if we already know this peer
 	if network.getPublicKeyForNara(target) != nil {
 		network.local.mu.Lock()
@@ -1313,7 +1352,13 @@ func (network *Network) announceForever() {
 
 func (network *Network) processNewspaperEvents() {
 	for {
-		network.handleNewspaperEvent(<-network.newspaperInbox)
+		select {
+		case event := <-network.newspaperInbox:
+			network.handleNewspaperEvent(event)
+		case <-network.ctx.Done():
+			logrus.Debug("processNewspaperEvents: shutting down")
+			return
+		}
 	}
 }
 
@@ -1387,7 +1432,13 @@ func (network *Network) handleNewspaperEvent(event NewspaperEvent) {
 
 func (network *Network) processHowdyEvents() {
 	for {
-		network.handleHowdyEvent(<-network.howdyInbox)
+		select {
+		case event := <-network.howdyInbox:
+			network.handleHowdyEvent(event)
+		case <-network.ctx.Done():
+			logrus.Debug("processHowdyEvents: shutting down")
+			return
+		}
 	}
 }
 
@@ -1528,7 +1579,13 @@ func (network *Network) mergeExternalObservation(name string, external NaraObser
 
 func (network *Network) processHeyThereEvents() {
 	for {
-		network.handleHeyThereEvent(<-network.heyThereInbox)
+		select {
+		case event := <-network.heyThereInbox:
+			network.handleHeyThereEvent(event)
+		case <-network.ctx.Done():
+			logrus.Debug("processHeyThereEvents: shutting down")
+			return
+		}
 	}
 }
 
@@ -1829,7 +1886,13 @@ func (network *Network) heyThere() {
 
 func (network *Network) processChauEvents() {
 	for {
-		network.handleChauEvent(<-network.chauInbox)
+		select {
+		case event := <-network.chauInbox:
+			network.handleChauEvent(event)
+		case <-network.ctx.Done():
+			logrus.Debug("processChauEvents: shutting down")
+			return
+		}
 	}
 }
 
@@ -2129,7 +2192,13 @@ func (network *Network) importNara(nara *Nara) {
 
 func (network *Network) processSocialEvents() {
 	for {
-		network.handleSocialEvent(<-network.socialInbox)
+		select {
+		case event := <-network.socialInbox:
+			network.handleSocialEvent(event)
+		case <-network.ctx.Done():
+			logrus.Debug("processSocialEvents: shutting down")
+			return
+		}
 	}
 }
 
@@ -2370,7 +2439,13 @@ func (network *Network) trendPopularity(trend string) float64 {
 
 func (network *Network) processLedgerRequests() {
 	for {
-		network.handleLedgerRequest(<-network.ledgerRequestInbox)
+		select {
+		case req := <-network.ledgerRequestInbox:
+			network.handleLedgerRequest(req)
+		case <-network.ctx.Done():
+			logrus.Debug("processLedgerRequests: shutting down")
+			return
+		}
 	}
 }
 
@@ -2395,7 +2470,13 @@ func (network *Network) handleLedgerRequest(req LedgerRequest) {
 
 func (network *Network) processLedgerResponses() {
 	for {
-		network.handleLedgerResponse(<-network.ledgerResponseInbox)
+		select {
+		case resp := <-network.ledgerResponseInbox:
+			network.handleLedgerResponse(resp)
+		case <-network.ctx.Done():
+			logrus.Debug("processLedgerResponses: shutting down")
+			return
+		}
 	}
 }
 
@@ -2445,7 +2526,12 @@ func (network *Network) bootRecovery() {
 
 	// Wait for initial neighbor discovery (only if we don't have peers yet)
 	if len(online) == 0 {
-		time.Sleep(30 * time.Second)
+		select {
+		case <-time.After(30 * time.Second):
+			// continue
+		case <-network.ctx.Done():
+			return
+		}
 
 		// Retry up to 3 times with backoff if no neighbors found
 		for attempt := 0; attempt < 3; attempt++ {
@@ -2453,10 +2539,20 @@ func (network *Network) bootRecovery() {
 			if len(online) > 0 {
 				break
 			}
+			select {
+			case <-network.ctx.Done():
+				return
+			default:
+			}
 			if attempt < 2 {
 				waitTime := time.Duration(30*(attempt+1)) * time.Second
 				logrus.Printf("📦 no neighbors for boot recovery, retrying in %v...", waitTime)
-				time.Sleep(waitTime)
+				select {
+				case <-time.After(waitTime):
+					// continue
+				case <-network.ctx.Done():
+					return
+				}
 			}
 		}
 	}
@@ -3289,7 +3385,12 @@ func (network *Network) bootstrapFromDiscoveredPeers(peers []DiscoveredPeer) {
 // Runs in gossip-only or hybrid mode to discover peers without MQTT
 func (network *Network) meshDiscoveryForever() {
 	// Initial discovery after mesh is ready
-	time.Sleep(35 * time.Second)
+	select {
+	case <-time.After(35 * time.Second):
+		// continue
+	case <-network.ctx.Done():
+		return
+	}
 	network.discoverMeshPeers()
 
 	// Periodic re-discovery (every 5 minutes)
@@ -3310,13 +3411,19 @@ func (network *Network) meshDiscoveryForever() {
 // Runs in background, spreading events organically through the network
 func (network *Network) gossipForever() {
 	// Wait for mesh to be ready
-	time.Sleep(30 * time.Second)
+	select {
+	case <-time.After(30 * time.Second):
+		// continue
+	case <-network.ctx.Done():
+		return
+	}
 
 	for {
+		interval := network.gossipInterval()
 		select {
 		case <-network.ctx.Done():
 			return
-		case <-time.After(network.gossipInterval()):
+		case <-time.After(interval):
 			if network.ReadOnly || network.tsnetMesh == nil {
 				continue
 			}
@@ -3362,9 +3469,15 @@ func (network *Network) performGossipRound() {
 	logrus.Infof("📰 Gossiping with %d neighbors [%s] (zine has %d events: %v)", len(targets), strings.Join(targets, ", "), len(zine.Events), typeCounts)
 
 	// Exchange zines with each target
+	var wg sync.WaitGroup
 	for _, targetName := range targets {
-		go network.exchangeZine(targetName, zine)
+		wg.Add(1)
+		go func(name string) {
+			defer wg.Done()
+			network.exchangeZine(name, zine)
+		}(targetName)
 	}
+	wg.Wait()
 }
 
 // exchangeZine sends our zine to a neighbor and receives theirs back
@@ -3518,8 +3631,10 @@ func (network *Network) SendDM(targetName string, event SyncEvent) bool {
 func (network *Network) backgroundSync() {
 	// Initial random delay (0-5 minutes) to spread startup load
 	initialDelay := time.Duration(rand.Intn(5)) * time.Minute
+
 	select {
 	case <-time.After(initialDelay):
+		// continue
 	case <-network.ctx.Done():
 		logrus.Debugf("backgroundSync: shutting down before initial delay")
 		return
@@ -3914,7 +4029,12 @@ func (network *Network) socialMaintenance() {
 	defer ticker.Stop()
 
 	for {
-		<-ticker.C
+		select {
+		case <-ticker.C:
+			// continue
+		case <-network.ctx.Done():
+			return
+		}
 
 		// Prune inactive naras from neighbourhood
 		network.pruneInactiveNaras()
@@ -3968,7 +4088,13 @@ func (network *Network) socialMaintenance() {
 
 func (network *Network) processJourneyCompleteEvents() {
 	for {
-		network.handleJourneyCompletion(<-network.journeyCompleteInbox)
+		select {
+		case completion := <-network.journeyCompleteInbox:
+			network.handleJourneyCompletion(completion)
+		case <-network.ctx.Done():
+			logrus.Debug("processJourneyCompleteEvents: shutting down")
+			return
+		}
 	}
 }
 
@@ -4016,7 +4142,12 @@ func (network *Network) journeyTimeoutMaintenance() {
 	defer ticker.Stop()
 
 	for {
-		<-ticker.C
+		select {
+		case <-ticker.C:
+			// continue
+		case <-network.ctx.Done():
+			return
+		}
 
 		now := time.Now().Unix()
 		var timedOut []*PendingJourney

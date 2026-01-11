@@ -40,7 +40,6 @@ func (network *Network) pruneVerifyPingCache(names []string) {
 	}
 }
 
-
 // MissingThresholdSeconds is the duration (in SECONDS) without updates before a nara is marked MISSING.
 // This must be long enough to account for:
 // - Variable posting intervals (naras post every 10-30 seconds, but can go quieter)
@@ -151,17 +150,24 @@ func (network *Network) formOpinion() {
 		logrus.Debug("🕵️  boot recovery done, now starting opinion timer")
 	}
 
+	var wait time.Duration
 	if OpinionDelayOverride > 0 {
 		logrus.Printf("🕵️  forming opinions (overridden) in %v...", OpinionDelayOverride)
-		time.Sleep(OpinionDelayOverride)
+		wait = OpinionDelayOverride
 	} else {
-		wait := 3 * time.Minute
+		wait = 3 * time.Minute
 		if network.meName() == "blue-jay" {
 			wait = 15 * time.Minute
 		}
 
 		logrus.Printf("🕵️  forming opinions in %v...", wait)
-		time.Sleep(wait)
+	}
+
+	select {
+	case <-time.After(wait):
+		// continue
+	case <-network.ctx.Done():
+		return
 	}
 
 	if network.meName() != "blue-jay" {

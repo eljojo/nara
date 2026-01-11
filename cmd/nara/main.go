@@ -4,8 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"math/rand"
+	_ "net/http/pprof"
 	"os"
-	"runtime"
 	"strings"
 	"time"
 
@@ -171,10 +171,10 @@ func main() {
 	localNara.SetupCloseHandler()
 	defer localNara.Network.Chau()
 
-	// sleep forever while goroutines do their thing
-	for {
-		time.Sleep(10 * time.Millisecond)
-		runtime.Gosched() // https://blog.container-solutions.com/surprise-golang-thread-scheduling
+	// sleep until shutdown
+	select {
+	case <-localNara.Network.Context().Done():
+		logrus.Info("Main loop: shutting down")
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/http/pprof"
 	"sync"
 	"time"
 
@@ -124,7 +125,11 @@ func (network *Network) startHttpServer(httpAddr string) error {
 	// Create a mux for handlers (so we can reuse with mesh server)
 	mux := network.createHTTPMux(true) // includeUI = true
 
-	go http.Serve(listener, mux)
+	network.httpServer = &http.Server{
+		Handler: mux,
+	}
+
+	go network.httpServer.Serve(listener)
 	return nil
 }
 
@@ -156,6 +161,16 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 		mux.HandleFunc("/world/journeys", network.loggingMiddleware("/world/journeys", network.httpWorldJourneysHandler))
 		mux.HandleFunc("/network/map", network.loggingMiddleware("/network/map", network.httpNetworkMapHandler))
 		mux.HandleFunc("/proximity", network.loggingMiddleware("/proximity", network.httpProximityHandler))
+
+		// pprof endpoints
+		if network.local != nil && network.local.Me.Name == "jojo-m1" {
+			mux.HandleFunc("/debug/pprof/", pprof.Index)
+			mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+			mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+			mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+			mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+		}
+
 		publicFS, _ := fs.Sub(staticContent, "nara-web/public")
 		mux.Handle("/", http.FileServer(http.FS(publicFS)))
 	}
@@ -177,7 +192,11 @@ func (network *Network) startMeshHttpServer(tsnetServer interface {
 	// Create a mux with mesh-only endpoints (no UI)
 	mux := network.createHTTPMux(false)
 
-	go http.Serve(listener, mux)
+	network.meshHttpServer = &http.Server{
+		Handler: mux,
+	}
+
+	go network.meshHttpServer.Serve(listener)
 	return nil
 }
 
