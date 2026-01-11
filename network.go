@@ -1770,7 +1770,10 @@ func (network *Network) onHowdySeen(howdy HowdyEvent) {
 // selectNeighborsForHowdy selects up to 10 neighbors to share in a howdy response
 // Priority: online naras first (not already mentioned), then offline if needed
 func (network *Network) selectNeighborsForHowdy(exclude string, alreadyMentioned map[string]bool) []NeighborInfo {
-	const maxNeighbors = 10
+	maxNeighbors := 10
+	if network.isShortMemoryMode() {
+		maxNeighbors = 5
+	}
 
 	type naraWithLastSeen struct {
 		name     string
@@ -2602,6 +2605,10 @@ func (network *Network) bootRecoveryViaMesh(online []string) {
 		ip   string
 	}
 
+	maxMeshNeighbors := len(online)
+	if network.isShortMemoryMode() {
+		maxMeshNeighbors = 4
+	}
 	for _, name := range online {
 		ip := network.getMeshIPForNara(name)
 		if ip != "" {
@@ -2610,6 +2617,9 @@ func (network *Network) bootRecoveryViaMesh(online []string) {
 				ip   string
 			}{name, ip})
 		}
+	}
+	if len(meshNeighbors) > maxMeshNeighbors {
+		meshNeighbors = meshNeighbors[:maxMeshNeighbors]
 	}
 
 	if len(meshNeighbors) == 0 {
@@ -2649,7 +2659,10 @@ func (network *Network) bootRecoveryViaMesh(online []string) {
 	var wg sync.WaitGroup
 
 	// Limit concurrent requests to avoid overwhelming the network
-	const maxConcurrent = 10
+	maxConcurrent := 10
+	if network.isShortMemoryMode() {
+		maxConcurrent = 3
+	}
 	sem := make(chan struct{}, maxConcurrent)
 
 	for i, neighbor := range meshNeighbors {
@@ -2867,6 +2880,9 @@ func (network *Network) bootRecoveryViaMQTT(online []string) {
 
 	// Pick up to 5 neighbors to query
 	maxNeighbors := 5
+	if network.isShortMemoryMode() {
+		maxNeighbors = 2
+	}
 	if len(online) < maxNeighbors {
 		maxNeighbors = len(online)
 	}
@@ -3120,8 +3136,11 @@ func (network *Network) selectGossipTargets() []string {
 		return nil
 	}
 
-	// Select 3-5 random targets (or all if fewer available)
+	// Select 3-5 random targets (short memory: 1-2)
 	targetCount := 3 + rand.Intn(3) // Random between 3-5
+	if network.isShortMemoryMode() {
+		targetCount = 1 + rand.Intn(2)
+	}
 	if targetCount > len(meshEnabled) {
 		targetCount = len(meshEnabled)
 	}
@@ -3733,6 +3752,13 @@ func (network *Network) neighborSupportsBackgroundSync(name string) bool {
 		return false
 	}
 	return true
+}
+
+func (network *Network) isShortMemoryMode() bool {
+	if network.local == nil {
+		return false
+	}
+	return network.local.MemoryProfile.Mode == MemoryModeShort
 }
 
 func (network *Network) recoverSelfStartTimeFromMesh() {

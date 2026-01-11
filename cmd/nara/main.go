@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	_ "net/http/pprof"
 	"os"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -147,6 +148,16 @@ func main() {
 		memoryProfile.MaxEvents = *ledgerCapacityPtr
 		memoryProfile.BudgetMB = 0
 		memorySource = "override"
+	}
+	if memoryProfile.Mode == nara.MemoryModeShort {
+		if os.Getenv("GOMEMLIMIT") == "" {
+			debug.SetMemoryLimit(220 << 20)
+			logrus.Infof("🧠 GOMEMLIMIT set to 220MiB (short memory mode)")
+		}
+		if os.Getenv("GOGC") == "" {
+			debug.SetGCPercent(50)
+			logrus.Infof("🧠 GOGC set to 50 (short memory mode)")
+		}
 	}
 	localNara, err := nara.NewLocalNara(identity, *mqttHostPtr, *mqttUserPtr, *mqttPassPtr, *forceChattinessPtr, memoryProfile)
 	if err != nil {
