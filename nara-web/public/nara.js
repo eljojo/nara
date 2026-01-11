@@ -749,9 +749,10 @@ function NetworkMapPanel() {
     // Clear previous content
     svg.selectAll("*").remove();
 
+    const visibleNodes = mapData.nodes.filter(n => n.online);
     // Separate nodes with and without coordinates
-    const nodesWithCoords = mapData.nodes.filter(n => n.coordinates && n.coordinates.x !== undefined);
-    const nodesWithoutCoords = mapData.nodes.filter(n => !n.coordinates || n.coordinates.x === undefined);
+    const nodesWithCoords = visibleNodes.filter(n => n.coordinates && n.coordinates.x !== undefined);
+    const nodesWithoutCoords = visibleNodes.filter(n => !n.coordinates || n.coordinates.x === undefined);
 
     // Calculate bounds of coordinates (only from nodes that have them)
     let minX = Infinity, maxX = -Infinity;
@@ -913,7 +914,7 @@ function NetworkMapPanel() {
                 <strong>{tooltip.node.name}</strong>
                 {tooltip.node.is_self && " (you)"}
                 <br />
-                Status: {tooltip.node.online ? "Online" : "Offline"}
+                Status: Online
                 {tooltip.node.rtt_to_us !== undefined && (
                   <React.Fragment>
                     <br />
@@ -939,7 +940,6 @@ function NetworkMapPanel() {
           <div className="network-map-legend">
             <span><div className="legend-dot self"></div> You</span>
             <span><div className="legend-dot online"></div> Online</span>
-            <span><div className="legend-dot offline"></div> Offline</span>
             <span><div className="legend-dot online" style={{ opacity: 0.5 }}></div> Unknown position</span>
           </div>
         </React.Fragment>
