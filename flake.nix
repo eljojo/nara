@@ -20,7 +20,7 @@
         packages = {
           default = nara;
           nara = nara;
-          docker = pkgs.dockerTools.buildLayeredImage {
+          docker = pkgs.dockerTools.buildImage {
             name = "nara";
             tag = "latest";
             contents = [ nara pkgs.cacert ];
