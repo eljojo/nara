@@ -69,7 +69,6 @@ type Network struct {
 	howdyCoordinators   sync.Map // map[string]*howdyCoordinator - tracks pending howdy responses
 	startTimeVotes      []startTimeVote
 	startTimeVotesMu    sync.Mutex
-	startTimeApplied    bool // true once we've applied consensus
 	socialInbox         chan SyncEvent
 	ledgerRequestInbox  chan LedgerRequest
 	ledgerResponseInbox chan LedgerResponse
@@ -98,7 +97,6 @@ type Network struct {
 	cancelFunc context.CancelFunc
 	// Startup sequencing: operations must complete in order
 	bootRecoveryDone chan struct{}
-	formOpinionsDone chan struct{}
 	// Test hooks (only used in tests)
 	testHTTPClient        *http.Client                    // Override HTTP client for testing
 	testMeshURLs          map[string]string               // Override mesh URLs for testing (nara name -> URL)
@@ -400,7 +398,6 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	network.ctx, network.cancelFunc = context.WithCancel(context.Background())
 	// Initialize startup sequencing channels
 	network.bootRecoveryDone = make(chan struct{})
-	network.formOpinionsDone = make(chan struct{})
 	network.Mqtt = network.initializeMQTT(network.mqttOnConnectHandler(), network.meName(), host, user, pass)
 
 	// Set up pruning priority for unknown naras (events from naras without public keys are pruned first)
@@ -1270,11 +1267,7 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 		time.Sleep(1 * time.Second)
 	}
 
-	go network.formOpinion()
-	go network.observationMaintenance()
-	if !network.ReadOnly {
-		go network.announceForever()
-	}
+	// Start inbox processors early so we can learn neighbors before boot recovery.
 	go network.processHeyThereEvents()
 	go network.processHowdyEvents()
 	go network.processChauEvents()
@@ -1283,22 +1276,39 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 	go network.processLedgerRequests()
 	go network.processLedgerResponses()
 	go network.processJourneyCompleteEvents()
+
+	// Boot recovery first, then opinion formation, then start remaining workers.
+	if !network.ReadOnly {
+		network.bootRecovery()
+	} else {
+		close(network.bootRecoveryDone)
+	}
+
+	network.formOpinion()
+
+	go network.observationMaintenance()
+	if !network.ReadOnly {
+		go network.announceForever()
+	}
 	go network.trendMaintenance()
 	go network.maintenanceBuzz()
 
-	// Start boot recovery after a short delay to gather neighbors
+	// Start background sync for organic memory strengthening
 	if !network.ReadOnly {
-		go network.bootRecovery()
-		// Start background sync for organic memory strengthening
 		if network.local == nil || network.local.MemoryProfile.EnableBackgroundSync {
 			go network.backgroundSync()
 		} else {
 			logrus.Infof("🔄 Background sync disabled (memory mode: %s)", network.local.MemoryProfile.Mode)
 		}
-	} else {
-		// In ReadOnly mode, close startup channels so formOpinion/backfill don't block
-		close(network.bootRecoveryDone)
-		close(network.formOpinionsDone)
+	}
+
+	// Start gossip protocol (P2P zine exchange)
+	if !network.ReadOnly && network.TransportMode != TransportMQTT {
+		go network.gossipForever()
+		// Start mesh peer discovery for gossip-only mode
+		if network.TransportMode == TransportGossip {
+			go network.meshDiscoveryForever()
+		}
 	}
 
 	// Start garbage collection maintenance
@@ -1309,15 +1319,6 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 
 	// Start coordinate maintenance (Vivaldi pings)
 	go network.coordinateMaintenance()
-
-	// Start gossip protocol (P2P zine exchange)
-	if !network.ReadOnly && network.TransportMode != TransportMQTT {
-		go network.gossipForever()
-		// Start mesh peer discovery for gossip-only mode
-		if network.TransportMode == TransportGossip {
-			go network.meshDiscoveryForever()
-		}
-	}
 }
 
 func (network *Network) meName() string {
@@ -1522,18 +1523,6 @@ func (network *Network) collectStartTimeVote(obs NaraObservation, senderUptime u
 	network.startTimeVotesMu.Lock()
 	defer network.startTimeVotesMu.Unlock()
 
-	// Skip if we've already applied consensus
-	if network.startTimeApplied {
-		return
-	}
-
-	// Skip if we already have a start time
-	myObs := network.local.getMeObservation()
-	if myObs.StartTime > 0 {
-		network.startTimeApplied = true
-		return
-	}
-
 	network.startTimeVotes = append(network.startTimeVotes, startTimeVote{
 		value:  obs.StartTime,
 		uptime: senderUptime,
@@ -1546,7 +1535,7 @@ func (network *Network) collectStartTimeVote(obs NaraObservation, senderUptime u
 // applyStartTimeConsensus applies consensus to determine our start time
 // Must be called with startTimeVotesMu held
 func (network *Network) applyStartTimeConsensus() {
-	if network.startTimeApplied || len(network.startTimeVotes) == 0 {
+	if len(network.startTimeVotes) == 0 {
 		return
 	}
 
@@ -1565,10 +1554,11 @@ func (network *Network) applyStartTimeConsensus() {
 
 	if result > 0 {
 		obs := network.local.getMeObservation()
-		obs.StartTime = result
-		network.local.setMeObservation(obs)
-		network.startTimeApplied = true
-		logrus.Infof("🕰️ Recovered start time via howdy consensus: %d (from %d votes)", result, len(network.startTimeVotes))
+		if obs.StartTime != result {
+			obs.StartTime = result
+			network.local.setMeObservation(obs)
+			logrus.Infof("🕰️ Recovered start time via howdy consensus: %d (from %d votes)", result, len(network.startTimeVotes))
+		}
 	}
 }
 

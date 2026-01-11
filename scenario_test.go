@@ -2,7 +2,6 @@ package nara
 
 import (
 	"testing"
-	"time"
 )
 
 func TestScenario_VibeShift(t *testing.T) {
@@ -58,8 +57,21 @@ func TestScenario_VibeShift(t *testing.T) {
 	obsB.StartTime = 1 // Any non-zero value prevents ghost detection
 	network.local.setObservation("B", obsB)
 
-	OpinionDelayOverride = 1 * time.Millisecond
-	defer func() { OpinionDelayOverride = 0 }()
+	prevRepeat := OpinionRepeatOverride
+	prevInterval := OpinionIntervalOverride
+	OpinionRepeatOverride = 1
+	OpinionIntervalOverride = 0
+	defer func() {
+		OpinionRepeatOverride = prevRepeat
+		OpinionIntervalOverride = prevInterval
+	}()
+	if network.bootRecoveryDone != nil {
+		select {
+		case <-network.bootRecoveryDone:
+		default:
+			close(network.bootRecoveryDone)
+		}
+	}
 
 	// 8. Form opinion and check consensus for B (should update from projection)
 	network.formOpinion()

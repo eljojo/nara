@@ -23,6 +23,9 @@ func hashTestBytes(b []byte) []byte {
 
 // TestMain runs before all tests to set up global test configuration
 func TestMain(m *testing.M) {
+	OpinionRepeatOverride = 1
+	OpinionIntervalOverride = 0
+
 	// Set default log level to warnings and above for cleaner test output
 	// This still shows warnings and errors, but suppresses info/debug logs
 	// Individual tests can override this with logrus.SetLevel(logrus.DebugLevel)

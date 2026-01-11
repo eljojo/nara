@@ -65,7 +65,8 @@ const MissingThresholdSeconds int64 = 300 // 5 minutes
 // NOTE: This is in SECONDS. For projections, multiply by int64(time.Second).
 const MissingThresholdGossipSeconds int64 = 3600 // 1 hour
 
-var OpinionDelayOverride time.Duration = 0
+var OpinionRepeatOverride int = 0
+var OpinionIntervalOverride time.Duration = 0
 
 type NaraObservation struct {
 	Online       string
@@ -129,48 +130,44 @@ func (nara *Nara) setObservationLocked(name string, observation NaraObservation)
 }
 
 func (network *Network) formOpinion() {
-	// Signal completion when done
-	defer func() {
-		if network.formOpinionsDone != nil {
-			select {
-			case <-network.formOpinionsDone:
-				// Already closed
-			default:
-				close(network.formOpinionsDone)
-				logrus.Debug("👀 formOpinion complete")
-			}
+	runs := 6
+	if network.meName() == "blue-jay" {
+		runs = 30
+	}
+	if OpinionRepeatOverride > 0 {
+		runs = OpinionRepeatOverride
+	}
+	interval := 30 * time.Second
+	if OpinionIntervalOverride > 0 {
+		interval = OpinionIntervalOverride
+	}
+
+	// First pass is blocking - system needs one opinion before continuing
+	fetchBlueJay := network.meName() != "blue-jay"
+	network.runOpinionPass(1, runs, fetchBlueJay, runs == 1)
+
+	// Remaining passes refine in background
+	if runs > 1 {
+		go network.refineOpinions(runs, interval)
+	}
+}
+
+// refineOpinions continues opinion refinement in the background after boot.
+func (network *Network) refineOpinions(totalPasses int, interval time.Duration) {
+	for pass := 2; pass <= totalPasses; pass++ {
+		select {
+		case <-time.After(interval):
+		case <-network.ctx.Done():
+			return
 		}
-	}()
 
-	// Wait for boot recovery to complete first (so we have data to form opinions on)
-	// Skip waiting in test mode (OpinionDelayOverride set) or if channel is nil
-	if network.bootRecoveryDone != nil && OpinionDelayOverride == 0 {
-		logrus.Debug("🕵️  waiting for boot recovery to complete...")
-		<-network.bootRecoveryDone
-		logrus.Debug("🕵️  boot recovery done, now starting opinion timer")
+		finalPass := pass == totalPasses
+		network.runOpinionPass(pass, totalPasses, false, finalPass)
 	}
+}
 
-	var wait time.Duration
-	if OpinionDelayOverride > 0 {
-		logrus.Printf("🕵️  forming opinions (overridden) in %v...", OpinionDelayOverride)
-		wait = OpinionDelayOverride
-	} else {
-		wait = 3 * time.Minute
-		if network.meName() == "blue-jay" {
-			wait = 15 * time.Minute
-		}
-
-		logrus.Printf("🕵️  forming opinions in %v...", wait)
-	}
-
-	select {
-	case <-time.After(wait):
-		// continue
-	case <-network.ctx.Done():
-		return
-	}
-
-	if network.meName() != "blue-jay" {
+func (network *Network) runOpinionPass(pass int, total int, fetchBlueJay bool, finalPass bool) {
+	if fetchBlueJay {
 		network.fetchOpinionsFromBlueJay()
 	}
 
@@ -209,28 +206,32 @@ func (network *Network) formOpinion() {
 	// Apply consensus for our own start time (using howdy votes collected during boot)
 	// This is deferred until now to have more data than the early 3-vote trigger
 	network.startTimeVotesMu.Lock()
-	if !network.startTimeApplied {
-		network.applyStartTimeConsensus()
-	}
+	network.applyStartTimeConsensus()
 	network.startTimeVotesMu.Unlock()
 
-	logrus.Printf("👀  opinions formed")
-
-	// Garbage collect ghost naras that are safe to delete
-	deleted := network.garbageCollectGhostNaras()
-	if deleted > 0 {
-		logrus.Printf("🗑️  garbage collected %d ghost naras from memory", deleted)
+	if total > 1 {
+		logrus.Printf("👀 opinions formed (%d/%d)", pass, total)
+	} else {
+		logrus.Printf("👀 opinions formed")
 	}
 
-	// Backfill observations now that opinions are formed
-	// This might provide additional data to help distinguish real naras from zombies
-	if !network.ReadOnly {
-		network.backfillObservations()
-	}
+	if finalPass {
+		// Garbage collect ghost naras only after opinions are fully formed
+		deleted := network.garbageCollectGhostNaras()
+		if deleted > 0 {
+			logrus.Printf("🗑️  garbage collected %d ghost naras from memory", deleted)
+		}
 
-	// Prune inactive naras once after backfill completes
-	// Backfill data helps inform whether a nara is truly missing or just a ghost
-	network.pruneInactiveNaras()
+		// Backfill observations only on the last pass (most complete data)
+		// This might provide additional data to help distinguish real naras from zombies
+		if !network.ReadOnly {
+			network.backfillObservations()
+		}
+
+		// Prune inactive naras once after backfill completes
+		// Backfill data helps inform whether a nara is truly missing or just a ghost
+		network.pruneInactiveNaras()
+	}
 }
 
 // isGhostNara returns true if the nara appears to be a "ghost" - seen once briefly

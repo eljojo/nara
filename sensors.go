@@ -12,14 +12,14 @@ import (
 )
 
 type HostStats struct {
-	Uptime        uint64
-	LoadAvg       float64
-	MemAllocMB    uint64 // Current heap allocation in MB
-	MemSysMB      uint64 // Total memory obtained from OS in MB
-	MemHeapMB     uint64 // Heap memory (in use + free) in MB
-	MemStackMB    uint64 // Stack memory in MB
-	NumGoroutines int    // Number of active goroutines
-	NumGC         uint32 // Number of completed GC cycles
+	Uptime         uint64
+	LoadAvg        float64
+	MemAllocMB     uint64  // Current heap allocation in MB
+	MemSysMB       uint64  // Total memory obtained from OS in MB
+	MemHeapMB      uint64  // Heap memory (in use + free) in MB
+	MemStackMB     uint64  // Stack memory in MB
+	NumGoroutines  int     // Number of active goroutines
+	NumGC          uint32  // Number of completed GC cycles
 	ProcCPUPercent float64 // CPU usage of this process (percent)
 }
 
