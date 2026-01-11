@@ -477,7 +477,15 @@ function NaraList() {
 
                 return true;
               })
-              .sort((a, b) => a.Name.localeCompare(b.Name));
+              .sort((a, b) => {
+                const aUnknown = !isFinite(a.StartTime) || a.StartTime <= 0;
+                const bUnknown = !isFinite(b.StartTime) || b.StartTime <= 0;
+                if (aUnknown && bUnknown) return a.Name.localeCompare(b.Name);
+                if (aUnknown) return 1;
+                if (bUnknown) return -1;
+                if (a.StartTime !== b.StartTime) return a.StartTime - b.StartTime;
+                return a.Name.localeCompare(b.Name);
+              });
             const newData = Object.assign(data, { filteredNaras: filteredNaras });
             setData(newData);
             lastDate = fetchDate;
