@@ -1243,15 +1243,6 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 	// Store mesh config for stash recovery
 	network.meshConfig = meshConfig
 
-	// Only connect to MQTT if not in gossip-only mode
-	if network.TransportMode != TransportGossip {
-		if token := network.Mqtt.Connect(); token.Wait() && token.Error() != nil {
-			logrus.Fatalf("MQTT connection error: %v", token.Error())
-		}
-	} else {
-		logrus.Info("📡 Gossip-only mode: MQTT disabled")
-	}
-
 	// Start stash processing goroutines
 	go network.processStashStoreRequests()
 	go network.processStashAcks()
