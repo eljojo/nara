@@ -1,42 +1,27 @@
-# fly.toml file generated for nara-web on 2022-09-16T04:08:39-04:00
-
 app = "nara-web"
-kill_signal = "SIGINT"
-kill_timeout = 5
-processes = []
 
-[build]
-  builder = "heroku/builder:24"
+kill_signal = "SIGINT"
+kill_timeout = "5s"
 
 [env]
   PORT = "8080"
 
-[experimental]
-  allowed_public_ports = []
-  auto_rollback = true
-
-[[services]]
-  http_checks = []
+[http_service]
   internal_port = 8080
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
   processes = ["app"]
-  protocol = "tcp"
-  script_checks = []
-  [services.concurrency]
-    hard_limit = 25
-    soft_limit = 20
+
+  [http_service.concurrency]
     type = "connections"
+    soft_limit = 20
+    hard_limit = 25
 
-  [[services.ports]]
-    force_https = true
-    handlers = ["http"]
-    port = 80
-
-  [[services.ports]]
-    handlers = ["tls", "http"]
-    port = 443
-
-  [[services.tcp_checks]]
-    grace_period = "1s"
+  [[http_service.checks]]
     interval = "15s"
-    restart_limit = 0
     timeout = "2s"
+    grace_period = "5s"
+    method = "GET"
+    path = "/"

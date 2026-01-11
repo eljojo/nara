@@ -1,40 +1,39 @@
 package nara
 
 import (
-	"encoding/json"
-	"errors"
-	"io/ioutil"
-	"net"
-	"net/http"
+	"os"
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/host"
 	"github.com/shirou/gopsutil/v3/load"
+	"github.com/shirou/gopsutil/v3/process"
 	"github.com/sirupsen/logrus"
 )
 
 type HostStats struct {
-	Uptime  uint64
-	LoadAvg float64
-}
-
-type IRL struct {
-	CountryName string `json:"country"`
-	CountryCode string `json:"countryCode"`
-	City        string `json:"city"`
-	//ISP         string `json:"isp"`
-	PublicIp string `json:"publicIp"`
-}
-type IpContainer struct {
-	Ip string `json:"ip"`
+	Uptime        uint64
+	LoadAvg       float64
+	MemAllocMB    uint64 // Current heap allocation in MB
+	MemSysMB      uint64 // Total memory obtained from OS in MB
+	MemHeapMB     uint64 // Heap memory (in use + free) in MB
+	MemStackMB    uint64 // Stack memory in MB
+	NumGoroutines int    // Number of active goroutines
+	NumGC         uint32 // Number of completed GC cycles
+	ProcCPUPercent float64 // CPU usage of this process (percent)
 }
 
 func (ln *LocalNara) updateHostStatsForever() {
 	for {
 		ln.updateHostStats()
-		time.Sleep(5 * time.Second)
+
+		select {
+		case <-time.After(5 * time.Second):
+			// Continue to next iteration
+		case <-ln.Network.ctx.Done():
+			logrus.Debugf("updateHostStatsForever: shutting down gracefully")
+			return
+		}
 	}
 }
 
@@ -45,6 +44,22 @@ func (ln *LocalNara) updateHostStats() {
 	load, _ := load.Avg()
 	loadavg := load.Load1 / float64(runtime.NumCPU())
 	ln.Me.Status.HostStats.LoadAvg = float64(int64(loadavg*100)) / 100 // truncate to 2 digits
+
+	// Collect memory statistics from Go runtime
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+	ln.Me.Status.HostStats.MemAllocMB = memStats.Alloc / 1024 / 1024    // Current heap allocation
+	ln.Me.Status.HostStats.MemSysMB = memStats.Sys / 1024 / 1024        // Total memory from OS
+	ln.Me.Status.HostStats.MemHeapMB = memStats.HeapSys / 1024 / 1024   // Heap (in use + free)
+	ln.Me.Status.HostStats.MemStackMB = memStats.StackSys / 1024 / 1024 // Stack memory
+	ln.Me.Status.HostStats.NumGoroutines = runtime.NumGoroutine()       // Active goroutines
+	ln.Me.Status.HostStats.NumGC = memStats.NumGC                       // GC cycles
+
+	if proc, err := process.NewProcess(int32(os.Getpid())); err == nil {
+		if cpuPct, err := proc.Percent(0); err == nil {
+			ln.Me.Status.HostStats.ProcCPUPercent = float64(int64(cpuPct*100)) / 100
+		}
+	}
 
 	chattiness := int64(ln.Network.weightedBuzz())
 
@@ -76,106 +91,4 @@ func (ln *LocalNara) updateHostStats() {
 	}
 
 	ln.Me.Status.Chattiness = chattiness
-}
-
-// https://stackoverflow.com/questions/23558425/how-do-i-get-the-local-ip-address-in-go
-func internalIP() (string, error) {
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		return "", err
-	}
-	for _, iface := range ifaces {
-		if iface.Flags&net.FlagUp == 0 {
-			continue // interface down
-		}
-		if iface.Flags&net.FlagLoopback != 0 {
-			continue // loopback interface
-		}
-		addrs, err := iface.Addrs()
-		if err != nil {
-			return "", err
-		}
-		for _, addr := range addrs {
-			var ip net.IP
-			switch v := addr.(type) {
-			case *net.IPNet:
-				ip = v.IP
-			case *net.IPAddr:
-				ip = v.IP
-			}
-			if ip == nil || ip.IsLoopback() {
-				continue
-			}
-			ip = ip.To4()
-			if ip == nil {
-				continue // not an ipv4 address
-			}
-
-			// skip non-tailscale IPs
-			if !strings.HasPrefix(ip.String(), "100.") {
-				continue
-			}
-
-			return ip.String(), nil
-		}
-	}
-	return "", errors.New("are you connected to the network?")
-}
-
-func fetchIRL() (IRL, error) {
-	irl := IRL{}
-
-	logrus.Debug("fetching ip data...")
-	resp, err := http.Get("http://ip-api.com/json/")
-
-	if err != nil {
-		return irl, err
-	}
-
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-
-	if err != nil {
-		return irl, err
-	}
-
-	err = json.Unmarshal(body, &irl)
-	if err != nil {
-		return irl, err
-	}
-
-	publicIp, err := fetchPublicIp()
-
-	if err != nil {
-		return irl, err
-	}
-	irl.PublicIp = publicIp.Ip
-
-	logrus.Debugf("public IP is %s", irl.PublicIp)
-
-	return irl, nil
-}
-
-func fetchPublicIp() (IpContainer, error) {
-	container := IpContainer{}
-	logrus.Debug("fetching public ip...")
-	resp, err := http.Get("https://api.ipify.org?format=json")
-
-	if err != nil {
-		return container, err
-	}
-
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-
-	if err != nil {
-		return container, err
-	}
-
-	err = json.Unmarshal(body, &container)
-	if err != nil {
-		return container, err
-	}
-
-	return container, nil
 }

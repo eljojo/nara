@@ -1,29 +1,22 @@
 package nara
 
 import (
-	"github.com/enescakir/emoji"
-	"github.com/sirupsen/logrus"
+	"crypto/sha256"
+	"encoding/binary"
 	"io/ioutil"
+	"math/rand"
 	"os"
 	"strings"
 )
 
 func (ln LocalNara) Flair() string {
+	awards := ln.Me.Flair(ln.Soul, ln.isRaspberryPi, ln.isNixOs, ln.isKubernetes)
+
+	// Network-dependent flair (only for local nara)
 	networkSize := len(ln.Network.Neighbourhood)
-	awards := ""
-	if ln.Me.Name == ln.Me.Hostname {
-		awards = awards + "🧑‍🚀"
-	}
-	if ln.isRaspberryPi {
-		awards = awards + "🍓"
-	}
-	if ln.isNixOs {
-		awards = awards + "❄️"
-	}
-	if ln.isKubernetes {
-		awards = awards + "🐳"
-	}
-	if networkSize > 2 {
+	myStartTime := ln.Network.local.getMeObservation().StartTime
+	if networkSize > 2 && myStartTime > 0 {
+		// Age-based flair (requires knowing our own StartTime)
 		if ln.Me.Name == ln.Network.oldestNara().Name {
 			awards = awards + "🧓"
 		}
@@ -39,7 +32,12 @@ func (ln LocalNara) Flair() string {
 		if ln.Me.Name == ln.Network.mostRestarts().Name {
 			awards = awards + "🔁"
 		}
+	} else if networkSize > 2 && myStartTime == 0 {
+		// Waiting for opinions to form
+		awards = awards + "🤔"
 	}
+
+	// Status-dependent flair
 	if ln.Me.Status.Chattiness >= 80 {
 		awards = awards + "💬"
 	}
@@ -54,16 +52,66 @@ func (ln LocalNara) Flair() string {
 	if ln.isBooting() {
 		awards = awards + "📡"
 	}
+
 	return awards
+}
+
+func (nara Nara) Flair(soul string, isRaspberryPi bool, isNixOs bool, isKubernetes bool) string {
+	awards := ""
+
+	if nara.IsInHarmony(soul) {
+		awards = Gemstone(nara.Name, soul)
+	} else {
+		awards = "👤"
+	}
+
+	if nara.Name == nara.Hostname {
+		awards = awards + "🧑‍🚀"
+	}
+	if isRaspberryPi {
+		awards = awards + "🍓"
+	}
+	if isNixOs {
+		awards = awards + "❄️"
+	}
+	if isKubernetes {
+		awards = awards + "🐳"
+	}
+
+	// Trend Flair
+	if nara.Status.Trend != "" {
+		awards = awards + nara.Status.TrendEmoji
+	}
+
+	// Expressive Personality Flair
+	flairCount := (nara.Status.Personality.Sociability / 31) + 1
+	hasher := sha256.New()
+	hasher.Write([]byte(nara.Name))
+	seed := int64(binary.BigEndian.Uint64(hasher.Sum(nil)[:8]))
+	r := rand.New(rand.NewSource(seed))
+	for i := 0; i < flairCount; i++ {
+		awards = awards + PersonalFlairPool[r.Intn(len(PersonalFlairPool))]
+	}
+
+	return awards
+}
+
+func (nara Nara) IsInHarmony(soulStr string) bool {
+	if soulStr == "" {
+		return false
+	}
+
+	soul, err := ParseSoul(soulStr)
+	if err != nil {
+		return false
+	}
+
+	return ValidateBond(soul, nara.Name)
 }
 
 func (ln LocalNara) LicensePlate() string {
 	barrio := ln.getMeObservation().ClusterEmoji
-	country, err := emoji.CountryFlag(ln.Me.IRL.CountryCode)
-	if err != nil {
-		logrus.Panic("lol failed to get country emoji lmao", ln.Me.IRL.CountryCode, err)
-	}
-	return barrio + " " + country.String()
+	return barrio
 }
 
 func isRaspberryPi() bool {

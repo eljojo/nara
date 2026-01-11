@@ -13,9 +13,16 @@ import (
 	"time"
 )
 
+const NaraVersion = "0.2.0"
+
 type LocalNara struct {
 	Me              *Nara
 	Network         *Network
+	Soul            string
+	ID              string // Nara ID: deterministic hash of soul+name for unique identity
+	Keypair         NaraKeypair
+	SyncLedger      *SyncLedger      // Unified event store for all syncable data (social + ping + future types)
+	Projections     *ProjectionStore // Event-sourced projections for derived state
 	forceChattiness int
 	isRaspberryPi   bool
 	isNixOs         bool
@@ -24,103 +31,157 @@ type LocalNara struct {
 }
 
 type Nara struct {
-	Name      string
-	Hostname  string
-	Ip        string
-	ApiUrl    string
-	HttpPort  int
-	MeshPort  int
-	IRL       IRL
-	Status    NaraStatus
-	pingStats map[string]float64
-	mu        sync.Mutex
+	Name     string
+	Hostname string `json:"-"`
+	Version  string
+	Status   NaraStatus
+	ID       string // Nara ID from other naras (redundant with Status.ID but convenient)
+	mu       sync.Mutex
 	// remember to sync with setValuesFrom
+}
+
+type NaraPersonality struct {
+	Agreeableness int // 0-100, high = more likely to join a clique
+	Sociability   int // 0-100, high = more likely to start a clique
+	Chill         int // 0-100, high = less likely to leave a clique
 }
 
 type NaraStatus struct {
-	LicensePlate string
-	Flair        string
-	HostStats    HostStats
-	Chattiness   int64
-	Buzz         int
-	Observations map[string]NaraObservation
+	LicensePlate  string
+	Flair         string
+	HostStats     HostStats
+	Chattiness    int64
+	Buzz          int
+	Observations  map[string]NaraObservation
+	Trend         string
+	TrendEmoji    string
+	Personality   NaraPersonality
+	Aura          Aura // Visual identity (colors, glow, etc.) derived from personality and soul
+	Version       string
+	PublicUrl     string
+	PublicKey     string             // Base64-encoded Ed25519 public key
+	ID            string             // Nara ID: deterministic hash of soul+name
+	MeshEnabled   bool               // True if this nara is connected to the Headscale mesh
+	MeshIP        string             // Tailscale IP for direct mesh communication (no DNS needed)
+	Coordinates   *NetworkCoordinate `json:"coordinates,omitempty"`    // Vivaldi network coordinates
+	TransportMode       string         `json:"transport_mode,omitempty"` // "mqtt", "gossip", or "hybrid"
+	EventStoreTotal     int            `json:"event_store_total,omitempty"`
+	EventStoreByService map[string]int `json:"event_store_by_service,omitempty"`
+	EventStoreCritical  int            `json:"event_store_critical,omitempty"`
 	// remember to sync with setValuesFrom
+	// NOTE: Soul was removed - NEVER serialize private keys!
 }
 
-func NewLocalNara(name string, mqtt_host string, mqtt_user string, mqtt_pass string, forceChattiness int) *LocalNara {
-	logrus.Printf("📟 Booting nara: %s", name)
+func NewLocalNara(identity IdentityResult, mqtt_host string, mqtt_user string, mqtt_pass string, forceChattiness int, ledgerCapacity int) (*LocalNara, error) {
+	logrus.Printf("📟 Booting nara: %s (%s)", identity.Name, identity.ID)
+
+	soulStr := FormatSoul(identity.Soul)
 
 	ln := &LocalNara{
-		Me:              NewNara(name),
+		Me:              NewNara(identity.Name),
+		Soul:            soulStr,
+		ID:              identity.ID,
 		forceChattiness: forceChattiness,
 		isRaspberryPi:   isRaspberryPi(),
 		isNixOs:         isNixOs(),
 		isKubernetes:    isKubernetes(),
 	}
+	ln.Me.Version = NaraVersion
+	ln.Me.Status.Version = NaraVersion
+	ln.Me.Status.Coordinates = NewNetworkCoordinate() // Initialize Vivaldi coordinates
+	ln.Me.Status.ID = identity.ID
+	// NOTE: Soul is NEVER set in Status - private keys must not be serialized!
+
+	// Derive Ed25519 keypair from soul
+	ln.Keypair = DeriveKeypair(identity.Soul)
+	ln.Me.Status.PublicKey = FormatPublicKey(ln.Keypair.PublicKey)
+	logrus.Printf("🔑 Keypair derived from soul")
+
 	ln.Network = NewNetwork(ln, mqtt_host, mqtt_user, mqtt_pass)
+
+	ln.seedPersonality()
+
+	// Set aura after personality is initialized
+	ln.Me.Status.Aura = ln.computeAura()
+
+	// Initialize unified sync ledger for all service types (social + ping + observation)
+	// GUARANTEE: SyncLedger is ALWAYS non-nil after NewLocalNara() completes
+	if ledgerCapacity <= 0 {
+		ledgerCapacity = 80000 // default
+	}
+	ln.SyncLedger = NewSyncLedger(ledgerCapacity)
+	if ln.SyncLedger == nil {
+		panic("SyncLedger initialization failed - this should never happen")
+	}
+
+	// Initialize projections after SyncLedger
+	ln.Projections = NewProjectionStore(ln.SyncLedger)
 
 	ln.updateHostStats()
 
-	irl, err := fetchIRL()
-	if (err == nil && irl != IRL{}) {
-		ln.Me.IRL = irl
-		logrus.Printf("🪐 Hello from %s, %s", irl.City, irl.CountryName)
-	} else {
-		logrus.Panic("couldn't find IRL data", err)
-	}
-
-	ip, err := internalIP()
-	if err == nil {
-		ln.Me.Ip = ip
-	} else {
-		logrus.Panic("couldn't find internal IP", err)
-	}
-
 	hostinfo, _ := host.Info()
 	ln.Me.Hostname = hostinfo.Hostname
-
-	previousStatus, err := fetchStatusFromApi(name)
-	if err != nil { // lol
-		previousStatus, err = fetchStatusFromApi(name)
-	}
-	if err != nil { // lol
-		previousStatus, err = fetchStatusFromApi(name)
-	}
-	if err != nil {
-		logrus.Debugf("failed to fetch status from API: %v", err)
-	} else {
-		logrus.Print("fetched last status from nara-web API")
-		// logrus.Debugf("%v", previousStatus)
-		ln.Me.Status.setValuesFrom(previousStatus)
-	}
 
 	observation := ln.getMeObservation()
 	observation.LastRestart = time.Now().Unix()
 	ln.setMeObservation(observation)
 
-	return ln
+	return ln, nil
 }
 
 func NewNara(name string) *Nara {
 	nara := &Nara{Name: name}
-	nara.pingStats = make(map[string]float64)
 	nara.Status.Observations = make(map[string]NaraObservation)
 	return nara
 }
 
-func (ln *LocalNara) Start() {
+func (ln *LocalNara) Start(serveUI bool, readOnly bool, httpAddr string, meshConfig *TsnetConfig, transportMode TransportMode) {
+	ln.Network.ReadOnly = readOnly
+	ln.Network.TransportMode = transportMode
+	ln.Me.Status.TransportMode = transportMode.String() // Share our transport mode with peers
+	if serveUI {
+		logrus.Printf("💻 Serving UI")
+	}
+
+	// Start projections
+	if ln.Projections != nil {
+		// Configure MISSING threshold to account for gossip mode
+		ln.Projections.OnlineStatus().SetMissingThresholdFunc(func(name string) int64 {
+			threshold := MissingThresholdSeconds
+			nara := ln.Network.getNara(name)
+			subjectIsGossip := nara.Name != "" && nara.Status.TransportMode == "gossip"
+			observerIsGossip := ln.Network.TransportMode == TransportGossip
+			if subjectIsGossip || observerIsGossip {
+				threshold = MissingThresholdGossipSeconds
+			}
+			return threshold * int64(time.Second) // Convert to nanoseconds
+		})
+		ln.Projections.Start()
+	}
+
 	go ln.updateHostStatsForever()
-	ln.Network.Start()
-	go ln.measurePingForever()
+	ln.Network.Start(serveUI, httpAddr, meshConfig)
+
+	if readOnly {
+		logrus.Printf("🤫 Read-only mode: not pinging or announcing")
+	}
 }
 
 func (ln *LocalNara) SetupCloseHandler() {
-	c := make(chan os.Signal)
+	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-c
 		fmt.Println("babaayyy")
 		ln.Network.Chau()
+
+		// Gracefully shutdown projections
+		if ln.Projections != nil {
+			ln.Projections.Shutdown()
+		}
+
+		// Gracefully shutdown all background goroutines
+		ln.Network.Shutdown()
 
 		ln.Network.disconnectMQTT()
 
@@ -129,34 +190,21 @@ func (ln *LocalNara) SetupCloseHandler() {
 	}()
 }
 
-func (ln LocalNara) chattinessRate(min int64, max int64) int64 {
+func (ln *LocalNara) chattinessRate(min int64, max int64) int64 {
 	return min + ((max - min) * (100 - ln.Me.Status.Chattiness) / 100)
 }
 
-func (ln LocalNara) uptime() int64 {
+func (ln *LocalNara) uptime() int64 {
 	me := ln.getMeObservation()
 	return me.LastSeen - me.LastRestart
 }
 
-func (ln LocalNara) isBooting() bool {
+func (ln *LocalNara) isBooting() bool {
 	return ln.uptime() < 120
 }
 
-func fetchStatusFromApi(name string) (NaraStatus, error) {
-	status := &NaraStatus{}
-
-	logrus.Debugf("fetching status from API for %s", name)
-	url := fmt.Sprintf("https://nara.network/status/%s.json", name)
-	err := httpFetchJson(url, status)
-	if err != nil {
-		return *status, fmt.Errorf("failed to get status from api: %w", err)
-	}
-
-	return *status, nil
-}
-
 func (nara *Nara) setValuesFrom(other Nara) {
-	nara.mu.Lock()
+	nara.mu.Lock() // this protects Status
 	defer nara.mu.Unlock()
 
 	if other.Name == "" || other.Name != nara.Name {
@@ -164,30 +212,32 @@ func (nara *Nara) setValuesFrom(other Nara) {
 		return
 	}
 
-	if other.Hostname != "" {
-		nara.Hostname = other.Hostname
-	}
-	if other.Ip != "" {
-		nara.Ip = other.Ip
-	}
-	if other.ApiUrl != "" {
-		nara.ApiUrl = other.ApiUrl
-	}
-	if (other.IRL != IRL{}) {
-		nara.IRL = other.IRL
+	if other.Version != "" {
+		nara.Version = other.Version
 	}
 	nara.Status.setValuesFrom(other.Status)
 }
 
 func (ns *NaraStatus) setValuesFrom(other NaraStatus) {
-	if other.LicensePlate != "" {
-		ns.LicensePlate = other.LicensePlate
-	}
+	ns.LicensePlate = other.LicensePlate
 	if other.Flair != "" {
 		ns.Flair = other.Flair
 	}
 	if (other.HostStats != HostStats{}) {
 		ns.HostStats = other.HostStats
+	}
+	if other.Version != "" {
+		ns.Version = other.Version
+	}
+	ns.Trend = other.Trend
+	ns.TrendEmoji = other.TrendEmoji
+	ns.Personality = other.Personality
+	if other.Aura.Primary != "" {
+		ns.Aura = other.Aura
+	}
+	// NOTE: Soul is never copied - private keys must not be shared!
+	if other.LicensePlate != "" {
+		ns.LicensePlate = other.LicensePlate
 	}
 	ns.Chattiness = other.Chattiness
 	ns.Buzz = other.Buzz
@@ -196,16 +246,21 @@ func (ns *NaraStatus) setValuesFrom(other NaraStatus) {
 			ns.Observations[name] = nara
 		}
 	}
-}
-
-func (nara Nara) BestApiUrl() string {
-	return nara.ApiUrl
-}
-
-func (nara Nara) BestPingIp() string {
-	if nara.IRL.PublicIp != "" {
-		return nara.IRL.PublicIp
+	if other.PublicUrl != "" {
+		ns.PublicUrl = other.PublicUrl
 	}
-	logrus.Debugf("pinging tailscale IP :( %s %s", nara.Ip, nara.Name)
-	return nara.Ip
+	if other.PublicKey != "" {
+		ns.PublicKey = other.PublicKey
+	}
+	if other.ID != "" {
+		ns.ID = other.ID
+	}
+	ns.MeshEnabled = other.MeshEnabled
+	ns.MeshIP = other.MeshIP
+	if other.Coordinates != nil {
+		ns.Coordinates = other.Coordinates
+	}
+	if other.TransportMode != "" {
+		ns.TransportMode = other.TransportMode
+	}
 }

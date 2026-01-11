@@ -13,7 +13,6 @@ import (
 type neighbour struct {
 	Name       string `header:"name"`
 	Flair      string `header:"Flair"`
-	Ping       string `header:"ping"`
 	LastSeen   string `header:"last seen"`
 	Uptime     string `header:"uptime"`
 	FirstSeen  string `header:"first seen"`
@@ -22,9 +21,18 @@ type neighbour struct {
 }
 
 func (ln LocalNara) PrintNeigbourhoodForever(refreshRate int) {
+	ticker := time.NewTicker(time.Duration(refreshRate) * time.Second)
+	defer ticker.Stop()
+
 	for {
 		ln.printNeigbourhood()
-		time.Sleep(time.Duration(refreshRate) * time.Second)
+
+		select {
+		case <-ticker.C:
+			// continue
+		case <-ln.Network.Context().Done():
+			return
+		}
 	}
 }
 
@@ -64,12 +72,16 @@ func (ln LocalNara) printNeigbourhood() {
 
 func (ln LocalNara) generateScreenRow(nara Nara) neighbour {
 	now := time.Now().Unix()
-	ping := ""
-	if nara.Name != ln.Me.Name {
-		ping = ln.Me.pingBetweenMs(nara)
-	}
 	observation := ln.getObservation(nara.Name)
-	lastSeen := timeAgoFriendly(now - observation.LastSeen)
+
+	// Fix "20462 days ago" bug - show "never" if LastSeen is 0 or corrupted
+	var lastSeen string
+	if observation.LastSeen == 0 || observation.LastSeen < 0 {
+		lastSeen = "never"
+	} else {
+		lastSeen = timeAgoFriendly(now - observation.LastSeen)
+	}
+
 	first_seen := timeAgoFriendly(now - observation.StartTime)
 	if observation.StartTime == 0 {
 		first_seen = "?"
@@ -78,11 +90,9 @@ func (ln LocalNara) generateScreenRow(nara Nara) neighbour {
 	if observation.LastRestart == 0 {
 		uptime = "?"
 	}
-	if !observation.isOnline() {
-		ping = observation.Online
-	}
+
 	name := nara.Status.LicensePlate + " " + nara.Name
-	nei := neighbour{name, nara.Status.Flair, ping, lastSeen, uptime, first_seen, nara.Status.Buzz, nara.Status.Chattiness}
+	nei := neighbour{name, nara.Status.Flair, lastSeen, uptime, first_seen, nara.Status.Buzz, nara.Status.Chattiness}
 	return nei
 }
 

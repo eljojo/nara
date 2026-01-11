@@ -1,74 +1,217 @@
 package nara
 
 import (
-	"github.com/pbnjay/clustering"
+	"crypto/sha256"
+	"encoding/binary"
+	"math"
 	"sort"
+	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 var clusterNames = []string{"martini", "sand", "ocean", "basil", "watermelon", "sorbet", "wizard", "bohemian", "pizza", "moai", "ufo", "gem", "fish", "surf", "peach", "sandwich"}
 var BarrioEmoji = []string{"🍸", "🏖", "🌊", "🌿", "🍉", "🍧", "🧙", "👽", "🍕", "🗿", "🛸", "💎", "🐠", "🏄", "🍑", "🥪"}
 
+// Default grid size if no RTT data available (in coordinate units, roughly ~50ms RTT)
+const DefaultGridSize = 50.0
+
+// MinGridSize prevents clusters from being too small (at least ~10ms RTT)
+const MinGridSize = 10.0
+
+// MaxGridSize prevents clusters from being too large (at most ~200ms RTT)
+const MaxGridSize = 200.0
+
+// neighbourhoodMaintenance assigns each nara to a neighborhood based on grid-based clustering.
+// Naras in the same grid cell share the same barrio - this is symmetric and location-based.
 func (network *Network) neighbourhoodMaintenance() {
-	distanceMap := network.prepareClusteringDistanceMap()
-	clusters := clustering.NewDistanceMapClusterSet(distanceMap)
+	names := network.NeighbourhoodNames()
+	names = append(names, network.meName())
 
-	// the Threshold defines how mini ms between nodes to consider as one cluster
-	clustering.Cluster(clusters, clustering.Threshold(50), clustering.CompleteLinkage())
-	sortedClusters := network.sortClusters(clusters)
+	// Calculate grid size from network RTT data (auto-tune)
+	gridSize := network.calculateGridSize()
 
-	for clusterIndex, cluster := range sortedClusters {
-		for _, name := range cluster {
-			observation := network.local.getObservation(name)
-			observation.ClusterName = clusterNames[clusterIndex]
-			observation.ClusterEmoji = BarrioEmoji[clusterIndex]
-			network.local.setObservation(name, observation)
+	for _, name := range names {
+		observation := network.local.getObservation(name)
+		oldCluster := observation.ClusterName
+
+		if len(clusterNames) == 0 {
+			continue
+		}
+
+		// Try to determine neighborhood from grid-based clustering
+		clusterIndex := network.getGridBasedCluster(name, gridSize)
+		usedGrid := clusterIndex >= 0
+		if clusterIndex < 0 {
+			// Fallback to hash-based vibe if no coordinates available
+			vibe := calculateVibe(name, time.Now())
+			clusterIndex = int(vibe % uint64(len(clusterNames)))
+		}
+
+		newCluster := clusterNames[clusterIndex]
+		observation.ClusterName = newCluster
+		observation.ClusterEmoji = BarrioEmoji[clusterIndex]
+		network.local.setObservation(name, observation)
+
+		// Log barrio changes
+		if oldCluster != "" && oldCluster != newCluster {
+			method := "vibe"
+			if usedGrid {
+				method = "grid"
+			}
+			logrus.Infof("🏘️  %s moved barrio: %s → %s %s (via %s, grid=%.0f)",
+				name, oldCluster, newCluster, BarrioEmoji[clusterIndex], method, gridSize)
 		}
 	}
 }
 
-func (network Network) prepareClusteringDistanceMap() clustering.DistanceMap {
-	distanceMap := make(clustering.DistanceMap)
-
-	network.local.mu.Lock()
-	defer network.local.mu.Unlock()
-	for _, nara := range network.Neighbourhood {
-		// first create distance map with all pings from the perspective of each neighbour
-		distanceMap[nara.Name] = nara.pingMap()
+// calculateGridSize auto-tunes the grid size based on network RTT distribution.
+// Uses the median RTT to determine what "nearby" means in this network.
+func (network *Network) calculateGridSize() float64 {
+	if network.local.SyncLedger == nil {
+		return DefaultGridSize
 	}
 
-	distanceMap[network.meName()] = network.local.Me.pingMap()
+	pings := network.local.SyncLedger.GetPingObservations()
+	if len(pings) == 0 {
+		return DefaultGridSize
+	}
 
-	return distanceMap
-}
-
-func (network Network) sortClusters(clusters clustering.ClusterSet) [][]string {
-	res := make([][]string, 0)
-
-	clusters.EachCluster(-1, func(clusterIndex int) {
-		cl := make([]string, 0)
-		clusters.EachItem(clusterIndex, func(nameInterface clustering.ClusterItem) {
-			name := nameInterface.(string)
-			cl = append(cl, name)
-		})
-		res = append(res, cl)
-	})
-
-	sort.SliceStable(res, func(i, j int) bool {
-		a := network.sortingKeyForCluster(res[i])
-		b := network.sortingKeyForCluster(res[j])
-
-		return a < b
-	})
-
-	return res
-}
-
-func (network Network) sortingKeyForCluster(cluster []string) string {
-	oldest := cluster[0]
-	for _, name := range cluster {
-		if name < oldest {
-			oldest = name
+	// Collect all RTT values
+	rtts := make([]float64, 0, len(pings))
+	for _, p := range pings {
+		if p.RTT > 0 {
+			rtts = append(rtts, p.RTT)
 		}
 	}
-	return oldest
+
+	if len(rtts) == 0 {
+		return DefaultGridSize
+	}
+
+	// Sort and find median
+	sort.Float64s(rtts)
+	var median float64
+	mid := len(rtts) / 2
+	if len(rtts)%2 == 0 {
+		median = (rtts[mid-1] + rtts[mid]) / 2
+	} else {
+		median = rtts[mid]
+	}
+
+	// Clamp to reasonable bounds
+	gridSize := median
+	if gridSize < MinGridSize {
+		gridSize = MinGridSize
+	}
+	if gridSize > MaxGridSize {
+		gridSize = MaxGridSize
+	}
+
+	return gridSize
+}
+
+// getGridBasedCluster determines which cluster a nara belongs to based on grid position.
+// Naras in the same grid cell get the same cluster - this is symmetric by design.
+// Returns -1 if coordinates aren't available.
+func (network *Network) getGridBasedCluster(name string, gridSize float64) int {
+	// Get coordinates for this nara
+	var coords *NetworkCoordinate
+
+	if name == network.meName() {
+		network.local.Me.mu.Lock()
+		coords = network.local.Me.Status.Coordinates
+		network.local.Me.mu.Unlock()
+	} else {
+		nara, exists := network.Neighbourhood[name]
+		if !exists {
+			return -1
+		}
+		nara.mu.Lock()
+		coords = nara.Status.Coordinates
+		nara.mu.Unlock()
+	}
+
+	if coords == nil || !coords.IsValid() {
+		return -1
+	}
+
+	// Floor coordinates to grid cell (more stable than Round at boundaries)
+	cellX := int64(math.Floor(coords.X / gridSize))
+	cellY := int64(math.Floor(coords.Y / gridSize))
+
+	// Hash the grid cell position to get a cluster index
+	return gridCellToClusterIndex(cellX, cellY)
+}
+
+// gridCellToClusterIndex deterministically maps a grid cell to a cluster index.
+// Same cell coordinates always produce the same cluster.
+func gridCellToClusterIndex(cellX, cellY int64) int {
+	hasher := sha256.New()
+
+	// Write cell coordinates as bytes
+	buf := make([]byte, 16)
+	binary.BigEndian.PutUint64(buf[0:8], uint64(cellX))
+	binary.BigEndian.PutUint64(buf[8:16], uint64(cellY))
+	hasher.Write(buf)
+
+	hash := hasher.Sum(nil)
+	idx := binary.BigEndian.Uint64(hash[:8]) % uint64(len(clusterNames))
+	return int(idx)
+}
+
+// IsInMyBarrio returns true if the named nara is in the same barrio as me.
+// Used for proximity-based teasing boost.
+func (network *Network) IsInMyBarrio(name string) bool {
+	gridSize := network.calculateGridSize()
+
+	myCluster := network.getGridBasedCluster(network.meName(), gridSize)
+	theirCluster := network.getGridBasedCluster(name, gridSize)
+
+	// If either doesn't have coordinates, fall back to vibe comparison
+	if myCluster < 0 || theirCluster < 0 {
+		myVibe := calculateVibe(network.meName(), time.Now()) % uint64(len(clusterNames))
+		theirVibe := calculateVibe(name, time.Now()) % uint64(len(clusterNames))
+		return myVibe == theirVibe
+	}
+
+	return myCluster == theirCluster
+}
+
+// GetMyBarrioEmoji returns the emoji for my current barrio
+func (network *Network) GetMyBarrioEmoji() string {
+	gridSize := network.calculateGridSize()
+	clusterIndex := network.getGridBasedCluster(network.meName(), gridSize)
+
+	if clusterIndex < 0 {
+		vibe := calculateVibe(network.meName(), time.Now())
+		clusterIndex = int(vibe % uint64(len(clusterNames)))
+	}
+
+	if clusterIndex >= 0 && clusterIndex < len(BarrioEmoji) {
+		return BarrioEmoji[clusterIndex]
+	}
+	return ""
+}
+
+func (network *Network) calculateVibe(name string) uint64 {
+	return calculateVibe(name, time.Now())
+}
+
+// calculateVibe is the legacy hash-based cluster assignment (used as fallback)
+func calculateVibe(name string, t time.Time) uint64 {
+	// vibe is based on the name and the current month
+	// so neighbourhoods shift over time but stay consistent across the network
+	hasher := sha256.New()
+	hasher.Write([]byte(name))
+
+	year, month, _ := t.Date()
+	hasher.Write([]byte(string(rune(year))))
+	hasher.Write([]byte(string(rune(month))))
+
+	hash := hasher.Sum(nil)
+	// use the first 8 bytes of hash as a uint64
+	vibe := binary.BigEndian.Uint64(hash[:8])
+
+	return vibe
 }

@@ -22,10 +22,17 @@ func newBuzz() *Buzz {
 }
 
 func (network *Network) maintenanceBuzz() {
+	ticker := time.NewTicker(BuzzUpdateEvery * time.Second)
+	defer ticker.Stop()
+
 	for {
-		time.Sleep(BuzzUpdateEvery * time.Second)
-		network.Buzz.decrease(BuzzDecrease * BuzzUpdateEvery)
-		network.local.Me.Status.Buzz = network.weightedBuzz()
+		select {
+		case <-ticker.C:
+			network.Buzz.decrease(BuzzDecrease * BuzzUpdateEvery)
+			network.local.Me.Status.Buzz = network.weightedBuzz()
+		case <-network.ctx.Done():
+			return
+		}
 	}
 }
 
@@ -47,7 +54,6 @@ func (b *Buzz) decrease(howMuch int) {
 	// logrus.Debugf("decreasing buzz to %d", b.count)
 	if b.count < BuzzMin {
 		b.count = BuzzMin
-		logrus.Debugf("reached min buzz %d", b.count)
 	}
 }
 

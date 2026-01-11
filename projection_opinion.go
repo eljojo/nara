@@ -1,0 +1,377 @@
+package nara
+
+import (
+	"context"
+	"sort"
+	"sync"
+
+	"github.com/sirupsen/logrus"
+)
+
+// ObservationRecord stores observation event data for consensus calculation.
+type ObservationRecord struct {
+	Observer       string // Who made the observation
+	Subject        string // Who is being observed
+	Type           string // "restart" or "first-seen"
+	StartTime      int64
+	RestartNum     int64
+	LastRestart    int64
+	ObserverUptime uint64
+}
+
+// OpinionConsensusProjection tracks restart and first-seen events for consensus derivation.
+type OpinionConsensusProjection struct {
+	// Observations indexed by subject
+	observationsBySubject map[string][]ObservationRecord
+	ledger                *SyncLedger
+	projection            *Projection
+	mu                    sync.RWMutex
+}
+
+// NewOpinionConsensusProjection creates a new opinion consensus projection.
+func NewOpinionConsensusProjection(ledger *SyncLedger) *OpinionConsensusProjection {
+	p := &OpinionConsensusProjection{
+		observationsBySubject: make(map[string][]ObservationRecord),
+		ledger:                ledger,
+	}
+
+	p.projection = NewProjection(ledger, p.handleEvent)
+
+	// Register reset handler to clear state when ledger is restructured
+	p.projection.SetOnReset(func() {
+		p.mu.Lock()
+		p.observationsBySubject = make(map[string][]ObservationRecord)
+		p.mu.Unlock()
+	})
+
+	return p
+}
+
+// handleEvent processes a single event and stores it if it's a relevant observation.
+func (p *OpinionConsensusProjection) handleEvent(event SyncEvent) error {
+	// Only process observation events
+	if event.Service != ServiceObservation || event.Observation == nil {
+		return nil
+	}
+
+	obs := event.Observation
+
+	// Only track restart and first-seen for consensus
+	if obs.Type != "restart" && obs.Type != "first-seen" {
+		return nil
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Use observer's uptime for weighting (default to 1 if not set)
+	uptime := obs.ObserverUptime
+	if uptime == 0 {
+		uptime = 1
+	}
+
+	record := ObservationRecord{
+		Observer:       obs.Observer,
+		Subject:        obs.Subject,
+		Type:           obs.Type,
+		StartTime:      obs.StartTime,
+		RestartNum:     obs.RestartNum,
+		LastRestart:    obs.LastRestart,
+		ObserverUptime: uptime,
+	}
+
+	p.observationsBySubject[obs.Subject] = append(p.observationsBySubject[obs.Subject], record)
+
+	return nil
+}
+
+// DeriveOpinion returns consensus opinion about a subject.
+// Uses the same uptime-weighted clustering algorithm as the legacy implementation.
+// Note: Call Trigger() or RunOnce() before this if you need up-to-date data.
+func (p *OpinionConsensusProjection) DeriveOpinion(subject string) OpinionData {
+	p.mu.RLock()
+	observations := p.observationsBySubject[subject]
+	// Make a copy to avoid holding lock during computation
+	obsCopy := make([]ObservationRecord, len(observations))
+	copy(obsCopy, observations)
+	p.mu.RUnlock()
+
+	if len(obsCopy) == 0 {
+		return OpinionData{} // No consensus data available
+	}
+
+	const tolerance int64 = 60 // seconds - handles clock drift
+
+	// Derive StartTime using clustering
+	startTime := deriveProjectionStartTimeConsensus(obsCopy, tolerance)
+
+	// Derive Restarts (use highest restart count)
+	restarts := deriveProjectionRestartsConsensus(obsCopy, subject)
+
+	// Derive LastRestart (most recent)
+	lastRestart := deriveProjectionLastRestartConsensus(obsCopy)
+
+	return OpinionData{
+		StartTime:   startTime,
+		Restarts:    restarts,
+		LastRestart: lastRestart,
+	}
+}
+
+// deriveProjectionStartTimeConsensus uses trimmed mean for startTime consensus.
+func deriveProjectionStartTimeConsensus(observations []ObservationRecord, tolerance int64) int64 {
+	if len(observations) == 0 {
+		return 0
+	}
+
+	subject := observations[0].Subject // All observations are for same subject
+	var values []int64
+	maxStartTime := int64(0)
+
+	for _, obs := range observations {
+		if obs.StartTime > 0 {
+			values = append(values, obs.StartTime)
+			if obs.StartTime > maxStartTime {
+				maxStartTime = obs.StartTime
+			}
+		}
+	}
+
+	if len(values) == 0 {
+		return 0
+	}
+
+	trimmed := trimmedMeanConsensus(values)
+
+	// Log with context
+	if len(values) > 2 {
+		// Calculate stats for logging
+		sorted := make([]int64, len(values))
+		copy(sorted, values)
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i] < sorted[j]
+		})
+		median := sorted[len(sorted)/2]
+
+		// Count agreement
+		freqMap := make(map[int64]int)
+		for _, v := range values {
+			freqMap[v]++
+		}
+		maxFreq := 0
+		var mostCommon int64
+		for val, freq := range freqMap {
+			if freq > maxFreq {
+				maxFreq = freq
+				mostCommon = val
+			}
+		}
+		agreement := float64(maxFreq) / float64(len(values)) * 100
+
+		logrus.Debugf("starttime consensus for %s: %d observers, median=%d, avg=%d, agreement=%.0f%% on %d",
+			subject, len(values), median, trimmed, agreement, mostCommon)
+
+		// Warn about max difference
+		if trimmed != maxStartTime && trimmed > 0 {
+			diff := maxStartTime - trimmed
+			if diff > 60 {
+				logrus.Debugf("starttime consensus for %s: max=%d, trimmed=%d (diff=%ds)",
+					subject, maxStartTime, trimmed, diff)
+			}
+		}
+	}
+
+	return trimmed
+}
+
+// deriveProjectionRestartsConsensus returns the restart count using trimmed mean consensus.
+// Filters out outliers and averages the remaining observations for a robust consensus.
+func deriveProjectionRestartsConsensus(observations []ObservationRecord, subject string) int64 {
+	maxRestarts := int64(0)
+	uniqueObservers := make(map[string]bool)
+	var values []int64
+
+	for _, obs := range observations {
+		if obs.RestartNum > maxRestarts {
+			maxRestarts = obs.RestartNum
+		}
+		// Track unique observers and collect non-zero values
+		if obs.RestartNum > 0 && obs.Type == "restart" {
+			uniqueObservers[obs.Observer] = true
+			values = append(values, obs.RestartNum)
+		}
+	}
+
+	// If only one observer is reporting restarts, use max (most recent from that observer)
+	if len(uniqueObservers) <= 1 {
+		if maxRestarts > 0 {
+			logrus.Debugf("restarts consensus for %s: using max algorithm (single observer fallback) → %d", subject, maxRestarts)
+		}
+		return maxRestarts
+	}
+
+	// Use trimmed mean: remove outliers and average
+	trimmedRestarts := trimmedMeanConsensus(values)
+
+	// Fallback to max if trimmed mean returns 0
+	if trimmedRestarts == 0 {
+		if maxRestarts > 0 {
+			logrus.Debugf("restarts consensus for %s: using max algorithm (trimmed mean returned 0) → %d", subject, maxRestarts)
+		}
+		return maxRestarts
+	}
+
+	// Calculate stats for logging
+	if len(values) > 2 {
+		sorted := make([]int64, len(values))
+		copy(sorted, values)
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i] < sorted[j]
+		})
+		median := sorted[len(sorted)/2]
+
+		// Count agreement
+		freqMap := make(map[int64]int)
+		for _, v := range values {
+			freqMap[v]++
+		}
+		maxFreq := 0
+		var mostCommon int64
+		for val, freq := range freqMap {
+			if freq > maxFreq {
+				maxFreq = freq
+				mostCommon = val
+			}
+		}
+		agreement := float64(maxFreq) / float64(len(values)) * 100
+
+		logrus.Debugf("restarts consensus for %s: %d observers, median=%d, avg=%d, agreement=%.0f%% on %d",
+			subject, len(values), median, trimmedRestarts, agreement, mostCommon)
+	}
+
+	// Warn if the difference is significant (>10% or >5 absolute)
+	diff := maxRestarts - trimmedRestarts
+	if diff > 0 {
+		percentDiff := float64(diff) / float64(maxRestarts) * 100
+		if diff >= 5 || percentDiff >= 10.0 {
+			logrus.Warnf("🔍 restarts consensus diff for %s: max=%d, trimmed=%d (diff=%d, %.1f%%)",
+				subject, maxRestarts, trimmedRestarts, diff, percentDiff)
+		}
+	}
+
+	return trimmedRestarts
+}
+
+// deriveProjectionLastRestartConsensus returns the most recent LastRestart timestamp.
+func deriveProjectionLastRestartConsensus(observations []ObservationRecord) int64 {
+	maxLastRestart := int64(0)
+	for _, obs := range observations {
+		if obs.LastRestart > maxLastRestart {
+			maxLastRestart = obs.LastRestart
+		}
+	}
+	return maxLastRestart
+}
+
+// trimmedMeanConsensus calculates a robust average by removing outliers.
+// Ignores zeros, calculates median, removes values >2x or <0.5x median, returns average.
+func trimmedMeanConsensus(values []int64) int64 {
+	if len(values) == 0 {
+		return 0
+	}
+
+	// Filter out zeros (these are not real observations)
+	var nonZero []int64
+	for _, v := range values {
+		if v > 0 {
+			nonZero = append(nonZero, v)
+		}
+	}
+
+	if len(nonZero) == 0 {
+		return 0
+	}
+
+	// Single value: just return it
+	if len(nonZero) == 1 {
+		return nonZero[0]
+	}
+
+	// Calculate median
+	sorted := make([]int64, len(nonZero))
+	copy(sorted, nonZero)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i] < sorted[j]
+	})
+	median := sorted[len(sorted)/2]
+
+	// Remove outliers: keep values within [median*0.2, median*5.0]
+	// This filters out values that are more than 5x or less than 0.2x the median
+	var filtered []int64
+	lowerBound := median / 5 // 0.2x median
+	upperBound := median * 5 // 5x median
+	var removed []int64
+
+	for _, v := range nonZero {
+		if v >= lowerBound && v <= upperBound {
+			filtered = append(filtered, v)
+		} else {
+			removed = append(removed, v)
+		}
+	}
+
+	// If we filtered everything out, fall back to median
+	if len(filtered) == 0 {
+		return median
+	}
+
+	// Calculate average of filtered values
+	var sum int64
+	for _, v := range filtered {
+		sum += v
+	}
+	avg := sum / int64(len(filtered))
+
+	return avg
+}
+
+// GetObservationsFor returns the observation records for a subject.
+func (p *OpinionConsensusProjection) GetObservationsFor(subject string) []ObservationRecord {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	observations := p.observationsBySubject[subject]
+	result := make([]ObservationRecord, len(observations))
+	copy(result, observations)
+	return result
+}
+
+// RunToEnd catches up the projection to the current state.
+func (p *OpinionConsensusProjection) RunToEnd(ctx context.Context) error {
+	return p.projection.RunToEnd(ctx)
+}
+
+// RunOnce processes any new events since last run.
+func (p *OpinionConsensusProjection) RunOnce() (bool, error) {
+	return p.projection.RunOnce()
+}
+
+// Trigger processes new events immediately.
+// Use this when events have been added and you need updated state.
+func (p *OpinionConsensusProjection) Trigger() {
+	p.projection.RunOnce()
+}
+
+// SubjectCount returns the number of subjects with observations.
+func (p *OpinionConsensusProjection) SubjectCount() int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return len(p.observationsBySubject)
+}
+
+// Reset clears all state and resets the projection.
+func (p *OpinionConsensusProjection) Reset() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.observationsBySubject = make(map[string][]ObservationRecord)
+	p.projection.Reset()
+}

@@ -1,2 +1,4 @@
 /nara
-/build/nara
+/bin/
+.env
+result/
