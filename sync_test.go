@@ -175,7 +175,7 @@ func TestSyncLedger_InterleavedSlicing(t *testing.T) {
 		e := SyncEvent{
 			Timestamp: baseTime + int64(i),
 			Service:   ServicePing,
-			Ping:      &PingObservation{Observer: "alice", Target: "bob", RTT: float64(i + 1)},
+			Ping:      &PingObservation{Observer: "alice", Target: fmt.Sprintf("bob-%d", i), RTT: float64(i + 1)},
 		}
 		e.ComputeID()
 		ledger.AddEvent(e)
@@ -255,7 +255,7 @@ func TestSyncLedger_MaxEventsLimit(t *testing.T) {
 		e := SyncEvent{
 			Timestamp: baseTime + int64(i),
 			Service:   ServicePing,
-			Ping:      &PingObservation{Observer: "alice", Target: "bob", RTT: float64(i + 1)},
+			Ping:      &PingObservation{Observer: "alice", Target: fmt.Sprintf("bob-%d", i), RTT: float64(i + 1)},
 		}
 		e.ComputeID()
 		ledger.AddEvent(e)
@@ -333,7 +333,7 @@ func TestBootRecovery_DistributedSync(t *testing.T) {
 		e := SyncEvent{
 			Timestamp: baseTime + int64(i),
 			Service:   ServicePing,
-			Ping:      &PingObservation{Observer: "shared", Target: "target", RTT: float64(i)},
+			Ping:      &PingObservation{Observer: "shared", Target: fmt.Sprintf("target-%d", i), RTT: float64(i)},
 		}
 		e.ComputeID()
 		neighbor1.AddEvent(e)
@@ -382,7 +382,7 @@ func TestSyncLedger_Prune(t *testing.T) {
 		e := SyncEvent{
 			Timestamp: baseTime + int64(i*1000), // Different nanoseconds
 			Service:   ServicePing,
-			Ping:      &PingObservation{Observer: "alice", Target: "bob", RTT: float64(i + 1)},
+			Ping:      &PingObservation{Observer: "alice", Target: fmt.Sprintf("bob-%d", i), RTT: float64(i + 1)},
 		}
 		e.ComputeID()
 		ledger.AddEvent(e)
@@ -504,7 +504,7 @@ func TestSyncLedger_PrunePriority_UnknownNarasFirst(t *testing.T) {
 		e := SyncEvent{
 			Timestamp: baseTime + int64(i*1000),
 			Service:   ServicePing,
-			Ping:      &PingObservation{Observer: "known-nara", Target: "other", RTT: float64(i + 1)},
+			Ping:      &PingObservation{Observer: "known-nara", Target: fmt.Sprintf("known-%d", i), RTT: float64(i + 1)},
 		}
 		e.ComputeID()
 		ledger.AddEvent(e)
@@ -515,7 +515,7 @@ func TestSyncLedger_PrunePriority_UnknownNarasFirst(t *testing.T) {
 		e := SyncEvent{
 			Timestamp: baseTime + int64((i+3)*1000),
 			Service:   ServicePing,
-			Ping:      &PingObservation{Observer: "unknown-nara", Target: "other", RTT: float64(i + 10)},
+			Ping:      &PingObservation{Observer: "unknown-nara", Target: fmt.Sprintf("unknown-%d", i), RTT: float64(i + 10)},
 		}
 		e.ComputeID()
 		ledger.AddEvent(e)
@@ -764,17 +764,17 @@ func TestSyncLedger_AddSignedPingObservationWithReplace(t *testing.T) {
 
 	ledger := NewSyncLedger(100)
 
-	// Add MaxPingsPerPair + 1 signed pings
-	for i := 0; i < MaxPingsPerPair+1; i++ {
+	// Add MaxPingsPerTarget + 1 signed pings
+	for i := 0; i < MaxPingsPerTarget+1; i++ {
 		if !ledger.AddSignedPingObservationWithReplace("alice", "bob", float64(10+i), "alice", keypair) {
 			t.Errorf("expected AddSignedPingObservationWithReplace to succeed for ping %d", i)
 		}
 	}
 
-	// Should still have only MaxPingsPerPair pings
+	// Should still have only MaxPingsPerTarget pings
 	pings := ledger.GetPingObservations()
-	if len(pings) != MaxPingsPerPair {
-		t.Errorf("expected %d pings, got %d", MaxPingsPerPair, len(pings))
+	if len(pings) != MaxPingsPerTarget {
+		t.Errorf("expected %d pings, got %d", MaxPingsPerTarget, len(pings))
 	}
 
 	// All should be signed
@@ -788,9 +788,51 @@ func TestSyncLedger_AddSignedPingObservationWithReplace(t *testing.T) {
 		}
 	}
 
-	// Latest ping should be the newest value (10 + MaxPingsPerPair)
+	// Latest ping should be the newest value (10 + MaxPingsPerTarget)
 	latest := ledger.GetLatestPingTo("bob")
-	expectedRTT := float64(10 + MaxPingsPerPair)
+	expectedRTT := float64(10 + MaxPingsPerTarget)
+	if latest.RTT != expectedRTT {
+		t.Errorf("expected latest RTT %.1f, got %.1f", expectedRTT, latest.RTT)
+	}
+}
+
+func TestSyncLedger_MergeEvents_PingRetention(t *testing.T) {
+	ledger := NewSyncLedger(0)
+
+	baseTime := time.Now().UnixNano()
+	var events []SyncEvent
+
+	for i := 0; i < MaxPingsPerTarget+2; i++ {
+		observer := "alice"
+		if i%2 == 1 {
+			observer = "carol"
+		}
+		e := SyncEvent{
+			Timestamp: baseTime + int64(i),
+			Service:   ServicePing,
+			Ping:      &PingObservation{Observer: observer, Target: "bob", RTT: float64(i)},
+		}
+		e.ComputeID()
+		events = append(events, e)
+	}
+
+	oldEvent := SyncEvent{
+		Timestamp: baseTime - 100,
+		Service:   ServicePing,
+		Ping:      &PingObservation{Observer: "alice", Target: "bob", RTT: -1},
+	}
+	oldEvent.ComputeID()
+	events = append(events, oldEvent)
+
+	ledger.MergeEvents(events)
+
+	pings := ledger.GetPingObservations()
+	if len(pings) != MaxPingsPerTarget {
+		t.Errorf("expected %d pings after merge, got %d", MaxPingsPerTarget, len(pings))
+	}
+
+	latest := ledger.GetLatestPingTo("bob")
+	expectedRTT := float64(MaxPingsPerTarget + 1)
 	if latest.RTT != expectedRTT {
 		t.Errorf("expected latest RTT %.1f, got %.1f", expectedRTT, latest.RTT)
 	}

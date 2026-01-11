@@ -170,7 +170,7 @@ func (network *Network) pingAndUpdateCoordinates(targetName string, config Vival
 	network.local.setObservation(targetName, obs)
 
 	// Record to unified sync ledger for network-wide propagation
-	// Uses replace strategy: keeps last 5 pings per observer→target pair
+	// Uses replace strategy: keeps last 5 pings per target
 	// Sign the event so others can verify it came from us
 	if network.local.SyncLedger != nil {
 		network.local.SyncLedger.AddSignedPingObservationWithReplace(

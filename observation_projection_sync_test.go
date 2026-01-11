@@ -91,7 +91,7 @@ func TestMarkOnlineFromPingUpdatesProjectionSynchronously(t *testing.T) {
 
 	// Add multiple old ping events for raccoon to trigger replacement logic
 	// This ensures AddSignedPingObservationWithReplace will remove an old ping
-	for i := 0; i < MaxPingsPerPair; i++ {
+	for i := 0; i < MaxPingsPerTarget; i++ {
 		oldEventTime := time.Now().Add(-time.Duration(6+i) * time.Minute).UnixNano()
 		oldEvent := SyncEvent{
 			ID:        fmt.Sprintf("old-ping-%d", i),

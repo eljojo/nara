@@ -904,6 +904,41 @@ func (l *SyncLedger) AddEvent(e SyncEvent) bool {
 		return false
 	}
 
+	if e.Service == ServicePing && e.Ping != nil {
+		// Limit ping history per target to avoid unbounded growth.
+		oldestIdx := -1
+		oldestTs := int64(0)
+		oldestID := ""
+		pingCount := 0
+		for i, existing := range l.Events {
+			if existing.Service == ServicePing && existing.Ping != nil &&
+				existing.Ping.Target == e.Ping.Target {
+				pingCount++
+				if oldestIdx == -1 || existing.Timestamp < oldestTs {
+					oldestIdx = i
+					oldestTs = existing.Timestamp
+					oldestID = existing.ID
+				}
+			}
+		}
+
+		if pingCount >= MaxPingsPerTarget {
+			// Drop older ping events to keep the newest set for this target.
+			if e.Timestamp <= oldestTs {
+				return false
+			}
+			kept := make([]SyncEvent, 0, len(l.Events)-1)
+			for i, existing := range l.Events {
+				if i != oldestIdx {
+					kept = append(kept, existing)
+				}
+			}
+			l.Events = kept
+			delete(l.eventIDs, oldestID)
+			l.version++
+		}
+	}
+
 	l.Events = append(l.Events, e)
 	l.eventIDs[e.ID] = true
 
@@ -968,73 +1003,19 @@ func (l *SyncLedger) AddPingObservation(observer, target string, rtt float64) bo
 	return l.AddEvent(NewPingSyncEvent(observer, target, rtt))
 }
 
-// MaxPingsPerPair limits how many ping observations to keep per observer→target pair
-// This prevents the ledger from being saturated with stale ping data while keeping useful history
-const MaxPingsPerPair = 5
+// MaxPingsPerTarget limits how many ping observations to keep per target (receiver)
+// This prevents the ledger from being saturated with stale ping data while keeping useful history.
+const MaxPingsPerTarget = 5
 
 // AddSignedPingObservation adds a signed ping observation
 func (l *SyncLedger) AddSignedPingObservation(observer, target string, rtt float64, emitter string, keypair NaraKeypair) bool {
 	return l.AddEvent(NewSignedPingSyncEvent(observer, target, rtt, emitter, keypair))
 }
 
-// AddSignedPingObservationWithReplace adds a signed ping observation, keeping only the last N per pair
+// AddSignedPingObservationWithReplace adds a signed ping observation, keeping only the last N per target
 func (l *SyncLedger) AddSignedPingObservationWithReplace(observer, target string, rtt float64, emitter string, keypair NaraKeypair) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	// Count existing pings for this pair and collect them with indices
-	var existingPings []struct {
-		idx int
-		ts  int64
-		id  string
-	}
-	for i, e := range l.Events {
-		if e.Service == ServicePing && e.Ping != nil &&
-			e.Ping.Observer == observer && e.Ping.Target == target {
-			existingPings = append(existingPings, struct {
-				idx int
-				ts  int64
-				id  string
-			}{i, e.Timestamp, e.ID})
-		}
-	}
-
-	// If at or over limit, remove the oldest one(s)
-	if len(existingPings) >= MaxPingsPerPair {
-		oldestIdx := 0
-		oldestTs := existingPings[0].ts
-		for i, p := range existingPings {
-			if p.ts < oldestTs {
-				oldestTs = p.ts
-				oldestIdx = i
-			}
-		}
-
-		toRemove := existingPings[oldestIdx]
-		newEvents := make([]SyncEvent, 0, len(l.Events)-1)
-		for i, e := range l.Events {
-			if i != toRemove.idx {
-				newEvents = append(newEvents, e)
-			}
-		}
-		l.Events = newEvents
-		delete(l.eventIDs, toRemove.id)
-		// Increment version - structure has changed, projections need to reset
-		l.version++
-	}
-
-	// Create and add the new signed ping
-	newEvent := NewSignedPingSyncEvent(observer, target, rtt, emitter, keypair)
-	if !newEvent.IsValid() {
-		return false
-	}
-	if l.eventIDs[newEvent.ID] {
-		return false
-	}
-
-	l.Events = append(l.Events, newEvent)
-	l.eventIDs[newEvent.ID] = true
-	return true
+	// Retention is enforced in AddEvent for all ping events.
+	return l.AddEvent(NewSignedPingSyncEvent(observer, target, rtt, emitter, keypair))
 }
 
 // HasEvent checks if an event ID exists

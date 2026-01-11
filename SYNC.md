@@ -350,7 +350,7 @@ This prevents:
 
 ## Ping Diversity
 
-To prevent the event store from being saturated with stale ping data while keeping useful history, we limit pings to **5 per observer→target pair** (configurable via `MaxPingsPerPair`).
+To prevent the event store from being saturated with stale ping data while keeping useful history, we limit pings to **5 per target (receiver)** (configurable via `MaxPingsPerTarget`).
 
 When adding a new ping from A→B:
 - If A→B has fewer than 5 entries, add it
