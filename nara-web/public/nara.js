@@ -276,10 +276,10 @@ function NaraRow(props) {
           ) : (
             <span className="nara-avatar nara-avatar-placeholder" aria-hidden="true"></span>
           )}
-          <span>{ nara.LicensePlate } { nameOrLink }</span>
+          <span>{ nameOrLink }</span>
         </span>
       </td>
-      <td>{ nara.Flair }</td>
+      <td>{ nara.LicensePlate }{ nara.Flair }</td>
       <td>{ nara.Buzz  }</td>
       <td>{ trend }</td>
       <td>{ nara.Chattiness  }</td>
