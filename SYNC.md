@@ -147,6 +147,12 @@ These fields are broadcast via `nara/newspaper/{name}` and are **NOT** in the ev
 | `TrendEmoji` | string | Trend emoji (e.g., "🔥") |
 | `HostStats.Uptime` | uint64 | System uptime in seconds |
 | `HostStats.LoadAvg` | float64 | System load average |
+| `HostStats.MemAllocMB` | uint64 | Current heap allocation in MB |
+| `HostStats.MemSysMB` | uint64 | Total memory from OS in MB |
+| `HostStats.MemHeapMB` | uint64 | Heap memory (in use + free) in MB |
+| `HostStats.MemStackMB` | uint64 | Stack memory in MB |
+| `HostStats.NumGoroutines` | int | Active goroutines |
+| `HostStats.ProcCPUPercent` | float64 | CPU usage of this process (%) |
 | `Flair` | string | Derived status indicator |
 | `LicensePlate` | string | Visual identifier |
 | `Chattiness` | int64 | Posting frequency preference |
@@ -156,6 +162,9 @@ These fields are broadcast via `nara/newspaper/{name}` and are **NOT** in the ev
 | `PublicUrl` | string | Public HTTP endpoint |
 | `Coordinates` | struct | Vivaldi network coordinates |
 | `TransportMode` | string | "mqtt", "gossip", or "hybrid" |
+| `EventStoreTotal` | int | Total events in the local event store |
+| `EventStoreByService` | map | Event counts per service (social, ping, observation, etc.) |
+| `EventStoreCritical` | int | Count of critical events |
 
 Newspapers are **current state snapshots**, not history. They answer "what is this nara like right now?" rather than "what happened?"
 

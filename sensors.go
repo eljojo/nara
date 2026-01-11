@@ -1,11 +1,13 @@
 package nara
 
 import (
+	"os"
 	"runtime"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/host"
 	"github.com/shirou/gopsutil/v3/load"
+	"github.com/shirou/gopsutil/v3/process"
 	"github.com/sirupsen/logrus"
 )
 
@@ -18,6 +20,7 @@ type HostStats struct {
 	MemStackMB    uint64 // Stack memory in MB
 	NumGoroutines int    // Number of active goroutines
 	NumGC         uint32 // Number of completed GC cycles
+	ProcCPUPercent float64 // CPU usage of this process (percent)
 }
 
 func (ln *LocalNara) updateHostStatsForever() {
@@ -51,6 +54,12 @@ func (ln *LocalNara) updateHostStats() {
 	ln.Me.Status.HostStats.MemStackMB = memStats.StackSys / 1024 / 1024 // Stack memory
 	ln.Me.Status.HostStats.NumGoroutines = runtime.NumGoroutine()       // Active goroutines
 	ln.Me.Status.HostStats.NumGC = memStats.NumGC                       // GC cycles
+
+	if proc, err := process.NewProcess(int32(os.Getpid())); err == nil {
+		if cpuPct, err := proc.Percent(0); err == nil {
+			ln.Me.Status.HostStats.ProcCPUPercent = float64(int64(cpuPct*100)) / 100
+		}
+	}
 
 	chattiness := int64(ln.Network.weightedBuzz())
 

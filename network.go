@@ -1330,6 +1330,15 @@ func (network *Network) announce() {
 	slimStatus := network.local.Me.Status
 	network.local.Me.mu.Unlock()
 	slimStatus.Observations = nil
+	if network.local.SyncLedger != nil {
+		slimStatus.EventStoreByService = network.local.SyncLedger.GetEventCountsByService()
+		slimStatus.EventStoreTotal = network.local.SyncLedger.EventCount()
+		slimStatus.EventStoreCritical = network.local.SyncLedger.GetCriticalEventCount()
+	} else {
+		slimStatus.EventStoreByService = nil
+		slimStatus.EventStoreTotal = 0
+		slimStatus.EventStoreCritical = 0
+	}
 	signedEvent := network.SignNewspaper(slimStatus)
 	network.postEvent(topic, signedEvent)
 }

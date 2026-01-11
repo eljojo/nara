@@ -64,7 +64,10 @@ type NaraStatus struct {
 	MeshEnabled   bool               // True if this nara is connected to the Headscale mesh
 	MeshIP        string             // Tailscale IP for direct mesh communication (no DNS needed)
 	Coordinates   *NetworkCoordinate `json:"coordinates,omitempty"`    // Vivaldi network coordinates
-	TransportMode string             `json:"transport_mode,omitempty"` // "mqtt", "gossip", or "hybrid"
+	TransportMode       string         `json:"transport_mode,omitempty"` // "mqtt", "gossip", or "hybrid"
+	EventStoreTotal     int            `json:"event_store_total,omitempty"`
+	EventStoreByService map[string]int `json:"event_store_by_service,omitempty"`
+	EventStoreCritical  int            `json:"event_store_critical,omitempty"`
 	// remember to sync with setValuesFrom
 	// NOTE: Soul was removed - NEVER serialize private keys!
 }
