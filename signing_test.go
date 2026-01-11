@@ -121,6 +121,49 @@ func TestNewspaperEvent_VerifyUnsigned(t *testing.T) {
 	}
 }
 
+func TestNewspaperEvent_VerifyWithRawStatusJSON(t *testing.T) {
+	t.Parallel()
+	soul := NativeSoulCustom([]byte("test-hw-newspaper-raw"), "alice")
+	keypair := DeriveKeypair(soul)
+
+	statusPayload := map[string]interface{}{
+		"Flair":       "test-flair",
+		"Chattiness":  50,
+		"PublicKey":   FormatPublicKey(keypair.PublicKey),
+		"MeshIP":      "100.64.0.1",
+		"extra_field": "old-client-drops-me",
+	}
+	rawStatus, err := json.Marshal(statusPayload)
+	if err != nil {
+		t.Fatalf("failed to marshal status payload: %v", err)
+	}
+
+	var status NaraStatus
+	if err := json.Unmarshal(rawStatus, &status); err != nil {
+		t.Fatalf("failed to unmarshal status payload: %v", err)
+	}
+
+	signature := keypair.SignBase64(rawStatus)
+	event := NewspaperEvent{
+		From:       "alice",
+		Status:     status,
+		Signature:  signature,
+		StatusJSON: rawStatus,
+	}
+	if !event.Verify(keypair.PublicKey) {
+		t.Error("Expected signature to verify using raw status JSON")
+	}
+
+	eventNoRaw := NewspaperEvent{
+		From:      "alice",
+		Status:    status,
+		Signature: signature,
+	}
+	if eventNoRaw.Verify(keypair.PublicKey) {
+		t.Error("Expected signature to fail without raw status JSON")
+	}
+}
+
 func TestChauEvent_SignAndVerify(t *testing.T) {
 	t.Parallel()
 	// Create a keypair from a test soul

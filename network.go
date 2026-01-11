@@ -135,6 +135,7 @@ type NewspaperEvent struct {
 	From      string
 	Status    NaraStatus
 	Signature string // Base64-encoded signature of the status JSON
+	StatusJSON []byte `json:"-"` // Raw status JSON for signature verification
 }
 
 // SignNewspaper creates a signed newspaper event
@@ -155,10 +156,14 @@ func (event *NewspaperEvent) Verify(publicKey []byte) bool {
 		logrus.Warnf("Newspaper from %s is missing signature", event.From)
 		return false
 	}
-	statusJSON, err := json.Marshal(event.Status)
-	if err != nil {
-		logrus.Warnf("Failed to marshal newspaper status from %s: %v", event.From, err)
-		return false
+	statusJSON := event.StatusJSON
+	if len(statusJSON) == 0 {
+		var err error
+		statusJSON, err = json.Marshal(event.Status)
+		if err != nil {
+			logrus.Warnf("Failed to marshal newspaper status from %s: %v", event.From, err)
+			return false
+		}
 	}
 	return VerifySignatureBase64(publicKey, statusJSON, event.Signature)
 }

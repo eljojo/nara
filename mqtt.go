@@ -228,15 +228,28 @@ func (network *Network) newspaperHandler(client mqtt.Client, msg mqtt.Message) {
 		return
 	}
 
-	var event NewspaperEvent
-	if err := json.Unmarshal(msg.Payload(), &event); err != nil {
+	var envelope struct {
+		Status    json.RawMessage `json:"Status"`
+		Signature string          `json:"Signature"`
+	}
+	if err := json.Unmarshal(msg.Payload(), &envelope); err != nil {
 		logrus.Infof("newspaperHandler: invalid JSON: %v", err)
 		return
 	}
 
 	// Use 'from' from topic as the authoritative source (it matches the MQTT topic)
 	// but preserve signature for verification
-	network.newspaperInbox <- NewspaperEvent{From: from, Status: event.Status, Signature: event.Signature}
+	var status NaraStatus
+	if err := json.Unmarshal(envelope.Status, &status); err != nil {
+		logrus.Infof("newspaperHandler: invalid status JSON: %v", err)
+		return
+	}
+	network.newspaperInbox <- NewspaperEvent{
+		From:       from,
+		Status:     status,
+		Signature:  envelope.Signature,
+		StatusJSON: envelope.Status,
+	}
 }
 
 func subscribeMqtt(client mqtt.Client, topic string, handler func(client mqtt.Client, msg mqtt.Message)) {
