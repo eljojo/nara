@@ -132,9 +132,9 @@ type JourneyCompletion struct {
 }
 
 type NewspaperEvent struct {
-	From      string
-	Status    NaraStatus
-	Signature string // Base64-encoded signature of the status JSON
+	From       string
+	Status     NaraStatus
+	Signature  string // Base64-encoded signature of the status JSON
 	StatusJSON []byte `json:"-"` // Raw status JSON for signature verification
 }
 
@@ -1183,8 +1183,6 @@ func (network *Network) onWorldJourneyPassThrough(wm *WorldMessage) {
 }
 
 func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetConfig) {
-	logrus.Printf("📊 Event-sourced observations: ENABLED")
-
 	if serveUI {
 		err := network.startHttpServer(httpAddr)
 		if err != nil {
@@ -1292,7 +1290,11 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 	if !network.ReadOnly {
 		go network.bootRecovery()
 		// Start background sync for organic memory strengthening
-		go network.backgroundSync()
+		if network.local == nil || network.local.MemoryProfile.EnableBackgroundSync {
+			go network.backgroundSync()
+		} else {
+			logrus.Infof("🔄 Background sync disabled (memory mode: %s)", network.local.MemoryProfile.Mode)
+		}
 	} else {
 		// In ReadOnly mode, close startup channels so formOpinion/backfill don't block
 		close(network.bootRecoveryDone)
@@ -3681,18 +3683,30 @@ func (network *Network) performBackgroundSync() {
 		return
 	}
 
+	// Prefer neighbors that advertise medium/hog memory profiles
+	eligible := make([]string, 0, len(online))
+	for _, name := range online {
+		if network.neighborSupportsBackgroundSync(name) {
+			eligible = append(eligible, name)
+		}
+	}
+	if len(eligible) == 0 {
+		logrus.Debug("🔄 Background sync: no eligible neighbors (memory-limited)")
+		return
+	}
+
 	// Pick 1-2 random neighbors to query
 	numNeighbors := 1
-	if len(online) > 1 && rand.Float64() > 0.5 {
+	if len(eligible) > 1 && rand.Float64() > 0.5 {
 		numNeighbors = 2
 	}
 
 	// Shuffle and pick neighbors
-	rand.Shuffle(len(online), func(i, j int) {
-		online[i], online[j] = online[j], online[i]
+	rand.Shuffle(len(eligible), func(i, j int) {
+		eligible[i], eligible[j] = eligible[j], eligible[i]
 	})
 
-	neighbors := online[:numNeighbors]
+	neighbors := eligible[:numNeighbors]
 
 	// Query each neighbor via mesh if available
 	for _, neighbor := range neighbors {
@@ -3708,6 +3722,17 @@ func (network *Network) performBackgroundSync() {
 			logrus.Debug("🔄 Background sync: mesh not available, skipping")
 		}
 	}
+}
+
+func (network *Network) neighborSupportsBackgroundSync(name string) bool {
+	nara := network.getNara(name)
+	if nara.Name == "" {
+		return true
+	}
+	if nara.Status.MemoryMode == string(MemoryModeShort) {
+		return false
+	}
+	return true
 }
 
 func (network *Network) recoverSelfStartTimeFromMesh() {

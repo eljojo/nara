@@ -94,7 +94,8 @@ func TestNara_SoulNotLeakedInJSON(t *testing.T) {
 	name := "testnara"
 	soul := testSoul(name)
 	identity := DetermineIdentity(name, soul, name, nil)
-	ln, err := NewLocalNara(identity, "host", "user", "pass", -1, 0)
+	profile := DefaultMemoryProfile()
+	ln, err := NewLocalNara(identity, "host", "user", "pass", -1, profile)
 	if err != nil {
 		t.Fatalf("Failed to create LocalNara: %v", err)
 	}
@@ -208,7 +209,8 @@ func TestNewspaperEvent_JSONParsing(t *testing.T) {
 	// Generate a valid native soul for the sender
 	identity := DetermineIdentity("", "", senderName, []byte("test-hw-fingerprint"))
 
-	sender, err := NewLocalNara(identity, "host", "user", "pass", -1, 0)
+	profile := DefaultMemoryProfile()
+	sender, err := NewLocalNara(identity, "host", "user", "pass", -1, profile)
 	if err != nil {
 		t.Fatalf("Failed to create LocalNara: %v", err)
 	}

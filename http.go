@@ -241,26 +241,29 @@ func (network *Network) httpNaraeJsonHandler(w http.ResponseWriter, r *http.Requ
 			id = nara.ID
 		}
 		naraMap := map[string]interface{}{
-			"Name":          nara.Name,
-			"ID":            id,
-			"PublicUrl":     nara.Status.PublicUrl,
-			"Flair":         nara.Status.Flair,
-			"LicensePlate":  nara.Status.LicensePlate,
-			"Buzz":          nara.Status.Buzz,
-			"Chattiness":    nara.Status.Chattiness,
-			"LastSeen":      obs.LastSeen,
-			"LastRestart":   obs.LastRestart,
-			"Online":        obs.Online,
-			"StartTime":     obs.StartTime,
-			"Restarts":      obs.Restarts,
-			"Uptime":        nara.Status.HostStats.Uptime,
-			"Trend":         nara.Status.Trend,
-			"TrendEmoji":    nara.Status.TrendEmoji,
-			"Aura":          nara.Status.Aura.Primary,   // Flatten for backward compat
-			"AuraSecondary": nara.Status.Aura.Secondary, // Flatten for backward compat
-			"Sociability":   nara.Status.Personality.Sociability,
-			"Chill":         nara.Status.Personality.Chill,
-			"Agreeableness": nara.Status.Personality.Agreeableness,
+			"Name":            nara.Name,
+			"ID":              id,
+			"PublicUrl":       nara.Status.PublicUrl,
+			"Flair":           nara.Status.Flair,
+			"LicensePlate":    nara.Status.LicensePlate,
+			"Buzz":            nara.Status.Buzz,
+			"Chattiness":      nara.Status.Chattiness,
+			"LastSeen":        obs.LastSeen,
+			"LastRestart":     obs.LastRestart,
+			"Online":          obs.Online,
+			"StartTime":       obs.StartTime,
+			"Restarts":        obs.Restarts,
+			"Uptime":          nara.Status.HostStats.Uptime,
+			"Trend":           nara.Status.Trend,
+			"TrendEmoji":      nara.Status.TrendEmoji,
+			"Aura":            nara.Status.Aura.Primary,   // Flatten for backward compat
+			"AuraSecondary":   nara.Status.Aura.Secondary, // Flatten for backward compat
+			"Sociability":     nara.Status.Personality.Sociability,
+			"Chill":           nara.Status.Personality.Chill,
+			"Agreeableness":   nara.Status.Personality.Agreeableness,
+			"MemoryMode":      nara.Status.MemoryMode,
+			"MemoryBudgetMB":  nara.Status.MemoryBudgetMB,
+			"MemoryMaxEvents": nara.Status.MemoryMaxEvents,
 		}
 		nara.mu.Unlock()
 		naras = append(naras, naraMap)

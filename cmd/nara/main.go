@@ -92,7 +92,8 @@ func main() {
 	noMeshPtr := flag.Bool("no-mesh", false, "disable mesh networking via Headscale")
 	headscaleUrlPtr := flag.String("headscale-url", getEnv("HEADSCALE_URL", creds.headscaleURL), creds.headscaleURLDesc)
 	authKeyPtr := flag.String("authkey", getEnv("TS_AUTHKEY", creds.authKey), creds.authKeyDesc)
-	ledgerCapacityPtr := flag.Int("ledger-capacity", getEnvInt("LEDGER_CAPACITY", 80000), "max events in sync ledger")
+	memoryModePtr := flag.String("memory-mode", getEnv("MEMORY_MODE", "auto"), "memory profile: short, medium, hog, auto")
+	ledgerCapacityPtr := flag.Int("ledger-capacity", getEnvInt("LEDGER_CAPACITY", 0), "max events in sync ledger (overrides memory-mode)")
 	flag.Bool("show-default-credentials", false, "show credentials used by the app by default")
 	transportModePtr := flag.String("transport", getEnv("TRANSPORT_MODE", "hybrid"), "transport mode: mqtt, gossip, or hybrid (default)")
 
@@ -128,15 +129,30 @@ func main() {
 	identity := nara.DetermineIdentity(*naraIdPtr, *soulPtr, getHostname(), hwFingerprint)
 
 	// Use NewLocalNara with the identity result
-	localNara, err := nara.NewLocalNara(identity, *mqttHostPtr, *mqttUserPtr, *mqttPassPtr, *forceChattinessPtr, *ledgerCapacityPtr)
+	memoryMode := nara.ParseMemoryMode(*memoryModePtr)
+	memoryProfile := nara.MemoryProfileForMode(memoryMode)
+	memorySource := "flag"
+	if memoryMode == nara.MemoryModeAuto {
+		profile, source, err := nara.AutoMemoryProfile()
+		if err != nil {
+			logrus.Warnf("🧠 Memory auto-detect failed, using default: %v", err)
+			profile = nara.DefaultMemoryProfile()
+			source = "default"
+		}
+		memoryProfile = profile
+		memorySource = source
+	}
+	if *ledgerCapacityPtr > 0 {
+		memoryProfile.Mode = nara.MemoryModeCustom
+		memoryProfile.MaxEvents = *ledgerCapacityPtr
+		memoryProfile.BudgetMB = 0
+		memorySource = "override"
+	}
+	localNara, err := nara.NewLocalNara(identity, *mqttHostPtr, *mqttUserPtr, *mqttPassPtr, *forceChattinessPtr, memoryProfile)
 	if err != nil {
 		logrus.Fatalf("Failed to initialize nara: %v", err)
 	}
 	localNara.Me.Status.PublicUrl = *publicUrlPtr
-
-	// Parse transport mode
-	transportMode := parseTransportMode(*transportModePtr)
-	logrus.Infof("🚀 Transport mode: %s", transportModeString(transportMode))
 
 	// Log identity status
 	if identity.ID == "" {
@@ -148,6 +164,10 @@ func main() {
 	}
 
 	logrus.Infof("🔮 Soul: %s", nara.FormatSoul(identity.Soul))
+
+	// Parse transport mode
+	transportMode := parseTransportMode(*transportModePtr)
+	logrus.Infof("🚀 Transport mode: %s", transportModeString(transportMode))
 
 	// Configure mesh (enabled by default)
 	var meshConfig *nara.TsnetConfig
@@ -162,6 +182,14 @@ func main() {
 	} else {
 		logrus.Info("🕸️  Mesh disabled")
 	}
+
+	logrus.Infof(
+		"🧠 Memory profile: %s (budget %d MB, max events %d, source: %s)",
+		memoryProfile.Mode,
+		memoryProfile.BudgetMB,
+		memoryProfile.MaxEvents,
+		memorySource,
+	)
 
 	localNara.Start(*serveUiPtr, *readOnlyPtr, *httpAddrPtr, meshConfig, transportMode)
 	if *showNeighboursPtr {

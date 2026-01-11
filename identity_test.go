@@ -100,7 +100,8 @@ func TestLocalNara_IDInitialization(t *testing.T) {
 	soul := testSoul(name)
 	identity := DetermineIdentity(name, soul, name, nil)
 
-	ln, err := NewLocalNara(identity, "", "", "", -1, 0)
+	profile := DefaultMemoryProfile()
+	ln, err := NewLocalNara(identity, "", "", "", -1, profile)
 	if err != nil {
 		t.Fatalf("Failed to create LocalNara: %v", err)
 	}
@@ -129,11 +130,13 @@ func TestLocalNara_IDUniqueness(t *testing.T) {
 	identity1 := DetermineIdentity(name, soul1, name, nil)
 	identity2 := DetermineIdentity(name, soul2, name, nil)
 
-	ln1, err := NewLocalNara(identity1, "", "", "", -1, 0)
+	profile := DefaultMemoryProfile()
+	ln1, err := NewLocalNara(identity1, "", "", "", -1, profile)
 	if err != nil {
 		t.Fatalf("Failed to create LocalNara: %v", err)
 	}
-	ln2, err := NewLocalNara(identity2, "", "", "", -1, 0)
+	profile = DefaultMemoryProfile()
+	ln2, err := NewLocalNara(identity2, "", "", "", -1, profile)
 	if err != nil {
 		t.Fatalf("Failed to create LocalNara: %v", err)
 	}

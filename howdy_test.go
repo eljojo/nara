@@ -315,13 +315,16 @@ func startHowdyTestBroker(t *testing.T, port int) *mqttserver.Server {
 func createTestNara(t *testing.T, name string, port int) (*LocalNara, error) {
 	identity := testIdentity(name)
 
+	profile := DefaultMemoryProfile()
+	profile.Mode = MemoryModeCustom
+	profile.MaxEvents = 1000
 	ln, err := NewLocalNara(
 		identity,
 		fmt.Sprintf("tcp://127.0.0.1:%d", port),
 		"",
 		"",
 		-1,
-		1000,
+		profile,
 	)
 	if err != nil {
 		return nil, err

@@ -23,6 +23,7 @@ type LocalNara struct {
 	Keypair         NaraKeypair
 	SyncLedger      *SyncLedger      // Unified event store for all syncable data (social + ping + future types)
 	Projections     *ProjectionStore // Event-sourced projections for derived state
+	MemoryProfile   MemoryProfile
 	forceChattiness int
 	isRaspberryPi   bool
 	isNixOs         bool
@@ -47,40 +48,47 @@ type NaraPersonality struct {
 }
 
 type NaraStatus struct {
-	LicensePlate  string
-	Flair         string
-	HostStats     HostStats
-	Chattiness    int64
-	Buzz          int
-	Observations  map[string]NaraObservation
-	Trend         string
-	TrendEmoji    string
-	Personality   NaraPersonality
-	Aura          Aura // Visual identity (colors, glow, etc.) derived from personality and soul
-	Version       string
-	PublicUrl     string
-	PublicKey     string             // Base64-encoded Ed25519 public key
-	ID            string             // Nara ID: deterministic hash of soul+name
-	MeshEnabled   bool               // True if this nara is connected to the Headscale mesh
-	MeshIP        string             // Tailscale IP for direct mesh communication (no DNS needed)
-	Coordinates   *NetworkCoordinate `json:"coordinates,omitempty"`    // Vivaldi network coordinates
-	TransportMode       string         `json:"transport_mode,omitempty"` // "mqtt", "gossip", or "hybrid"
-	EventStoreTotal     int            `json:"event_store_total,omitempty"`
-	EventStoreByService map[string]int `json:"event_store_by_service,omitempty"`
-	EventStoreCritical  int            `json:"event_store_critical,omitempty"`
+	LicensePlate        string
+	Flair               string
+	HostStats           HostStats
+	Chattiness          int64
+	Buzz                int
+	Observations        map[string]NaraObservation
+	Trend               string
+	TrendEmoji          string
+	Personality         NaraPersonality
+	Aura                Aura // Visual identity (colors, glow, etc.) derived from personality and soul
+	Version             string
+	PublicUrl           string
+	PublicKey           string             // Base64-encoded Ed25519 public key
+	ID                  string             // Nara ID: deterministic hash of soul+name
+	MeshEnabled         bool               // True if this nara is connected to the Headscale mesh
+	MeshIP              string             // Tailscale IP for direct mesh communication (no DNS needed)
+	Coordinates         *NetworkCoordinate `json:"coordinates,omitempty"`    // Vivaldi network coordinates
+	TransportMode       string             `json:"transport_mode,omitempty"` // "mqtt", "gossip", or "hybrid"
+	EventStoreTotal     int                `json:"event_store_total,omitempty"`
+	EventStoreByService map[string]int     `json:"event_store_by_service,omitempty"`
+	EventStoreCritical  int                `json:"event_store_critical,omitempty"`
+	MemoryMode          string             `json:"memory_mode,omitempty"`
+	MemoryBudgetMB      int                `json:"memory_budget_mb,omitempty"`
+	MemoryMaxEvents     int                `json:"memory_max_events,omitempty"`
 	// remember to sync with setValuesFrom
 	// NOTE: Soul was removed - NEVER serialize private keys!
 }
 
-func NewLocalNara(identity IdentityResult, mqtt_host string, mqtt_user string, mqtt_pass string, forceChattiness int, ledgerCapacity int) (*LocalNara, error) {
+func NewLocalNara(identity IdentityResult, mqtt_host string, mqtt_user string, mqtt_pass string, forceChattiness int, memoryProfile MemoryProfile) (*LocalNara, error) {
 	logrus.Printf("📟 Booting nara: %s (%s)", identity.Name, identity.ID)
 
 	soulStr := FormatSoul(identity.Soul)
+	if memoryProfile.MaxEvents <= 0 {
+		memoryProfile = DefaultMemoryProfile()
+	}
 
 	ln := &LocalNara{
 		Me:              NewNara(identity.Name),
 		Soul:            soulStr,
 		ID:              identity.ID,
+		MemoryProfile:   memoryProfile,
 		forceChattiness: forceChattiness,
 		isRaspberryPi:   isRaspberryPi(),
 		isNixOs:         isNixOs(),
@@ -90,6 +98,9 @@ func NewLocalNara(identity IdentityResult, mqtt_host string, mqtt_user string, m
 	ln.Me.Status.Version = NaraVersion
 	ln.Me.Status.Coordinates = NewNetworkCoordinate() // Initialize Vivaldi coordinates
 	ln.Me.Status.ID = identity.ID
+	ln.Me.Status.MemoryMode = string(memoryProfile.Mode)
+	ln.Me.Status.MemoryBudgetMB = memoryProfile.BudgetMB
+	ln.Me.Status.MemoryMaxEvents = memoryProfile.MaxEvents
 	// NOTE: Soul is NEVER set in Status - private keys must not be serialized!
 
 	// Derive Ed25519 keypair from soul
@@ -106,10 +117,7 @@ func NewLocalNara(identity IdentityResult, mqtt_host string, mqtt_user string, m
 
 	// Initialize unified sync ledger for all service types (social + ping + observation)
 	// GUARANTEE: SyncLedger is ALWAYS non-nil after NewLocalNara() completes
-	if ledgerCapacity <= 0 {
-		ledgerCapacity = 80000 // default
-	}
-	ln.SyncLedger = NewSyncLedger(ledgerCapacity)
+	ln.SyncLedger = NewSyncLedger(memoryProfile.MaxEvents)
 	if ln.SyncLedger == nil {
 		panic("SyncLedger initialization failed - this should never happen")
 	}
@@ -254,6 +262,15 @@ func (ns *NaraStatus) setValuesFrom(other NaraStatus) {
 	}
 	if other.ID != "" {
 		ns.ID = other.ID
+	}
+	if other.MemoryMode != "" {
+		ns.MemoryMode = other.MemoryMode
+	}
+	if other.MemoryBudgetMB != 0 {
+		ns.MemoryBudgetMB = other.MemoryBudgetMB
+	}
+	if other.MemoryMaxEvents != 0 {
+		ns.MemoryMaxEvents = other.MemoryMaxEvents
 	}
 	ns.MeshEnabled = other.MeshEnabled
 	ns.MeshIP = other.MeshIP

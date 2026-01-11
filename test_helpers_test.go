@@ -37,7 +37,8 @@ func TestMain(m *testing.M) {
 // testLocalNara creates a LocalNara for testing with a valid identity bonded to the name.
 func testLocalNara(name string) *LocalNara {
 	identity := testIdentity(name)
-	ln, err := NewLocalNara(identity, "host", "user", "pass", -1, 0)
+	profile := DefaultMemoryProfile()
+	ln, err := NewLocalNara(identity, "host", "user", "pass", -1, profile)
 	if err != nil {
 		panic(err)
 	}
@@ -47,7 +48,12 @@ func testLocalNara(name string) *LocalNara {
 // testLocalNaraWithParams creates a LocalNara for testing with specific chattiness and ledger capacity.
 func testLocalNaraWithParams(name string, chattiness int, ledgerCapacity int) *LocalNara {
 	identity := testIdentity(name)
-	ln, err := NewLocalNara(identity, "", "", "", chattiness, ledgerCapacity)
+	profile := DefaultMemoryProfile()
+	if ledgerCapacity > 0 {
+		profile.Mode = MemoryModeCustom
+		profile.MaxEvents = ledgerCapacity
+	}
+	ln, err := NewLocalNara(identity, "", "", "", chattiness, profile)
 	if err != nil {
 		panic(err)
 	}
@@ -65,7 +71,8 @@ func testLocalNaraWithSoul(name string, soul string) *LocalNara {
 		IsValidBond: true,
 		IsNative:    true,
 	}
-	ln, err := NewLocalNara(identity, "host", "user", "pass", -1, 0)
+	profile := DefaultMemoryProfile()
+	ln, err := NewLocalNara(identity, "host", "user", "pass", -1, profile)
 	if err != nil {
 		panic(err)
 	}
@@ -96,7 +103,12 @@ func testLocalNaraWithSoulAndParams(name string, soul string, chattiness int, le
 		IsValidBond: true,
 		IsNative:    true,
 	}
-	ln, err := NewLocalNara(identity, "", "", "", chattiness, ledgerCapacity)
+	profile := DefaultMemoryProfile()
+	if ledgerCapacity > 0 {
+		profile.Mode = MemoryModeCustom
+		profile.MaxEvents = ledgerCapacity
+	}
+	ln, err := NewLocalNara(identity, "", "", "", chattiness, profile)
 	if err != nil {
 		panic(err)
 	}

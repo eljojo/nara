@@ -42,13 +42,16 @@ func TestIntegration_MultiNaraNetwork(t *testing.T) {
 		identity := DetermineIdentity("", "", name, hwFingerprint)
 
 		// Create LocalNara with embedded MQTT broker address
+		profile := DefaultMemoryProfile()
+		profile.Mode = MemoryModeCustom
+		profile.MaxEvents = 1000
 		ln, err := NewLocalNara(
 			identity,
 			"tcp://127.0.0.1:11883", // embedded broker
 			"",                      // no user
 			"",                      // no pass
 			-1,                      // auto chattiness
-			1000,                    // ledger capacity
+			profile,
 		)
 		if err != nil {
 			t.Fatalf("Failed to create LocalNara: %v", err)
@@ -286,12 +289,15 @@ func TestIntegration_HeyThereDiscovery(t *testing.T) {
 		hwFingerprint := []byte(fmt.Sprintf("test-hw-fingerprint-%s", name))
 		identity := DetermineIdentity("", "", name, hwFingerprint)
 
+		profile := DefaultMemoryProfile()
+		profile.Mode = MemoryModeCustom
+		profile.MaxEvents = 1000
 		ln, err := NewLocalNara(
 			identity,
 			"tcp://127.0.0.1:11883",
 			"", "",
-			-1,   // auto chattiness
-			1000, // ledger capacity
+			-1, // auto chattiness
+			profile,
 		)
 		if err != nil {
 			t.Fatalf("Failed to create LocalNara: %v", err)
