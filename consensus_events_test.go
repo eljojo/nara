@@ -260,6 +260,8 @@ func TestConsensusEvents_MixedBackfillAndRealtime(t *testing.T) {
 		observer := "backfill-" + string(rune('a'+i))
 		event := NewBackfillObservationEvent(observer, subject, historicalStartTime, historicalRestarts, time.Now().Unix())
 		ledger.AddEvent(event)
+		// Add tiny delay to ensure different timestamps (avoids ID collision in tight test loop)
+		time.Sleep(time.Microsecond)
 	}
 
 	// Three observers report newer restart count in real-time
