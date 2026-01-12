@@ -126,6 +126,7 @@ func (network *Network) startHttpServer(httpAddr string) error {
 // includeUI: whether to include web UI handlers (false for mesh-only server)
 func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 	mux := http.NewServeMux()
+	var publicFS fs.FS
 
 	// Mesh endpoints - available on both local and mesh servers
 	// These require Ed25519 authentication (except /ping which needs to be fast)
@@ -137,6 +138,22 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 	mux.HandleFunc("/coordinates", network.loggingMiddleware("/coordinates", network.httpCoordinatesHandler))
 
 	if includeUI {
+		// Prepare static FS
+		var err error
+		publicFS, err = fs.Sub(staticContent, "nara-web/public")
+		if err != nil {
+			logrus.Errorf("failed to load embedded UI assets: %v", err)
+		}
+
+		// Profile pages: serve a single template for /nara/{name}
+		mux.HandleFunc("/nara/", func(w http.ResponseWriter, r *http.Request) {
+			if data, err := fs.ReadFile(staticContent, "nara-web/public/profile.html"); err == nil {
+				http.ServeContent(w, r, "profile.html", time.Now(), bytes.NewReader(data))
+				return
+			}
+			http.NotFound(w, r)
+		})
+
 		// Web UI endpoints - only on local server
 		mux.HandleFunc("/api.json", network.httpApiJsonHandler)
 		mux.HandleFunc("/narae.json", network.httpNaraeJsonHandler)
@@ -160,7 +177,6 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 			mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 		}
 
-		publicFS, _ := fs.Sub(staticContent, "nara-web/public")
 		mux.Handle("/", http.FileServer(http.FS(publicFS)))
 	}
 
@@ -203,6 +219,13 @@ func (network *Network) httpApiJsonHandler(w http.ResponseWriter, r *http.Reques
 		json.Unmarshal(jsonStatus, &statusMap)
 		nara.mu.Unlock()
 		statusMap["Name"] = nara.Name
+		// Enrich with observation snapshot for convenience
+		obs := network.local.getObservation(nara.Name)
+		statusMap["Online"] = obs.Online
+		statusMap["LastSeen"] = obs.LastSeen
+		statusMap["LastRestart"] = obs.LastRestart
+		statusMap["StartTime"] = obs.StartTime
+		statusMap["Restarts"] = obs.Restarts
 		naras = append(naras, statusMap)
 	}
 

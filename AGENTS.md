@@ -107,3 +107,9 @@ Individual tests can override with `logrus.SetLevel(logrus.DebugLevel)`.
 - `SYNC.md` - Unified sync backbone and gossip protocol
 - `WORLD.md` - "Around the world" journey feature
 - `COORDINATES.md` - Vivaldi network coordinate system
+
+## Troubleshooting Protocol
+
+- Do not guess the root cause. Confirm with failing tests, reproduction steps, or concrete error output before proposing or applying fixes.
+- If evidence is missing, ask the user for the minimal additional detail (logs, exact command/URL, steps) instead of assuming.
+- Keep changes minimal and reversible; avoid broad edits while narrowing down an issue.

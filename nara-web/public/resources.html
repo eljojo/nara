@@ -432,7 +432,9 @@
           return `
             <tr>
               <td class="name-cell">
-                ${n.Name}
+                <a href="/nara/${encodeURIComponent(n.Name)}" style="color: inherit; text-decoration: none;">
+                  ${n.Name}
+                </a>
                 <span class="pill">${n.MemoryMode || 'memory'}</span>
               </td>
               <td class="mono ${statusClass(goroutines, 400, 800)}">${formatNumber(goroutines)}</td>

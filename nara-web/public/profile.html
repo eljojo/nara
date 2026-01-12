@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>nara profile</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Pacifico&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        --bg: #f8f1ff;
+        --ink: #1d1330;
+        --muted: #766c8f;
+        --accent: #ff7ac3;
+        --accent2: #6be0ff;
+        --card: #fffdfb;
+        --line: rgba(29, 19, 48, 0.1);
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        font-family: "Space Grotesk", sans-serif;
+        color: var(--ink);
+        background:
+          linear-gradient(135deg, rgba(255,122,195,0.08), rgba(107,224,255,0.08)),
+          radial-gradient(circle at 20% 20%, rgba(255,222,175,0.25), transparent 35%),
+          radial-gradient(circle at 80% 10%, rgba(140,255,214,0.25), transparent 30%),
+          var(--bg);
+        min-height: 100vh;
+      }
+
+      a { color: inherit; }
+
+      header {
+        padding: 18px 22px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .brand {
+        font-family: "Pacifico", cursive;
+        font-size: 22px;
+        letter-spacing: 0.5px;
+      }
+
+      .links {
+        display: flex;
+        gap: 12px;
+        font-size: 14px;
+      }
+
+      .links a {
+        text-decoration: none;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.7);
+        border: 1px solid var(--line);
+      }
+
+      .hero {
+        padding: 0 22px 18px 22px;
+      }
+
+      .name-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 14px;
+        background: rgba(255,255,255,0.85);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        box-shadow: 0 10px 28px rgba(29, 19, 48, 0.08);
+      }
+
+      .name-tag h1 {
+        margin: 0;
+        font-size: clamp(24px, 4vw, 34px);
+        letter-spacing: 0.5px;
+      }
+
+      .pill {
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: rgba(107, 224, 255, 0.2);
+        border: 1px dashed rgba(29, 19, 48, 0.15);
+        font-size: 12px;
+        font-family: "IBM Plex Mono", monospace;
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: 360px 1fr;
+        gap: 16px;
+        padding: 0 22px 32px 22px;
+      }
+
+      @media (max-width: 900px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .polaroid {
+        position: relative;
+        background: var(--card);
+        border: 2px solid #fff;
+        border-radius: 18px;
+        padding: 14px;
+        box-shadow: 0 18px 36px rgba(29, 19, 48, 0.1);
+        overflow: hidden;
+      }
+
+      .polaroid::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(145deg, rgba(255,122,195,0.15), rgba(107,224,255,0.15));
+        opacity: 0.4;
+        pointer-events: none;
+      }
+
+      .avatar-wrap {
+        position: relative;
+        width: 100%;
+        padding-top: 100%;
+        border-radius: 12px;
+        background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.8), rgba(255,255,255,0.3), rgba(29,19,48,0.05));
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .avatar-wrap canvas {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      .sticker {
+        position: absolute;
+        font-size: 26px;
+        transform: rotate(-8deg);
+        top: 10px;
+        left: 10px;
+      }
+
+      .sticker.s2 {
+        transform: rotate(8deg);
+        right: 12px;
+        left: auto;
+      }
+
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 16px;
+        box-shadow: 0 14px 32px rgba(29, 19, 48, 0.08);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 10px;
+      }
+
+      .stat {
+        background: rgba(255,255,255,0.7);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 10px 12px;
+      }
+
+      .stat .label {
+        font-size: 11px;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .stat .value {
+        font-size: 20px;
+        font-weight: 700;
+      }
+
+      .personality {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .chip {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.7);
+        border: 1px solid var(--line);
+        margin-right: 8px;
+        font-size: 12px;
+        font-family: "IBM Plex Mono", monospace;
+      }
+
+      .teases {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .tease-row {
+        padding: 8px 10px;
+        border-radius: 10px;
+        background: rgba(255,255,255,0.8);
+        border: 1px solid var(--line);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 12px;
+      }
+
+      .tease-meta {
+        color: var(--muted);
+        font-size: 11px;
+        margin-top: 4px;
+      }
+
+      .neighbours {
+        display: grid;
+        gap: 8px;
+      }
+
+      .neighbour-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 10px;
+        border-radius: 10px;
+        background: rgba(255,255,255,0.8);
+        border: 1px solid var(--line);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 12px;
+      }
+
+      .status-dot {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        margin-right: 6px;
+      }
+
+      .dot-online { background: #2f6f4e; }
+      .dot-missing { background: #a56b2a; }
+      .dot-offline { background: #b84b3a; }
+
+      .bar-row {
+        display: grid;
+        grid-template-columns: 90px 1fr 50px;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .bar {
+        height: 10px;
+        border-radius: 999px;
+        background: rgba(29, 19, 48, 0.08);
+        overflow: hidden;
+      }
+
+      .bar span {
+        display: block;
+        height: 100%;
+        background: linear-gradient(90deg, #ff7ac3, #6be0ff);
+      }
+
+      .services {
+        display: grid;
+        gap: 6px;
+      }
+
+      .service-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 12px;
+      }
+
+      .service-row .bar {
+        height: 6px;
+      }
+
+      .nyan {
+        position: absolute;
+        bottom: -16px;
+        right: -10px;
+        font-size: 54px;
+        filter: drop-shadow(0 4px 10px rgba(0,0,0,0.2));
+        transform: rotate(-6deg);
+      }
+
+      .note {
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="brand"><a href="/" style="text-decoration:none; color: inherit;">nara yearbook</a></div>
+      <div class="links">
+        <a href="/">network</a>
+        <a href="/resources.html">resources</a>
+      </div>
+    </header>
+
+    <div class="hero">
+      <div class="name-tag" id="nameTag">
+        <h1 id="heroName">loading...</h1>
+        <span class="pill" id="heroMode"></span>
+      </div>
+      <div class="note" id="heroNote">pulling stats...</div>
+    </div>
+
+    <div class="layout">
+      <div class="polaroid">
+        <div class="sticker">⭐️</div>
+        <div class="sticker s2">🚀</div>
+        <div class="avatar-wrap" id="avatarWrap"></div>
+        <div class="nyan">🌈🐱</div>
+      </div>
+
+      <div class="card">
+        <div class="grid" id="statGrid"></div>
+        <div style="margin-top: 16px;" class="grid">
+          <div class="stat" style="grid-column: span 2;">
+            <div class="label">personality</div>
+            <div class="personality" id="personality"></div>
+          </div>
+          <div class="stat" style="grid-column: span 2;">
+            <div class="label">event store by service</div>
+            <div class="services" id="services"></div>
+          </div>
+          <div class="stat" style="grid-column: span 2;">
+            <div class="label">recent teases</div>
+            <div class="teases" id="teases"></div>
+          </div>
+          <div class="stat" style="grid-column: span 2;">
+            <div class="label">best friends (tease champs)</div>
+            <div class="teases" id="bestfriends"></div>
+          </div>
+          <div class="stat" style="grid-column: span 2;">
+            <div class="label">neighbourhood snapshot</div>
+            <div class="neighbours" id="neighbours"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://unpkg.com/react@17/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js" crossorigin></script>
+    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+    <script src="/nara-avatar.js" type="text/babel" data-presets="react"></script>
+    <script type="text/babel" data-presets="react">
+      const { useEffect, useRef } = React;
+      const AvatarCanvas = window.NaraAvatar.AvatarCanvas;
+
+      function getProfileName() {
+        const parts = window.location.pathname.split("/").filter(Boolean);
+        const last = parts[parts.length - 1] || "";
+        return decodeURIComponent(last);
+      }
+
+      function FancyAvatar({ nara }) {
+        const ref = useRef({ x: 0, y: 0, active: false });
+        const wrapperRef = useRef(null);
+
+        useEffect(() => {
+          const el = wrapperRef.current;
+          if (!el) return;
+          const onMove = (e) => {
+            const rect = el.getBoundingClientRect();
+            const cx = rect.left + rect.width / 2;
+            const cy = rect.top + rect.height / 2;
+            const nx = (e.clientX - cx) / (rect.width / 2);
+            const ny = (e.clientY - cy) / (rect.height / 2);
+            ref.current.x = window.NaraAvatar.clamp01(Math.abs(nx)) * Math.sign(nx);
+            ref.current.y = window.NaraAvatar.clamp01(Math.abs(ny)) * Math.sign(ny);
+            ref.current.active = true;
+          };
+          const onLeave = () => {
+            ref.current.x = 0;
+            ref.current.y = 0;
+            ref.current.active = false;
+          };
+          el.addEventListener("mousemove", onMove);
+          el.addEventListener("mouseleave", onLeave);
+          return () => {
+            el.removeEventListener("mousemove", onMove);
+            el.removeEventListener("mouseleave", onLeave);
+          };
+        }, []);
+
+        return (
+          <div ref={wrapperRef} style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <AvatarCanvas
+              id={nara.ID || nara.Name}
+              primary={(nara.Aura && nara.Aura.primary) || "#ff7ac3"}
+              secondary={(nara.Aura && nara.Aura.secondary) || "#6be0ff"}
+              sociability={(nara.Personality && nara.Personality.Sociability) || 50}
+              chill={(nara.Personality && nara.Personality.Chill) || 50}
+              agreeableness={(nara.Personality && nara.Personality.Agreeableness) || 50}
+              buzz={nara.Buzz || 0}
+              size={320}
+              pointerRef={ref}
+            />
+          </div>
+        );
+      }
+
+      function renderProfile(nara) {
+        const nameTag = document.getElementById("nameTag");
+        document.getElementById("heroName").textContent = nara.Name;
+        document.getElementById("heroMode").textContent = nara.MemoryMode || "memory";
+        document.getElementById("heroNote").textContent = nara.Flair || "always online, always curious.";
+
+        ReactDOM.render(<FancyAvatar nara={nara} />, document.getElementById("avatarWrap"));
+
+        const statsObj = nara.HostStats || {};
+        const statusText = nara.Online || "UNKNOWN";
+        const start = nara.StartTime || 0;
+        const lastSeen = nara.LastSeen || 0;
+        const lastRestart = nara.LastRestart || 0;
+        const uptimeSec = lastSeen && lastRestart ? Math.max(0, lastSeen - lastRestart) : 0;
+        const trendText = nara.Trend ? ((nara.TrendEmoji || "") + " " + nara.Trend) : "no trend";
+
+        const stats = [
+          { label: "status", value: statusText, tip: "online state (derived from events)" },
+          { label: "first seen", value: start ? formatDate(start) : "-", tip: "first time we saw this nara" },
+          { label: "uptime", value: uptimeSec ? formatDuration(uptimeSec) : (statusText === "OFFLINE" ? "offline" : "-"), tip: "how long since last restart" },
+          { label: "restarts", value: nara.Restarts != null ? nara.Restarts : 0, tip: "counted restarts" },
+          { label: "trend", value: trendText, tip: "current trend" },
+          { label: "goroutines", value: statsObj.NumGoroutines != null ? statsObj.NumGoroutines : "-", tip: "active goroutines right now" },
+          { label: "cpu", value: ((statsObj.ProcCPUPercent != null ? statsObj.ProcCPUPercent : 0).toFixed(1)) + "%", tip: "process CPU percent" },
+          { label: "mem alloc", value: (statsObj.MemAllocMB != null ? statsObj.MemAllocMB : 0) + "mb", tip: "heap in use" },
+          { label: "mem sys", value: (statsObj.MemSysMB != null ? statsObj.MemSysMB : 0) + "mb", tip: "memory from OS" },
+          { label: "heap / stack", value: (statsObj.MemHeapMB != null ? statsObj.MemHeapMB : 0) + "mb / " + (statsObj.MemStackMB != null ? statsObj.MemStackMB : 0) + "mb", tip: "reserved heap and stack" },
+          { label: "event store", value: (nara.EventStoreTotal != null ? nara.EventStoreTotal : 0) + " (crit " + (nara.EventStoreCritical != null ? nara.EventStoreCritical : 0) + ")", tip: "events in sync ledger" },
+          { label: "mesh", value: nara.MeshIP ? (nara.MeshIP + " (" + (nara.TransportMode || "hybrid") + ")") : "offline mesh", tip: "mesh IP + transport" },
+          { label: "buzz", value: nara.Buzz != null ? nara.Buzz : 0, tip: "local buzz score" },
+        ];
+
+        document.getElementById("statGrid").innerHTML = stats.map(s => `
+          <div class="stat" title="${s.tip}">
+            <div class="label">${s.label}</div>
+            <div class="value">${s.value}</div>
+          </div>
+        `).join("");
+
+        const persona = document.getElementById("personality");
+        const p = nara.Personality || {};
+        const bars = [
+          { label: "sociability", value: p.Sociability != null ? p.Sociability : 50 },
+          { label: "agreeableness", value: p.Agreeableness != null ? p.Agreeableness : 50 },
+          { label: "chill", value: p.Chill != null ? p.Chill : 50 },
+          { label: "chattiness", value: nara.Chattiness != null ? nara.Chattiness : 50 },
+        ];
+        persona.innerHTML = bars.map(b => `
+          <div class="bar-row">
+            <span>${b.label}</span>
+            <div class="bar"><span style="width:${Math.min(100, b.value)}%"></span></div>
+            <span class="value mono">${b.value}</span>
+          </div>
+        `).join("");
+
+        const servicesEl = document.getElementById("services");
+        const services = nara.EventStoreByService || {};
+        const entries = Object.entries(services).sort((a,b) => b[1]-a[1]).slice(0,5);
+        const maxService = entries.reduce((m,[,c]) => Math.max(m, c), 1);
+        servicesEl.innerHTML = entries.length ? entries.map(([name, count]) => `
+          <div class="service-row">
+            <span>${name}</span>
+            <div class="bar"><span style="width:${Math.min(100, (count / maxService) * 100)}%"></span></div>
+            <span>${count}</span>
+          </div>
+        `).join("") : '<span class="muted">no events yet</span>';
+      }
+
+      function renderTeases(name, teases) {
+        const el = document.getElementById("teases");
+        if (!teases || teases.length === 0) {
+          el.innerHTML = '<span class="muted">no recent teases</span>';
+          return;
+        }
+        el.innerHTML = teases.map(t => `
+          <div class="tease-row">
+            <span><strong><a href="/nara/${encodeURIComponent(t.actor)}">${t.actor}</a></strong> → <strong><a href="/nara/${encodeURIComponent(t.target)}">${t.target}</a></strong> : ${t.reason}</span>
+            <span class="tease-meta">${t.ago}</span>
+          </div>
+        `).join("");
+      }
+
+      function secondsAgo(ts) {
+        const now = Math.floor(Date.now() / 1000);
+        const diff = Math.max(0, now - ts);
+        if (diff < 60) return `${diff}s ago`;
+        if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+        if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+        return `${Math.floor(diff/86400)}d ago`;
+      }
+
+      function renderBestFriends(name, events) {
+        const el = document.getElementById("bestfriends");
+        if (!events || !events.length) {
+          el.innerHTML = '<span class="muted">no teases yet</span>';
+          return;
+        }
+        const fromCounts = {};
+        const toCounts = {};
+        events.forEach(e => {
+          const actor = e.actor || e.Actor || "";
+          const target = e.target || e.Target || "";
+          if (!actor || !target) return;
+          if (target === name) {
+            fromCounts[actor] = (fromCounts[actor] || 0) + 1;
+          }
+          if (actor === name) {
+            toCounts[target] = (toCounts[target] || 0) + 1;
+          }
+        });
+
+        const topFrom = Object.entries(fromCounts).sort((a,b) => b[1]-a[1])[0];
+        const topTo = Object.entries(toCounts).sort((a,b) => b[1]-a[1])[0];
+
+        const rows = [];
+        if (topFrom) {
+          rows.push(`<div class="tease-row"><span>most teases received from <a href="/nara/${encodeURIComponent(topFrom[0])}">${topFrom[0]}</a></span><span class="tease-meta">${topFrom[1]} teases</span></div>`);
+        }
+        if (topTo) {
+          rows.push(`<div class="tease-row"><span>most teases sent to <a href="/nara/${encodeURIComponent(topTo[0])}">${topTo[0]}</a></span><span class="tease-meta">${topTo[1]} teases</span></div>`);
+        }
+        el.innerHTML = rows.length ? rows.join("") : '<span class="muted">no teases yet</span>';
+      }
+
+      function renderNotFound(name) {
+        document.getElementById("heroName").textContent = "not found";
+        document.getElementById("heroMode").textContent = "";
+        document.getElementById("heroNote").textContent = `couldn't find nara "${name}"`;
+      }
+
+      function main() {
+        const name = getProfileName();
+        if (!name) {
+          renderNotFound("(no name)");
+          return;
+        }
+        Promise.all([
+          fetch("/api.json").then(res => res.json()).catch(() => ({})),
+          fetch("/social/recent").then(res => res.json()).catch(() => ({})),
+        ]).then(([api, social]) => {
+          const nara = (api.naras || []).find(n => n.Name === name);
+          if (!nara) {
+            renderNotFound(name);
+            return;
+          }
+          renderProfile(nara);
+
+          const events = social.events || [];
+          const teases = events
+            .filter(e => e.service === "social" || e.reason) // tolerate both shapes
+            .filter(e => e.actor === name || e.target === name)
+            .map(e => ({
+              actor: e.actor || e.Actor || "?",
+              target: e.target || e.Target || "?",
+              reason: e.reason || e.Reason || "tease",
+              ago: secondsAgo(e.timestamp || e.Timestamp || 0),
+            }))
+            .slice(0, 8);
+          renderTeases(name, teases);
+          renderBestFriends(name, events);
+
+          renderNeighbours(nara);
+        }).catch(() => {
+          renderNotFound(name);
+        });
+      }
+
+      function renderNeighbours(nara) {
+        const el = document.getElementById("neighbours");
+        const obs = nara.Observations || {};
+        const entries = Object.keys(obs).map(k => {
+          const o = obs[k] || {};
+          return {
+            name: k,
+            online: o.Online || "UNKNOWN",
+            lastSeen: o.LastSeen || 0,
+          };
+        }).sort((a,b) => (b.lastSeen || 0) - (a.lastSeen || 0)).slice(0, 8);
+
+        if (!entries.length) {
+          el.innerHTML = '<span class="muted">no neighbours recorded</span>';
+          return;
+        }
+        el.innerHTML = entries.map(n => {
+          const cls = n.online === "ONLINE" ? "dot-online" : (n.online === "MISSING" ? "dot-missing" : "dot-offline");
+          return `
+            <div class="neighbour-row">
+              <span><span class="status-dot ${cls}"></span><a href="/nara/${encodeURIComponent(n.name)}">${n.name}</a></span>
+              <span class="muted">${n.lastSeen ? formatDate(n.lastSeen) : "?"}</span>
+            </div>
+          `;
+        }).join("");
+      }
+
+      function formatDate(tsSec) {
+        const d = new Date(tsSec * 1000);
+        return d.toLocaleDateString();
+      }
+
+      function formatDuration(sec) {
+        if (!sec) return "-";
+        if (sec < 60) return `${sec}s`;
+        if (sec < 3600) return `${Math.floor(sec/60)}m`;
+        if (sec < 86400) return `${Math.floor(sec/3600)}h`;
+        return `${Math.floor(sec/86400)}d`;
+      }
+
+      main();
+    </script>
+  </body>
+</html>

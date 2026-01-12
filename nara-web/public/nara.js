@@ -193,7 +193,7 @@ function NaraRow(props) {
 
   const nameOrLink = (nara.Online == "ONLINE" && nara.PublicUrl)
     ? (<a href={nara.PublicUrl} target="_blank">{ nara.Name }</a>)
-    : nara.Name;
+    : (<a href={`/nara/${encodeURIComponent(nara.Name)}`}>{ nara.Name }</a>);
 
   // Aura color dot with secondary border and dynamic glow
   const primaryColor = nara.Aura || '#888';
@@ -499,7 +499,6 @@ function NaraList() {
 
   return (
     <div>
-      <SocialPanel />
       <TrendSummary naras={data.filteredNaras} />
       <table id="naras">
         <thead>
@@ -522,6 +521,7 @@ function NaraList() {
         )
         }</tbody>
       </table>
+      <SocialPanel />
     <span>rendered by { data.server }</span>
     </div>
   );
