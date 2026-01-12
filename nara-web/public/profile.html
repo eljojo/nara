@@ -353,7 +353,7 @@
             <div class="teases" id="teases"></div>
           </div>
           <div class="stat" style="grid-column: span 2;">
-            <div class="label">best friends (tease champs)</div>
+            <div class="label">best friends</div>
             <div class="teases" id="bestfriends"></div>
           </div>
           <div class="stat" style="grid-column: span 2;">
@@ -427,34 +427,44 @@
 
       function renderProfile(nara) {
         const nameTag = document.getElementById("nameTag");
-        document.getElementById("heroName").textContent = nara.Name;
-        document.getElementById("heroMode").textContent = nara.MemoryMode || "memory";
-        document.getElementById("heroNote").textContent = nara.Flair || "always online, always curious.";
+        const displayName = nara.name || nara.Name || "unknown";
+        document.getElementById("heroName").textContent = displayName;
+        const memBudget = nara.memory_budget_mb || nara.MemoryBudgetMB || 0;
+        const memEvents = nara.memory_max_events || nara.MemoryMaxEvents || 0;
+        document.getElementById("heroMode").textContent = memBudget ? `memory: ${memBudget} MB • ${memEvents} events` : (nara.memory_mode || "memory");
+        const auraNote = nara.trend ? `trend: ${(nara.trend_emoji || nara.TrendEmoji || "")} ${nara.trend || nara.Trend}` : "on the roam";
+        const flavour = nara.flair && nara.flair.trim() !== "" ? nara.flair : auraNote;
+        document.getElementById("heroNote").textContent = flavour;
 
-        ReactDOM.render(<FancyAvatar nara={nara} />, document.getElementById("avatarWrap"));
+        ReactDOM.render(<FancyAvatar nara={{
+          ID: nara.id || displayName,
+          Aura: nara.aura || nara.Aura,
+          Personality: nara.personality || nara.Personality,
+          Buzz: nara.buzz || nara.Buzz,
+        }} />, document.getElementById("avatarWrap"));
 
-        const statsObj = nara.HostStats || {};
-        const statusText = nara.Online || "UNKNOWN";
-        const start = nara.StartTime || 0;
-        const lastSeen = nara.LastSeen || 0;
-        const lastRestart = nara.LastRestart || 0;
+        const statsObj = nara.host_stats || nara.HostStats || {};
+        const statusText = nara.online || nara.Online || "UNKNOWN";
+        const start = nara.start_time || nara.StartTime || 0;
+        const lastSeen = nara.last_seen || nara.LastSeen || 0;
+        const lastRestart = nara.last_restart || nara.LastRestart || 0;
         const uptimeSec = lastSeen && lastRestart ? Math.max(0, lastSeen - lastRestart) : 0;
-        const trendText = nara.Trend ? ((nara.TrendEmoji || "") + " " + nara.Trend) : "no trend";
+        const trendText = (nara.trend || nara.Trend) ? (((nara.trend_emoji || nara.TrendEmoji) || "") + " " + (nara.trend || nara.Trend)) : "no trend";
 
         const stats = [
           { label: "status", value: statusText, tip: "online state (derived from events)" },
           { label: "first seen", value: start ? formatDate(start) : "-", tip: "first time we saw this nara" },
           { label: "uptime", value: uptimeSec ? formatDuration(uptimeSec) : (statusText === "OFFLINE" ? "offline" : "-"), tip: "how long since last restart" },
-          { label: "restarts", value: nara.Restarts != null ? nara.Restarts : 0, tip: "counted restarts" },
+          { label: "restarts", value: nara.restarts != null ? nara.restarts : (nara.Restarts != null ? nara.Restarts : 0), tip: "counted restarts" },
           { label: "trend", value: trendText, tip: "current trend" },
           { label: "goroutines", value: statsObj.NumGoroutines != null ? statsObj.NumGoroutines : "-", tip: "active goroutines right now" },
           { label: "cpu", value: ((statsObj.ProcCPUPercent != null ? statsObj.ProcCPUPercent : 0).toFixed(1)) + "%", tip: "process CPU percent" },
           { label: "mem alloc", value: (statsObj.MemAllocMB != null ? statsObj.MemAllocMB : 0) + "mb", tip: "heap in use" },
           { label: "mem sys", value: (statsObj.MemSysMB != null ? statsObj.MemSysMB : 0) + "mb", tip: "memory from OS" },
           { label: "heap / stack", value: (statsObj.MemHeapMB != null ? statsObj.MemHeapMB : 0) + "mb / " + (statsObj.MemStackMB != null ? statsObj.MemStackMB : 0) + "mb", tip: "reserved heap and stack" },
-          { label: "event store", value: (nara.EventStoreTotal != null ? nara.EventStoreTotal : 0) + " (crit " + (nara.EventStoreCritical != null ? nara.EventStoreCritical : 0) + ")", tip: "events in sync ledger" },
-          { label: "mesh", value: nara.MeshIP ? (nara.MeshIP + " (" + (nara.TransportMode || "hybrid") + ")") : "offline mesh", tip: "mesh IP + transport" },
-          { label: "buzz", value: nara.Buzz != null ? nara.Buzz : 0, tip: "local buzz score" },
+          { label: "event store", value: (nara.event_store_total != null ? nara.event_store_total : (nara.EventStoreTotal || 0)) + " (crit " + (nara.event_store_critical != null ? nara.event_store_critical : (nara.EventStoreCritical || 0)) + ")", tip: "events in sync ledger" },
+          { label: "mesh", value: (nara.mesh_ip || nara.MeshIP) ? ((nara.mesh_ip || nara.MeshIP) + " (" + (nara.transport_mode || nara.TransportMode || "hybrid") + ")") : "offline mesh", tip: "mesh IP + transport" },
+          { label: "buzz", value: nara.buzz != null ? nara.buzz : (nara.Buzz || 0), tip: "local buzz score" },
         ];
 
         document.getElementById("statGrid").innerHTML = stats.map(s => `
@@ -465,12 +475,12 @@
         `).join("");
 
         const persona = document.getElementById("personality");
-        const p = nara.Personality || {};
+        const p = nara.personality || nara.Personality || {};
         const bars = [
           { label: "sociability", value: p.Sociability != null ? p.Sociability : 50 },
           { label: "agreeableness", value: p.Agreeableness != null ? p.Agreeableness : 50 },
           { label: "chill", value: p.Chill != null ? p.Chill : 50 },
-          { label: "chattiness", value: nara.Chattiness != null ? nara.Chattiness : 50 },
+          { label: "chattiness", value: nara.chattiness != null ? nara.chattiness : 50 },
         ];
         persona.innerHTML = bars.map(b => `
           <div class="bar-row">
@@ -481,7 +491,7 @@
         `).join("");
 
         const servicesEl = document.getElementById("services");
-        const services = nara.EventStoreByService || {};
+        const services = nara.event_store_by_service || nara.EventStoreByService || {};
         const entries = Object.entries(services).sort((a,b) => b[1]-a[1]).slice(0,5);
         const maxService = entries.reduce((m,[,c]) => Math.max(m, c), 1);
         servicesEl.innerHTML = entries.length ? entries.map(([name, count]) => `
@@ -507,6 +517,25 @@
         `).join("");
       }
 
+      function renderInlineAvatar(name) {
+        const slot = document.querySelector(`.friend-avatar[data-name="${name}"]`);
+        if (!slot || !window.NaraAvatar || !window.NaraAvatar.AvatarCanvas) return;
+        ReactDOM.render(
+          <window.NaraAvatar.AvatarCanvas
+            id={name}
+            primary="#ff7ac3"
+            secondary="#6be0ff"
+            sociability={50}
+            chill={50}
+            agreeableness={50}
+            buzz={0}
+            size={32}
+            pointerRef={{ current: { x: 0, y: 0, active: false } }}
+          />,
+          slot
+        );
+      }
+
       function secondsAgo(ts) {
         const now = Math.floor(Date.now() / 1000);
         const diff = Math.max(0, now - ts);
@@ -518,35 +547,57 @@
 
       function renderBestFriends(name, events) {
         const el = document.getElementById("bestfriends");
-        if (!events || !events.length) {
-          el.innerHTML = '<span class="muted">no teases yet</span>';
+        if (!events) {
+          el.innerHTML = '<span class="muted">no close buddies yet</span>';
           return;
         }
-        const fromCounts = {};
-        const toCounts = {};
-        events.forEach(e => {
-          const actor = e.actor || e.Actor || "";
-          const target = e.target || e.Target || "";
-          if (!actor || !target) return;
-          if (target === name) {
-            fromCounts[actor] = (fromCounts[actor] || 0) + 1;
-          }
-          if (actor === name) {
-            toCounts[target] = (toCounts[target] || 0) + 1;
-          }
-        });
+        const from = events.from || {};
+        const to = events.to || {};
 
-        const topFrom = Object.entries(fromCounts).sort((a,b) => b[1]-a[1])[0];
-        const topTo = Object.entries(toCounts).sort((a,b) => b[1]-a[1])[0];
+        if (from.name && to.name && from.name === to.name) {
+          const friend = from.name;
+          const countFrom = from.count || 0;
+          const countTo = to.count || 0;
+          el.innerHTML = `
+            <div class="tease-row" style="align-items:center; gap:10px; justify-content:space-between;">
+              <span style="display:flex; align-items:center; gap:10px;">
+                <div class="friend-avatar" data-name="${friend}" style="width:32px; height:32px;"></div>
+                <strong>besties with <a href="/nara/${encodeURIComponent(friend)}">${friend}</a></strong>
+              </span>
+              <span class="tease-meta">${countFrom + countTo} shared moments</span>
+            </div>
+          `;
+          renderInlineAvatar(friend);
+          return;
+        }
 
         const rows = [];
-        if (topFrom) {
-          rows.push(`<div class="tease-row"><span>most teases received from <a href="/nara/${encodeURIComponent(topFrom[0])}">${topFrom[0]}</a></span><span class="tease-meta">${topFrom[1]} teases</span></div>`);
+        if (from.name) {
+          rows.push(`
+            <div class="tease-row" style="align-items:center; gap:10px;">
+              <span style="display:flex; align-items:center; gap:10px;">
+                <div class="friend-avatar" data-name="${from.name}" style="width:32px; height:32px;"></div>
+                <span>most vibes from <a href="/nara/${encodeURIComponent(from.name)}">${from.name}</a></span>
+              </span>
+              <span class="tease-meta">${from.count || 0} moments</span>
+            </div>
+          `);
         }
-        if (topTo) {
-          rows.push(`<div class="tease-row"><span>most teases sent to <a href="/nara/${encodeURIComponent(topTo[0])}">${topTo[0]}</a></span><span class="tease-meta">${topTo[1]} teases</span></div>`);
+        if (to.name) {
+          rows.push(`
+            <div class="tease-row" style="align-items:center; gap:10px;">
+              <span style="display:flex; align-items:center; gap:10px;">
+                <div class="friend-avatar" data-name="${to.name}" style="width:32px; height:32px;"></div>
+                <span>most hype sent to <a href="/nara/${encodeURIComponent(to.name)}">${to.name}</a></span>
+              </span>
+              <span class="tease-meta">${to.count || 0} moments</span>
+            </div>
+          `);
         }
-        el.innerHTML = rows.length ? rows.join("") : '<span class="muted">no teases yet</span>';
+        el.innerHTML = rows.length ? rows.join("") : '<span class="muted">no close buddies yet</span>';
+
+        // Render avatars for any friends we listed
+        [from.name, to.name].forEach(n => n && renderInlineAvatar(n));
       }
 
       function renderNotFound(name) {
@@ -561,40 +612,34 @@
           renderNotFound("(no name)");
           return;
         }
-        Promise.all([
-          fetch("/api.json").then(res => res.json()).catch(() => ({})),
-          fetch("/social/recent").then(res => res.json()).catch(() => ({})),
-        ]).then(([api, social]) => {
-          const nara = (api.naras || []).find(n => n.Name === name);
-          if (!nara) {
-            renderNotFound(name);
-            return;
-          }
-          renderProfile(nara);
+        fetch(`/profile/${encodeURIComponent(name)}.json`)
+          .then(res => {
+            if (!res.ok) throw new Error("not found");
+            return res.json();
+          })
+          .then(data => {
+          renderProfile(data);
 
-          const events = social.events || [];
-          const teases = events
-            .filter(e => e.service === "social" || e.reason) // tolerate both shapes
-            .filter(e => e.actor === name || e.target === name)
-            .map(e => ({
-              actor: e.actor || e.Actor || "?",
-              target: e.target || e.Target || "?",
-              reason: e.reason || e.Reason || "tease",
-              ago: secondsAgo(e.timestamp || e.Timestamp || 0),
-            }))
-            .slice(0, 8);
+          const teases = (data.recent_teases || []).map(e => ({
+            actor: e.actor || "?",
+            target: e.target || "?",
+            reason: e.reason || "tease",
+            ago: secondsAgo(e.timestamp || 0),
+          })).slice(0, 8);
           renderTeases(name, teases);
-          renderBestFriends(name, events);
 
-          renderNeighbours(nara);
-        }).catch(() => {
-          renderNotFound(name);
-        });
+          renderBestFriends(name, data.best_friends || {});
+
+          renderNeighbours({
+            Observations: data.observations || data.Observations || {}
+          });
+        })
+        .catch(() => renderNotFound(name));
       }
 
       function renderNeighbours(nara) {
         const el = document.getElementById("neighbours");
-        const obs = nara.Observations || {};
+        const obs = nara.Observations || nara.observations || {};
         const entries = Object.keys(obs).map(k => {
           const o = obs[k] || {};
           return {

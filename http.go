@@ -10,6 +10,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/pprof"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -153,6 +155,8 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 			}
 			http.NotFound(w, r)
 		})
+		// Profile JSON data: /profile/{name}.json
+		mux.HandleFunc("/profile/", network.httpProfileJsonHandler)
 
 		// Web UI endpoints - only on local server
 		mux.HandleFunc("/api.json", network.httpApiJsonHandler)
@@ -236,6 +240,136 @@ func (network *Network) httpApiJsonHandler(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(response)
+}
+
+// httpProfileJsonHandler returns a rich profile payload for a single nara.
+// Path: /profile/{name}.json
+func (network *Network) httpProfileJsonHandler(w http.ResponseWriter, r *http.Request) {
+	if !strings.HasPrefix(r.URL.Path, "/profile/") || !strings.HasSuffix(r.URL.Path, ".json") {
+		http.NotFound(w, r)
+		return
+	}
+	encoded := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/profile/"), ".json")
+	name, err := url.PathUnescape(encoded)
+	if err != nil || name == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	network.local.mu.Lock()
+	nara, exists := network.Neighbourhood[name]
+	network.local.mu.Unlock()
+	if !exists {
+		http.NotFound(w, r)
+		return
+	}
+
+	nara.mu.Lock()
+	status := nara.Status
+	nara.mu.Unlock()
+
+	obs := network.local.getObservation(name)
+
+	// Event store stats
+	var eventStoreByService map[string]int
+	var eventStoreTotal int
+	var eventStoreCritical int
+	var recentTeases []map[string]interface{}
+	fromCounts := make(map[string]int)
+	toCounts := make(map[string]int)
+	if network.local.SyncLedger != nil {
+		eventStoreByService = network.local.SyncLedger.GetEventCountsByService()
+		eventStoreTotal = network.local.SyncLedger.EventCount()
+		eventStoreCritical = network.local.SyncLedger.GetCriticalEventCount()
+
+		for i := len(network.local.SyncLedger.Events) - 1; i >= 0; i-- {
+			e := network.local.SyncLedger.Events[i]
+			if e.Service == ServiceSocial && e.Social != nil && e.Social.Type == "tease" {
+				actor := e.Social.Actor
+				target := e.Social.Target
+				if target == name {
+					fromCounts[actor]++
+				}
+				if actor == name {
+					toCounts[target]++
+				}
+				if actor == name || target == name {
+					if len(recentTeases) < 50 {
+						recentTeases = append(recentTeases, map[string]interface{}{
+							"actor":     actor,
+							"target":    target,
+							"reason":    e.Social.Reason,
+							"timestamp": e.Timestamp / 1e9, // seconds
+						})
+					}
+				}
+			}
+		}
+	}
+
+	bestFrom := map[string]interface{}{"name": "", "count": 0}
+	for actor, c := range fromCounts {
+		if c > bestFrom["count"].(int) && actor != "" && actor != name {
+			bestFrom["name"] = actor
+			bestFrom["count"] = c
+		}
+	}
+	bestTo := map[string]interface{}{"name": "", "count": 0}
+	for target, c := range toCounts {
+		if c > bestTo["count"].(int) && target != "" && target != name {
+			bestTo["name"] = target
+			bestTo["count"] = c
+		}
+	}
+
+	observations := make(map[string]NaraObservation)
+	if status.Observations != nil {
+		for k, v := range status.Observations {
+			observations[k] = v
+		}
+	}
+
+	id := status.ID
+	if id == "" {
+		id = nara.ID
+	}
+
+	payload := map[string]interface{}{
+		"id":                   id,
+		"name":                 name,
+		"flair":                status.Flair,
+		"license_plate":        status.LicensePlate,
+		"aura":                 status.Aura,
+		"personality":          status.Personality,
+		"chattiness":           status.Chattiness,
+		"buzz":                 status.Buzz,
+		"memory_mode":          status.MemoryMode,
+		"memory_budget_mb":     status.MemoryBudgetMB,
+		"memory_max_events":    status.MemoryMaxEvents,
+		"mesh_enabled":         status.MeshEnabled,
+		"mesh_ip":              status.MeshIP,
+		"transport_mode":       status.TransportMode,
+		"trend":                status.Trend,
+		"trend_emoji":          status.TrendEmoji,
+		"host_stats":           status.HostStats,
+		"online":               obs.Online,
+		"last_seen":            obs.LastSeen,
+		"last_restart":         obs.LastRestart,
+		"start_time":           obs.StartTime,
+		"restarts":             obs.Restarts,
+		"observations":         observations,
+		"event_store_by_service": eventStoreByService,
+		"event_store_total":      eventStoreTotal,
+		"event_store_critical":   eventStoreCritical,
+		"recent_teases":          recentTeases,
+		"best_friends": map[string]interface{}{
+			"from": bestFrom,
+			"to":   bestTo,
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(payload)
 }
 
 func (network *Network) httpNaraeJsonHandler(w http.ResponseWriter, r *http.Request) {
