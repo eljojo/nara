@@ -22,9 +22,10 @@ const (
 // Checkpoint timing constants
 const (
 	DefaultCheckpointInterval = 24 * time.Hour
-	DefaultVoteWindow         = 5 * time.Minute
+	DefaultVoteWindow         = 2 * time.Minute
 	MinVotersRequired         = 2  // Outside the proposer, so 3 total signatures
 	MaxCheckpointSignatures   = 10 // Store at most 10 signatures, prioritizing high-uptime naras
+	CheckpointCheckInterval   = 15 * time.Minute
 )
 
 // CheckpointProposal is broadcast when a nara proposes a checkpoint about itself
@@ -132,12 +133,7 @@ func (s *CheckpointService) SetMQTTClient(client mqtt.Client) {
 }
 
 // Start begins the checkpoint service maintenance loop
-// Only starts if USE_CHECKPOINT_CREATION is enabled
 func (s *CheckpointService) Start() {
-	if !useCheckpointCreation() {
-		logrus.Debug("checkpoint: creation disabled via USE_CHECKPOINT_CREATION, service passive")
-		return
-	}
 	go s.maintenanceLoop()
 }
 
@@ -149,7 +145,7 @@ func (s *CheckpointService) Stop() {
 // maintenanceLoop checks periodically if we need to propose a checkpoint
 func (s *CheckpointService) maintenanceLoop() {
 	// Check every 15 minutes if we need to propose
-	ticker := time.NewTicker(15 * time.Minute)
+	ticker := time.NewTicker(CheckpointCheckInterval)
 	defer ticker.Stop()
 
 	for {

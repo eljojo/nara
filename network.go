@@ -1543,14 +1543,6 @@ func (network *Network) meName() string {
 	return network.local.Me.Name
 }
 
-// useCheckpointCreation returns true if this nara should actively create checkpoints.
-// When disabled, this nara can still receive, validate, and store checkpoints from others,
-// but won't propose new checkpoints or participate in voting.
-// TODO: Remove this function once checkpoint creation is stable - always on now.
-func useCheckpointCreation() bool {
-	return true
-}
-
 func (network *Network) announce() {
 	if network.ReadOnly {
 		return

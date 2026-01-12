@@ -389,14 +389,6 @@ func TestCheckpoint_UniqueStartTimes(t *testing.T) {
 	}
 }
 
-// Test feature flag for checkpoint creation
-func TestCheckpoint_FeatureFlag(t *testing.T) {
-	// This tests that the feature flag function exists and returns a boolean
-	enabled := useCheckpointCreation()
-	t.Logf("Checkpoint creation enabled: %v", enabled)
-	// The actual value depends on environment, but function should exist
-}
-
 // Test deriving total uptime from checkpoint + status events
 func TestCheckpoint_DeriveTotalUptime(t *testing.T) {
 	ledger := NewSyncLedger(1000)
