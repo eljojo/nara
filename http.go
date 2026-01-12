@@ -16,12 +16,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// High-frequency endpoints that skip logging entirely
-var silentEndpoints = map[string]bool{
-	"/ping":    true,
-	"/metrics": true,
-}
-
 // pingLogger tracks recent pings for batched logging
 type pingLoggerState struct {
 	mu      sync.Mutex
@@ -70,11 +64,6 @@ func (network *Network) loggingMiddleware(path string, handler http.HandlerFunc)
 		handler(wrapped, r)
 
 		duration := time.Since(start)
-
-		// Skip logging for high-frequency endpoints
-		if silentEndpoints[path] {
-			return
-		}
 
 		// Log the request
 		if bodySummary != "" {
@@ -149,18 +138,18 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 
 	if includeUI {
 		// Web UI endpoints - only on local server
-		mux.HandleFunc("/api.json", network.loggingMiddleware("/api.json", network.httpApiJsonHandler))
-		mux.HandleFunc("/narae.json", network.loggingMiddleware("/narae.json", network.httpNaraeJsonHandler))
-		mux.HandleFunc("/metrics", network.loggingMiddleware("/metrics", network.httpMetricsHandler))
-		mux.HandleFunc("/status/", network.loggingMiddleware("/status/", network.httpStatusJsonHandler))
-		mux.HandleFunc("/events", network.loggingMiddleware("/events", network.httpEventsSSEHandler))
-		mux.HandleFunc("/social/clout", network.loggingMiddleware("/social/clout", network.httpCloutHandler))
-		mux.HandleFunc("/social/recent", network.loggingMiddleware("/social/recent", network.httpRecentEventsHandler))
-		mux.HandleFunc("/social/teases", network.loggingMiddleware("/social/teases", network.httpTeaseCountsHandler))
-		mux.HandleFunc("/world/start", network.loggingMiddleware("/world/start", network.httpWorldStartHandler))
-		mux.HandleFunc("/world/journeys", network.loggingMiddleware("/world/journeys", network.httpWorldJourneysHandler))
-		mux.HandleFunc("/network/map", network.loggingMiddleware("/network/map", network.httpNetworkMapHandler))
-		mux.HandleFunc("/proximity", network.loggingMiddleware("/proximity", network.httpProximityHandler))
+		mux.HandleFunc("/api.json", network.httpApiJsonHandler)
+		mux.HandleFunc("/narae.json", network.httpNaraeJsonHandler)
+		mux.HandleFunc("/metrics", network.httpMetricsHandler)
+		mux.HandleFunc("/status/", network.httpStatusJsonHandler)
+		mux.HandleFunc("/events", network.httpEventsSSEHandler)
+		mux.HandleFunc("/social/clout", network.httpCloutHandler)
+		mux.HandleFunc("/social/recent", network.httpRecentEventsHandler)
+		mux.HandleFunc("/social/teases", network.httpTeaseCountsHandler)
+		mux.HandleFunc("/world/start", network.httpWorldStartHandler)
+		mux.HandleFunc("/world/journeys", network.httpWorldJourneysHandler)
+		mux.HandleFunc("/network/map", network.httpNetworkMapHandler)
+		mux.HandleFunc("/proximity", network.httpProximityHandler)
 
 		// pprof endpoints
 		if network.local != nil && network.local.Me.Name == "jojo-m1" {
