@@ -61,6 +61,12 @@ func (ln *LocalNara) updateHostStats() {
 		}
 	}
 
+	if ln.SyncLedger != nil {
+		ln.Me.Status.EventStoreByService = ln.SyncLedger.GetEventCountsByService()
+		ln.Me.Status.EventStoreTotal = ln.SyncLedger.EventCount()
+		ln.Me.Status.EventStoreCritical = ln.SyncLedger.GetCriticalEventCount()
+	}
+
 	chattiness := int64(ln.Network.weightedBuzz())
 
 	if ln.forceChattiness >= 0 && ln.forceChattiness <= 100 {

@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>nara | resource usage</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        --bg: #f6f2ec;
+        --panel: #fff8f0;
+        --ink: #1f1c19;
+        --muted: #71685e;
+        --accent: #cc5f45;
+        --accent-2: #2f6f79;
+        --line: rgba(31, 28, 25, 0.1);
+        --good: #2f6f4e;
+        --warn: #a56b2a;
+        --hot: #b84b3a;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 10% 10%, #fff2de 0%, transparent 35%),
+          radial-gradient(circle at 90% 20%, #f0f6f2 0%, transparent 40%),
+          radial-gradient(circle at 40% 90%, #f6e8e0 0%, transparent 35%),
+          var(--bg);
+        font-family: "Space Grotesk", sans-serif;
+      }
+
+      header {
+        background: rgba(255, 248, 240, 0.92);
+        border-bottom: 1px solid var(--line);
+      }
+
+      .nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 22px;
+      }
+
+      .nav-title {
+        font-weight: 700;
+        letter-spacing: 0.6px;
+      }
+
+      .nav a {
+        text-decoration: none;
+        color: var(--ink);
+        font-size: 14px;
+      }
+
+      .nav a:hover {
+        color: var(--accent);
+      }
+
+      .hero {
+        padding: 18px 22px 8px 22px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        align-items: flex-end;
+      }
+
+      .hero h1 {
+        margin: 0;
+        font-size: clamp(22px, 3vw, 32px);
+      }
+
+      .hero p {
+        margin: 6px 0 0 0;
+        color: var(--muted);
+        max-width: 520px;
+      }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        padding: 0 22px 18px 22px;
+      }
+
+      .controls label {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        color: var(--muted);
+      }
+
+      .controls select,
+      .controls input {
+        margin-left: 8px;
+        font-family: "IBM Plex Mono", monospace;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 8px 10px;
+        background: #fff;
+        color: var(--ink);
+      }
+
+      .summary {
+        display: grid;
+        gap: 12px;
+        padding: 0 22px 18px 22px;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      }
+
+      .summary-card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 12px 14px;
+      }
+
+      .summary-card h4 {
+        margin: 0 0 6px 0;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        color: var(--muted);
+      }
+
+      .summary-card div {
+        font-size: 22px;
+        font-weight: 700;
+      }
+
+      .table-wrap {
+        padding: 0 22px 36px 22px;
+      }
+
+      table {
+        width: 100%;
+        table-layout: fixed;
+        border-collapse: collapse;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        overflow: hidden;
+        box-shadow: 0 10px 24px rgba(31, 28, 25, 0.06);
+      }
+
+      th, td {
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        font-size: 13px;
+        vertical-align: top;
+      }
+
+      th {
+        background: rgba(31, 28, 25, 0.04);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        color: var(--muted);
+      }
+
+      tbody tr:nth-child(even) {
+        background: rgba(31, 28, 25, 0.02);
+      }
+
+      .name-cell {
+        font-weight: 600;
+        font-size: 14px;
+      }
+
+      .pill {
+        display: inline-block;
+        margin-left: 6px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: rgba(204, 95, 69, 0.12);
+        color: var(--accent);
+        font-size: 11px;
+        font-family: "IBM Plex Mono", monospace;
+      }
+
+      .hint {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        border: 1px solid var(--line);
+        margin-left: 6px;
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--muted);
+        background: #fff;
+        cursor: help;
+      }
+
+      .mono {
+        font-family: "IBM Plex Mono", monospace;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      .stack {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .service-list {
+        display: grid;
+        gap: 6px;
+      }
+
+      .service-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .bar {
+        flex: 1;
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(31, 28, 25, 0.08);
+        overflow: hidden;
+      }
+
+      .bar span {
+        display: block;
+        height: 100%;
+        background: linear-gradient(90deg, #f2b46d, #d46c58);
+      }
+
+      .status-hot {
+        color: var(--hot);
+      }
+
+      .status-warn {
+        color: var(--warn);
+      }
+
+      .status-good {
+        color: var(--good);
+      }
+
+      .table-wrap {
+        overflow-x: auto;
+      }
+
+      @media (max-width: 1100px) {
+        th:nth-child(n+7),
+        td:nth-child(n+7) {
+          display: none;
+        }
+      }
+
+      @media (max-width: 720px) {
+        th:nth-child(n+5),
+        td:nth-child(n+5) {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="nav">
+        <div class="nav-title">nara resource usage</div>
+        <div><a href="/">network</a></div>
+      </div>
+      <div class="hero">
+        <div>
+          <h1>Live fleet health</h1>
+          <p>Compare memory, CPU, goroutines, and event store load across all known naras.</p>
+        </div>
+      </div>
+      <div class="controls">
+        <label>
+          sort
+          <select id="sortSelect">
+            <option value="goroutines">goroutines</option>
+            <option value="mem">mem alloc</option>
+            <option value="cpu">cpu %</option>
+            <option value="events">event store</option>
+            <option value="name">name</option>
+          </select>
+        </label>
+        <label>
+          filter
+          <input id="filterInput" placeholder="name contains..." />
+        </label>
+      </div>
+    </header>
+
+    <section class="summary" id="summary"></section>
+
+    <section class="table-wrap">
+      <table>
+        <colgroup>
+          <col style="width: 220px;" />
+          <col style="width: 120px;" />
+          <col style="width: 90px;" />
+          <col style="width: 110px;" />
+          <col style="width: 110px;" />
+          <col style="width: 140px;" />
+          <col style="width: 130px;" />
+          <col style="width: 240px;" />
+        </colgroup>
+        <thead>
+          <tr>
+            <th>nara <span class="hint" title="Nara name plus memory profile (from MemoryMode in status).">?</span></th>
+            <th>goroutines <span class="hint" title="Active goroutines right now. Expect low hundreds; steady growth usually means a leak or stuck network calls.">?</span></th>
+            <th>cpu <span class="hint" title="Process CPU percent from the last sample. Sustained >60% is busy; >85% is a hotspot.">?</span></th>
+            <th>mem alloc <span class="hint" title="Heap bytes currently in use (live allocations). This is the memory your code is actively holding.">?</span></th>
+            <th>mem sys <span class="hint" title="Total memory the Go runtime has asked the OS for. Can stay high even after alloc drops.">?</span></th>
+            <th>heap / stack <span class="hint" title="Heap space reserved (HeapSys) vs goroutine stack space reserved (StackSys). Large StackSys + high goroutines suggests many idle stacks.">?</span></th>
+            <th>event store <span class="hint" title="Total events in SyncLedger, plus critical events. If total grows without pruning, memory will climb.">?</span></th>
+            <th>services <span class="hint" title="Top event services by count from SyncLedger. Skew can hint at noisy producers.">?</span></th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </section>
+
+    <script>
+      const tableBody = document.getElementById('tableBody');
+      const summary = document.getElementById('summary');
+      const sortSelect = document.getElementById('sortSelect');
+      const filterInput = document.getElementById('filterInput');
+
+      function safeNum(value) {
+        if (typeof value !== 'number' || !isFinite(value)) return 0;
+        return value;
+      }
+
+      function formatNumber(value, suffix = '') {
+        if (value === null || value === undefined) return '-';
+        return `${value}${suffix}`;
+      }
+
+      function formatPct(value) {
+        if (value === null || value === undefined) return '-';
+        return `${value.toFixed(1)}%`;
+      }
+
+      function summarize(naras) {
+        let totalEvents = 0;
+        let totalGoroutines = 0;
+        let totalMem = 0;
+        let totalCPU = 0;
+        const count = naras.length || 1;
+
+        naras.forEach(n => {
+          totalEvents += safeNum(n.EventStoreTotal);
+          totalGoroutines += safeNum(n.HostStats && n.HostStats.NumGoroutines);
+          totalMem += safeNum(n.HostStats && n.HostStats.MemAllocMB);
+          totalCPU += safeNum(n.HostStats && n.HostStats.ProcCPUPercent);
+        });
+
+        const cards = [
+          { label: 'naras', value: naras.length },
+          { label: 'events total', value: totalEvents },
+          { label: 'mem alloc (mb)', value: totalMem },
+          { label: 'avg cpu', value: (totalCPU / count).toFixed(1) + '%' },
+        ];
+
+        summary.innerHTML = cards.map(card => `
+          <div class="summary-card">
+            <h4>${card.label}</h4>
+            <div>${card.value}</div>
+          </div>
+        `).join('');
+      }
+
+      function statusClass(value, warn, hot) {
+        if (value >= hot) return 'status-hot';
+        if (value >= warn) return 'status-warn';
+        return 'status-good';
+      }
+
+      function render(naras) {
+        const filterText = filterInput.value.trim().toLowerCase();
+        let filtered = naras.filter(n => n.Name.toLowerCase().includes(filterText));
+
+        const sortBy = sortSelect.value;
+        filtered.sort((a, b) => {
+          if (sortBy === 'name') return a.Name.localeCompare(b.Name);
+          const aStats = a.HostStats || {};
+          const bStats = b.HostStats || {};
+          if (sortBy === 'mem') return safeNum(bStats.MemAllocMB) - safeNum(aStats.MemAllocMB);
+          if (sortBy === 'cpu') return safeNum(bStats.ProcCPUPercent) - safeNum(aStats.ProcCPUPercent);
+          if (sortBy === 'events') return safeNum(b.EventStoreTotal) - safeNum(a.EventStoreTotal);
+          return safeNum(bStats.NumGoroutines) - safeNum(aStats.NumGoroutines);
+        });
+
+        summarize(filtered);
+
+        tableBody.innerHTML = filtered.map(n => {
+          const stats = n.HostStats || {};
+          const services = n.EventStoreByService || {};
+          const serviceEntries = Object.entries(services)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 4);
+          const maxService = serviceEntries.reduce((max, entry) => Math.max(max, entry[1]), 1);
+
+          const goroutines = safeNum(stats.NumGoroutines);
+          const cpu = safeNum(stats.ProcCPUPercent);
+          const memAlloc = safeNum(stats.MemAllocMB);
+          const memSys = safeNum(stats.MemSysMB);
+
+          const serviceRows = serviceEntries.map(([name, count]) => `
+            <div class="service-row">
+              <span>${name}</span>
+              <span>${count}</span>
+              <div class="bar"><span style="width:${Math.min(100, (count / maxService) * 100)}%"></span></div>
+            </div>
+          `).join('');
+
+          return `
+            <tr>
+              <td class="name-cell">
+                ${n.Name}
+                <span class="pill">${n.MemoryMode || 'memory'}</span>
+              </td>
+              <td class="mono ${statusClass(goroutines, 400, 800)}">${formatNumber(goroutines)}</td>
+              <td class="mono ${statusClass(cpu, 60, 85)}">${formatPct(cpu)}</td>
+              <td class="mono">${formatNumber(memAlloc, 'mb')}</td>
+              <td class="mono">${formatNumber(memSys, 'mb')}</td>
+              <td class="mono">${formatNumber(safeNum(stats.MemHeapMB), 'mb')} / ${formatNumber(safeNum(stats.MemStackMB), 'mb')}</td>
+              <td class="mono">
+                <div class="stack">
+                  <span>${formatNumber(safeNum(n.EventStoreTotal))}</span>
+                  <span class="muted">crit ${formatNumber(safeNum(n.EventStoreCritical))}</span>
+                </div>
+              </td>
+              <td>${serviceRows || '<span class="muted">no data</span>'}</td>
+            </tr>
+          `;
+        }).join('');
+      }
+
+      function fetchData() {
+        window.fetch('/api.json')
+          .then(res => res.json())
+          .then(data => {
+            const naras = data.naras || [];
+            render(naras);
+          })
+          .catch(() => {});
+      }
+
+      sortSelect.addEventListener('change', fetchData);
+      filterInput.addEventListener('input', fetchData);
+
+      fetchData();
+      setInterval(fetchData, 4000);
+    </script>
+  </body>
+</html>
