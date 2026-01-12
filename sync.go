@@ -40,8 +40,9 @@ type SyncEvent struct {
 	Service   string `json:"svc"` // "social", "ping", "observation"
 
 	// Provenance - who created this event (optional but recommended)
-	Emitter   string `json:"emitter,omitempty"` // nara name who created this event
-	Signature string `json:"sig,omitempty"`     // base64 Ed25519 signature (optional)
+	Emitter   string `json:"emitter,omitempty"`    // nara name who created this event
+	EmitterID string `json:"emitter_id,omitempty"` // nara ID (public key hash) for signature verification
+	Signature string `json:"sig,omitempty"`        // base64 Ed25519 signature (optional)
 
 	// Payloads - only one is set based on Service
 	Social      *SocialEventPayload      `json:"social,omitempty"`
@@ -278,6 +279,46 @@ func (p *PingObservation) ToLogEvent() *LogEvent {
 // This differs from SyncEvent.Timestamp which uses nanoseconds.
 // The reason is that observation data represents coarse-grained state changes
 // where second precision is sufficient.
+//
+// =============================================================================
+// FUTURE REFACTOR: Unify with NaraObservation
+// =============================================================================
+//
+// This struct should be refactored to embed NaraObservation for consistency
+// with CheckpointEventPayload and to encourage data structure reuse.
+//
+// Current problems:
+//   - Field name divergence: RestartNum vs Restarts, StartTime vs FirstSeen
+//   - Missing TotalUptime (checkpoints need it, observations don't track it)
+//   - Observer identity duplicates SyncEvent.Emitter (should use EmitterID)
+//   - No SubjectID field for cryptographic verification
+//
+// Target structure:
+//
+//	type ObservationEvent struct {
+//	    // The observation data (embedded, reusable)
+//	    Observation NaraObservation `json:"observation"`
+//
+//	    // Observation metadata
+//	    Type           string `json:"type"`                    // "restart", "first-seen", "status-change"
+//	    // no inheritance field, it's implied by Observation.Type
+//	    // no backfill field, we have a new Type for it
+//	    ObserverUptime int64  `json:"observer_uptime,omitempty"`
+//
+//	    // Note: Observer identity comes from SyncEvent.Emitter/EmitterID
+//	    // Note: Signature comes from SyncEvent.Signature
+//	}
+//
+// Migration path:
+//  1. Add TotalUptime and SubjectID to NaraObservation
+//  2. Add EmitterID to SyncEvent
+//  3. Create ObservationEvent type embedding NaraObservation
+//  4. Write migration function: ObservationEventPayload → ObservationEvent
+//  5. Update event creation to use new type
+//  6. Keep reading old format for backward compatibility
+//
+// See: /Users/jojo/.claude/plans/observation-unification-refactor.md
+// =============================================================================
 type ObservationEventPayload struct {
 	Observer   string `json:"observer"`              // who made the observation
 	Subject    string `json:"subject"`               // who is being observed

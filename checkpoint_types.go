@@ -17,19 +17,26 @@ import (
 // This solves the "historians' note" problem: old data was tracked differently,
 // we snapshot what we knew then, and track properly going forward.
 type CheckpointEventPayload struct {
-	Subject     string `json:"subject"`      // Who this checkpoint is about (name)
-	SubjectID   string `json:"subject_id"`   // Nara ID (for indexing)
-	AsOfTime    int64  `json:"as_of_time"`   // Unix timestamp (SECONDS) when snapshot was taken
-	FirstSeen   int64  `json:"first_seen"`   // Unix timestamp (SECONDS) when network first saw this nara
-	Restarts    int64  `json:"restarts"`     // Historical restart count at checkpoint time
-	TotalUptime int64  `json:"total_uptime"` // Total verified online seconds at checkpoint time
-	Importance  int    `json:"importance"`   // Always Critical (3) - never pruned
-	Round       int    `json:"round"`        // Consensus round (1 or 2) - needed for signature verification
+	// Version for backwards compatibility
+	Version int `json:"version"` // Checkpoint format version (default: 1)
 
-	// Community consensus - voters who participated in checkpoint creation
+	// Identity (who this checkpoint is about)
+	Subject   string `json:"subject"`    // Nara name
+	SubjectID string `json:"subject_id"` // Nara ID (for indexing)
+
+	// The agreed-upon state (embedded, pure data)
+	Observation NaraObservation `json:"observation"`
+
+	// Checkpoint metadata
+	AsOfTime int64 `json:"as_of_time"` // Unix timestamp (SECONDS) when snapshot was taken
+	Round    int   `json:"round"`      // Consensus round (1 or 2) - needed for signature verification
+
+	// Multi-party attestation - voters who participated in checkpoint creation
 	VoterIDs   []string `json:"voter_ids,omitempty"`  // Nara IDs who voted for these values
 	Signatures []string `json:"signatures,omitempty"` // Base64 Ed25519 signatures (each verifies the values)
 }
+
+// Note: Importance is always Critical - no need to store it
 
 // ContentString returns canonical string for hashing/signing
 // Checkpoints are unique per (subject_id, as_of_time) pair
@@ -40,7 +47,7 @@ func (p *CheckpointEventPayload) ContentString() string {
 		id = p.Subject
 	}
 	return fmt.Sprintf("checkpoint:%s:%d:%d:%d:%d",
-		id, p.AsOfTime, p.FirstSeen, p.Restarts, p.TotalUptime)
+		id, p.AsOfTime, p.Observation.StartTime, p.Observation.Restarts, p.Observation.TotalUptime)
 }
 
 // SignableContent returns the canonical string for signature verification
@@ -57,10 +64,10 @@ func (p *CheckpointEventPayload) IsValid() bool {
 	if p.AsOfTime <= 0 {
 		return false
 	}
-	if p.Restarts < 0 {
+	if p.Observation.Restarts < 0 {
 		return false
 	}
-	if p.TotalUptime < 0 {
+	if p.Observation.TotalUptime < 0 {
 		return false
 	}
 	// VoterIDs and Signatures must match in length if present
@@ -84,7 +91,7 @@ func (p *CheckpointEventPayload) GetTarget() string { return p.Subject }
 // LogFormat returns technical log description
 func (p *CheckpointEventPayload) LogFormat() string {
 	return fmt.Sprintf("checkpoint: %s as-of %d (restarts: %d, uptime: %ds, voters: %d)",
-		p.Subject, p.AsOfTime, p.Restarts, p.TotalUptime, len(p.VoterIDs))
+		p.Subject, p.AsOfTime, p.Observation.Restarts, p.Observation.TotalUptime, len(p.VoterIDs))
 }
 
 // ToLogEvent returns a structured log event for checkpoint creation
@@ -94,7 +101,7 @@ func (p *CheckpointEventPayload) ToLogEvent() *LogEvent {
 		Type:     "checkpoint",
 		Actor:    p.GetActor(),
 		Target:   p.Subject,
-		Detail:   fmt.Sprintf("📸 checkpoint for %s (restarts: %d)", p.Subject, p.Restarts),
+		Detail:   fmt.Sprintf("📸 checkpoint for %s (restarts: %d)", p.Subject, p.Observation.Restarts),
 	}
 }
 
@@ -120,14 +127,16 @@ func NewCheckpointEvent(subject string, asOfTime, firstSeen, restarts, totalUpti
 		Timestamp: time.Now().UnixNano(),
 		Service:   ServiceCheckpoint,
 		Checkpoint: &CheckpointEventPayload{
-			Subject:     subject,
-			AsOfTime:    asOfTime,
-			FirstSeen:   firstSeen,
-			Restarts:    restarts,
-			TotalUptime: totalUptime,
-			Importance:  ImportanceCritical,
-			VoterIDs:    []string{},
-			Signatures:  []string{},
+			Subject:   subject,
+			SubjectID: "", // Will be populated by caller if available
+			AsOfTime:  asOfTime,
+			Observation: NaraObservation{
+				Restarts:    restarts,
+				TotalUptime: totalUptime,
+				StartTime:   firstSeen,
+			},
+			VoterIDs:   []string{},
+			Signatures: []string{},
 		},
 	}
 	e.ComputeID()
@@ -235,7 +244,7 @@ func (l *SyncLedger) DeriveRestartCount(subject string) int64 {
 	if checkpoint != nil {
 		// Count unique start times after checkpoint
 		newRestarts := l.countUniqueStartTimesAfterLocked(subject, checkpoint.AsOfTime)
-		return checkpoint.Restarts + newRestarts
+		return checkpoint.Observation.Restarts + newRestarts
 	}
 
 	// Check for backfill event (second priority)
@@ -344,7 +353,7 @@ func (l *SyncLedger) DeriveTotalUptime(subject string) int64 {
 	baseUptime := int64(0)
 	afterTime := int64(0)
 	if checkpoint != nil {
-		baseUptime = checkpoint.TotalUptime
+		baseUptime = checkpoint.Observation.TotalUptime
 		afterTime = checkpoint.AsOfTime
 	}
 
@@ -418,9 +427,9 @@ func (l *SyncLedger) GetFirstSeenFromEvents(subject string) int64 {
 
 		// Check existing checkpoints
 		if e.Service == ServiceCheckpoint && e.Checkpoint != nil {
-			if e.Checkpoint.Subject == subject && e.Checkpoint.FirstSeen > 0 {
-				if earliest == 0 || e.Checkpoint.FirstSeen < earliest {
-					earliest = e.Checkpoint.FirstSeen
+			if e.Checkpoint.Subject == subject && e.Checkpoint.Observation.StartTime > 0 {
+				if earliest == 0 || e.Checkpoint.Observation.StartTime < earliest {
+					earliest = e.Checkpoint.Observation.StartTime
 				}
 			}
 		}

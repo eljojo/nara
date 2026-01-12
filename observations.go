@@ -68,15 +68,24 @@ const MissingThresholdGossipSeconds int64 = 3600 // 1 hour
 var OpinionRepeatOverride int = 0
 var OpinionIntervalOverride time.Duration = 0
 
+// NaraObservation - pure state data about a nara
+// Identity (who this is about) is external - stored as map key or in containing struct
 type NaraObservation struct {
-	Online       string
-	StartTime    int64
-	Restarts     int64
-	LastSeen     int64
-	LastRestart  int64
+	// The Trinity - core checkpoint data
+	Restarts    int64 // Total restart count
+	TotalUptime int64 // Total seconds online
+	StartTime   int64 // Unix timestamp when first observed (FirstSeen)
+
+	// Current state
+	Online      string // "ONLINE", "OFFLINE", "MISSING"
+	LastSeen    int64  // Unix timestamp last seen
+	LastRestart int64  // Unix timestamp of last restart
+
+	// Cluster info
 	ClusterName  string
 	ClusterEmoji string
-	// Latency measurement fields for Vivaldi coordinates
+
+	// Latency measurement fields (for local tracking only, not synced)
 	LastPingRTT  float64 // Last measured RTT in milliseconds
 	AvgPingRTT   float64 // Exponential moving average of RTT
 	LastPingTime int64   // Unix timestamp of last ping

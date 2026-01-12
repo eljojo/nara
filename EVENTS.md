@@ -117,25 +117,37 @@ Checkpoints are multi-party attested snapshots of historical state. They anchor 
 
 ```go
 type CheckpointEventPayload struct {
-    Subject     string   // Who this checkpoint is about
+    // Identity (who this checkpoint is about)
+    Subject     string   // Nara name
     SubjectID   string   // Nara ID (for indexing)
-    AsOfTime    int64    // Unix timestamp (seconds) when snapshot was taken
-    FirstSeen   int64    // When network first saw this nara
-    Restarts    int64    // Historical restart count at checkpoint time
-    TotalUptime int64    // Total verified online seconds at checkpoint time
-    Importance  int      // Always Critical (3) - never pruned
 
-    // Community consensus - voters who participated in checkpoint creation
+    // The agreed-upon state (embedded pure data)
+    Observation NaraObservation // Contains: Restarts, TotalUptime, StartTime
+
+    // Checkpoint metadata
+    AsOfTime    int64    // Unix timestamp (seconds) when snapshot was taken
+    Round       int      // Consensus round (1 or 2)
+
+    // Multi-party attestation - voters who participated
     VoterIDs    []string // Nara IDs who voted for these values
     Signatures  []string // Base64 Ed25519 signatures (each verifies the values)
+}
+
+// NaraObservation - pure state data (identity-agnostic)
+type NaraObservation struct {
+    Restarts    int64 // Total restart count
+    TotalUptime int64 // Total seconds online
+    StartTime   int64 // Unix timestamp when first observed
+    // ... other fields
 }
 ```
 
 **Key properties:**
 - **Never pruned**: Checkpoints are critical events that survive all pruning
 - **Multi-signed**: Requires minimum 2 voters (outside proposer) to reach consensus
-- **Historical anchor**: Allows deriving restart count as `checkpoint.Restarts + count(new restarts)`
+- **Historical anchor**: Allows deriving restart count as `checkpoint.Observation.Restarts + count(new restarts)`
 - **MQTT consensus**: Created via proposal/vote flow over MQTT topics
+- **Attestation-based**: Uses Attestation type for signed claims during voting
 
 ## Personality Filtering
 
@@ -265,7 +277,7 @@ Checkpoint events capture historical state with multi-party consensus:
 1. Each nara proposes a checkpoint about itself every 24 hours via MQTT
 2. Other naras vote (approve or reject with their own values)
 3. Consensus is reached via two-round voting (trimmed mean for outliers)
-4. Deriving current state: `checkpoint.value + count(events after checkpoint)`
+4. Deriving current state: `checkpoint.Observation.Restarts + count(restart events after checkpoint)`
 
 **Consensus Flow:**
 ```

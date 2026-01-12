@@ -3,7 +3,6 @@ package nara
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"math/rand"
 	"sort"
 	"sync"
@@ -30,48 +29,19 @@ const (
 )
 
 // CheckpointProposal is broadcast when a nara proposes a checkpoint about itself
+// It's a self-attestation (attester == subject) plus round context
 type CheckpointProposal struct {
-	Subject    string `json:"subject"`     // The nara proposing (itself)
-	SubjectID  string `json:"subject_id"`  // Nara ID
-	ProposedAt int64  `json:"proposed_at"` // Unix timestamp
-	Round      int    `json:"round"`       // 1 or 2
-
-	// Values to sign (proposer's view)
-	Restarts    int64 `json:"restarts"`
-	TotalUptime int64 `json:"total_uptime"`
-	FirstSeen   int64 `json:"first_seen"`
-
-	Signature string `json:"signature"` // Proposer signs these values
-}
-
-// SignableContent returns the canonical string for signing a proposal
-func (p *CheckpointProposal) SignableContent() string {
-	return fmt.Sprintf("checkpoint-proposal:%s:%d:%d:%d:%d:%d",
-		p.SubjectID, p.ProposedAt, p.Restarts, p.TotalUptime, p.FirstSeen, p.Round)
+	Attestation     // Embedded attestation (subject, observation, signature)
+	Round       int `json:"round"` // Consensus round (1 or 2)
 }
 
 // CheckpointVote is a response to a proposal
+// It's a third-party attestation (attester != subject) plus vote context
 type CheckpointVote struct {
-	Subject    string `json:"subject"`     // Who we're voting about
-	Voter      string `json:"voter"`       // Who is voting
-	VoterID    string `json:"voter_id"`    // Voter's nara ID
-	ProposalTS int64  `json:"proposal_ts"` // Which proposal this vote is for
-	Round      int    `json:"round"`       // 1 or 2
-
-	Approved bool `json:"approved"` // true = agree with proposal values
-
-	// Values we're signing (same as proposal if approved, our own if rejected)
-	Restarts    int64 `json:"restarts"`
-	TotalUptime int64 `json:"total_uptime"`
-	FirstSeen   int64 `json:"first_seen"`
-
-	Signature string `json:"signature"` // Signs the values above (verifiable!)
-}
-
-// SignableContent returns the canonical string for signing a vote
-func (v *CheckpointVote) SignableContent() string {
-	return fmt.Sprintf("checkpoint-vote:%s:%d:%d:%d:%d:%d",
-		v.VoterID, v.ProposalTS, v.Restarts, v.TotalUptime, v.FirstSeen, v.Round)
+	Attestation       // Embedded attestation (subject, observation, voter as attester, signature)
+	ProposalTS  int64 `json:"proposal_ts"` // Which proposal this vote is for
+	Round       int   `json:"round"`       // Consensus round (1 or 2)
+	Approved    bool  `json:"approved"`    // true = agree with proposal values
 }
 
 // pendingProposal tracks an in-flight checkpoint proposal awaiting votes
@@ -239,18 +209,29 @@ func (s *CheckpointService) proposeCheckpointRound(round int, consensusValues *r
 
 	now := time.Now().Unix()
 
-	proposal := &CheckpointProposal{
-		Subject:     myName,
-		SubjectID:   myID,
-		ProposedAt:  now,
-		Round:       round,
-		Restarts:    restarts,
-		TotalUptime: totalUptime,
-		FirstSeen:   firstSeen,
+	// Create attestation (self-attestation: I claim this about myself)
+	attestation := Attestation{
+		Version:   1, // Attestation format version
+		Subject:   myName,
+		SubjectID: myID,
+		Observation: NaraObservation{
+			Restarts:    restarts,
+			TotalUptime: totalUptime,
+			StartTime:   firstSeen,
+		},
+		Attester:   myName, // Same as Subject for self-attestation
+		AttesterID: myID,   // Same as SubjectID for self-attestation
+		AsOfTime:   now,
 	}
 
-	// Sign the proposal
-	proposal.Signature = SignContent(proposal, s.local.Keypair)
+	// Sign the attestation
+	attestation.Signature = SignContent(&attestation, s.local.Keypair)
+
+	// Create proposal (attestation + round context)
+	proposal := &CheckpointProposal{
+		Attestation: attestation,
+		Round:       round,
+	}
 
 	// Store as pending
 	pending := &pendingProposal{
@@ -326,34 +307,44 @@ func (s *CheckpointService) HandleProposal(proposal *CheckpointProposal) {
 	ourFirstSeen := s.ledger.GetFirstSeenFromEvents(proposal.Subject)
 
 	// Determine if we approve (values match within tolerance)
-	approved := s.valuesMatch(proposal.Restarts, ourRestarts, 5) &&
-		s.valuesMatch(proposal.TotalUptime, ourUptime, 60) &&
-		s.valuesMatch(proposal.FirstSeen, ourFirstSeen, 60)
+	approved := s.valuesMatch(proposal.Observation.Restarts, ourRestarts, 5) &&
+		s.valuesMatch(proposal.Observation.TotalUptime, ourUptime, 60) &&
+		s.valuesMatch(proposal.Observation.StartTime, ourFirstSeen, 60)
 
-	// Build vote with either their values (if approved) or our values (if rejected)
-	vote := &CheckpointVote{
-		Subject:    proposal.Subject,
-		Voter:      s.local.Me.Name,
-		VoterID:    s.local.Me.Status.ID,
-		ProposalTS: proposal.ProposedAt,
-		Round:      proposal.Round,
-		Approved:   approved,
-	}
-
+	// Create attestation (third-party: I claim this about someone else)
+	var observation NaraObservation
 	if approved {
 		// Sign their values
-		vote.Restarts = proposal.Restarts
-		vote.TotalUptime = proposal.TotalUptime
-		vote.FirstSeen = proposal.FirstSeen
+		observation = proposal.Observation
 	} else {
 		// Sign our values
-		vote.Restarts = ourRestarts
-		vote.TotalUptime = ourUptime
-		vote.FirstSeen = ourFirstSeen
+		observation = NaraObservation{
+			Restarts:    ourRestarts,
+			TotalUptime: ourUptime,
+			StartTime:   ourFirstSeen,
+		}
 	}
 
-	// Sign the vote
-	vote.Signature = SignContent(vote, s.local.Keypair)
+	attestation := Attestation{
+		Version:     1, // Attestation format version
+		Subject:     proposal.Subject,
+		SubjectID:   proposal.SubjectID,
+		Observation: observation,
+		Attester:    s.local.Me.Name,      // We are the attester (voter)
+		AttesterID:  s.local.Me.Status.ID, // Our ID
+		AsOfTime:    proposal.AsOfTime,    // Sign the SAME timestamp as proposal
+	}
+
+	// Sign the attestation
+	attestation.Signature = SignContent(&attestation, s.local.Keypair)
+
+	// Build vote (attestation + vote context)
+	vote := &CheckpointVote{
+		Attestation: attestation,
+		ProposalTS:  proposal.AsOfTime, // Reference the proposal timestamp
+		Round:       proposal.Round,
+		Approved:    approved,
+	}
 
 	// Publish vote with jitter (0-3s) to prevent thundering herd
 	// In tests, use zero jitter for faster consensus
@@ -395,7 +386,7 @@ func (s *CheckpointService) HandleVote(vote *CheckpointVote) {
 
 	// Verify the vote signature before accepting
 	if !s.verifyVoteSignature(vote) {
-		logrus.Warnf("checkpoint: rejected vote from %s - invalid signature", vote.Voter)
+		logrus.Warnf("checkpoint: rejected vote from %s - invalid signature", vote.Attester)
 		return
 	}
 
@@ -407,7 +398,7 @@ func (s *CheckpointService) HandleVote(vote *CheckpointVote) {
 		return
 	}
 	// Copy the values we need to check before releasing lock
-	proposalTS := pending.proposal.ProposedAt
+	proposalTS := pending.proposal.AsOfTime
 	proposalRound := pending.round
 	s.myPendingProposalMu.Unlock()
 
@@ -429,41 +420,44 @@ func (s *CheckpointService) HandleVote(vote *CheckpointVote) {
 	pending.votes = append(pending.votes, vote)
 	pending.votesMu.Unlock()
 
-	logrus.Debugf("checkpoint: received vote from %s (approved=%v)", vote.Voter, vote.Approved)
+	logrus.Debugf("checkpoint: received vote from %s (approved=%v)", vote.Attester, vote.Approved)
 }
 
 // verifyVoteSignature verifies that a vote has a valid signature from the claimed voter
+// Explicitly verifies the embedded attestation rather than the wrapper
 func (s *CheckpointService) verifyVoteSignature(vote *CheckpointVote) bool {
-	if vote.Signature == "" {
+	if vote.Attestation.Signature == "" {
 		return false
 	}
 
-	// Get voter's public key
-	pubKey := s.network.getPublicKeyForNara(vote.Voter)
+	// Get voter's public key by ID (stable identifier, not name)
+	pubKey := s.network.getPublicKeyForNaraID(vote.AttesterID)
 	if pubKey == nil {
-		logrus.Debugf("checkpoint: cannot verify vote from %s - unknown public key", vote.Voter)
+		logrus.Debugf("checkpoint: cannot verify vote from attester_id=%s - unknown public key", vote.AttesterID)
 		return false
 	}
 
-	// Verify signature using Signable interface
-	return VerifyContent(vote, pubKey, vote.Signature)
+	// Verify the attestation signature (not the wrapper)
+	return VerifyContent(&vote.Attestation, pubKey, vote.Attestation.Signature)
 }
 
 // verifyProposalSignature verifies that a proposal has a valid signature from the proposer
+// Explicitly verifies the embedded attestation rather than the wrapper
 func (s *CheckpointService) verifyProposalSignature(proposal *CheckpointProposal) bool {
-	if proposal.Signature == "" {
+	if proposal.Attestation.Signature == "" {
 		return false
 	}
 
-	// Get proposer's public key
-	pubKey := s.network.getPublicKeyForNara(proposal.Subject)
+	// Get proposer's public key by ID (stable identifier, not name)
+	// For proposals, SubjectID == AttesterID (self-attestation)
+	pubKey := s.network.getPublicKeyForNaraID(proposal.SubjectID)
 	if pubKey == nil {
-		logrus.Debugf("checkpoint: cannot verify proposal from %s - unknown public key", proposal.Subject)
+		logrus.Debugf("checkpoint: cannot verify proposal from subject_id=%s - unknown public key", proposal.SubjectID)
 		return false
 	}
 
-	// Verify signature using Signable interface
-	return VerifyContent(proposal, pubKey, proposal.Signature)
+	// Verify the attestation signature (not the wrapper)
+	return VerifyContent(&proposal.Attestation, pubKey, proposal.Attestation.Signature)
 }
 
 // finalizeProposal attempts to finalize the current pending proposal
@@ -529,12 +523,12 @@ func (s *CheckpointService) tryFindConsensus(proposal *CheckpointProposal, votes
 	groups := make(map[valueKey][]*CheckpointVote)
 
 	for _, vote := range votes {
-		key := valueKey{vote.Restarts, vote.TotalUptime, vote.FirstSeen}
+		key := valueKey{vote.Observation.Restarts, vote.Observation.TotalUptime, vote.Observation.StartTime}
 		groups[key] = append(groups[key], vote)
 	}
 
 	// Also add our own proposal values as a potential group
-	proposalKey := valueKey{proposal.Restarts, proposal.TotalUptime, proposal.FirstSeen}
+	proposalKey := valueKey{proposal.Observation.Restarts, proposal.Observation.TotalUptime, proposal.Observation.StartTime}
 
 	// Find the largest group that meets minimum threshold
 	var bestKey valueKey
@@ -570,7 +564,7 @@ func (s *CheckpointService) tryFindConsensus(proposal *CheckpointProposal, votes
 	}
 	sortedVotes := make([]voteSortEntry, 0, len(bestVotes))
 	for _, vote := range bestVotes {
-		uptime := s.getVoterUptime(vote.Voter)
+		uptime := s.getVoterUptime(vote.Attester)
 		sortedVotes = append(sortedVotes, voteSortEntry{vote, uptime})
 	}
 	sort.Slice(sortedVotes, func(i, j int) bool {
@@ -579,23 +573,24 @@ func (s *CheckpointService) tryFindConsensus(proposal *CheckpointProposal, votes
 
 	// Build checkpoint with matching signatures
 	checkpoint := &CheckpointEventPayload{
-		Subject:     proposal.Subject,
-		SubjectID:   proposal.SubjectID,
-		AsOfTime:    proposal.ProposedAt,
-		Restarts:    bestKey.Restarts,
-		TotalUptime: bestKey.TotalUptime,
-		FirstSeen:   bestKey.FirstSeen,
-		VoterIDs:    make([]string, 0, MaxCheckpointSignatures),
-		Signatures:  make([]string, 0, MaxCheckpointSignatures),
-		Importance:  ImportanceCritical,
-		Round:       proposal.Round, // Needed for signature verification
+		Subject:   proposal.Subject,
+		SubjectID: proposal.SubjectID,
+		AsOfTime:  proposal.AsOfTime,
+		Observation: NaraObservation{
+			Restarts:    bestKey.Restarts,
+			TotalUptime: bestKey.TotalUptime,
+			StartTime:   bestKey.FirstSeen,
+		},
+		VoterIDs:   make([]string, 0, MaxCheckpointSignatures),
+		Signatures: make([]string, 0, MaxCheckpointSignatures),
+		Round:      proposal.Round, // Needed for signature verification
 	}
 
 	// Add proposer's signature first if values match (proposer always included)
 	proposerIncluded := false
-	if bestKey.Restarts == proposal.Restarts &&
-		bestKey.TotalUptime == proposal.TotalUptime &&
-		bestKey.FirstSeen == proposal.FirstSeen {
+	if bestKey.Restarts == proposal.Observation.Restarts &&
+		bestKey.TotalUptime == proposal.Observation.TotalUptime &&
+		bestKey.FirstSeen == proposal.Observation.StartTime {
 		checkpoint.VoterIDs = append(checkpoint.VoterIDs, proposal.SubjectID)
 		checkpoint.Signatures = append(checkpoint.Signatures, proposal.Signature)
 		proposerIncluded = true
@@ -610,7 +605,7 @@ func (s *CheckpointService) tryFindConsensus(proposal *CheckpointProposal, votes
 		if i >= maxVoters {
 			break
 		}
-		checkpoint.VoterIDs = append(checkpoint.VoterIDs, entry.vote.VoterID)
+		checkpoint.VoterIDs = append(checkpoint.VoterIDs, entry.vote.AttesterID)
 		checkpoint.Signatures = append(checkpoint.Signatures, entry.vote.Signature)
 	}
 
@@ -634,9 +629,9 @@ func (s *CheckpointService) proposeRound2(votes []*CheckpointVote) {
 	// Collect all proposed values from votes
 	var restartVals, uptimeVals, firstSeenVals []int64
 	for _, vote := range votes {
-		restartVals = append(restartVals, vote.Restarts)
-		uptimeVals = append(uptimeVals, vote.TotalUptime)
-		firstSeenVals = append(firstSeenVals, vote.FirstSeen)
+		restartVals = append(restartVals, vote.Observation.Restarts)
+		uptimeVals = append(uptimeVals, vote.Observation.TotalUptime)
+		firstSeenVals = append(firstSeenVals, vote.Observation.StartTime)
 	}
 
 	// Compute trimmed mean consensus values from round 1 votes
@@ -651,22 +646,32 @@ func (s *CheckpointService) proposeRound2(votes []*CheckpointVote) {
 }
 
 // storeCheckpoint adds the finalized checkpoint to the ledger and broadcasts it
+// Requires at least 2 valid signatures to accept the checkpoint
 func (s *CheckpointService) storeCheckpoint(checkpoint *CheckpointEventPayload) {
 	event := NewCheckpointEvent(
 		checkpoint.Subject,
 		checkpoint.AsOfTime,
-		checkpoint.FirstSeen,
-		checkpoint.Restarts,
-		checkpoint.TotalUptime,
+		checkpoint.Observation.StartTime,
+		checkpoint.Observation.Restarts,
+		checkpoint.Observation.TotalUptime,
 	)
 
-	// Update with voter info
+	// Update with voter info and metadata
+	event.Checkpoint.Version = 1 // Checkpoint format version
 	event.Checkpoint.VoterIDs = checkpoint.VoterIDs
 	event.Checkpoint.Signatures = checkpoint.Signatures
 	event.Checkpoint.SubjectID = checkpoint.SubjectID
+	event.Checkpoint.Round = checkpoint.Round
+
+	// Verify at least 2 signatures before accepting
+	validCount := s.verifyCheckpointSignatures(event.Checkpoint)
+	if validCount < 2 {
+		logrus.Warnf("checkpoint: rejecting checkpoint for %s - only %d valid signatures (need 2+)", checkpoint.Subject, validCount)
+		return
+	}
 
 	if s.ledger.AddEvent(event) {
-		logrus.Printf("checkpoint: stored checkpoint for %s", checkpoint.Subject)
+		logrus.Printf("checkpoint: stored checkpoint for %s (verified %d signatures)", checkpoint.Subject, validCount)
 	}
 
 	// Broadcast finalized checkpoint so everyone stores it
@@ -709,12 +714,12 @@ func (s *CheckpointService) HandleFinalCheckpoint(event *SyncEvent) {
 		return
 	}
 
-	// Verify at least one signature from a known nara
-	// We may not know all voters, but if we can verify at least one, we trust it
+	// Verify at least 2 signatures from known naras
+	// We may not know all voters, but we require at least 2 verifiable signatures for trust
 	validSignatures := s.verifyCheckpointSignatures(event.Checkpoint)
-	if validSignatures < 1 {
-		logrus.Warnf("checkpoint: rejected checkpoint for %s - no verifiable signatures from known naras",
-			event.Checkpoint.Subject)
+	if validSignatures < 2 {
+		logrus.Warnf("checkpoint: rejected checkpoint for %s - insufficient verifiable signatures (%d < 2)",
+			event.Checkpoint.Subject, validSignatures)
 		return
 	}
 
@@ -732,12 +737,6 @@ func (s *CheckpointService) verifyCheckpointSignatures(checkpoint *CheckpointEve
 		return 0
 	}
 
-	// Use checkpoint's round, default to 1 for backward compatibility with old checkpoints
-	round := checkpoint.Round
-	if round == 0 {
-		round = 1
-	}
-
 	validCount := 0
 	for i, voterID := range checkpoint.VoterIDs {
 		signature := checkpoint.Signatures[i]
@@ -751,18 +750,32 @@ func (s *CheckpointService) verifyCheckpointSignatures(checkpoint *CheckpointEve
 			continue
 		}
 
-		// Build signable content - need to determine if this is proposer or voter signature
-		// Proposer signs with proposal format, voters sign with vote format
-		var signableContent string
-		if voterID == checkpoint.SubjectID {
-			// This is the proposer's signature
-			signableContent = fmt.Sprintf("checkpoint-proposal:%s:%d:%d:%d:%d:%d",
-				checkpoint.SubjectID, checkpoint.AsOfTime, checkpoint.Restarts, checkpoint.TotalUptime, checkpoint.FirstSeen, round)
-		} else {
-			// This is a voter's signature
-			signableContent = fmt.Sprintf("checkpoint-vote:%s:%d:%d:%d:%d:%d",
-				voterID, checkpoint.AsOfTime, checkpoint.Restarts, checkpoint.TotalUptime, checkpoint.FirstSeen, round)
+		// Build attestation for verification - all signatures use attestation format
+		// The attestation contains the checkpoint's agreed-upon values
+		version := checkpoint.Version
+		if version == 0 {
+			version = 1 // Default to v1 for backwards compatibility
 		}
+		attestation := Attestation{
+			Version:     version,
+			Subject:     checkpoint.Subject,
+			SubjectID:   checkpoint.SubjectID,
+			Observation: checkpoint.Observation,
+			Attester:    "", // Will be set below
+			AttesterID:  voterID,
+			AsOfTime:    checkpoint.AsOfTime,
+		}
+
+		// Determine attester name (for completeness, though not used in signing)
+		if voterID == checkpoint.SubjectID {
+			attestation.Attester = checkpoint.Subject // Self-attestation (proposer)
+		} else {
+			// Third-party attestation (voter) - we don't have voter name, but not needed for verification
+			attestation.Attester = ""
+		}
+
+		// Get canonical signable content
+		signableContent := attestation.SignableContent()
 
 		if VerifySignatureBase64(pubKey, []byte(signableContent), signature) {
 			validCount++

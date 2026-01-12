@@ -130,7 +130,7 @@ Checkpoint events are multi-party attested snapshots of historical state. They p
 **Purpose:**
 - Permanent anchor for historical restart counts and uptime
 - Multi-party attestation provides stronger guarantees than single-observer backfill
-- Allows deriving restart count as: `checkpoint.Restarts + count(unique StartTimes after checkpoint)`
+- Allows deriving restart count as: `checkpoint.Observation.Restarts + count(unique StartTimes after checkpoint)`
 
 **Structure:**
 ```json
@@ -140,15 +140,23 @@ Checkpoint events are multi-party attested snapshots of historical state. They p
     "subject": "lisa",
     "subject_id": "nara-id-hash",
     "as_of_time": 1704067200,
-    "first_seen": 1624066568,
-    "restarts": 47,
-    "total_uptime": 23456789,
-    "importance": 3,
+    "observation": {
+      "restarts": 47,
+      "total_uptime": 23456789,
+      "start_time": 1624066568
+    },
+    "round": 1,
     "voter_ids": ["homer-id", "marge-id", "bart-id"],
     "signatures": ["sig1", "sig2", "sig3"]
   }
 }
 ```
+
+**Key Concepts:**
+- **NaraObservation**: Pure state data embedded in checkpoint (restarts, total_uptime, start_time)
+- **Attestation**: Signed claims about a nara's state used in checkpoint voting
+  - Self-attestation: Proposer signs their own values (checkpoint proposal)
+  - Third-party attestation: Voters sign their view (checkpoint vote)
 
 **MQTT Checkpoint Consensus Flow:**
 1. Nara proposes checkpoint about itself via `nara/checkpoint/propose`
@@ -164,7 +172,7 @@ Checkpoint events are multi-party attested snapshots of historical state. They p
 
 **Deriving Restart Count:**
 ```
-Total Restarts = checkpoint.Restarts + count(unique StartTimes after checkpoint.AsOfTime)
+Total Restarts = checkpoint.Observation.Restarts + count(unique StartTimes after checkpoint.AsOfTime)
 
 Priority order:
 1. Checkpoint (if exists) - strongest guarantee
@@ -318,7 +326,10 @@ Uses **trimmed mean** to calculate robust consensus from observation events:
 ## Code Locations
 
 - `sync.go` - ObservationEventPayload struct, anti-abuse logic
-- `observations.go` - Event emission, consensus formation
+- `observations.go` - Event emission, consensus formation, NaraObservation struct
+- `attestation.go` - Attestation type for signed claims (checkpoint voting)
+- `checkpoint_types.go` - CheckpointEventPayload struct
+- `checkpoint_service.go` - Checkpoint consensus and MQTT voting
 - `network.go` - Background sync, backfill mechanism
 - `nara.go` - NaraStatus (will remove Observations map in v1.0.0)
 

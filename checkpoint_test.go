@@ -3,7 +3,6 @@ package nara
 import (
 	"crypto/ed25519"
 	"encoding/base64"
-	"fmt"
 	"testing"
 	"time"
 )
@@ -45,34 +44,32 @@ func TestCheckpoint_Create(t *testing.T) {
 		t.Errorf("Expected as_of_time=%d, got %d", asOfTime, event.Checkpoint.AsOfTime)
 	}
 
-	if event.Checkpoint.FirstSeen != firstSeen {
-		t.Errorf("Expected first_seen=%d, got %d", firstSeen, event.Checkpoint.FirstSeen)
+	if event.Checkpoint.Observation.StartTime != firstSeen {
+		t.Errorf("Expected first_seen=%d, got %d", firstSeen, event.Checkpoint.Observation.StartTime)
 	}
 
-	if event.Checkpoint.Restarts != restarts {
-		t.Errorf("Expected restarts=%d, got %d", restarts, event.Checkpoint.Restarts)
+	if event.Checkpoint.Observation.Restarts != restarts {
+		t.Errorf("Expected restarts=%d, got %d", restarts, event.Checkpoint.Observation.Restarts)
 	}
 
-	if event.Checkpoint.TotalUptime != totalUptime {
-		t.Errorf("Expected total_uptime=%d, got %d", totalUptime, event.Checkpoint.TotalUptime)
+	if event.Checkpoint.Observation.TotalUptime != totalUptime {
+		t.Errorf("Expected total_uptime=%d, got %d", totalUptime, event.Checkpoint.Observation.TotalUptime)
 	}
 
-	// Checkpoint events should be critical importance
-	if event.Checkpoint.Importance != ImportanceCritical {
-		t.Errorf("Expected importance=%d (Critical), got %d", ImportanceCritical, event.Checkpoint.Importance)
-	}
+	// Note: Checkpoint events are always critical importance (no need to check)
 }
 
 // Test that checkpoint events are valid
 func TestCheckpoint_Validation(t *testing.T) {
 	// Valid checkpoint
 	valid := &CheckpointEventPayload{
-		Subject:     "lisa",
-		AsOfTime:    time.Now().Unix(),
-		FirstSeen:   1624066568,
-		Restarts:    47,
-		TotalUptime: 23456789,
-		Importance:  ImportanceCritical,
+		Subject:  "lisa",
+		AsOfTime: time.Now().Unix(),
+		Observation: NaraObservation{
+			StartTime:   1624066568,
+			Restarts:    47,
+			TotalUptime: 23456789,
+		},
 	}
 	if !valid.IsValid() {
 		t.Error("Expected valid checkpoint to pass validation")
@@ -80,9 +77,11 @@ func TestCheckpoint_Validation(t *testing.T) {
 
 	// Invalid: missing subject
 	invalid1 := &CheckpointEventPayload{
-		AsOfTime:  time.Now().Unix(),
-		FirstSeen: 1624066568,
-		Restarts:  47,
+		AsOfTime: time.Now().Unix(),
+		Observation: NaraObservation{
+			StartTime: 1624066568,
+			Restarts:  47,
+		},
 	}
 	if invalid1.IsValid() {
 		t.Error("Expected checkpoint without subject to fail validation")
@@ -90,9 +89,11 @@ func TestCheckpoint_Validation(t *testing.T) {
 
 	// Invalid: missing AsOfTime
 	invalid2 := &CheckpointEventPayload{
-		Subject:   "lisa",
-		FirstSeen: 1624066568,
-		Restarts:  47,
+		Subject: "lisa",
+		Observation: NaraObservation{
+			StartTime: 1624066568,
+			Restarts:  47,
+		},
 	}
 	if invalid2.IsValid() {
 		t.Error("Expected checkpoint without as_of_time to fail validation")
@@ -102,7 +103,9 @@ func TestCheckpoint_Validation(t *testing.T) {
 	invalid3 := &CheckpointEventPayload{
 		Subject:  "lisa",
 		AsOfTime: time.Now().Unix(),
-		Restarts: -1,
+		Observation: NaraObservation{
+			Restarts: -1,
+		},
 	}
 	if invalid3.IsValid() {
 		t.Error("Expected checkpoint with negative restarts to fail validation")
@@ -127,8 +130,8 @@ func TestCheckpoint_AddToLedger(t *testing.T) {
 		t.Fatal("Expected to retrieve checkpoint, got nil")
 	}
 
-	if checkpoint.Restarts != 47 {
-		t.Errorf("Expected restarts=47, got %d", checkpoint.Restarts)
+	if checkpoint.Observation.Restarts != 47 {
+		t.Errorf("Expected restarts=47, got %d", checkpoint.Observation.Restarts)
 	}
 }
 
@@ -151,8 +154,8 @@ func TestCheckpoint_OnlyOnePerSubject(t *testing.T) {
 		t.Fatal("Expected to retrieve checkpoint, got nil")
 	}
 
-	if checkpoint.Restarts != 50 {
-		t.Errorf("Expected latest checkpoint restarts=50, got %d", checkpoint.Restarts)
+	if checkpoint.Observation.Restarts != 50 {
+		t.Errorf("Expected latest checkpoint restarts=50, got %d", checkpoint.Observation.Restarts)
 	}
 
 	if checkpoint.AsOfTime != 2000 {
@@ -182,8 +185,8 @@ func TestCheckpoint_NeverPruned(t *testing.T) {
 		t.Fatal("Checkpoint was pruned but should never be pruned")
 	}
 
-	if checkpoint.Restarts != 47 {
-		t.Errorf("Expected checkpoint restarts=47, got %d", checkpoint.Restarts)
+	if checkpoint.Observation.Restarts != 47 {
+		t.Errorf("Expected checkpoint restarts=47, got %d", checkpoint.Observation.Restarts)
 	}
 }
 
@@ -509,33 +512,67 @@ func TestCheckpoint_Round2SignatureVerification(t *testing.T) {
 	firstSeen := int64(1624066568)
 	round := 2 // Round 2!
 
-	// Create signatures as they would be in round 2
-	// Proposer signs with proposal format
-	proposerSignableContent := fmt.Sprintf("checkpoint-proposal:%s:%d:%d:%d:%d:%d",
-		proposerID, asOfTime, restarts, totalUptime, firstSeen, round)
-	proposerSig := proposerKeypair.SignBase64([]byte(proposerSignableContent))
+	// Create signatures using attestation format
+	// Proposer creates self-attestation
+	proposerAttestation := Attestation{
+		Version:   1,
+		Subject:   subject,
+		SubjectID: proposerID,
+		Observation: NaraObservation{
+			Restarts:    restarts,
+			TotalUptime: totalUptime,
+			StartTime:   firstSeen,
+		},
+		Attester:   subject,
+		AttesterID: proposerID,
+		AsOfTime:   asOfTime,
+	}
+	proposerSig := SignContent(&proposerAttestation, proposerKeypair)
 
-	// Voters sign with vote format
-	voter1SignableContent := fmt.Sprintf("checkpoint-vote:%s:%d:%d:%d:%d:%d",
-		voter1ID, asOfTime, restarts, totalUptime, firstSeen, round)
-	voter1Sig := voter1Keypair.SignBase64([]byte(voter1SignableContent))
+	// Voters create third-party attestations
+	voter1Attestation := Attestation{
+		Version:   1,
+		Subject:   subject,
+		SubjectID: proposerID,
+		Observation: NaraObservation{
+			Restarts:    restarts,
+			TotalUptime: totalUptime,
+			StartTime:   firstSeen,
+		},
+		Attester:   "voter1",
+		AttesterID: voter1ID,
+		AsOfTime:   asOfTime,
+	}
+	voter1Sig := SignContent(&voter1Attestation, voter1Keypair)
 
-	voter2SignableContent := fmt.Sprintf("checkpoint-vote:%s:%d:%d:%d:%d:%d",
-		voter2ID, asOfTime, restarts, totalUptime, firstSeen, round)
-	voter2Sig := voter2Keypair.SignBase64([]byte(voter2SignableContent))
+	voter2Attestation := Attestation{
+		Version:   1,
+		Subject:   subject,
+		SubjectID: proposerID,
+		Observation: NaraObservation{
+			Restarts:    restarts,
+			TotalUptime: totalUptime,
+			StartTime:   firstSeen,
+		},
+		Attester:   "voter2",
+		AttesterID: voter2ID,
+		AsOfTime:   asOfTime,
+	}
+	voter2Sig := SignContent(&voter2Attestation, voter2Keypair)
 
 	// Create checkpoint with round 2 signatures
 	checkpoint := &CheckpointEventPayload{
-		Subject:     subject,
-		SubjectID:   proposerID,
-		AsOfTime:    asOfTime,
-		Restarts:    restarts,
-		TotalUptime: totalUptime,
-		FirstSeen:   firstSeen,
-		VoterIDs:    []string{proposerID, voter1ID, voter2ID},
-		Signatures:  []string{proposerSig, voter1Sig, voter2Sig},
-		Importance:  ImportanceCritical,
-		Round:       round, // Must match what was signed
+		Subject:   subject,
+		SubjectID: proposerID,
+		AsOfTime:  asOfTime,
+		Observation: NaraObservation{
+			Restarts:    restarts,
+			TotalUptime: totalUptime,
+			StartTime:   firstSeen,
+		},
+		VoterIDs:   []string{proposerID, voter1ID, voter2ID},
+		Signatures: []string{proposerSig, voter1Sig, voter2Sig},
+		Round:      round, // Must match what was signed
 	}
 
 	// Create a CheckpointService with a mock network that returns public keys
@@ -571,12 +608,12 @@ func TestCheckpoint_Round2SignatureVerification(t *testing.T) {
 
 	service := NewCheckpointService(network, ledger, local)
 
-	// Verify signatures - this should succeed but currently fails due to hardcoded round=1
+	// Verify signatures - should succeed with attestation format
 	validCount := service.verifyCheckpointSignatures(checkpoint)
 
 	// All 3 signatures should be valid
 	if validCount != 3 {
-		t.Errorf("Expected 3 valid signatures for round 2 checkpoint, got %d (bug: round hardcoded to 1)", validCount)
+		t.Errorf("Expected 3 valid signatures for round 2 checkpoint, got %d", validCount)
 	}
 }
 
@@ -598,31 +635,65 @@ func TestCheckpoint_PartialSignatureVerification(t *testing.T) {
 	firstSeen := int64(1624066568)
 	round := 1
 
-	// Create signatures
-	proposerSignableContent := fmt.Sprintf("checkpoint-proposal:%s:%d:%d:%d:%d:%d",
-		proposerID, asOfTime, restarts, totalUptime, firstSeen, round)
-	proposerSig := proposerKeypair.SignBase64([]byte(proposerSignableContent))
+	// Create signatures using attestation format
+	proposerAttestation := Attestation{
+		Version:   1,
+		Subject:   subject,
+		SubjectID: proposerID,
+		Observation: NaraObservation{
+			Restarts:    restarts,
+			TotalUptime: totalUptime,
+			StartTime:   firstSeen,
+		},
+		Attester:   subject,
+		AttesterID: proposerID,
+		AsOfTime:   asOfTime,
+	}
+	proposerSig := SignContent(&proposerAttestation, proposerKeypair)
 
-	voter1SignableContent := fmt.Sprintf("checkpoint-vote:%s:%d:%d:%d:%d:%d",
-		voter1ID, asOfTime, restarts, totalUptime, firstSeen, round)
-	voter1Sig := voter1Keypair.SignBase64([]byte(voter1SignableContent))
+	voter1Attestation := Attestation{
+		Version:   1,
+		Subject:   subject,
+		SubjectID: proposerID,
+		Observation: NaraObservation{
+			Restarts:    restarts,
+			TotalUptime: totalUptime,
+			StartTime:   firstSeen,
+		},
+		Attester:   "voter1",
+		AttesterID: voter1ID,
+		AsOfTime:   asOfTime,
+	}
+	voter1Sig := SignContent(&voter1Attestation, voter1Keypair)
 
-	voter2SignableContent := fmt.Sprintf("checkpoint-vote:%s:%d:%d:%d:%d:%d",
-		voter2ID, asOfTime, restarts, totalUptime, firstSeen, round)
-	voter2Sig := voter2Keypair.SignBase64([]byte(voter2SignableContent))
+	voter2Attestation := Attestation{
+		Version:   1,
+		Subject:   subject,
+		SubjectID: proposerID,
+		Observation: NaraObservation{
+			Restarts:    restarts,
+			TotalUptime: totalUptime,
+			StartTime:   firstSeen,
+		},
+		Attester:   "voter2",
+		AttesterID: voter2ID,
+		AsOfTime:   asOfTime,
+	}
+	voter2Sig := SignContent(&voter2Attestation, voter2Keypair)
 
 	// Create checkpoint with all 3 signatures
 	checkpoint := &CheckpointEventPayload{
-		Subject:     subject,
-		SubjectID:   proposerID,
-		AsOfTime:    asOfTime,
-		Restarts:    restarts,
-		TotalUptime: totalUptime,
-		FirstSeen:   firstSeen,
-		VoterIDs:    []string{proposerID, voter1ID, voter2ID},
-		Signatures:  []string{proposerSig, voter1Sig, voter2Sig},
-		Importance:  ImportanceCritical,
-		Round:       round,
+		Subject:   subject,
+		SubjectID: proposerID,
+		AsOfTime:  asOfTime,
+		Observation: NaraObservation{
+			Restarts:    restarts,
+			TotalUptime: totalUptime,
+			StartTime:   firstSeen,
+		},
+		VoterIDs:   []string{proposerID, voter1ID, voter2ID},
+		Signatures: []string{proposerSig, voter1Sig, voter2Sig},
+		Round:      round,
 	}
 
 	// Create a CheckpointService with a network that only knows voter1

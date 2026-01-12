@@ -61,14 +61,17 @@ Ping observations are community-driven. When nara A pings nara B, that measureme
 ### Checkpoint Events (`service: "checkpoint"`)
 Multi-party attested historical snapshots:
 - **subject**: Who the checkpoint is about
+- **subject_id**: Nara ID (for indexing)
 - **as_of_time**: When the snapshot was taken
-- **first_seen**: When network first saw this nara
-- **restarts**: Historical restart count at checkpoint time
-- **total_uptime**: Verified online seconds at checkpoint time
-- **attesters**: High-uptime naras who vouch for this data
-- **signatures**: Ed25519 signatures from attesters
+- **observation**: Embedded NaraObservation containing:
+  - **restarts**: Historical restart count at checkpoint time
+  - **total_uptime**: Verified online seconds at checkpoint time
+  - **start_time**: When network first saw this nara (FirstSeen)
+- **round**: Consensus round (1 or 2)
+- **voter_ids**: Nara IDs who voted for these values
+- **signatures**: Ed25519 signatures from voters
 
-Checkpoints anchor historical data that predates event-based tracking. They're **never pruned** and require multiple attesters for trust. Restart count is derived as: `checkpoint.Restarts + count(unique StartTimes after checkpoint)`
+Checkpoints anchor historical data that predates event-based tracking. They're **never pruned** and require multiple voters for trust. Restart count is derived as: `checkpoint.Observation.Restarts + count(unique StartTimes after checkpoint)`
 
 ## Transport Layer
 

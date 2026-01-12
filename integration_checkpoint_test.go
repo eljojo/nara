@@ -151,8 +151,8 @@ func TestIntegration_CheckpointConsensus(t *testing.T) {
 		t.Logf("✅ Checkpoint found in proposer's ledger:")
 		t.Logf("   Subject: %s", checkpoint.Subject)
 		t.Logf("   SubjectID: %s", checkpoint.SubjectID)
-		t.Logf("   Restarts: %d", checkpoint.Restarts)
-		t.Logf("   TotalUptime: %d", checkpoint.TotalUptime)
+		t.Logf("   Restarts: %d", checkpoint.Observation.Restarts)
+		t.Logf("   TotalUptime: %d", checkpoint.Observation.TotalUptime)
 		t.Logf("   VoterIDs: %v", checkpoint.VoterIDs)
 		t.Logf("   Signatures: %d", len(checkpoint.Signatures))
 	}
@@ -297,7 +297,7 @@ func TestIntegration_CheckpointRound2(t *testing.T) {
 	t.Log("═══════════════════════════════════════")
 	if checkpoint != nil {
 		t.Log("🎉 ROUND 2 FALLBACK TEST COMPLETED")
-		t.Logf("   • Final restarts value: %d (should be trimmed mean)", checkpoint.Restarts)
+		t.Logf("   • Final restarts value: %d (should be trimmed mean)", checkpoint.Observation.Restarts)
 		t.Logf("   • Voters: %d", len(checkpoint.VoterIDs))
 	} else {
 		t.Log("⚠️  No checkpoint created after round 2")
