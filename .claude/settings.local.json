@@ -9,7 +9,13 @@
       "Bash(grep:*)",
       "Bash(make test-fast:*)",
       "Bash(go test:*)",
-      "Bash(go clean:*)"
+      "Bash(go clean:*)",
+      "Skill(code-review:code-review)",
+      "Bash(git grep:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(make test:*)",
+      "Bash(go vet:*)",
+      "Bash(goimports:*)"
     ]
   }
 }

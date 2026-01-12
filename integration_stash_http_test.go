@@ -22,7 +22,7 @@ func TestStashHTTPExchange_EndToEnd(t *testing.T) {
 
 	// Enable debug logs to troubleshoot
 	logrus.SetLevel(logrus.DebugLevel)
-	defer logrus.SetLevel(logrus.InfoLevel)
+	defer logrus.SetLevel(logrus.WarnLevel)
 
 	// Start embedded MQTT broker on unique port
 	broker := startTestMQTTBroker(t, 11885)
@@ -34,11 +34,13 @@ func TestStashHTTPExchange_EndToEnd(t *testing.T) {
 	owner, _ := NewLocalNara(ownerIdentity, "localhost:11885", "", "", 50, DefaultMemoryProfile())
 	owner.Network.confidantStore.SetMaxStashes(10)
 	owner.Network.stashManager = NewStashManager("owner", owner.Keypair, 2)
+	owner.Network.initStashService()
 
 	confidantIdentity := testIdentity("confidant")
 	confidant, _ := NewLocalNara(confidantIdentity, "localhost:11885", "", "", 50, DefaultMemoryProfile())
 	confidant.Network.confidantStore.SetMaxStashes(10)
 	confidant.Network.stashManager = NewStashManager("confidant", confidant.Keypair, 2)
+	confidant.Network.initStashService()
 
 	// Connect both to MQTT manually (they would normally connect during Start())
 	if token := owner.Network.Mqtt.Connect(); token.Wait() && token.Error() != nil {
@@ -51,18 +53,18 @@ func TestStashHTTPExchange_EndToEnd(t *testing.T) {
 	defer confidant.Network.disconnectMQTT()
 	time.Sleep(100 * time.Millisecond) // Let MQTT connections establish
 
-	// Start HTTP servers for both
+	// Start HTTP servers for both (with mesh auth middleware)
 	ownerMux := http.NewServeMux()
-	ownerMux.HandleFunc("/stash/store", owner.Network.httpStashHandler)
-	ownerMux.HandleFunc("/stash/retrieve", owner.Network.httpStashRetrieveHandler)
-	ownerMux.HandleFunc("/stash/push", owner.Network.httpStashPushHandler)
+	ownerMux.HandleFunc("/stash/store", owner.Network.meshAuthMiddleware("/stash/store", owner.Network.httpStashHandler))
+	ownerMux.HandleFunc("/stash/retrieve", owner.Network.meshAuthMiddleware("/stash/retrieve", owner.Network.httpStashRetrieveHandler))
+	ownerMux.HandleFunc("/stash/push", owner.Network.meshAuthMiddleware("/stash/push", owner.Network.httpStashPushHandler))
 	ownerHTTP := httptest.NewServer(ownerMux)
 	defer ownerHTTP.Close()
 
 	confidantMux := http.NewServeMux()
-	confidantMux.HandleFunc("/stash/store", confidant.Network.httpStashHandler)
-	confidantMux.HandleFunc("/stash/retrieve", confidant.Network.httpStashRetrieveHandler)
-	confidantMux.HandleFunc("/stash/push", confidant.Network.httpStashPushHandler)
+	confidantMux.HandleFunc("/stash/store", confidant.Network.meshAuthMiddleware("/stash/store", confidant.Network.httpStashHandler))
+	confidantMux.HandleFunc("/stash/retrieve", confidant.Network.meshAuthMiddleware("/stash/retrieve", confidant.Network.httpStashRetrieveHandler))
+	confidantMux.HandleFunc("/stash/push", confidant.Network.meshAuthMiddleware("/stash/push", confidant.Network.httpStashPushHandler))
 	confidantHTTP := httptest.NewServer(confidantMux)
 	defer confidantHTTP.Close()
 
@@ -122,6 +124,7 @@ func TestStashHTTPExchange_EndToEnd(t *testing.T) {
 
 	// STEP 4: Simulate owner restart - loses local stash
 	owner.Network.stashManager = NewStashManager("owner", owner.Keypair, 2)
+	owner.Network.initStashService()
 	if owner.Network.stashManager.HasStashData() {
 		t.Fatal("Owner should not have stash data after restart")
 	}
@@ -186,7 +189,7 @@ func TestStashHTTPExchange_Rejection(t *testing.T) {
 	}
 
 	logrus.SetLevel(logrus.WarnLevel)
-	defer logrus.SetLevel(logrus.InfoLevel)
+	defer logrus.SetLevel(logrus.WarnLevel)
 
 	// Start MQTT broker
 	broker := startTestMQTTBroker(t, 11886)
@@ -198,11 +201,13 @@ func TestStashHTTPExchange_Rejection(t *testing.T) {
 	owner, _ := NewLocalNara(ownerIdentity, "localhost:11886", "", "", 50, DefaultMemoryProfile())
 	owner.Network.confidantStore.SetMaxStashes(5)
 	owner.Network.stashManager = NewStashManager("owner", owner.Keypair, 2)
+	owner.Network.initStashService()
 
 	confidantIdentity := testIdentity("confidant")
 	confidant, _ := NewLocalNara(confidantIdentity, "localhost:11886", "", "", 50, DefaultMemoryProfile())
 	confidant.Network.confidantStore.SetMaxStashes(1) // Only 1 stash!
 	confidant.Network.stashManager = NewStashManager("confidant", confidant.Keypair, 2)
+	confidant.Network.initStashService()
 
 	if token := owner.Network.Mqtt.Connect(); token.Wait() && token.Error() != nil {
 		t.Fatalf("Owner MQTT connection failed: %v", token.Error())
@@ -214,18 +219,18 @@ func TestStashHTTPExchange_Rejection(t *testing.T) {
 	defer confidant.Network.disconnectMQTT()
 	time.Sleep(100 * time.Millisecond)
 
-	// Start HTTP servers
+	// Start HTTP servers (with mesh auth middleware)
 	ownerMux := http.NewServeMux()
-	ownerMux.HandleFunc("/stash/store", owner.Network.httpStashHandler)
-	ownerMux.HandleFunc("/stash/retrieve", owner.Network.httpStashRetrieveHandler)
-	ownerMux.HandleFunc("/stash/push", owner.Network.httpStashPushHandler)
+	ownerMux.HandleFunc("/stash/store", owner.Network.meshAuthMiddleware("/stash/store", owner.Network.httpStashHandler))
+	ownerMux.HandleFunc("/stash/retrieve", owner.Network.meshAuthMiddleware("/stash/retrieve", owner.Network.httpStashRetrieveHandler))
+	ownerMux.HandleFunc("/stash/push", owner.Network.meshAuthMiddleware("/stash/push", owner.Network.httpStashPushHandler))
 	ownerHTTP := httptest.NewServer(ownerMux)
 	defer ownerHTTP.Close()
 
 	confidantMux := http.NewServeMux()
-	confidantMux.HandleFunc("/stash/store", confidant.Network.httpStashHandler)
-	confidantMux.HandleFunc("/stash/retrieve", confidant.Network.httpStashRetrieveHandler)
-	confidantMux.HandleFunc("/stash/push", confidant.Network.httpStashPushHandler)
+	confidantMux.HandleFunc("/stash/store", confidant.Network.meshAuthMiddleware("/stash/store", confidant.Network.httpStashHandler))
+	confidantMux.HandleFunc("/stash/retrieve", confidant.Network.meshAuthMiddleware("/stash/retrieve", confidant.Network.httpStashRetrieveHandler))
+	confidantMux.HandleFunc("/stash/push", confidant.Network.meshAuthMiddleware("/stash/push", confidant.Network.httpStashPushHandler))
 	confidantHTTP := httptest.NewServer(confidantMux)
 	defer confidantHTTP.Close()
 

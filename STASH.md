@@ -6,18 +6,18 @@ Naras store their encrypted data (arbitrary JSON) on other naras ("confidants") 
 
 1. **Owner** picks 3 naras as **confidants** (prefers higher memory modes and uptime)
 2. Owner encrypts their arbitrary JSON data with their own key (derived from soul)
-3. Owner sends stash to confidants via `POST /stash/store` over mesh during gossip rounds
+3. Owner sends stash to confidants via `POST /stash/store` over mesh (triggered immediately on update)
 4. Confidants store in **memory only** (never persisted to disk)
 5. On boot, owner's hey-there event triggers confidants to push stash back via `POST /stash/push`
 
 ## Key Properties
 
 - **Self-encrypted**: Only the owner can decrypt their stash (key derived from soul)
-- **Smart selection**: Confidants chosen by scoring (prefer high memory mode + uptime)
+- **Hybrid selection**: First confidant picked by score (best reliability), remaining 2 picked randomly (better distribution)
 - **Memory-only**: No disk persistence (sync state lost on restart, re-sync acceptable)
 - **Tamper-proof**: Timestamp is inside the encrypted payload
 - **Clear endpoints**: Separate HTTP endpoints for store, retrieve, push, and delete operations
-- **Replay protection**: All requests timestamped and validated (rejects >5min old requests)
+- **Replay protection**: All requests timestamped and validated (rejects >30s old requests)
 - **Commitment-based**: Confidants accept or reject storage requests based on capacity
 - **Mutual promises**: Both sides track who's storing what (not an anonymous cache)
 - **Memory-aware storage**: Short mode stores 5, Medium 20, Hog 50 stashes for others
@@ -171,7 +171,7 @@ Stash storage is based on **mutual promises** between naras:
 - Owner detects via OnlineStatusProjection (OFFLINE or MISSING status)
 - Removes from confidant list automatically
 - Next maintenance round finds replacement
-- New confidant receives stash during next gossip exchange
+- New confidant receives stash immediately via direct HTTP POST
 
 **When Owner Goes Ghost (offline 7+ days):**
 - Confidant's ghost pruning detects prolonged absence
@@ -225,9 +225,9 @@ The encrypted payload contains:
 ## Security
 
 - **Signature verification** on all stash requests (Ed25519, signed with timestamp)
-- **Replay protection** via timestamp validation (rejects >5min old or >60s future)
+- **Replay protection** via timestamp validation (rejects >30s old or >30s future)
 - **Memory-only** on confidants (no disk writes, no persistence)
-- **Smart selection** spreads load based on capacity (prefers high memory modes)
+- **Hybrid selection** balances reliability (1 best nara) and distribution (2 random naras)
 - **Rate limiting** prevents spam (5-minute intervals per peer)
 - **Commitment-based capacity**: Accept/reject based on limits (5/20/50 based on memory mode)
 - **Ghost-only eviction**: Only evict stashes when owner offline 7+ days (keeps promises to living naras)
@@ -292,13 +292,21 @@ Confidants store different numbers of stashes based on memory mode:
 - Existing commitments are **kept until owner goes ghost** (offline 7+ days)
 - Ghost pruning runs every 5 minutes, freeing capacity for active naras
 
-**Confidant Selection**: Owners prefer high-capacity confidants using scoring:
+**Confidant Selection**: Hybrid strategy to balance reliability and distribution:
+
+**First confidant** (best score):
 - Hog mode: +300 points
 - Medium mode: +200 points
 - Short mode: +100 points
 - Uptime (seconds): Added to score
+- Picks the most reliable nara (highest memory + longest uptime)
 
-This ensures high-memory naras naturally become "hubs" for stash storage while keeping promises to existing owners.
+**Remaining confidants** (random selection):
+- Randomly selected from eligible peers
+- Avoids hotspots where all naras pick the same popular confidants
+- Better load distribution across the network
+
+This ensures at least one reliable confidant while spreading storage load across diverse naras.
 
 ## Social Reward
 

@@ -499,11 +499,6 @@ function NaraList() {
 
   return (
     <div>
-      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px'}}>
-        <a href="/stash.html" style={{padding: '8px 16px', background: '#007bff', color: 'white', borderRadius: '4px', textDecoration: 'none', fontSize: '14px'}}>
-          📦 Stash Manager
-        </a>
-      </div>
       <TrendSummary naras={data.filteredNaras} />
       <table id="naras">
         <thead>

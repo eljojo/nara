@@ -16,9 +16,12 @@ var (
 	stashHW3 = hashBytes([]byte("stash-test-hw-3"))
 )
 
-// Helper function to create StashData from emojis (for testing)
-func testStashData(timestamp int64, emojis []string) *StashData {
-	dataJSON, _ := MigrateEmojiStashToJSON(emojis)
+// Helper function to create StashData with test payload
+func testStashData(timestamp int64, testValues []string) *StashData {
+	data := map[string]interface{}{
+		"values": testValues,
+	}
+	dataJSON, _ := json.Marshal(data)
 	return &StashData{
 		Timestamp: timestamp,
 		Data:      dataJSON,
@@ -146,8 +149,9 @@ func TestDecryptWithWrongKey(t *testing.T) {
 
 func TestStashDataSerialization(t *testing.T) {
 	// Create StashData with JSON payload
-	emojis := []string{"🌸", "🦋", "🌊", "🔥", "⭐"}
-	dataJSON, err := MigrateEmojiStashToJSON(emojis)
+	testValues := []string{"value1", "value2", "value3", "value4", "value5"}
+	payload := map[string]interface{}{"values": testValues}
+	dataJSON, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatalf("Failed to create JSON data: %v", err)
 	}
@@ -179,18 +183,18 @@ func TestStashDataSerialization(t *testing.T) {
 		t.Error("Version mismatch after serialization")
 	}
 
-	// Extract emojis from parsed data
+	// Extract values from parsed data
 	var parsedPayload map[string]interface{}
 	if err := json.Unmarshal(parsed.Data, &parsedPayload); err != nil {
 		t.Fatalf("Failed to unmarshal parsed data: %v", err)
 	}
-	parsedEmojis := parsedPayload["emojis"].([]interface{})
-	if len(parsedEmojis) != len(emojis) {
-		t.Errorf("Emojis length mismatch: expected %d, got %d", len(emojis), len(parsedEmojis))
+	parsedValues := parsedPayload["values"].([]interface{})
+	if len(parsedValues) != len(testValues) {
+		t.Errorf("Values length mismatch: expected %d, got %d", len(testValues), len(parsedValues))
 	}
-	for i, e := range emojis {
-		if parsedEmojis[i].(string) != e {
-			t.Errorf("Emoji mismatch at %d: expected %s, got %s", i, e, parsedEmojis[i])
+	for i, e := range testValues {
+		if parsedValues[i].(string) != e {
+			t.Errorf("Value mismatch at %d: expected %s, got %s", i, e, parsedValues[i])
 		}
 	}
 }
@@ -201,7 +205,7 @@ func TestStashDataTimestampPreserved(t *testing.T) {
 	encKeypair := DeriveEncryptionKeys(DeriveKeypair(soul).PrivateKey)
 
 	originalTimestamp := int64(1234567890)
-	dataJSON, _ := MigrateEmojiStashToJSON([]string{"🌸", "🦋", "🌊"})
+	dataJSON, _ := json.Marshal(map[string]interface{}{"test": "data"})
 	data := &StashData{
 		Timestamp: originalTimestamp,
 		Data:      dataJSON,
@@ -218,46 +222,6 @@ func TestStashDataTimestampPreserved(t *testing.T) {
 
 	if parsed.Timestamp != originalTimestamp {
 		t.Errorf("Timestamp not preserved: expected %d, got %d", originalTimestamp, parsed.Timestamp)
-	}
-}
-
-func TestGenerateRandomEmojis(t *testing.T) {
-	emojis := GenerateRandomEmojis(10)
-
-	if len(emojis) != 10 {
-		t.Errorf("Expected 10 emojis, got %d", len(emojis))
-	}
-
-	// All emojis should be from the pool
-	poolSet := make(map[string]bool)
-	for _, e := range EmojiPool {
-		poolSet[e] = true
-	}
-	for _, e := range emojis {
-		if !poolSet[e] {
-			t.Errorf("Emoji %s not in pool", e)
-		}
-	}
-
-	// Generate again - should be different (probabilistically)
-	emojis2 := GenerateRandomEmojis(10)
-	same := true
-	for i := range emojis {
-		if emojis[i] != emojis2[i] {
-			same = false
-			break
-		}
-	}
-	// Very unlikely to be the same (1 in 50^10)
-	if same {
-		t.Log("Warning: two random emoji sequences were identical (extremely unlikely)")
-	}
-}
-
-func TestEmojiPoolSize(t *testing.T) {
-	// Emoji pool should have enough variety
-	if len(EmojiPool) < 40 {
-		t.Errorf("Emoji pool too small: %d (expected at least 40)", len(EmojiPool))
 	}
 }
 
@@ -650,7 +614,7 @@ func TestBootstrapNoStash(t *testing.T) {
 }
 
 func TestBootstrapWithStash(t *testing.T) {
-	// Nara boots, requests stash, receives from confidant, recovers emojis
+	// Nara boots, requests stash, receives from confidant, recovers data
 	network := NewMockMeshNetwork()
 
 	// Set up owner
@@ -658,10 +622,10 @@ func TestBootstrapWithStash(t *testing.T) {
 	ownerKeypair := DeriveKeypair(ownerSoul)
 	ownerEncKeypair := DeriveEncryptionKeys(ownerKeypair.PrivateKey)
 
-	// Create stash data with emojis
-	originalEmojis := []string{"🌸", "🦋", "🌊", "🔥", "⭐"}
+	// Create stash data with test values
+	originalValues := []string{"val1", "val2", "val3", "val4", "val5"}
 	originalTimestamp := time.Now().Unix() - 3600 // 1 hour ago
-	stashData := testStashData(originalTimestamp, originalEmojis)
+	stashData := testStashData(originalTimestamp, originalValues)
 	payload, _ := CreateStashPayload("alice", stashData, ownerEncKeypair)
 
 	// Set up confidant (bob) who has alice's stash
@@ -691,23 +655,23 @@ func TestBootstrapWithStash(t *testing.T) {
 		t.Error("Should have recovered stash")
 	}
 
-	// Verify recovered emojis (extract from JSON data)
+	// Verify recovered values (extract from JSON data)
 	recoveredData := manager.GetRecoveredData()
 	var recoveredPayload map[string]interface{}
 	if err := json.Unmarshal(recoveredData, &recoveredPayload); err != nil {
 		t.Fatalf("Failed to unmarshal recovered data: %v", err)
 	}
-	recoveredEmojisRaw := recoveredPayload["emojis"].([]interface{})
-	recoveredEmojis := make([]string, len(recoveredEmojisRaw))
-	for i, e := range recoveredEmojisRaw {
-		recoveredEmojis[i] = e.(string)
+	recoveredValuesRaw := recoveredPayload["values"].([]interface{})
+	recoveredValues := make([]string, len(recoveredValuesRaw))
+	for i, e := range recoveredValuesRaw {
+		recoveredValues[i] = e.(string)
 	}
-	if len(recoveredEmojis) != len(originalEmojis) {
-		t.Errorf("Emoji count mismatch: expected %d, got %d", len(originalEmojis), len(recoveredEmojis))
+	if len(recoveredValues) != len(originalValues) {
+		t.Errorf("Values count mismatch: expected %d, got %d", len(originalValues), len(recoveredValues))
 	}
-	for i, e := range originalEmojis {
-		if recoveredEmojis[i] != e {
-			t.Errorf("Emoji mismatch at %d: expected %s, got %s", i, e, recoveredEmojis[i])
+	for i, e := range originalValues {
+		if recoveredValues[i] != e {
+			t.Errorf("Value mismatch at %d: expected %s, got %s", i, e, recoveredValues[i])
 		}
 	}
 
@@ -1022,17 +986,17 @@ func TestStashSizeLimit(t *testing.T) {
 // =====================================================
 
 func TestEndToEndStashFlow(t *testing.T) {
-	// Full end-to-end flow: create emojis, stash to confidants, recover from scratch
+	// Full end-to-end flow: create data, stash to confidants, recover from scratch
 
-	// Setup: Create owner (alice) with emoji identity
+	// Setup: Create owner (alice)
 	aliceSoul := NativeSoulCustom(stashHW1, "alice")
 	aliceKeypair := DeriveKeypair(aliceSoul)
 	aliceEncKeypair := DeriveEncryptionKeys(aliceKeypair.PrivateKey)
 
-	// Create stash data with emojis
-	originalEmojis := []string{"🌸", "🦋", "🌊", "🔥", "⭐", "🌙", "🌈", "⚡", "❄️", "🍄"}
+	// Create stash data with test values
+	originalValues := []string{"val1", "val2", "val3", "val4", "val5", "val6", "val7", "val8", "val9", "val10"}
 	timestamp := time.Now().Unix() - 86400 // 1 day ago
-	stashData := testStashData(timestamp, originalEmojis)
+	stashData := testStashData(timestamp, originalValues)
 	payload, err := CreateStashPayload("alice", stashData, aliceEncKeypair)
 	if err != nil {
 		t.Fatalf("CreateStashPayload failed: %v", err)
@@ -1099,23 +1063,23 @@ func TestEndToEndStashFlow(t *testing.T) {
 		t.Fatal("Should have recovered stash")
 	}
 
-	// Verify recovered emojis match original (extract from JSON data)
+	// Verify recovered values match original (extract from JSON data)
 	recoveredData := recoveryManager.GetRecoveredData()
 	var recoveredPayload map[string]interface{}
 	if err := json.Unmarshal(recoveredData, &recoveredPayload); err != nil {
 		t.Fatalf("Failed to unmarshal recovered data: %v", err)
 	}
-	recoveredEmojisRaw := recoveredPayload["emojis"].([]interface{})
-	recoveredEmojis := make([]string, len(recoveredEmojisRaw))
-	for i, e := range recoveredEmojisRaw {
-		recoveredEmojis[i] = e.(string)
+	recoveredValuesRaw := recoveredPayload["values"].([]interface{})
+	recoveredValues := make([]string, len(recoveredValuesRaw))
+	for i, e := range recoveredValuesRaw {
+		recoveredValues[i] = e.(string)
 	}
-	if len(recoveredEmojis) != len(originalEmojis) {
-		t.Errorf("Emoji count mismatch: expected %d, got %d", len(originalEmojis), len(recoveredEmojis))
+	if len(recoveredValues) != len(originalValues) {
+		t.Errorf("Values count mismatch: expected %d, got %d", len(originalValues), len(recoveredValues))
 	}
-	for i, e := range originalEmojis {
-		if recoveredEmojis[i] != e {
-			t.Errorf("Emoji mismatch at %d: expected %s, got %s", i, e, recoveredEmojis[i])
+	for i, e := range originalValues {
+		if recoveredValues[i] != e {
+			t.Errorf("Value mismatch at %d: expected %s, got %s", i, e, recoveredValues[i])
 		}
 	}
 
@@ -1242,16 +1206,16 @@ func TestStashTimestampConflictResolution(t *testing.T) {
 	stashes := []struct {
 		from      string
 		timestamp int64
-		emojis    []string
+		values    []string
 	}{
-		{"bob", now - 3600, []string{"🌸", "🦋"}},  // 1 hour ago
-		{"carol", now - 60, []string{"🌊", "🔥"}},  // 1 minute ago
-		{"dave", now - 1800, []string{"⭐", "🌙"}}, // 30 minutes ago
+		{"bob", now - 3600, []string{"a", "b"}},  // 1 hour ago
+		{"carol", now - 60, []string{"c", "d"}},  // 1 minute ago
+		{"dave", now - 1800, []string{"e", "f"}}, // 30 minutes ago
 	}
 
 	responses := make(chan *StashResponse, 10)
 	for _, s := range stashes {
-		data := testStashData(s.timestamp, s.emojis)
+		data := testStashData(s.timestamp, s.values)
 		payload, _ := CreateStashPayload("alice", data, aliceEncKeypair)
 		responses <- &StashResponse{
 			From:    s.from,

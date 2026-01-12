@@ -56,24 +56,25 @@ type Zine struct {
 }
 
 type Network struct {
-	Neighbourhood       map[string]*Nara
-	Buzz                *Buzz
-	LastHeyThere        int64
-	skippingEvents      bool
-	local               *LocalNara
-	Mqtt                mqtt.Client
-	heyThereInbox       chan SyncEvent
-	newspaperInbox      chan NewspaperEvent
-	chauInbox           chan SyncEvent
-	howdyInbox          chan HowdyEvent
-	howdyCoordinators   sync.Map // map[string]*howdyCoordinator - tracks pending howdy responses
-	startTimeVotes      []startTimeVote
-	startTimeVotesMu    sync.Mutex
-	socialInbox         chan SyncEvent
-	ledgerRequestInbox  chan LedgerRequest
-	ledgerResponseInbox chan LedgerResponse
-	TeaseState          *TeaseState
-	ReadOnly            bool
+	Neighbourhood          map[string]*Nara
+	Buzz                   *Buzz
+	LastHeyThere           int64
+	skippingEvents         bool
+	local                  *LocalNara
+	Mqtt                   mqtt.Client
+	heyThereInbox          chan SyncEvent
+	newspaperInbox         chan NewspaperEvent
+	chauInbox              chan SyncEvent
+	howdyInbox             chan HowdyEvent
+	howdyCoordinators      sync.Map // map[string]*howdyCoordinator - tracks pending howdy responses
+	startTimeVotes         []startTimeVote
+	startTimeVotesMu       sync.Mutex
+	socialInbox            chan SyncEvent
+	ledgerRequestInbox     chan LedgerRequest
+	ledgerResponseInbox    chan LedgerResponse
+	stashDistributeTrigger chan struct{} // Trigger immediate stash distribution to confidants
+	TeaseState             *TeaseState
+	ReadOnly               bool
 	// SSE broadcast for web clients
 	sseClients   map[chan SyncEvent]bool
 	sseClientsMu sync.RWMutex
@@ -97,7 +98,6 @@ type Network struct {
 	cancelFunc context.CancelFunc
 	// Startup sequencing: operations must complete in order
 	bootRecoveryDone chan struct{}
-	formOpinionsDone chan struct{}
 	// Test hooks (only used in tests)
 	testHTTPClient        *http.Client                    // Override HTTP client for testing
 	testMeshURLs          map[string]string               // Override mesh URLs for testing (nara name -> URL)
@@ -118,18 +118,10 @@ type Network struct {
 	mqttReconnectActive bool
 
 	// Stash: distributed encrypted storage
-	stashStoreInbox    chan StashStore
-	stashAckInbox      chan StashStoreAck
-	stashRequestInbox  chan StashRequest
-	stashResponseInbox chan StashResponse
-	stashManager       *StashManager        // Owner side: manages our arbitrary JSON stash on confidants
-	confidantStore     *ConfidantStashStore // Confidant side: stores others' stash for them
-	stashSyncTracker   *StashSyncTracker    // Memory-only tracker for last sync time with each peer
-	meshConfig         *TsnetConfig         // Mesh networking configuration
-	stashRecoveryChan  chan *StashResponse  // Used during boot recovery
-	// Emoji identity (separate from stash, used for identity continuity)
-	currentEmojis   []string // Random emoji sequence recovered or generated
-	emojisTimestamp int64    // When the emojis were first generated
+	stashManager     *StashManager        // Owner side: manages our arbitrary JSON stash on confidants
+	confidantStore   *ConfidantStashStore // Confidant side: stores others' stash for them
+	stashSyncTracker *StashSyncTracker    // Memory-only tracker for last sync time with each peer
+	stashService     *StashService        // Unified stash service layer
 }
 
 // PendingJourney tracks a journey we participated in, waiting for completion
@@ -407,6 +399,7 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	network.socialInbox = make(chan SyncEvent, 100)
 	network.ledgerRequestInbox = make(chan LedgerRequest, 50)
 	network.ledgerResponseInbox = make(chan LedgerResponse, 50)
+	network.stashDistributeTrigger = make(chan struct{}, 5) // Buffered to avoid blocking
 	network.TeaseState = NewTeaseState()
 	network.sseClients = make(map[chan SyncEvent]bool)
 	network.skippingEvents = false
@@ -418,13 +411,8 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	network.ctx, network.cancelFunc = context.WithCancel(context.Background())
 	// Initialize startup sequencing channels
 	network.bootRecoveryDone = make(chan struct{})
-	network.formOpinionsDone = make(chan struct{})
 
-	// Stash inboxes and storage
-	network.stashStoreInbox = make(chan StashStore, 20)
-	network.stashAckInbox = make(chan StashStoreAck, 20)
-	network.stashRequestInbox = make(chan StashRequest, 20)
-	network.stashResponseInbox = make(chan StashResponse, 20)
+	// Stash storage
 	network.confidantStore = NewConfidantStashStore()
 	network.stashSyncTracker = NewStashSyncTracker() // Memory-only, never persisted
 	// Configure stash storage limit based on memory mode
@@ -1274,16 +1262,10 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 		)
 	}
 
-	// Store mesh config for stash recovery
-	network.meshConfig = meshConfig
+	// Initialize unified stash service
+	network.initStashService()
 
-	// Start stash processing goroutines
-	go network.processStashStoreRequests()
-	go network.processStashAcks()
-	go network.processStashRequests()
-	go network.processStashResponses()
-
-	// Initialize world journey handler
+	// Initialize mesh networking and world journey handler
 	if !network.ReadOnly {
 		if meshConfig != nil {
 			// Use real tsnet mesh with Headscale
@@ -1419,17 +1401,8 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 	// Start coordinate maintenance (Vivaldi pings)
 	go network.coordinateMaintenance()
 
-	// Start gossip protocol (P2P zine exchange)
-	if !network.ReadOnly && network.TransportMode != TransportMQTT {
-		go network.gossipForever()
-		// Start mesh peer discovery for gossip-only mode
-		if network.TransportMode == TransportGossip {
-			go network.meshDiscoveryForever()
-		}
-	}
-
 	// Start stash maintenance (confidant selection, inventory)
-	if !network.ReadOnly && network.stashManager != nil {
+	if !network.ReadOnly && network.stashService != nil {
 		go network.stashMaintenance()
 	}
 }
@@ -1462,13 +1435,11 @@ func (network *Network) announce() {
 	}
 
 	// Populate stash metrics
-	if network.confidantStore != nil {
-		metrics := network.confidantStore.GetMetrics()
+	if network.stashService != nil {
+		metrics := network.stashService.GetStorageMetrics()
 		slimStatus.StashStored = metrics.StashesStored
 		slimStatus.StashBytes = metrics.TotalStashBytes
-	}
-	if network.stashManager != nil && network.stashManager.confidantTracker != nil {
-		slimStatus.StashConfidants = network.stashManager.confidantTracker.Count()
+		slimStatus.StashConfidants = network.stashService.ConfidantCount()
 	}
 
 	signedEvent := network.SignNewspaper(slimStatus)
@@ -3629,7 +3600,7 @@ func (network *Network) performGossipRound() {
 			network.exchangeZine(name, zine)
 			// Also exchange stashes (rate-limited via stashSyncTracker)
 			// Only if we have stash data to share
-			if network.stashManager != nil && network.stashManager.HasStashData() {
+			if network.stashService != nil && network.stashService.HasStashData() {
 				network.exchangeStashWithPeer(name)
 			}
 		}(targetName)
@@ -3710,135 +3681,17 @@ func (network *Network) exchangeZine(targetName string, myZine *Zine) {
 
 // exchangeStashWithPeer performs stash operations with a peer (store or retrieve)
 func (network *Network) exchangeStashWithPeer(targetName string) {
-	// Check rate limiting - don't sync more than once per 5 minutes
-	if network.stashSyncTracker != nil && !network.stashSyncTracker.ShouldSync(targetName, 5*time.Minute) {
-		return
-	}
-
-	if network.stashManager == nil || network.stashManager.confidantTracker == nil {
-		return
-	}
-
-	// First, try to store our stash with them if needed
-	needsStorage := network.stashManager.confidantTracker.Has(targetName) || network.stashManager.confidantTracker.NeedsMore()
-	if needsStorage && network.stashManager.HasStashData() {
-		network.storeStashWithPeer(targetName)
-	}
-
-	// Second, try to retrieve our stash if we don't have it
-	if !network.stashManager.HasStashData() {
-		network.retrieveStashFromPeer(targetName)
-	}
-
-	// Mark sync timestamp
-	if network.stashSyncTracker != nil {
-		network.stashSyncTracker.MarkSyncNow(targetName)
+	if network.stashService != nil {
+		network.stashService.ExchangeStashWithPeer(targetName)
 	}
 }
 
-// storeStashWithPeer sends our stash to a peer for storage
-func (network *Network) storeStashWithPeer(targetName string) {
-	// Determine base URL
-	baseURL := network.buildMeshURL(targetName, "")
-	if baseURL == "" {
-		return
-	}
-
-	currentStash := network.stashManager.GetCurrentStash()
-	if currentStash == nil {
-		return
-	}
-
-	encKeypair := DeriveEncryptionKeys(network.local.Keypair.PrivateKey)
-	payload, err := CreateStashPayload(network.meName(), currentStash, encKeypair)
-	if err != nil {
-		logrus.Debugf("📦 Failed to create stash payload: %v", err)
-		return
-	}
-
-	// Build request
-	req := StashStoreRequest{
-		From:      network.meName(),
-		Timestamp: time.Now().Unix(),
-		Stash:     payload,
-	}
-	req.Sign(network.local.Keypair)
-
-	reqBytes, _ := json.Marshal(req)
-	ctx, cancel := context.WithTimeout(network.ctx, 10*time.Second)
-	defer cancel()
-
-	httpReq, _ := http.NewRequestWithContext(ctx, "POST", baseURL+"/stash/store", bytes.NewBuffer(reqBytes))
-	httpReq.Header.Set("Content-Type", "application/json")
-	network.AddMeshAuthHeaders(httpReq)
-
-	client := network.getHTTPClient()
-	if client == nil {
-		return
-	}
-
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		logrus.Debugf("📦 Failed to store stash with %s: %v", targetName, err)
-		network.stashManager.confidantTracker.MarkFailed(targetName)
-		return
-	}
-	defer resp.Body.Close()
-
-	var response StashStoreResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err == nil && response.Accepted {
-		network.stashManager.confidantTracker.Add(targetName, time.Now().Unix())
-		logrus.Infof("📦 %s accepted stash", targetName)
-	} else if !response.Accepted {
-		logrus.Warnf("📦 %s rejected stash: %s", targetName, response.Reason)
-		network.stashManager.confidantTracker.MarkFailed(targetName)
-	}
-}
-
-// retrieveStashFromPeer requests our stash back from a peer
-func (network *Network) retrieveStashFromPeer(targetName string) {
-	// Determine base URL
-	baseURL := network.buildMeshURL(targetName, "")
-	if baseURL == "" {
-		return
-	}
-
-	// Build request
-	req := StashRetrieveRequest{
-		From:      network.meName(),
-		Timestamp: time.Now().Unix(),
-	}
-	req.Sign(network.local.Keypair)
-
-	reqBytes, _ := json.Marshal(req)
-	ctx, cancel := context.WithTimeout(network.ctx, 10*time.Second)
-	defer cancel()
-
-	httpReq, _ := http.NewRequestWithContext(ctx, "POST", baseURL+"/stash/retrieve", bytes.NewBuffer(reqBytes))
-	httpReq.Header.Set("Content-Type", "application/json")
-	network.AddMeshAuthHeaders(httpReq)
-
-	client := network.getHTTPClient()
-	if client == nil {
-		return
-	}
-
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		logrus.Debugf("📦 Failed to retrieve stash from %s: %v", targetName, err)
-		return
-	}
-	defer resp.Body.Close()
-
-	var response StashRetrieveResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err == nil && response.Found {
-		encKeypair := DeriveEncryptionKeys(network.local.Keypair.PrivateKey)
-		stashData, err := DecryptStashPayload(response.Stash, encKeypair)
-		if err == nil {
-			network.stashManager.SetCurrentStash(stashData.Data)
-			network.stashManager.confidantTracker.Add(targetName, time.Now().Unix())
-			logrus.Infof("📦 Recovered stash from %s (%d bytes)", targetName, len(stashData.Data))
-		}
+// pushStashToOwner pushes a stash back to its owner via HTTP POST to /stash/push.
+// This is called during hey-there recovery or stash-refresh requests.
+// Runs the push in a background goroutine with optional delay.
+func (network *Network) pushStashToOwner(targetName string, delay time.Duration) {
+	if network.stashService != nil {
+		network.stashService.PushStashToOwner(targetName, delay)
 	}
 }
 
@@ -4592,286 +4445,19 @@ func (network *Network) emitSeenEvent(subject, via string) {
 	}
 }
 
-// --- Stash Processing (Distributed Encrypted Storage) ---
-
-func (network *Network) processStashStoreRequests() {
-	for {
-		network.handleStashStore(<-network.stashStoreInbox)
-	}
-}
-
-func (network *Network) handleStashStore(msg StashStore) {
-	if network.confidantStore == nil {
-		return
-	}
-
-	err := network.confidantStore.HandleStashStore(&msg, network.getPublicKeyForNara)
-	if err != nil {
-		logrus.Debugf("📦 rejected stash from %s: %v", msg.From, err)
-		return
-	}
-
-	logrus.Printf("📦 storing stash for %s", msg.From)
-
-	// Send ack
-	ack := &StashStoreAck{
-		From:  network.meName(),
-		Owner: msg.From,
-	}
-	topic := fmt.Sprintf("nara/stash/%s/ack", msg.From)
-	network.postEvent(topic, ack)
-
-	// Record social event: we're helping them!
-	if network.local.SyncLedger != nil {
-		event := SocialEventPayload{
-			Type:    "service",
-			Actor:   network.meName(),
-			Target:  msg.From,
-			Reason:  ReasonStashStored,
-			Witness: network.meName(),
-		}
-
-		// Create SyncEvent
-		syncEvent := SyncEvent{
-			Service:   ServiceSocial,
-			Timestamp: time.Now().UnixNano(),
-			Emitter:   network.meName(),
-			Social:    &event,
-		}
-		syncEvent.ComputeID()
-
-		// Add personality filtered event
-		network.local.SyncLedger.AddSocialEventFiltered(syncEvent, network.local.Me.Status.Personality)
-	}
-}
-
-func (network *Network) processStashAcks() {
-	for {
-		network.handleStashAck(<-network.stashAckInbox)
-	}
-}
-
-func (network *Network) handleStashAck(ack StashStoreAck) {
-	if network.stashManager == nil {
-		return
-	}
-
-	// Record that this confidant has our stash
-	network.stashManager.confidantTracker.Add(ack.From, time.Now().Unix())
-	logrus.Printf("📦 %s confirmed storing our stash", ack.From)
-}
-
-func (network *Network) processStashRequests() {
-	for {
-		network.handleStashRequest(<-network.stashRequestInbox)
-	}
-}
-
-func (network *Network) handleStashRequest(req StashRequest) {
-	if network.confidantStore == nil {
-		return
-	}
-
-	response := network.confidantStore.HandleStashRequest(&req, network.getPublicKeyForNara)
-	if response == nil {
-		return // we don't have their stash
-	}
-
-	// Send the stash back
-	response.From = network.meName()
-	topic := fmt.Sprintf("nara/stash/%s/response", req.From)
-	network.postEvent(topic, response)
-	logrus.Printf("📦 sending stash to %s (they requested it)", req.From)
-}
-
-func (network *Network) processStashResponses() {
-	for {
-		network.handleStashResponse(<-network.stashResponseInbox)
-	}
-}
-
-func (network *Network) handleStashResponse(resp StashResponse) {
-	if network.stashManager == nil {
-		return
-	}
-
-	// This is a response to our stash request
-	// Forward to the stash recovery channel if active
-	if network.stashRecoveryChan != nil {
-		select {
-		case network.stashRecoveryChan <- &resp:
-		default:
-			// Channel full or closed, skip
-		}
-	}
-
-	// Track the confident
-	network.stashManager.confidantTracker.Add(resp.From, time.Now().Unix())
-	logrus.Printf("📦 received stash from %s", resp.From)
-}
-
-// NOTE: Stash deletion now handled via HTTP DELETE /stash/store endpoint
-// Old MQTT-based processStashDeleteRequests() and handleStashDelete() removed
-
 // stashMaintenance manages confidant selection and inventory
 func (network *Network) stashMaintenance() {
-	// First, attempt to recover emojis from stash
-	network.recoverOrGenerateEmojis()
-
-	// Prune ghost stashes on boot (naras offline >7 days)
-	network.pruneGhostStashes()
-
-	// Run every 5 minutes
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-
-	for {
-		// Check health of our confidants and find replacements if needed
-		network.checkConfidantHealth()
-
-		// Maintain target number of confidants
-		network.maintainStashConfidents()
-
-		// Prune ghost stashes periodically
-		network.pruneGhostStashes()
-
-		// Log stash metrics every 5 minutes
-		network.logStashMetrics()
-
-		<-ticker.C
+	if network.stashService != nil {
+		network.stashService.RunMaintenanceLoop(network.stashDistributeTrigger)
 	}
 }
 
-// logStashMetrics logs stash storage metrics periodically
-func (network *Network) logStashMetrics() {
-	if network.confidantStore == nil {
-		return
+// reactToConfidantOffline is called immediately when we detect a nara went offline
+// If they're one of our confidants, remove them and trigger immediate replacement search
+func (network *Network) reactToConfidantOffline(name string) {
+	if network.stashService != nil {
+		network.stashService.ReactToConfidantOffline(name)
 	}
-
-	metrics := network.confidantStore.GetMetrics()
-	var myConfidants int
-	var targetConfidants int = 2 // Default target
-
-	if network.stashManager != nil && network.stashManager.confidantTracker != nil {
-		myConfidants = network.stashManager.confidantTracker.Count()
-		targetConfidants = network.stashManager.confidantTracker.targetCount
-	}
-
-	// Calculate my stash size from actual stash data
-	var myStashSize int
-	if network.stashManager != nil {
-		currentStash := network.stashManager.GetCurrentStash()
-		if currentStash != nil {
-			myStashSize = len(currentStash.Data)
-		}
-	}
-
-	logrus.Infof("📦 Stash metrics: stored=%d (%.1fMB), my_confidants=%d/%d, my_size=%.1fKB",
-		metrics.StashesStored,
-		float64(metrics.TotalStashBytes)/1024/1024,
-		myConfidants,
-		targetConfidants,
-		float64(myStashSize)/1024)
-}
-
-// recoverOrGenerateEmojis generates emojis for this nara
-// NOTE: Emojis are separate from the stash system (which stores arbitrary JSON)
-func (network *Network) recoverOrGenerateEmojis() {
-	// Simply generate new emojis - they're not persisted, just for this session
-	network.generateNewEmojis()
-}
-
-// generateNewEmojis creates a new random emoji sequence
-func (network *Network) generateNewEmojis() {
-	network.currentEmojis = GenerateRandomEmojis(10)
-	network.emojisTimestamp = time.Now().Unix()
-	logrus.Printf("🎲 generated new emojis: %s", strings.Join(network.currentEmojis, ""))
-}
-
-// pruneGhostStashes evicts stashes for naras that have been offline for more than 7 days
-func (network *Network) pruneGhostStashes() {
-	if network.confidantStore == nil {
-		return
-	}
-
-	// Check all stash owners
-	owners := network.confidantStore.GetAllOwners()
-	if len(owners) == 0 {
-		return
-	}
-
-	isGhost := func(name string) bool {
-		// Check online status projection
-		state := network.local.Projections.OnlineStatus().GetState(name)
-		if state == nil {
-			// No state = never seen = ghost
-			return true
-		}
-
-		// If online, definitely not a ghost
-		if state.Status == "ONLINE" {
-			return false
-		}
-
-		// If offline, check how long
-		lastSeen := state.LastEventTime
-		elapsedNanos := time.Now().UnixNano() - lastSeen
-		elapsed := time.Duration(elapsedNanos)
-
-		// Ghost if offline for more than 7 days
-		return elapsed > 7*24*time.Hour
-	}
-
-	evicted := network.confidantStore.EvictGhosts(isGhost)
-	if evicted > 0 {
-		logrus.Infof("📦 Pruned %d ghost stashes (offline 7+ days)", evicted)
-	}
-}
-
-// checkConfidantHealth monitors the health of our confidants and finds replacements if they go offline
-func (network *Network) checkConfidantHealth() {
-	if network.stashManager == nil || network.stashManager.confidantTracker == nil {
-		return
-	}
-
-	// Get current confirmed confidants
-	confidants := network.stashManager.confidantTracker.GetAll()
-	if len(confidants) == 0 {
-		return
-	}
-
-	// Check each confidant's status
-	for _, confidantName := range confidants {
-		state := network.local.Projections.OnlineStatus().GetState(confidantName)
-		if state == nil {
-			// Never seen - remove them
-			network.stashManager.confidantTracker.Remove(confidantName)
-			logrus.Warnf("📦 Confidant %s removed (never seen)", confidantName)
-			continue
-		}
-
-		// If offline or missing, remove them
-		if state.Status == "OFFLINE" || state.Status == "MISSING" {
-			network.stashManager.confidantTracker.Remove(confidantName)
-			logrus.Warnf("📦 Confidant %s went offline, will find replacement", confidantName)
-		}
-	}
-
-	// maintainStashConfidents() will automatically find replacements in the next tick
-}
-
-// formatDuration formats a duration in a human-friendly way
-func formatDuration(d time.Duration) string {
-	if d < time.Minute {
-		return fmt.Sprintf("%d seconds", int(d.Seconds()))
-	}
-	if d < time.Hour {
-		return fmt.Sprintf("%d minutes", int(d.Minutes()))
-	}
-	if d < 24*time.Hour {
-		return fmt.Sprintf("%.1f hours", d.Hours())
-	}
-	return fmt.Sprintf("%.1f days", d.Hours()/24)
 }
 
 // getPeerInfo gathers metadata about peers for confidant selection
@@ -4917,81 +4503,6 @@ func (network *Network) getPeerInfo(names []string) []PeerInfo {
 	return peers
 }
 
-func (network *Network) maintainStashConfidents() {
-	if network.stashManager == nil || network.ReadOnly {
-		return
-	}
-
-	// Only maintain confidants if we have data to store
-	if !network.stashManager.HasStashData() {
-		return
-	}
-
-	tracker := network.stashManager.confidantTracker
-
-	// Cleanup expired pending (didn't ack in time - probably old version or offline)
-	expired := tracker.CleanupExpiredPending()
-	for _, name := range expired {
-		logrus.Debugf("📦 %s didn't ack stash (timeout), removed from pending", name)
-	}
-
-	// Cleanup expired failures (allow retrying after backoff period)
-	recovered := tracker.CleanupExpiredFailures()
-	for _, name := range recovered {
-		logrus.Debugf("📦 %s failure backoff expired, can retry", name)
-	}
-
-	// If we have stash data but less than target confidants, actively try to find more
-	if tracker.NeedsMore() {
-		needed := tracker.NeedsCount()
-		logrus.Debugf("📦 Need %d more confidants (have %d/%d), searching for candidates",
-			needed, tracker.Count(), tracker.targetCount)
-
-		// Get online naras
-		online := network.NeighbourhoodOnlineNames()
-
-		// Filter to mesh-enabled only
-		var meshEnabled []string
-		for _, name := range online {
-			if network.hasMeshConnectivity(name) {
-				meshEnabled = append(meshEnabled, name)
-			}
-		}
-
-		if len(meshEnabled) == 0 {
-			return
-		}
-
-		// Get peer info for selection
-		peers := network.getPeerInfo(meshEnabled)
-		if len(peers) == 0 {
-			return
-		}
-
-		// Try to find and store with best candidates
-		for i := 0; i < needed && len(peers) > 0; i++ {
-			bestName := tracker.SelectBest(network.meName(), peers)
-			if bestName == "" {
-				break // No more candidates
-			}
-
-			logrus.Debugf("📦 Selected %s as confidant candidate", bestName)
-
-			// Try to store stash with this peer
-			network.storeStashWithPeer(bestName)
-
-			// Remove this peer from consideration
-			newPeers := make([]PeerInfo, 0, len(peers)-1)
-			for _, p := range peers {
-				if p.Name != bestName {
-					newPeers = append(newPeers, p)
-				}
-			}
-			peers = newPeers
-		}
-	}
-}
-
 // broadcastStashRefresh broadcasts an MQTT event asking confidants to push stash back
 // This is used during boot if hey-there didn't trigger recovery
 func (network *Network) broadcastStashRefresh() {
@@ -5000,7 +4511,7 @@ func (network *Network) broadcastStashRefresh() {
 		return
 	}
 
-	if network.stashManager == nil {
+	if network.stashService == nil {
 		return
 	}
 
@@ -5014,4 +4525,19 @@ func (network *Network) broadcastStashRefresh() {
 	topic := "nara/plaza/stash_refresh"
 	network.postEvent(topic, event)
 	logrus.Infof("📦 Broadcast stash-refresh request")
+}
+
+// =============================================================================
+// Stash Service initialization
+// =============================================================================
+
+// initStashService initializes the unified stash service.
+// This can be called by tests after manually setting up stashManager.
+func (network *Network) initStashService() {
+	network.stashService = NewStashService(
+		network.stashManager,
+		network.confidantStore,
+		network.stashSyncTracker,
+		newStashServiceContext(network),
+	)
 }

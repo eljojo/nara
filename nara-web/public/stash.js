@@ -4,8 +4,10 @@ function StashManager() {
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState({ text: '', type: '' });
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const editorRef = useRef(null);
   const containerRef = useRef(null);
+  const savedContentRef = useRef(null);
 
   useEffect(() => {
     fetchStatus();
@@ -20,7 +22,8 @@ function StashManager() {
         mode: 'tree',
         modes: ['tree', 'code', 'form', 'text', 'view'],
         onChangeText: () => {
-          // Editor content changed
+          // Mark as having unsaved changes when user edits
+          setHasUnsavedChanges(true);
         }
       };
       editorRef.current = new JSONEditor(containerRef.current, options);
@@ -45,6 +48,7 @@ function StashManager() {
       }
 
       editorRef.current.set(initialData);
+      savedContentRef.current = JSON.stringify(initialData);
     }
   }, [status]);
 
@@ -55,9 +59,11 @@ function StashManager() {
       setStatus(data);
       setLoading(false);
 
-      // Update editor if it exists
-      if (editorRef.current && data.my_stash) {
-        editorRef.current.update(data.my_stash.data || {});
+      // Only update editor if there are no unsaved changes
+      if (editorRef.current && data.my_stash && !hasUnsavedChanges) {
+        const newData = data.my_stash.data || {};
+        editorRef.current.update(newData);
+        savedContentRef.current = JSON.stringify(newData);
       }
     } catch (error) {
       console.error('Failed to fetch status:', error);
@@ -78,6 +84,11 @@ function StashManager() {
 
       const result = await response.json();
       showMessage(result.message || 'Stash updated successfully', 'success');
+
+      // Mark as saved
+      savedContentRef.current = JSON.stringify(data);
+      setHasUnsavedChanges(false);
+
       setTimeout(fetchStatus, 1000);
     } catch (error) {
       showMessage('Failed to update stash: ' + error.message, 'error');
@@ -196,7 +207,14 @@ function StashManager() {
 
       {/* JSON Editor */}
       <div className="card">
-        <h2>✏️ Edit Stash Data</h2>
+        <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+          <h2>✏️ Edit Stash Data</h2>
+          {hasUnsavedChanges && (
+            <span style={{color: '#ff6b6b', fontSize: '13px', fontWeight: '500'}}>
+              ● Unsaved changes
+            </span>
+          )}
+        </div>
         <div className="editor-container" ref={containerRef}></div>
         <div style={{marginTop: '10px'}}>
           <button className="button" onClick={handleUpdate}>

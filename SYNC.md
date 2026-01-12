@@ -100,19 +100,26 @@ Every 30-300 seconds (personality-based):
 - **Organic propagation**: Events spread like rumors, not announcements
 
 ### Stash Exchange (HTTP State Backup)
-**Piggybacks on gossip rounds** - encrypted state backup with commitment model.
+**Separate distribution system** - encrypted state backup with commitment model.
 
-**Stash** is encrypted arbitrary JSON data that naras store for each other based on **mutual promises**. Stash storage happens via HTTP mesh during gossip rounds:
+**Stash** is encrypted arbitrary JSON data that naras store for each other based on **mutual promises**. Stash distribution happens via HTTP mesh with its own trigger system:
 
 ```
-During each gossip round (with zine):
-  1. POST /stash/store with my encrypted stash
-  2. Peer verifies signature & timestamp
-  3. Peer checks capacity:
+Distribution triggers (finding confidants):
+  1. Immediate: When stash data is updated (via /api/stash/update)
+  2. Periodic: Every 5 minutes (maintenance + health checks)
+  3. Reactive: When a confidant goes offline (immediate replacement)
+
+When distributing (to find confidants):
+  1. Pick best nara first (high memory + uptime)
+  2. Pick remaining confidants randomly (avoid hotspots)
+  3. POST /stash/store with encrypted stash to each
+  4. Peer verifies signature & timestamp
+  5. Peer checks capacity:
      - If space: Accepts (creates commitment) ✓
      - If full: Rejects (at_capacity) ✗
-  4. If accepted: Peer tracks commitment, owner adds to confirmed confidants
-  5. Rate limited: 5-minute intervals per peer
+  6. If accepted: Peer tracks commitment, owner adds to confirmed confidants
+  7. Keep trying until target count (3) reached or max attempts
 
 On boot (recovery):
   1. Owner broadcasts hey-there event (MQTT)
@@ -121,7 +128,7 @@ On boot (recovery):
   4. Owner receives, decrypts, uses newest
 ```
 
-**Why Separate Stash Endpoints?**
+**Why Separate Stash System?**
 - **Clear semantics**: Store, retrieve, push, and delete are distinct operations
 - **Timestamp security**: All requests signed with timestamp (replay protection)
 - **No disk writes**: Pure memory storage (ephemeral by design)
@@ -130,15 +137,16 @@ On boot (recovery):
 - **Health monitoring**: Owners detect offline confidants, find replacements
 - **Ghost pruning**: Evict stashes for naras offline 7+ days
 - **Memory-aware**: Storage limits based on memory mode (5/20/50)
-- **Smart selection**: Prefer high-memory, high-uptime confidants
+- **Hybrid selection**: 1 best confidant (reliability) + 2 random (distribution)
+- **Immediate triggers**: Reacts to stash updates and offline confidants within seconds
 - **Boot recovery**: Hey-there events trigger HTTP stash push back
 
-**Integration with sync:**
+**Integration with mesh:**
 - Stash uses same HTTP mesh infrastructure as zines
 - Same Ed25519 authentication mechanism
-- Piggybacks on gossip rounds (no extra connections)
+- Independent distribution system (not tied to zine gossip)
 - Complements event sync with state backup
-- Unlike events (spread to all), stash is targeted (2-3 confidants)
+- Unlike events (spread to all), stash is targeted (3 confidants)
 
 **Transport Modes:**
 
