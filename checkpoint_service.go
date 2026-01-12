@@ -23,8 +23,8 @@ const (
 // Checkpoint timing constants
 const (
 	DefaultCheckpointInterval = 24 * time.Hour
-	DefaultVoteWindow         = 2 * time.Minute
-	MinVotersRequired         = 2  // Outside the proposer, so 3 total signatures
+	DefaultVoteWindow         = 1 * time.Minute
+	MinVotersRequired         = 5  // Outside the proposer, so 6 total signatures
 	MaxCheckpointSignatures   = 10 // Store at most 10 signatures, prioritizing high-uptime naras
 	CheckpointCheckInterval   = 15 * time.Minute
 )
@@ -183,6 +183,14 @@ func (s *CheckpointService) checkAndPropose() {
 		return
 	}
 	s.myPendingProposalMu.Unlock()
+
+	// Check if there are enough naras online to potentially reach consensus
+	// Need MinVotersRequired voters + ourselves, so check for MinVotersRequired + 1
+	onlineCount := len(s.network.NeighbourhoodOnlineNames())
+	if onlineCount < MinVotersRequired+1 {
+		logrus.Debugf("checkpoint: skipping proposal - not enough naras online (%d < %d required)", onlineCount, MinVotersRequired+1)
+		return
+	}
 
 	// Propose a new checkpoint
 	s.ProposeCheckpoint()
