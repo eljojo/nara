@@ -24,6 +24,7 @@ type CheckpointEventPayload struct {
 	Restarts    int64  `json:"restarts"`     // Historical restart count at checkpoint time
 	TotalUptime int64  `json:"total_uptime"` // Total verified online seconds at checkpoint time
 	Importance  int    `json:"importance"`   // Always Critical (3) - never pruned
+	Round       int    `json:"round"`        // Consensus round (1 or 2) - needed for signature verification
 
 	// Community consensus - voters who participated in checkpoint creation
 	VoterIDs   []string `json:"voter_ids,omitempty"`  // Nara IDs who voted for these values

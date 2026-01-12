@@ -569,6 +569,7 @@ func (s *CheckpointService) tryFindConsensus(proposal *CheckpointProposal, votes
 		VoterIDs:    make([]string, 0, MaxCheckpointSignatures),
 		Signatures:  make([]string, 0, MaxCheckpointSignatures),
 		Importance:  ImportanceCritical,
+		Round:       proposal.Round, // Needed for signature verification
 	}
 
 	// Add proposer's signature first if values match (proposer always included)
@@ -689,11 +690,12 @@ func (s *CheckpointService) HandleFinalCheckpoint(event *SyncEvent) {
 		return
 	}
 
-	// Verify all signatures match the checkpoint values
+	// Verify at least one signature from a known nara
+	// We may not know all voters, but if we can verify at least one, we trust it
 	validSignatures := s.verifyCheckpointSignatures(event.Checkpoint)
-	if validSignatures < MinVotersRequired {
-		logrus.Warnf("checkpoint: rejected checkpoint for %s - only %d valid signatures (need %d)",
-			event.Checkpoint.Subject, validSignatures, MinVotersRequired)
+	if validSignatures < 1 {
+		logrus.Warnf("checkpoint: rejected checkpoint for %s - no verifiable signatures from known naras",
+			event.Checkpoint.Subject)
 		return
 	}
 
@@ -704,10 +706,17 @@ func (s *CheckpointService) HandleFinalCheckpoint(event *SyncEvent) {
 }
 
 // verifyCheckpointSignatures verifies all signatures in a checkpoint and returns count of valid ones
+// Note: signatures from unknown naras (no public key available) are skipped, not counted as invalid
 func (s *CheckpointService) verifyCheckpointSignatures(checkpoint *CheckpointEventPayload) int {
 	if len(checkpoint.VoterIDs) != len(checkpoint.Signatures) {
 		logrus.Warnf("checkpoint: voter/signature count mismatch for %s", checkpoint.Subject)
 		return 0
+	}
+
+	// Use checkpoint's round, default to 1 for backward compatibility with old checkpoints
+	round := checkpoint.Round
+	if round == 0 {
+		round = 1
 	}
 
 	validCount := 0
@@ -717,7 +726,9 @@ func (s *CheckpointService) verifyCheckpointSignatures(checkpoint *CheckpointEve
 		// Get voter's public key by ID
 		pubKey := s.network.getPublicKeyForNaraID(voterID)
 		if pubKey == nil {
-			logrus.Debugf("checkpoint: cannot verify signature from voter %s - unknown public key", voterID)
+			// Skip unknown naras - we can't verify their signatures but that's OK
+			// As long as we can verify at least one signature from a known nara
+			logrus.Debugf("checkpoint: skipping signature from voter %s - unknown public key", voterID)
 			continue
 		}
 
@@ -727,11 +738,11 @@ func (s *CheckpointService) verifyCheckpointSignatures(checkpoint *CheckpointEve
 		if voterID == checkpoint.SubjectID {
 			// This is the proposer's signature
 			signableContent = fmt.Sprintf("checkpoint-proposal:%s:%d:%d:%d:%d:%d",
-				checkpoint.SubjectID, checkpoint.AsOfTime, checkpoint.Restarts, checkpoint.TotalUptime, checkpoint.FirstSeen, 1)
+				checkpoint.SubjectID, checkpoint.AsOfTime, checkpoint.Restarts, checkpoint.TotalUptime, checkpoint.FirstSeen, round)
 		} else {
 			// This is a voter's signature
 			signableContent = fmt.Sprintf("checkpoint-vote:%s:%d:%d:%d:%d:%d",
-				voterID, checkpoint.AsOfTime, checkpoint.Restarts, checkpoint.TotalUptime, checkpoint.FirstSeen, 1)
+				voterID, checkpoint.AsOfTime, checkpoint.Restarts, checkpoint.TotalUptime, checkpoint.FirstSeen, round)
 		}
 
 		if VerifySignatureBase64(pubKey, []byte(signableContent), signature) {

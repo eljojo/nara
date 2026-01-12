@@ -3,6 +3,7 @@ package nara
 import (
 	"crypto/ed25519"
 	"encoding/base64"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -494,6 +495,168 @@ func TestCheckpoint_RestartEventsPrunedAfterCheckpoint(t *testing.T) {
 	// We should have checkpoint(10) + some number of new restarts
 	if restartCount < 10 {
 		t.Errorf("Expected at least checkpoint restarts (10), got %d", restartCount)
+	}
+}
+
+// Test that round 2 checkpoint signatures can be verified
+// This tests the bug where verifyCheckpointSignatures hardcodes round=1
+func TestCheckpoint_Round2SignatureVerification(t *testing.T) {
+	// Create test naras with keypairs
+	proposerKeypair := generateTestKeypair()
+	voter1Keypair := generateTestKeypair()
+	voter2Keypair := generateTestKeypair()
+
+	proposerID := "proposer-id"
+	voter1ID := "voter1-id"
+	voter2ID := "voter2-id"
+
+	subject := "proposer"
+	asOfTime := time.Now().Unix()
+	restarts := int64(100)
+	totalUptime := int64(50000)
+	firstSeen := int64(1624066568)
+	round := 2 // Round 2!
+
+	// Create signatures as they would be in round 2
+	// Proposer signs with proposal format
+	proposerSignableContent := fmt.Sprintf("checkpoint-proposal:%s:%d:%d:%d:%d:%d",
+		proposerID, asOfTime, restarts, totalUptime, firstSeen, round)
+	proposerSig := proposerKeypair.SignBase64([]byte(proposerSignableContent))
+
+	// Voters sign with vote format
+	voter1SignableContent := fmt.Sprintf("checkpoint-vote:%s:%d:%d:%d:%d:%d",
+		voter1ID, asOfTime, restarts, totalUptime, firstSeen, round)
+	voter1Sig := voter1Keypair.SignBase64([]byte(voter1SignableContent))
+
+	voter2SignableContent := fmt.Sprintf("checkpoint-vote:%s:%d:%d:%d:%d:%d",
+		voter2ID, asOfTime, restarts, totalUptime, firstSeen, round)
+	voter2Sig := voter2Keypair.SignBase64([]byte(voter2SignableContent))
+
+	// Create checkpoint with round 2 signatures
+	checkpoint := &CheckpointEventPayload{
+		Subject:     subject,
+		SubjectID:   proposerID,
+		AsOfTime:    asOfTime,
+		Restarts:    restarts,
+		TotalUptime: totalUptime,
+		FirstSeen:   firstSeen,
+		VoterIDs:    []string{proposerID, voter1ID, voter2ID},
+		Signatures:  []string{proposerSig, voter1Sig, voter2Sig},
+		Importance:  ImportanceCritical,
+		Round:       round, // Must match what was signed
+	}
+
+	// Create a CheckpointService with a mock network that returns public keys
+	ledger := NewSyncLedger(1000)
+	local := testLocalNara("verifier")
+
+	// Create a minimal network with public key lookup
+	network := &Network{
+		Neighbourhood: make(map[string]*Nara),
+		local:         local,
+	}
+	network.Neighbourhood["proposer"] = &Nara{
+		Name: "proposer",
+		Status: NaraStatus{
+			ID:        proposerID,
+			PublicKey: pubKeyToBase64(proposerKeypair.PublicKey),
+		},
+	}
+	network.Neighbourhood["voter1"] = &Nara{
+		Name: "voter1",
+		Status: NaraStatus{
+			ID:        voter1ID,
+			PublicKey: pubKeyToBase64(voter1Keypair.PublicKey),
+		},
+	}
+	network.Neighbourhood["voter2"] = &Nara{
+		Name: "voter2",
+		Status: NaraStatus{
+			ID:        voter2ID,
+			PublicKey: pubKeyToBase64(voter2Keypair.PublicKey),
+		},
+	}
+
+	service := NewCheckpointService(network, ledger, local)
+
+	// Verify signatures - this should succeed but currently fails due to hardcoded round=1
+	validCount := service.verifyCheckpointSignatures(checkpoint)
+
+	// All 3 signatures should be valid
+	if validCount != 3 {
+		t.Errorf("Expected 3 valid signatures for round 2 checkpoint, got %d (bug: round hardcoded to 1)", validCount)
+	}
+}
+
+// Test that partial signature verification works (some naras unknown)
+func TestCheckpoint_PartialSignatureVerification(t *testing.T) {
+	// Create test naras with keypairs
+	proposerKeypair := generateTestKeypair()
+	voter1Keypair := generateTestKeypair()
+	voter2Keypair := generateTestKeypair()
+
+	proposerID := "proposer-id"
+	voter1ID := "voter1-id"
+	voter2ID := "voter2-id"
+
+	subject := "proposer"
+	asOfTime := time.Now().Unix()
+	restarts := int64(100)
+	totalUptime := int64(50000)
+	firstSeen := int64(1624066568)
+	round := 1
+
+	// Create signatures
+	proposerSignableContent := fmt.Sprintf("checkpoint-proposal:%s:%d:%d:%d:%d:%d",
+		proposerID, asOfTime, restarts, totalUptime, firstSeen, round)
+	proposerSig := proposerKeypair.SignBase64([]byte(proposerSignableContent))
+
+	voter1SignableContent := fmt.Sprintf("checkpoint-vote:%s:%d:%d:%d:%d:%d",
+		voter1ID, asOfTime, restarts, totalUptime, firstSeen, round)
+	voter1Sig := voter1Keypair.SignBase64([]byte(voter1SignableContent))
+
+	voter2SignableContent := fmt.Sprintf("checkpoint-vote:%s:%d:%d:%d:%d:%d",
+		voter2ID, asOfTime, restarts, totalUptime, firstSeen, round)
+	voter2Sig := voter2Keypair.SignBase64([]byte(voter2SignableContent))
+
+	// Create checkpoint with all 3 signatures
+	checkpoint := &CheckpointEventPayload{
+		Subject:     subject,
+		SubjectID:   proposerID,
+		AsOfTime:    asOfTime,
+		Restarts:    restarts,
+		TotalUptime: totalUptime,
+		FirstSeen:   firstSeen,
+		VoterIDs:    []string{proposerID, voter1ID, voter2ID},
+		Signatures:  []string{proposerSig, voter1Sig, voter2Sig},
+		Importance:  ImportanceCritical,
+		Round:       round,
+	}
+
+	// Create a CheckpointService with a network that only knows voter1
+	ledger := NewSyncLedger(1000)
+	local := testLocalNara("verifier")
+
+	network := &Network{
+		Neighbourhood: make(map[string]*Nara),
+		local:         local,
+	}
+	// Only add voter1 - proposer and voter2 are "unknown"
+	network.Neighbourhood["voter1"] = &Nara{
+		Name: "voter1",
+		Status: NaraStatus{
+			ID:        voter1ID,
+			PublicKey: pubKeyToBase64(voter1Keypair.PublicKey),
+		},
+	}
+
+	service := NewCheckpointService(network, ledger, local)
+
+	// Should return 1 (only voter1 is verifiable)
+	validCount := service.verifyCheckpointSignatures(checkpoint)
+
+	if validCount != 1 {
+		t.Errorf("Expected 1 valid signature (only voter1 known), got %d", validCount)
 	}
 }
 
