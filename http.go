@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -105,6 +106,10 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 	mux.HandleFunc("/stash/store", network.loggingMiddleware("/stash/store", network.meshAuthMiddleware("/stash/store", network.httpStashHandler)))
 	mux.HandleFunc("/stash/retrieve", network.loggingMiddleware("/stash/retrieve", network.meshAuthMiddleware("/stash/retrieve", network.httpStashRetrieveHandler)))
 	mux.HandleFunc("/stash/push", network.loggingMiddleware("/stash/push", network.meshAuthMiddleware("/stash/push", network.httpStashPushHandler)))
+
+	// Checkpoint sync endpoint - serves all checkpoints for boot recovery
+	// Available on mesh for distributed timeline recovery
+	mux.HandleFunc("/api/checkpoints/all", network.httpCheckpointsAllHandler)
 
 	if includeUI {
 		// Prepare static FS
@@ -1451,6 +1456,75 @@ func (network *Network) httpProximityHandler(w http.ResponseWriter, r *http.Requ
 		"barrio_emoji":   myEmoji,
 		"barrio_members": barrioMembers,
 		"grid_size":      network.calculateGridSize(),
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(response)
+}
+
+// httpCheckpointsAllHandler serves all checkpoint events for boot recovery
+// This allows new naras to sync the entire checkpoint timeline from the network
+// Supports pagination via query parameters: limit and offset
+func (network *Network) httpCheckpointsAllHandler(w http.ResponseWriter, r *http.Request) {
+	if network.local == nil || network.local.SyncLedger == nil {
+		http.Error(w, "ledger not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse pagination parameters
+	limitStr := r.URL.Query().Get("limit")
+	offsetStr := r.URL.Query().Get("offset")
+
+	limit := 1000 // default limit
+	if limitStr != "" {
+		if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 {
+			limit = parsed
+			if limit > 10000 {
+				limit = 10000 // max limit
+			}
+		}
+	}
+
+	offset := 0
+	if offsetStr != "" {
+		if parsed, err := strconv.Atoi(offsetStr); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
+	// Get all checkpoint events from the ledger
+	network.local.SyncLedger.mu.RLock()
+	var allCheckpoints []*SyncEvent
+	for _, event := range network.local.SyncLedger.Events {
+		if event.Service == ServiceCheckpoint && event.Checkpoint != nil {
+			allCheckpoints = append(allCheckpoints, &event)
+		}
+	}
+	network.local.SyncLedger.mu.RUnlock()
+
+	// Apply pagination
+	total := len(allCheckpoints)
+	start := offset
+	end := offset + limit
+
+	if start >= total {
+		start = total
+		end = total
+	} else if end > total {
+		end = total
+	}
+
+	paginatedCheckpoints := allCheckpoints[start:end]
+	hasMore := end < total
+
+	response := map[string]interface{}{
+		"server":      network.meName(),
+		"total":       total,
+		"count":       len(paginatedCheckpoints),
+		"checkpoints": paginatedCheckpoints,
+		"has_more":    hasMore,
+		"offset":      offset,
+		"limit":       limit,
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
