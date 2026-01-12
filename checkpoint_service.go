@@ -622,9 +622,9 @@ func (s *CheckpointService) proposeRound2(votes []*CheckpointVote) {
 
 	// Compute trimmed mean consensus values from round 1 votes
 	consensus := &round2Values{
-		restarts:    trimmedMeanInt64(restartVals),
-		totalUptime: trimmedMeanInt64(uptimeVals),
-		firstSeen:   trimmedMeanInt64(firstSeenVals),
+		restarts:    TrimmedMeanInt64(restartVals),
+		totalUptime: TrimmedMeanInt64(uptimeVals),
+		firstSeen:   TrimmedMeanInt64(firstSeenVals),
 	}
 
 	// Propose round 2 with consensus values
@@ -762,65 +762,6 @@ func (s *CheckpointService) valuesMatch(a, b, tolerance int64) bool {
 		diff = -diff
 	}
 	return diff <= tolerance
-}
-
-// trimmedMeanInt64 computes trimmed mean, removing outliers
-func trimmedMeanInt64(values []int64) int64 {
-	if len(values) == 0 {
-		return 0
-	}
-	if len(values) == 1 {
-		return values[0]
-	}
-
-	// Sort
-	sorted := make([]int64, len(values))
-	copy(sorted, values)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
-
-	// Get median
-	median := sorted[len(sorted)/2]
-
-	// Filter outliers (keep values within 0.2x - 5x of median)
-	// Handle edge cases: zero median, negative median
-	var filtered []int64
-	if median == 0 {
-		// For zero median, keep values close to zero (within small range)
-		for _, v := range sorted {
-			if v >= -10 && v <= 10 {
-				filtered = append(filtered, v)
-			}
-		}
-	} else if median > 0 {
-		// Positive median: standard 0.2x - 5x range
-		lowerBound := median / 5
-		upperBound := median * 5
-		for _, v := range sorted {
-			if v >= lowerBound && v <= upperBound {
-				filtered = append(filtered, v)
-			}
-		}
-	} else {
-		// Negative median: invert bounds (5x is smaller, 0.2x is larger)
-		lowerBound := median * 5 // More negative (smaller)
-		upperBound := median / 5 // Less negative (larger)
-		for _, v := range sorted {
-			if v >= lowerBound && v <= upperBound {
-				filtered = append(filtered, v)
-			}
-		}
-	}
-
-	if len(filtered) == 0 {
-		return median
-	}
-
-	// Compute average
-	var sum int64
-	for _, v := range filtered {
-		sum += v
-	}
-	return sum / int64(len(filtered))
 }
 
 // MQTT Handlers - to be registered in mqtt.go

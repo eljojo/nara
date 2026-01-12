@@ -2,7 +2,6 @@ package nara
 
 import (
 	"context"
-	"sort"
 	"sync"
 
 	"github.com/sirupsen/logrus"
@@ -211,65 +210,10 @@ func deriveProjectionLastRestartConsensus(observations []ObservationRecord) int6
 }
 
 // trimmedMeanConsensus calculates a robust average by removing outliers.
-// Ignores zeros, calculates median, removes values >2x or <0.5x median, returns average.
+// Ignores zeros, calculates median, removes values >5x or <0.2x median, returns average.
+// This is a wrapper around TrimmedMeanPositive for backward compatibility.
 func trimmedMeanConsensus(values []int64) int64 {
-	if len(values) == 0 {
-		return 0
-	}
-
-	// Filter out zeros (these are not real observations)
-	var nonZero []int64
-	for _, v := range values {
-		if v > 0 {
-			nonZero = append(nonZero, v)
-		}
-	}
-
-	if len(nonZero) == 0 {
-		return 0
-	}
-
-	// Single value: just return it
-	if len(nonZero) == 1 {
-		return nonZero[0]
-	}
-
-	// Calculate median
-	sorted := make([]int64, len(nonZero))
-	copy(sorted, nonZero)
-	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i] < sorted[j]
-	})
-	median := sorted[len(sorted)/2]
-
-	// Remove outliers: keep values within [median*0.2, median*5.0]
-	// This filters out values that are more than 5x or less than 0.2x the median
-	var filtered []int64
-	lowerBound := median / 5 // 0.2x median
-	upperBound := median * 5 // 5x median
-	var removed []int64
-
-	for _, v := range nonZero {
-		if v >= lowerBound && v <= upperBound {
-			filtered = append(filtered, v)
-		} else {
-			removed = append(removed, v)
-		}
-	}
-
-	// If we filtered everything out, fall back to median
-	if len(filtered) == 0 {
-		return median
-	}
-
-	// Calculate average of filtered values
-	var sum int64
-	for _, v := range filtered {
-		sum += v
-	}
-	avg := sum / int64(len(filtered))
-
-	return avg
+	return TrimmedMeanPositive(values)
 }
 
 // GetObservationsFor returns the observation records for a subject.
