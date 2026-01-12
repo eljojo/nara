@@ -363,7 +363,7 @@
         const count = naras.length || 1;
 
         naras.forEach(n => {
-          totalEvents += safeNum(n.EventStoreTotal);
+          totalEvents += safeNum(n.event_store_total);
           totalGoroutines += safeNum(n.HostStats && n.HostStats.NumGoroutines);
           totalMem += safeNum(n.HostStats && n.HostStats.MemAllocMB);
           totalCPU += safeNum(n.HostStats && n.HostStats.ProcCPUPercent);
@@ -401,7 +401,7 @@
           const bStats = b.HostStats || {};
           if (sortBy === 'mem') return safeNum(bStats.MemAllocMB) - safeNum(aStats.MemAllocMB);
           if (sortBy === 'cpu') return safeNum(bStats.ProcCPUPercent) - safeNum(aStats.ProcCPUPercent);
-          if (sortBy === 'events') return safeNum(b.EventStoreTotal) - safeNum(a.EventStoreTotal);
+          if (sortBy === 'events') return safeNum(b.event_store_total) - safeNum(a.event_store_total);
           return safeNum(bStats.NumGoroutines) - safeNum(aStats.NumGoroutines);
         });
 
@@ -409,7 +409,7 @@
 
         tableBody.innerHTML = filtered.map(n => {
           const stats = n.HostStats || {};
-          const services = n.EventStoreByService || {};
+          const services = n.event_store_by_service || {};
           const eventTypes = [
             { key: 'observation', label: 'observation' },
             { key: 'ping', label: 'ping' },
@@ -420,7 +420,7 @@
           ];
           const eventRows = eventTypes.map(type => {
             const count = type.source === 'critical'
-              ? safeNum(n.EventStoreCritical)
+              ? safeNum(n.event_store_critical)
               : safeNum(services[type.key]);
             return { label: type.label, count };
           });
@@ -451,8 +451,8 @@
               <td class="mono">${formatNumber(safeNum(stats.MemHeapMB), 'mb')} / ${formatNumber(safeNum(stats.MemStackMB), 'mb')}</td>
               <td class="mono">
                 <div class="stack">
-                  <span>${formatNumber(safeNum(n.EventStoreTotal))}</span>
-                  <span class="muted">crit ${formatNumber(safeNum(n.EventStoreCritical))}</span>
+                  <span>${formatNumber(safeNum(n.event_store_total))}</span>
+                  <span class="muted">crit ${formatNumber(safeNum(n.event_store_critical))}</span>
                 </div>
               </td>
               <td>${serviceRows || '<span class="muted">no data</span>'}</td>
