@@ -78,23 +78,7 @@ func TestIntegration_CheckpointConsensus(t *testing.T) {
 
 	// Wait for naras to discover each other and exchange public keys
 	t.Log("🌐 Waiting for peer discovery and key exchange...")
-	time.Sleep(5 * time.Second)
-
-	// Verify discovery and public key exchange
-	for _, ln := range naras {
-		ln.Network.local.mu.Lock()
-		neighborCount := len(ln.Network.Neighbourhood)
-		keysKnown := 0
-		for _, neighbor := range ln.Network.Neighbourhood {
-			neighbor.mu.Lock()
-			if neighbor.Status.PublicKey != "" {
-				keysKnown++
-			}
-			neighbor.mu.Unlock()
-		}
-		ln.Network.local.mu.Unlock()
-		t.Logf("  %s knows %d neighbors (%d with public keys)", ln.Me.Name, neighborCount, keysKnown)
-	}
+	waitForFullDiscovery(t, naras, 10*time.Second)
 
 	// Ensure all naras' checkpoint services have MQTT clients set
 	// This is needed because Start() might not have completed fully
@@ -143,16 +127,7 @@ func TestIntegration_CheckpointConsensus(t *testing.T) {
 	}
 
 	// Verify MQTT is connected
-	if proposer.Network.Mqtt == nil {
-		t.Fatal("❌ MQTT client is nil")
-	}
-	if !proposer.Network.Mqtt.IsConnected() {
-		t.Log("⚠️  MQTT not connected, waiting...")
-		time.Sleep(2 * time.Second)
-		if !proposer.Network.Mqtt.IsConnected() {
-			t.Fatal("❌ MQTT still not connected after waiting")
-		}
-	}
+	waitForMQTTConnected(t, proposer, 3*time.Second)
 	t.Logf("✅ MQTT connected for proposer")
 
 	// Verify checkpoint service has ledger
@@ -164,15 +139,12 @@ func TestIntegration_CheckpointConsensus(t *testing.T) {
 	// Trigger the checkpoint proposal
 	proposer.Network.checkpointService.ProposeCheckpoint()
 
-	// Wait for vote window to close and finalization
-	t.Log("⏳ Waiting for vote window (3 seconds) + finalization...")
-	time.Sleep(5 * time.Second)
+	// Wait for checkpoint to be finalized (vote window + processing)
+	t.Log("⏳ Waiting for checkpoint finalization...")
+	checkpoint := waitForCheckpoint(t, proposer.SyncLedger, proposer.Me.Name, 10*time.Second)
 
 	// Check if checkpoint was created
 	t.Log("🔍 Checking for finalized checkpoint...")
-
-	// Check in proposer's ledger first
-	checkpoint := proposer.SyncLedger.GetCheckpoint(proposer.Me.Name)
 	if checkpoint == nil {
 		t.Log("⚠️  No checkpoint found in proposer's ledger")
 	} else {
@@ -185,11 +157,13 @@ func TestIntegration_CheckpointConsensus(t *testing.T) {
 		t.Logf("   Signatures: %d", len(checkpoint.Signatures))
 	}
 
-	// Check in other naras' ledgers (checkpoint should propagate via final topic)
+	// Wait for checkpoint to propagate to other naras
+	if checkpoint != nil {
+		waitForCheckpointPropagation(t, naras[1:], proposer.Me.Name, 3*time.Second)
+	}
 	checkpointsPropagated := 0
 	for _, ln := range naras[1:] {
-		cp := ln.SyncLedger.GetCheckpoint(proposer.Me.Name)
-		if cp != nil {
+		if ln.SyncLedger.GetCheckpoint(proposer.Me.Name) != nil {
 			checkpointsPropagated++
 			t.Logf("✅ Checkpoint propagated to %s", ln.Me.Name)
 		}
@@ -200,7 +174,6 @@ func TestIntegration_CheckpointConsensus(t *testing.T) {
 	for _, ln := range naras {
 		ln.Network.disconnectMQTT()
 	}
-	time.Sleep(500 * time.Millisecond)
 
 	// Final validation
 	t.Log("")

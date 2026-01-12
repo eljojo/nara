@@ -1531,11 +1531,6 @@ func (network *Network) meName() string {
 	return network.local.Me.Name
 }
 
-// useObservationEvents returns true if event-driven observation mode is enabled
-func useObservationEvents() bool {
-	return os.Getenv("USE_OBSERVATION_EVENTS") == "true"
-}
-
 // useCheckpointCreation returns true if this nara should actively create checkpoints.
 // When disabled, this nara can still receive, validate, and store checkpoints from others,
 // but won't propose new checkpoints or participate in voting.
