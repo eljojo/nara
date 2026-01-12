@@ -132,9 +132,10 @@ func NewLocalNara(identity IdentityResult, mqtt_host string, mqtt_user string, m
 
 	hostinfo, err := host.Info()
 	if err != nil || hostinfo == nil {
-		logrus.Panicf("⚠️  Warning: failed to get host info: %v", err)
+		logrus.Warnf("⚠️  Warning: failed to get host info: %v", err)
+	} else {
+		ln.Me.Hostname = hostinfo.Hostname
 	}
-	ln.Me.Hostname = hostinfo.Hostname
 
 	observation := ln.getMeObservation()
 	observation.LastRestart = time.Now().Unix()
