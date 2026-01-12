@@ -387,9 +387,7 @@ func (network *Network) garbageCollectGhostNaras() int {
 }
 
 func (network *Network) fetchOpinionsFromBlueJay() {
-	client := http.Client{
-		Timeout: 5 * time.Second,
-	}
+	client := network.getHTTPClient()
 	resp, err := client.Get(BlueJayURL)
 	if err != nil {
 		logrus.Warnf("failed to fetch opinions from blue-jay: %v", err)

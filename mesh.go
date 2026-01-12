@@ -50,8 +50,16 @@ type HTTPMeshTransport struct {
 
 // NewHTTPMeshTransport creates a new HTTP-based mesh transport
 func NewHTTPMeshTransport(tsnetServer *tsnet.Server, network *Network, port int) *HTTPMeshTransport {
-	client := tsnetServer.HTTPClient()
-	client.Timeout = 15 * time.Second
+	var client *http.Client
+	if network != nil {
+		client = network.getMeshHTTPClient()
+	}
+	if client == nil && tsnetServer != nil {
+		client = &http.Client{
+			Transport: &http.Transport{DialContext: tsnetServer.Dial},
+			Timeout:   5 * time.Second,
+		}
+	}
 
 	return &HTTPMeshTransport{
 		tsnetServer: tsnetServer,

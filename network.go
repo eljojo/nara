@@ -18,6 +18,7 @@ import (
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/sirupsen/logrus"
+	"tailscale.com/tsnet"
 )
 
 // TransportMode determines how events spread through the network
@@ -107,9 +108,11 @@ type Network struct {
 	testSkipJitter        bool                            // Skip jitter delays in hey_there for faster tests
 	testPingFunc          func(name string) (bool, error) // Override ping behavior for testing (returns success, error)
 	// HTTP servers for graceful shutdown
-	httpServer     *http.Server
-	meshHttpServer *http.Server
-	meshHTTPClient *http.Client
+	httpServer        *http.Server
+	meshHttpServer    *http.Server
+	httpClient        *http.Client
+	meshHTTPClient    *http.Client
+	meshHTTPTransport *http.Transport
 	// Peer resolution tracking
 	pendingResolutions sync.Map // map[string]uint64 (seconds) - tracks when we last tried to resolve a peer
 
@@ -1196,7 +1199,10 @@ func (network *Network) getHTTPClient() *http.Client {
 	if network.testHTTPClient != nil {
 		return network.testHTTPClient
 	}
-	return &http.Client{Timeout: 5 * time.Second}
+	if network.httpClient == nil {
+		network.httpClient = &http.Client{Timeout: 5 * time.Second}
+	}
+	return network.httpClient
 }
 
 // getMeshHTTPClient returns the mesh HTTP client to use (test override or tsnet client).
@@ -1207,12 +1213,32 @@ func (network *Network) getMeshHTTPClient() *http.Client {
 	if network.meshHTTPClient != nil {
 		return network.meshHTTPClient
 	}
-	if network.tsnetMesh != nil && network.tsnetMesh.Server() != nil {
-		network.meshHTTPClient = network.tsnetMesh.Server().HTTPClient()
-		network.meshHTTPClient.Timeout = 15 * time.Second
-		return network.meshHTTPClient
+	if network.tsnetMesh == nil || network.tsnetMesh.Server() == nil {
+		return nil
 	}
-	return nil
+	network.initMeshHTTPClients(network.tsnetMesh.Server())
+	return network.meshHTTPClient
+}
+
+// initMeshHTTPClients initializes shared mesh HTTP clients and transport.
+func (network *Network) initMeshHTTPClients(tsnetServer *tsnet.Server) {
+	if tsnetServer == nil {
+		return
+	}
+	if network.meshHTTPTransport == nil {
+		network.meshHTTPTransport = &http.Transport{
+			DialContext:         tsnetServer.Dial,
+			MaxIdleConns:        200,
+			MaxIdleConnsPerHost: 20,
+			IdleConnTimeout:     30 * time.Second,
+		}
+	}
+	if network.meshHTTPClient == nil {
+		network.meshHTTPClient = &http.Client{
+			Transport: network.meshHTTPTransport,
+			Timeout:   5 * time.Second,
+		}
+	}
 }
 
 func (network *Network) onWorldJourneyComplete(wm *WorldMessage) {
@@ -1324,14 +1350,11 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 					network.local.Me.Status.MeshEnabled = true
 					network.local.Me.Status.MeshIP = tsnetMesh.IP()
 
-					network.meshHTTPClient = tsnetMesh.Server().HTTPClient()
-					network.meshHTTPClient.Timeout = 15 * time.Second
+					network.initMeshHTTPClients(tsnetMesh.Server())
 
 					// Initialize peer discovery for gossip-only mode
-					peerDiscoveryClient := tsnetMesh.Server().HTTPClient()
-					peerDiscoveryClient.Timeout = 2 * time.Second // Short timeout for scanning
 					network.peerDiscovery = &TailscalePeerDiscovery{
-						client: peerDiscoveryClient,
+						client: network.getMeshHTTPClient(),
 					}
 
 					// Start mesh HTTP server on tsnet interface (port 7433)
@@ -2769,12 +2792,10 @@ func (network *Network) bootRecoveryViaMesh(online []string) {
 	logrus.Printf("📦 boot recovery via mesh: syncing from %d neighbors in parallel (~%d events each)", totalSlices, eventsPerNeighbor)
 
 	// Use tsnet HTTP client to route through Tailscale
-	var client *http.Client
-	if network.tsnetMesh != nil {
-		client = network.getMeshHTTPClient()
-	} else {
-		// Fallback (shouldn't happen if mesh is enabled)
-		client = &http.Client{Timeout: 30 * time.Second}
+	client := network.getMeshHTTPClient()
+	if client == nil {
+		logrus.Warnf("📦 mesh HTTP client unavailable for boot recovery")
+		return
 	}
 
 	// Fetch from all neighbors in parallel
@@ -3990,7 +4011,11 @@ func (network *Network) performBackgroundSyncViaMesh(neighbor, ip string) {
 	logrus.Infof("🔄 background sync: requesting events from %s (%s)", neighbor, ip)
 
 	// Use existing fetchSyncEventsFromMesh method with lightweight parameters
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := network.getMeshHTTPClient()
+	if client == nil {
+		logrus.Infof("🔄 Background sync with %s skipped: mesh HTTP client unavailable", neighbor)
+		return
+	}
 
 	// Fetch events from this neighbor (all types, we filter below)
 	events, success := network.fetchSyncEventsFromMesh(
