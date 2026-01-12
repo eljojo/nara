@@ -1268,10 +1268,10 @@ func (network *Network) httpStashPushHandler(w http.ResponseWriter, r *http.Requ
 // GET /api/stash/status - Get current stash status, confidants, and metrics
 func (network *Network) httpStashStatusHandler(w http.ResponseWriter, r *http.Request) {
 	response := map[string]interface{}{
-		"has_stash": false,
-		"my_stash":  nil,
+		"has_stash":  false,
+		"my_stash":   nil,
 		"confidants": []map[string]interface{}{},
-		"metrics":   map[string]interface{}{},
+		"metrics":    map[string]interface{}{},
 	}
 
 	// Get my current stash data
@@ -1306,10 +1306,10 @@ func (network *Network) httpStashStatusHandler(w http.ResponseWriter, r *http.Re
 	if network.confidantStore != nil {
 		metrics := network.confidantStore.GetMetrics()
 		response["metrics"] = map[string]interface{}{
-			"stashes_stored":   metrics.StashesStored,
-			"total_bytes":      metrics.TotalStashBytes,
-			"eviction_count":   metrics.EvictionCount,
-			"storage_limit":    network.confidantStore.maxStashes,
+			"stashes_stored": metrics.StashesStored,
+			"total_bytes":    metrics.TotalStashBytes,
+			"eviction_count": metrics.EvictionCount,
+			"storage_limit":  network.confidantStore.maxStashes,
 		}
 	}
 

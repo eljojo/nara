@@ -316,6 +316,70 @@ func TestConfidantTrackerTargetCount(t *testing.T) {
 	}
 }
 
+func TestConfidantTrackerFailureTracking(t *testing.T) {
+	tracker := NewConfidantTracker(3)
+
+	// Mark some naras as failed
+	tracker.MarkFailed("bob")
+	tracker.MarkFailed("carol")
+
+	// Create peer list
+	peers := []PeerInfo{
+		{Name: "bob", MemoryMode: MemoryModeHog, UptimeSecs: 1000},
+		{Name: "carol", MemoryMode: MemoryModeMedium, UptimeSecs: 500},
+		{Name: "dave", MemoryMode: MemoryModeShort, UptimeSecs: 100},
+		{Name: "eve", MemoryMode: MemoryModeHog, UptimeSecs: 2000},
+	}
+
+	// SelectBest should skip failed naras (bob and carol)
+	selected := tracker.SelectBest("alice", peers)
+	if selected == "bob" || selected == "carol" {
+		t.Errorf("SelectBest should not select failed confidants, got %s", selected)
+	}
+	if selected != "eve" && selected != "dave" {
+		t.Errorf("Expected eve or dave, got %s", selected)
+	}
+
+	// Add bob as confirmed - should clear failure
+	tracker.Add("bob", time.Now().Unix())
+
+	// Bob should now be available again if removed and re-added to peers
+	tracker.Remove("bob")
+	selected2 := tracker.SelectBest("alice", peers)
+	// Bob should be selectable now (no longer failed)
+	if selected2 != "bob" && selected2 != "eve" && selected2 != "dave" {
+		t.Errorf("After Add() clears failure, bob should be selectable again")
+	}
+
+	// Test cleanup of expired failures
+	tracker2 := NewConfidantTracker(3)
+
+	// Mark failures with fake old timestamp
+	tracker2.mu.Lock()
+	tracker2.failed["oldnara"] = time.Now().Unix() - int64(FailureBackoffTime.Seconds()) - 10
+	tracker2.failed["newnara"] = time.Now().Unix()
+	tracker2.mu.Unlock()
+
+	// Cleanup should only remove old failures
+	recovered := tracker2.CleanupExpiredFailures()
+	if len(recovered) != 1 || recovered[0] != "oldnara" {
+		t.Errorf("Expected to recover oldnara, got %v", recovered)
+	}
+
+	// oldnara should be gone from failed map
+	tracker2.mu.RLock()
+	_, stillFailed := tracker2.failed["oldnara"]
+	_, newStillFailed := tracker2.failed["newnara"]
+	tracker2.mu.RUnlock()
+
+	if stillFailed {
+		t.Error("oldnara should have been removed from failed map")
+	}
+	if !newStillFailed {
+		t.Error("newnara should still be in failed map")
+	}
+}
+
 func TestRandomConfidentSelection(t *testing.T) {
 	tracker := NewConfidantTracker(2)
 	tracker.Add("bob", time.Now().Unix())

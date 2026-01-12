@@ -3780,6 +3780,7 @@ func (network *Network) storeStashWithPeer(targetName string) {
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		logrus.Debugf("📦 Failed to store stash with %s: %v", targetName, err)
+		network.stashManager.confidantTracker.MarkFailed(targetName)
 		return
 	}
 	defer resp.Body.Close()
@@ -3790,6 +3791,7 @@ func (network *Network) storeStashWithPeer(targetName string) {
 		logrus.Infof("📦 %s accepted stash", targetName)
 	} else if !response.Accepted {
 		logrus.Warnf("📦 %s rejected stash: %s", targetName, response.Reason)
+		network.stashManager.confidantTracker.MarkFailed(targetName)
 	}
 }
 
@@ -4931,6 +4933,12 @@ func (network *Network) maintainStashConfidents() {
 	expired := tracker.CleanupExpiredPending()
 	for _, name := range expired {
 		logrus.Debugf("📦 %s didn't ack stash (timeout), removed from pending", name)
+	}
+
+	// Cleanup expired failures (allow retrying after backoff period)
+	recovered := tracker.CleanupExpiredFailures()
+	for _, name := range recovered {
+		logrus.Debugf("📦 %s failure backoff expired, can retry", name)
 	}
 
 	// If we have stash data but less than target confidants, actively try to find more

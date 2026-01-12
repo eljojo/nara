@@ -86,7 +86,7 @@ func TestStashHTTPExchange_EndToEnd(t *testing.T) {
 	originalData := map[string]interface{}{
 		"notes": "My secret data",
 		"preferences": map[string]interface{}{
-			"theme": "dark",
+			"theme":         "dark",
 			"notifications": true,
 		},
 		"numbers": []int{1, 2, 3, 4, 5},

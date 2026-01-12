@@ -267,6 +267,7 @@ func ValidateTimestamp(ts int64) bool {
 type ConfidantTracker struct {
 	confidants  map[string]int64 // name -> timestamp they confirmed (acked)
 	pending     map[string]int64 // name -> timestamp we sent (awaiting ack)
+	failed      map[string]int64 // name -> timestamp of last failure (timeout, reject, etc)
 	targetCount int
 	mu          sync.RWMutex
 }
@@ -274,11 +275,15 @@ type ConfidantTracker struct {
 // PendingTimeout is how long to wait for an ack before giving up
 const PendingTimeout = 60 * time.Second
 
+// FailureBackoffTime is how long to wait before retrying a failed confidant
+const FailureBackoffTime = 5 * time.Minute
+
 // NewConfidantTracker creates a new tracker with the given target count
 func NewConfidantTracker(targetCount int) *ConfidantTracker {
 	return &ConfidantTracker{
 		confidants:  make(map[string]int64),
 		pending:     make(map[string]int64),
+		failed:      make(map[string]int64),
 		targetCount: targetCount,
 	}
 }
@@ -289,6 +294,7 @@ func (t *ConfidantTracker) Add(name string, timestamp int64) {
 	defer t.mu.Unlock()
 	t.confidants[name] = timestamp
 	delete(t.pending, name) // Remove from pending if it was there
+	delete(t.failed, name)  // Clear any previous failure
 }
 
 // AddPending marks a confidant as pending (sent but not yet acked)
@@ -316,12 +322,37 @@ func (t *ConfidantTracker) CleanupExpiredPending() []string {
 	return expired
 }
 
+// MarkFailed marks a confidant as failed (timeout, rejection, etc)
+func (t *ConfidantTracker) MarkFailed(name string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.failed[name] = time.Now().Unix()
+	delete(t.pending, name) // Also remove from pending
+}
+
+// CleanupExpiredFailures removes failed confidants after backoff period expires
+func (t *ConfidantTracker) CleanupExpiredFailures() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	now := time.Now().Unix()
+	cutoff := now - int64(FailureBackoffTime.Seconds())
+	var recovered []string
+	for name, failedAt := range t.failed {
+		if failedAt < cutoff {
+			recovered = append(recovered, name)
+			delete(t.failed, name)
+		}
+	}
+	return recovered
+}
+
 // Remove removes a confident
 func (t *ConfidantTracker) Remove(name string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	delete(t.confidants, name)
 	delete(t.pending, name)
+	delete(t.failed, name)
 }
 
 // Has returns true if the given name is a confirmed confident
@@ -463,6 +494,9 @@ func (t *ConfidantTracker) SelectBest(self string, peers []PeerInfo) string {
 		}
 		if _, pending := t.pending[peer.Name]; pending {
 			continue
+		}
+		if _, failed := t.failed[peer.Name]; failed {
+			continue // Skip recently failed confidants
 		}
 
 		// Calculate score
