@@ -144,7 +144,7 @@ type NaraObservation struct {
 
 **Key properties:**
 - **Never pruned**: Checkpoints are critical events that survive all pruning
-- **Multi-signed**: Requires minimum 2 voters (outside proposer) to reach consensus
+- **Multi-signed**: Requires minimum 5 voters (outside proposer) to reach consensus
 - **Historical anchor**: Allows deriving restart count as `checkpoint.Observation.Restarts + count(new restarts)`
 - **MQTT consensus**: Created via proposal/vote flow over MQTT topics
 - **Attestation-based**: Uses Attestation type for signed claims during voting
@@ -292,7 +292,7 @@ Round 2: Final vote, then give up if no consensus
 ```
 
 **Key properties:**
-- Minimum 2 voters required (outside proposer, so 3+ total signatures)
+- Minimum 5 voters required (outside proposer, so 6+ total signatures)
 - Each signature is for specific values (verifiable)
 - 24-hour cadence per nara
 - Never pruned, always synced

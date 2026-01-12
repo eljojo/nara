@@ -21,8 +21,6 @@ When the user reports something is broken: **STOP. Do not immediately edit code.
 **DO NOT:**
 - Change multiple things at once hoping one fixes it
 - Assume naming conventions, field formats, or data shapes without checking
-- Make "while I'm here" improvements during debugging
-- Apply fixes based on pattern-matching from other codebases
 - Replicate production logic in tests - run the real code instead
 - **NEVER perform git write operations** (git add, git commit, git push, etc.) - the user will handle version control
 
