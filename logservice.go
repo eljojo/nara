@@ -59,8 +59,9 @@ type LogService struct {
 	instantLogsMu sync.Mutex
 
 	// Configuration
-	batchInterval time.Duration
-	verbose       bool // When true, log everything immediately with full detail
+	batchInterval       time.Duration
+	verbose             bool // When true, log everything immediately with full detail
+	suppressLedgerEvents bool // When true, suppress events from ledger listener (during boot recovery)
 
 	// Lifecycle
 	ctx    context.Context
@@ -84,6 +85,10 @@ func (ls *LogService) RegisterWithLedger(ledger *SyncLedger) {
 		return
 	}
 	ledger.AddListener(func(event SyncEvent) {
+		// Skip logging during boot recovery to avoid spamming console with historical events
+		if ls.suppressLedgerEvents {
+			return
+		}
 		if logEvent := ls.transformEvent(event); logEvent != nil {
 			ls.Push(*logEvent)
 		}
@@ -95,6 +100,13 @@ func (ls *LogService) RegisterWithLedger(ledger *SyncLedger) {
 // In normal mode, logs are batched and summarized.
 func (ls *LogService) SetVerbose(verbose bool) {
 	ls.verbose = verbose
+}
+
+// SetSuppressLedgerEvents enables or disables suppression of ledger events.
+// When true, events from the ledger listener are ignored (useful during boot recovery).
+// Manual Push() calls are still processed normally.
+func (ls *LogService) SetSuppressLedgerEvents(suppress bool) {
+	ls.suppressLedgerEvents = suppress
 }
 
 // Start begins the event processing and batch flushing goroutines

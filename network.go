@@ -1485,10 +1485,17 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 	go network.processJourneyCompleteEvents()
 
 	// Boot recovery first, then opinion formation, then start remaining workers.
+	// Suppress ledger event logging during boot recovery to avoid spamming console
+	if network.logService != nil {
+		network.logService.SetSuppressLedgerEvents(true)
+	}
 	if !network.ReadOnly {
 		network.bootRecovery()
 	} else {
 		close(network.bootRecoveryDone)
+	}
+	if network.logService != nil {
+		network.logService.SetSuppressLedgerEvents(false)
 	}
 
 	network.formOpinion()
