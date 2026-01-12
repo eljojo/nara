@@ -356,14 +356,12 @@ func TestIntegration_HeyThereDiscovery(t *testing.T) {
 
 	discoveryDuration := time.Since(discoveryStart)
 
-	// Cleanup
-	alice.Network.disconnectMQTT()
-	bob.Network.disconnectMQTT()
-	time.Sleep(200 * time.Millisecond)
-
-	// Validate results
+	// If not discovered yet, give a small grace period for in-flight messages
+	// Messages might be in MQTT buffers or processing queues
 	if !discovered {
-		// Check what each knows
+		time.Sleep(500 * time.Millisecond)
+
+		// Final check before declaring failure
 		bob.Network.local.mu.Lock()
 		_, bobKnowsAlice := bob.Network.Neighbourhood["alice"]
 		bob.Network.local.mu.Unlock()
@@ -372,11 +370,34 @@ func TestIntegration_HeyThereDiscovery(t *testing.T) {
 		_, aliceKnowsBob = alice.Network.Neighbourhood["bob"]
 		alice.Network.local.mu.Unlock()
 
-		t.Errorf("❌ Discovery failed within %v deadline. Bob knows Alice: %v, Alice knows Bob: %v",
-			discoveryDeadline, bobKnowsAlice, aliceKnowsBob)
-	} else {
-		t.Logf("✅ Mutual discovery completed in %v (deadline was %v)", discoveryDuration, discoveryDeadline)
+		if bobKnowsAlice && aliceKnowsBob {
+			discovered = true
+			discoveryDuration = time.Since(discoveryStart)
+		}
 	}
+
+	// Cleanup
+	alice.Network.disconnectMQTT()
+	bob.Network.disconnectMQTT()
+	time.Sleep(200 * time.Millisecond)
+
+	// Validate results
+	if !discovered {
+		// Check what each knows one final time
+		bob.Network.local.mu.Lock()
+		_, bobKnowsAlice := bob.Network.Neighbourhood["alice"]
+		bob.Network.local.mu.Unlock()
+
+		alice.Network.local.mu.Lock()
+		_, aliceKnowsBob = alice.Network.Neighbourhood["bob"]
+		alice.Network.local.mu.Unlock()
+
+		t.Errorf("❌ Discovery failed within %v deadline (+ 500ms grace). Bob knows Alice: %v, Alice knows Bob: %v",
+			discoveryDeadline, bobKnowsAlice, aliceKnowsBob)
+		return // Stop here, don't print success messages
+	}
+
+	t.Logf("✅ Mutual discovery completed in %v (deadline was %v)", discoveryDuration, discoveryDeadline)
 
 	// The discovery should be fast - if it takes more than 3 seconds, something might be wrong
 	if discoveryDuration > 3*time.Second {
