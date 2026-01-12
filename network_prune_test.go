@@ -644,3 +644,143 @@ func TestPruneInactiveNaras_PrunesEvents(t *testing.T) {
 		t.Error("ghost-nara should NOT be re-discovered after pruning events")
 	}
 }
+
+func TestPruneInactiveNaras_PrunesCheckpointEventsAboutSubject(t *testing.T) {
+	// This test verifies that when a ghost nara is pruned, checkpoint events
+	// WHERE THEY ARE THE SUBJECT are also removed from the ledger.
+	// However, checkpoints where they were only a voter/emitter should be kept.
+	ln := testLocalNara("test-nara")
+	now := time.Now().Unix()
+
+	// Create a ghost nara that will be pruned
+	ghostName := "ghost-nara"
+	ghostNara := NewNara(ghostName)
+	ln.Network.importNara(ghostNara)
+	ln.setObservation(ghostName, NaraObservation{
+		LastSeen:  now - (9 * 86400),  // 9 days offline
+		StartTime: now - (10 * 86400), // Known for 10 days (established)
+		Online:    "OFFLINE",
+	})
+
+	// Create another nara that will NOT be pruned
+	activeName := "active-nara"
+	activeNara := NewNara(activeName)
+	ln.Network.importNara(activeNara)
+	ln.setObservation(activeName, NaraObservation{
+		LastSeen:  now - 60,
+		StartTime: now - (10 * 86400),
+		Online:    "ONLINE",
+	})
+
+	// Add checkpoint ABOUT the ghost (should be pruned)
+	checkpointAboutGhost := &CheckpointEventPayload{
+		Version:     1,
+		Subject:     ghostName,
+		SubjectID:   ghostNara.Status.ID,
+		Observation: NaraObservation{
+			Restarts:    5,
+			TotalUptime: 3600,
+			StartTime:   now - (10 * 86400),
+		},
+		AsOfTime: now - (5 * 86400),
+		Round:    1,
+		VoterIDs: []string{ln.Me.Status.ID, activeNara.Status.ID},
+	}
+	attestation1 := Attestation{
+		Version:     checkpointAboutGhost.Version,
+		Subject:     checkpointAboutGhost.Subject,
+		SubjectID:   checkpointAboutGhost.SubjectID,
+		Observation: checkpointAboutGhost.Observation,
+		Attester:    ln.Me.Name,
+		AttesterID:  ln.Me.Status.ID,
+		AsOfTime:    checkpointAboutGhost.AsOfTime,
+	}
+	attestation1.Signature = SignContent(&attestation1, ln.Keypair)
+	checkpointAboutGhost.Signatures = []string{attestation1.Signature}
+
+	event1 := SyncEvent{
+		Timestamp:  time.Now().UnixNano(),
+		Service:    ServiceCheckpoint,
+		Emitter:    ln.Me.Name,
+		EmitterID:  ln.Me.Status.ID,
+		Checkpoint: checkpointAboutGhost,
+	}
+	event1.ComputeID()
+	event1.Sign(ln.Me.Name, ln.Keypair)
+	// Manually add to ledger for testing
+	ln.SyncLedger.mu.Lock()
+	ln.SyncLedger.Events = append(ln.SyncLedger.Events, event1)
+	ln.SyncLedger.eventIDs[event1.ID] = true
+	ln.SyncLedger.mu.Unlock()
+
+	// Add checkpoint ABOUT the active nara (should NOT be pruned)
+	checkpointAboutActive := &CheckpointEventPayload{
+		Version:     1,
+		Subject:     activeName,
+		SubjectID:   activeNara.Status.ID,
+		Observation: NaraObservation{
+			Restarts:    3,
+			TotalUptime: 7200,
+			StartTime:   now - (10 * 86400),
+		},
+		AsOfTime: now - (5 * 86400),
+		Round:    1,
+		VoterIDs: []string{ln.Me.Status.ID, ghostNara.Status.ID}, // Ghost was a voter but not subject
+	}
+	attestation2 := Attestation{
+		Version:     checkpointAboutActive.Version,
+		Subject:     checkpointAboutActive.Subject,
+		SubjectID:   checkpointAboutActive.SubjectID,
+		Observation: checkpointAboutActive.Observation,
+		Attester:    ln.Me.Name,
+		AttesterID:  ln.Me.Status.ID,
+		AsOfTime:    checkpointAboutActive.AsOfTime,
+	}
+	attestation2.Signature = SignContent(&attestation2, ln.Keypair)
+	checkpointAboutActive.Signatures = []string{attestation2.Signature}
+
+	event2 := SyncEvent{
+		Timestamp:  time.Now().UnixNano(),
+		Service:    ServiceCheckpoint,
+		Emitter:    ln.Me.Name,
+		EmitterID:  ln.Me.Status.ID,
+		Checkpoint: checkpointAboutActive,
+	}
+	event2.ComputeID()
+	event2.Sign(ln.Me.Name, ln.Keypair)
+	// Manually add to ledger for testing
+	ln.SyncLedger.mu.Lock()
+	ln.SyncLedger.Events = append(ln.SyncLedger.Events, event2)
+	ln.SyncLedger.eventIDs[event2.ID] = true
+	ln.SyncLedger.mu.Unlock()
+
+	// Verify both checkpoints exist before pruning
+	if !ln.SyncLedger.HasEvent(event1.ID) {
+		t.Fatal("Checkpoint about ghost should exist before pruning")
+	}
+	if !ln.SyncLedger.HasEvent(event2.ID) {
+		t.Fatal("Checkpoint about active should exist before pruning")
+	}
+
+	// Run pruning
+	ln.Network.pruneInactiveNaras()
+
+	// Verify ghost nara is removed
+	if ln.Network.Neighbourhood[ghostName] != nil {
+		t.Error("ghost-nara should be removed from Neighbourhood")
+	}
+
+	// THE KEY ASSERTION: Checkpoint ABOUT the ghost should be removed
+	if ln.SyncLedger.HasEvent(event1.ID) {
+		t.Error("Checkpoint ABOUT ghost-nara (where they're the subject) should be removed")
+	}
+
+	// Checkpoint about the active nara should be KEPT (even though ghost was a voter)
+	if !ln.SyncLedger.HasEvent(event2.ID) {
+		t.Error("Checkpoint about active-nara should be kept (ghost was only a voter, not subject)")
+	}
+
+	t.Log("✅ Checkpoint pruning works correctly:")
+	t.Log("   • Checkpoints ABOUT ghost naras are removed")
+	t.Log("   • Checkpoints where ghost was only voter/emitter are kept")
+}

@@ -1273,6 +1273,11 @@ func (l *SyncLedger) eventInvolvesNara(e SyncEvent, name string) bool {
 		return true
 	}
 	switch e.Service {
+	case ServiceCheckpoint:
+		// Remove checkpoints where this nara is the subject (checkpoint about them)
+		if e.Checkpoint != nil && e.Checkpoint.Subject == name {
+			return true
+		}
 	case ServiceHeyThere:
 		if e.HeyThere != nil && e.HeyThere.From == name {
 			return true

@@ -71,7 +71,7 @@ Multi-party attested historical snapshots:
 - **voter_ids**: Nara IDs who voted for these values
 - **signatures**: Ed25519 signatures from voters
 
-Checkpoints anchor historical data that predates event-based tracking. They're **never pruned** and require multiple voters for trust. Restart count is derived as: `checkpoint.Observation.Restarts + count(unique StartTimes after checkpoint)`
+Checkpoints anchor historical data that predates event-based tracking. They require multiple voters for trust. Restart count is derived as: `checkpoint.Observation.Restarts + count(unique StartTimes after checkpoint)`. Checkpoints are **pruned when their subject is a ghost nara** (offline 7+ days for established naras, 24h for newcomers), but checkpoints where a ghost nara was only a voter/emitter are kept.
 
 ## Transport Layer
 

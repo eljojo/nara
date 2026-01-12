@@ -4456,6 +4456,12 @@ func (network *Network) pruneInactiveNaras() {
 		}
 
 		// Also remove their events from the sync ledger to prevent re-discovery
+		// This removes ALL events involving the ghost nara, including:
+		// - Events they emitted (hey-there, chau, social, etc.)
+		// - Events about them (observations, pings, social events where they're target)
+		// - Checkpoints WHERE THEY ARE THE SUBJECT (checkpoints about them)
+		//   Note: Checkpoints where they were only a voter/emitter are kept
+		// See sync.go:eventInvolvesNara() for the full pruning logic
 		if network.local.SyncLedger != nil {
 			for _, name := range toRemove {
 				network.local.SyncLedger.RemoveEventsFor(name)
