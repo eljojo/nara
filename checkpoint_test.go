@@ -388,11 +388,11 @@ func TestCheckpoint_UniqueStartTimes(t *testing.T) {
 	}
 }
 
-// Test feature flag for checkpoints
+// Test feature flag for checkpoint creation
 func TestCheckpoint_FeatureFlag(t *testing.T) {
 	// This tests that the feature flag function exists and returns a boolean
-	enabled := useCheckpoints()
-	t.Logf("Checkpoints enabled: %v", enabled)
+	enabled := useCheckpointCreation()
+	t.Logf("Checkpoint creation enabled: %v", enabled)
 	// The actual value depends on environment, but function should exist
 }
 

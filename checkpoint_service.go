@@ -133,7 +133,12 @@ func (s *CheckpointService) SetMQTTClient(client mqtt.Client) {
 }
 
 // Start begins the checkpoint service maintenance loop
+// Only starts if USE_CHECKPOINT_CREATION is enabled
 func (s *CheckpointService) Start() {
+	if !useCheckpointCreation() {
+		logrus.Debug("checkpoint: creation disabled via USE_CHECKPOINT_CREATION, service passive")
+		return
+	}
 	go s.maintenanceLoop()
 }
 
@@ -183,11 +188,19 @@ func (s *CheckpointService) checkAndPropose() {
 
 // ProposeCheckpoint broadcasts a checkpoint proposal about ourselves
 func (s *CheckpointService) ProposeCheckpoint() {
-	s.proposeCheckpointRound(1)
+	s.proposeCheckpointRound(1, nil)
+}
+
+// round2Values holds consensus values computed from round 1 votes
+type round2Values struct {
+	restarts    int64
+	totalUptime int64
+	firstSeen   int64
 }
 
 // proposeCheckpointRound broadcasts a checkpoint proposal for a specific round
-func (s *CheckpointService) proposeCheckpointRound(round int) {
+// For round 2, consensusValues should contain the trimmed mean from round 1 votes
+func (s *CheckpointService) proposeCheckpointRound(round int, consensusValues *round2Values) {
 	if s.mqttClient == nil || !s.mqttClient.IsConnected() {
 		logrus.Debug("checkpoint: MQTT not connected, skipping proposal")
 		return
@@ -198,13 +211,21 @@ func (s *CheckpointService) proposeCheckpointRound(round int) {
 		return
 	}
 
-	// Derive our current values
 	myName := s.local.Me.Name
 	myID := s.local.Me.Status.ID
 
-	restarts := s.ledger.DeriveRestartCount(myName)
-	totalUptime := s.ledger.DeriveTotalUptime(myName)
-	firstSeen := s.ledger.GetFirstSeenFromEvents(myName)
+	var restarts, totalUptime, firstSeen int64
+	if round == 2 && consensusValues != nil {
+		// Round 2: use consensus values from round 1 votes
+		restarts = consensusValues.restarts
+		totalUptime = consensusValues.totalUptime
+		firstSeen = consensusValues.firstSeen
+	} else {
+		// Round 1: derive our current values from ledger
+		restarts = s.ledger.DeriveRestartCount(myName)
+		totalUptime = s.ledger.DeriveTotalUptime(myName)
+		firstSeen = s.ledger.GetFirstSeenFromEvents(myName)
+	}
 
 	now := time.Now().Unix()
 
@@ -262,6 +283,8 @@ func (s *CheckpointService) proposeCheckpointRound(round int) {
 }
 
 // HandleProposal processes an incoming checkpoint proposal from another nara
+// Voting is always enabled - we want all naras to participate in consensus
+// even if they don't propose their own checkpoints
 func (s *CheckpointService) HandleProposal(proposal *CheckpointProposal) {
 	// Ignore our own proposals
 	if proposal.Subject == s.local.Me.Name {
@@ -347,16 +370,20 @@ func (s *CheckpointService) HandleVote(vote *CheckpointVote) {
 		return
 	}
 
+	// Get pending proposal and check if vote matches - copy values while holding lock
 	s.myPendingProposalMu.Lock()
 	pending := s.myPendingProposal
-	s.myPendingProposalMu.Unlock()
-
 	if pending == nil {
+		s.myPendingProposalMu.Unlock()
 		return
 	}
+	// Copy the values we need to check before releasing lock
+	proposalTS := pending.proposal.ProposedAt
+	proposalRound := pending.round
+	s.myPendingProposalMu.Unlock()
 
 	// Check if vote is for current proposal
-	if vote.ProposalTS != pending.proposal.ProposedAt || vote.Round != pending.round {
+	if vote.ProposalTS != proposalTS || vote.Round != proposalRound {
 		return
 	}
 
@@ -576,7 +603,7 @@ func (s *CheckpointService) proposeRound2(votes []*CheckpointVote) {
 		return
 	}
 
-	// Collect all proposed values
+	// Collect all proposed values from votes
 	var restartVals, uptimeVals, firstSeenVals []int64
 	for _, vote := range votes {
 		restartVals = append(restartVals, vote.Restarts)
@@ -584,24 +611,15 @@ func (s *CheckpointService) proposeRound2(votes []*CheckpointVote) {
 		firstSeenVals = append(firstSeenVals, vote.FirstSeen)
 	}
 
-	// Compute trimmed mean for each
-	consensusRestarts := trimmedMeanInt64(restartVals)
-	consensusUptime := trimmedMeanInt64(uptimeVals)
-	consensusFirstSeen := trimmedMeanInt64(firstSeenVals)
-
-	// Update our pending proposal for round 2
-	s.myPendingProposalMu.Lock()
-	if s.myPendingProposal != nil {
-		s.myPendingProposal.proposal.Restarts = consensusRestarts
-		s.myPendingProposal.proposal.TotalUptime = consensusUptime
-		s.myPendingProposal.proposal.FirstSeen = consensusFirstSeen
-		s.myPendingProposal.votes = make([]*CheckpointVote, 0)
-		s.myPendingProposal.finalized = false
+	// Compute trimmed mean consensus values from round 1 votes
+	consensus := &round2Values{
+		restarts:    trimmedMeanInt64(restartVals),
+		totalUptime: trimmedMeanInt64(uptimeVals),
+		firstSeen:   trimmedMeanInt64(firstSeenVals),
 	}
-	s.myPendingProposalMu.Unlock()
 
-	// Propose round 2
-	s.proposeCheckpointRound(2)
+	// Propose round 2 with consensus values
+	s.proposeCheckpointRound(2, consensus)
 }
 
 // storeCheckpoint adds the finalized checkpoint to the ledger and broadcasts it
@@ -656,11 +674,67 @@ func (s *CheckpointService) HandleFinalCheckpoint(event *SyncEvent) {
 		return
 	}
 
-	// TODO: Verify signatures before storing
-	// For now, just store it
-	if s.ledger.AddEvent(*event) {
-		logrus.Printf("checkpoint: stored final checkpoint for %s from network", event.Checkpoint.Subject)
+	// Verify the checkpoint has minimum required signatures
+	if len(event.Checkpoint.Signatures) < MinVotersRequired {
+		logrus.Warnf("checkpoint: rejected checkpoint for %s - insufficient signatures (%d < %d)",
+			event.Checkpoint.Subject, len(event.Checkpoint.Signatures), MinVotersRequired)
+		return
 	}
+
+	// Verify all signatures match the checkpoint values
+	validSignatures := s.verifyCheckpointSignatures(event.Checkpoint)
+	if validSignatures < MinVotersRequired {
+		logrus.Warnf("checkpoint: rejected checkpoint for %s - only %d valid signatures (need %d)",
+			event.Checkpoint.Subject, validSignatures, MinVotersRequired)
+		return
+	}
+
+	if s.ledger.AddEvent(*event) {
+		logrus.Printf("checkpoint: stored final checkpoint for %s from network (%d valid signatures)",
+			event.Checkpoint.Subject, validSignatures)
+	}
+}
+
+// verifyCheckpointSignatures verifies all signatures in a checkpoint and returns count of valid ones
+func (s *CheckpointService) verifyCheckpointSignatures(checkpoint *CheckpointEventPayload) int {
+	if len(checkpoint.VoterIDs) != len(checkpoint.Signatures) {
+		logrus.Warnf("checkpoint: voter/signature count mismatch for %s", checkpoint.Subject)
+		return 0
+	}
+
+	validCount := 0
+	for i, voterID := range checkpoint.VoterIDs {
+		signature := checkpoint.Signatures[i]
+
+		// Get voter's public key by ID
+		pubKey := s.network.getPublicKeyForNaraID(voterID)
+		if pubKey == nil {
+			logrus.Debugf("checkpoint: cannot verify signature from voter %s - unknown public key", voterID)
+			continue
+		}
+
+		// Build signable content - need to determine if this is proposer or voter signature
+		// Proposer signs with proposal format, voters sign with vote format
+		var signableContent string
+		if voterID == checkpoint.SubjectID {
+			// This is the proposer's signature
+			signableContent = fmt.Sprintf("checkpoint-proposal:%s:%d:%d:%d:%d:%d",
+				checkpoint.SubjectID, checkpoint.AsOfTime, checkpoint.Restarts, checkpoint.TotalUptime, checkpoint.FirstSeen, 1)
+		} else {
+			// This is a voter's signature
+			signableContent = fmt.Sprintf("checkpoint-vote:%s:%d:%d:%d:%d:%d",
+				voterID, checkpoint.AsOfTime, checkpoint.Restarts, checkpoint.TotalUptime, checkpoint.FirstSeen, 1)
+		}
+
+		signableData := sha256.Sum256([]byte(signableContent))
+		if VerifySignatureBase64(pubKey, signableData[:], signature) {
+			validCount++
+		} else {
+			logrus.Debugf("checkpoint: invalid signature from voter %s for %s", voterID, checkpoint.Subject)
+		}
+	}
+
+	return validCount
 }
 
 // valuesMatch checks if two values are within tolerance
@@ -688,15 +762,34 @@ func trimmedMeanInt64(values []int64) int64 {
 
 	// Get median
 	median := sorted[len(sorted)/2]
-	if median == 0 {
-		median = 1 // Avoid division by zero
-	}
 
 	// Filter outliers (keep values within 0.2x - 5x of median)
+	// Handle edge cases: zero median, negative median
 	var filtered []int64
-	for _, v := range sorted {
-		if v >= median/5 && v <= median*5 {
-			filtered = append(filtered, v)
+	if median == 0 {
+		// For zero median, keep values close to zero (within small range)
+		for _, v := range sorted {
+			if v >= -10 && v <= 10 {
+				filtered = append(filtered, v)
+			}
+		}
+	} else if median > 0 {
+		// Positive median: standard 0.2x - 5x range
+		lowerBound := median / 5
+		upperBound := median * 5
+		for _, v := range sorted {
+			if v >= lowerBound && v <= upperBound {
+				filtered = append(filtered, v)
+			}
+		}
+	} else {
+		// Negative median: invert bounds (5x is smaller, 0.2x is larger)
+		lowerBound := median * 5 // More negative (smaller)
+		upperBound := median / 5 // Less negative (larger)
+		for _, v := range sorted {
+			if v >= lowerBound && v <= upperBound {
+				filtered = append(filtered, v)
+			}
 		}
 	}
 

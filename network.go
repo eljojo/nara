@@ -626,6 +626,47 @@ func (network *Network) hasPublicKeyFor(name string) bool {
 	return network.getPublicKeyForNara(name) != nil
 }
 
+// getPublicKeyForNaraID looks up a public key by nara ID instead of name.
+// Searches the neighborhood for a nara with matching ID.
+func (network *Network) getPublicKeyForNaraID(naraID string) []byte {
+	// Check self first
+	if naraID == network.local.Me.Status.ID {
+		return network.local.Keypair.PublicKey
+	}
+
+	// Search neighborhood by ID
+	network.local.mu.Lock()
+	var matchedNara *Nara
+	for _, nara := range network.Neighbourhood {
+		nara.mu.Lock()
+		if nara.Status.ID == naraID {
+			matchedNara = nara
+			nara.mu.Unlock()
+			break
+		}
+		nara.mu.Unlock()
+	}
+	network.local.mu.Unlock()
+
+	if matchedNara == nil {
+		return nil
+	}
+
+	matchedNara.mu.Lock()
+	publicKey := matchedNara.Status.PublicKey
+	matchedNara.mu.Unlock()
+
+	if publicKey == "" {
+		return nil
+	}
+
+	pubKey, err := ParsePublicKey(publicKey)
+	if err != nil {
+		return nil
+	}
+	return pubKey
+}
+
 // VerifySyncEvent verifies a sync event's signature and logs warnings
 // Returns true if the event is valid (signed and verified, or unsigned but acceptable)
 // The event is always added regardless - verification is informational
@@ -1495,14 +1536,10 @@ func useObservationEvents() bool {
 	return os.Getenv("USE_OBSERVATION_EVENTS") == "true"
 }
 
-// useCheckpoints returns true if checkpoint events are enabled for reading
-// Checkpoints provide multi-party attested snapshots of historical state
-func useCheckpoints() bool {
-	return os.Getenv("USE_CHECKPOINTS") == "true"
-}
-
-// useCheckpointCreation returns true if this nara should participate in creating checkpoints
-// Separate from useCheckpoints() so we can enable reading checkpoints before enabling creation
+// useCheckpointCreation returns true if this nara should actively create checkpoints.
+// When disabled, this nara can still receive, validate, and store checkpoints from others,
+// but won't propose new checkpoints or participate in voting.
+// This allows gradual rollout of the checkpoint creation feature.
 func useCheckpointCreation() bool {
 	return os.Getenv("USE_CHECKPOINT_CREATION") == "true"
 }
