@@ -143,6 +143,21 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 		mux.HandleFunc("/api/stash/recover", network.httpStashRecoverHandler)
 		mux.HandleFunc("/api/stash/confidants", network.httpStashConfidantsHandler)
 
+		// Inspector UI and API endpoints
+		mux.HandleFunc("/inspector", func(w http.ResponseWriter, r *http.Request) {
+			if data, err := fs.ReadFile(staticContent, "nara-web/public/inspector.html"); err == nil {
+				http.ServeContent(w, r, "inspector.html", time.Now(), bytes.NewReader(data))
+				return
+			}
+			http.NotFound(w, r)
+		})
+		mux.HandleFunc("/api/inspector/events", network.local.inspectorEventsHandler)
+		mux.HandleFunc("/api/inspector/checkpoints", network.local.inspectorCheckpointsHandler)
+		mux.HandleFunc("/api/inspector/checkpoint/", network.local.inspectorCheckpointDetailHandler)
+		mux.HandleFunc("/api/inspector/projections", network.local.inspectorProjectionsHandler)
+		mux.HandleFunc("/api/inspector/projection/", network.local.inspectorProjectionDetailHandler)
+		mux.HandleFunc("/api/inspector/event/", network.local.inspectorEventDetailHandler)
+
 		// pprof endpoints
 		if network.local != nil && (network.local.Me.Name == "grumpy-comet" || network.local.Me.Name == "r2d2") {
 			mux.HandleFunc("/debug/pprof/", pprof.Index)
@@ -478,6 +493,7 @@ func (network *Network) httpEventsSSEHandler(w http.ResponseWriter, r *http.Requ
 
 			// Send simple event with just UI data
 			data := map[string]interface{}{
+				"id":        event.ID,
 				"service":   event.Service,
 				"timestamp": event.Timestamp,
 				"emitter":   event.Emitter,
