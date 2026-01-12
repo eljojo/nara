@@ -1126,7 +1126,7 @@ func (network *Network) getMeshHTTPClient() *http.Client {
 	}
 	if network.tsnetMesh != nil && network.tsnetMesh.Server() != nil {
 		network.meshHTTPClient = network.tsnetMesh.Server().HTTPClient()
-		network.meshHTTPClient.Timeout = 30 * time.Second
+		network.meshHTTPClient.Timeout = 15 * time.Second
 		return network.meshHTTPClient
 	}
 	return nil
@@ -1225,7 +1225,7 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 					network.local.Me.Status.MeshIP = tsnetMesh.IP()
 
 					network.meshHTTPClient = tsnetMesh.Server().HTTPClient()
-					network.meshHTTPClient.Timeout = 30 * time.Second
+					network.meshHTTPClient.Timeout = 15 * time.Second
 
 					// Initialize peer discovery for gossip-only mode
 					peerDiscoveryClient := tsnetMesh.Server().HTTPClient()
@@ -3562,7 +3562,7 @@ func (network *Network) exchangeZine(targetName string, myZine *Zine) {
 	}
 
 	// Create request with 30s timeout to prevent goroutine leaks
-	ctx, cancel := context.WithTimeout(network.ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(network.ctx, 15*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(zineBytes))
@@ -3647,7 +3647,7 @@ func (network *Network) SendDM(targetName string, event SyncEvent) bool {
 		return false
 	}
 
-	ctx, cancel := context.WithTimeout(network.ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(network.ctx, 15*time.Second)
 	defer cancel()
 
 	// Create request with auth headers

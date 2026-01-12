@@ -51,7 +51,7 @@ type HTTPMeshTransport struct {
 // NewHTTPMeshTransport creates a new HTTP-based mesh transport
 func NewHTTPMeshTransport(tsnetServer *tsnet.Server, network *Network, port int) *HTTPMeshTransport {
 	client := tsnetServer.HTTPClient()
-	client.Timeout = 30 * time.Second
+	client.Timeout = 15 * time.Second
 
 	return &HTTPMeshTransport{
 		tsnetServer: tsnetServer,
@@ -79,7 +79,7 @@ func (t *HTTPMeshTransport) Send(target string, msg *WorldMessage) error {
 
 	// Build request
 	url := fmt.Sprintf("http://%s:%d/world/relay", target, t.port)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonBody))
