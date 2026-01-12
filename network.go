@@ -56,24 +56,25 @@ type Zine struct {
 }
 
 type Network struct {
-	Neighbourhood       map[string]*Nara
-	Buzz                *Buzz
-	LastHeyThere        int64
-	skippingEvents      bool
-	local               *LocalNara
-	Mqtt                mqtt.Client
-	heyThereInbox       chan SyncEvent
-	newspaperInbox      chan NewspaperEvent
-	chauInbox           chan SyncEvent
-	howdyInbox          chan HowdyEvent
-	howdyCoordinators   sync.Map // map[string]*howdyCoordinator - tracks pending howdy responses
-	startTimeVotes      []startTimeVote
-	startTimeVotesMu    sync.Mutex
-	socialInbox         chan SyncEvent
-	ledgerRequestInbox  chan LedgerRequest
-	ledgerResponseInbox chan LedgerResponse
-	TeaseState          *TeaseState
-	ReadOnly            bool
+	Neighbourhood          map[string]*Nara
+	Buzz                   *Buzz
+	LastHeyThere           int64
+	skippingEvents         bool
+	local                  *LocalNara
+	Mqtt                   mqtt.Client
+	heyThereInbox          chan SyncEvent
+	newspaperInbox         chan NewspaperEvent
+	chauInbox              chan SyncEvent
+	howdyInbox             chan HowdyEvent
+	howdyCoordinators      sync.Map // map[string]*howdyCoordinator - tracks pending howdy responses
+	startTimeVotes         []startTimeVote
+	startTimeVotesMu       sync.Mutex
+	socialInbox            chan SyncEvent
+	ledgerRequestInbox     chan LedgerRequest
+	ledgerResponseInbox    chan LedgerResponse
+	stashDistributeTrigger chan struct{} // Trigger immediate stash distribution to confidants
+	TeaseState             *TeaseState
+	ReadOnly               bool
 	// SSE broadcast for web clients
 	sseClients   map[chan SyncEvent]bool
 	sseClientsMu sync.RWMutex
@@ -111,9 +112,16 @@ type Network struct {
 	meshHTTPClient *http.Client
 	// Peer resolution tracking
 	pendingResolutions sync.Map // map[string]uint64 (seconds) - tracks when we last tried to resolve a peer
+
 	// MQTT reconnect guard
 	mqttReconnectMu     sync.Mutex
 	mqttReconnectActive bool
+
+	// Stash: distributed encrypted storage
+	stashManager     *StashManager        // Owner side: manages our arbitrary JSON stash on confidants
+	confidantStore   *ConfidantStashStore // Confidant side: stores others' stash for them
+	stashSyncTracker *StashSyncTracker    // Memory-only tracker for last sync time with each peer
+	stashService     *StashService        // Unified stash service layer
 }
 
 // PendingJourney tracks a journey we participated in, waiting for completion
@@ -391,6 +399,7 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	network.socialInbox = make(chan SyncEvent, 100)
 	network.ledgerRequestInbox = make(chan LedgerRequest, 50)
 	network.ledgerResponseInbox = make(chan LedgerResponse, 50)
+	network.stashDistributeTrigger = make(chan struct{}, 5) // Buffered to avoid blocking
 	network.TeaseState = NewTeaseState()
 	network.sseClients = make(map[chan SyncEvent]bool)
 	network.skippingEvents = false
@@ -402,6 +411,16 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	network.ctx, network.cancelFunc = context.WithCancel(context.Background())
 	// Initialize startup sequencing channels
 	network.bootRecoveryDone = make(chan struct{})
+
+	// Stash storage
+	network.confidantStore = NewConfidantStashStore()
+	network.stashSyncTracker = NewStashSyncTracker() // Memory-only, never persisted
+	// Configure stash storage limit based on memory mode
+	stashLimit := StashStorageForMemoryMode(localNara.MemoryProfile.Mode)
+	network.confidantStore.SetMaxStashes(stashLimit)
+	logrus.Infof("📦 Stash storage limit: %d (memory mode: %s)", stashLimit, localNara.MemoryProfile.Mode)
+	// stashManager initialized after keypair is available
+
 	network.Mqtt = network.initializeMQTT(network.mqttOnConnectHandler(), network.meName(), host, user, pass)
 
 	// Set up pruning priority for unknown naras (events from naras without public keys are pruned first)
@@ -650,7 +669,7 @@ func (network *Network) discoverNarasFromEvents(events []SyncEvent) {
 	}
 }
 
-// markEmittersAsSeen marks event emitters as seen/online.
+// markEmittersAs seen marks event emitters as seen/online.
 // When we receive events that a nara created (they're the Emitter), that's evidence
 // they exist and are active. This allows us to discover naras through zine/gossip
 // exchanges before we directly receive their newspaper.
@@ -1095,17 +1114,44 @@ func (network *Network) httpPeerResponseHandler(w http.ResponseWriter, r *http.R
 	http.NotFound(w, r)
 }
 
-// getMeshURLForNara returns the mesh URL for a nara (test override or real)
-func (network *Network) getMeshURLForNara(name string) string {
+// buildMeshURL returns the full mesh URL for a nara with optional path
+// Returns empty string if nara is not reachable via mesh
+// Examples:
+//   - buildMeshURL("alice", "") -> "http://100.64.0.1:5683"
+//   - buildMeshURL("alice", "/stash/push") -> "http://100.64.0.1:5683/stash/push"
+func (network *Network) buildMeshURL(name string, path string) string {
+	var baseURL string
 	if network.testMeshURLs != nil {
-		return network.testMeshURLs[name]
+		baseURL = network.testMeshURLs[name]
+		if baseURL == "" {
+			return ""
+		}
+	} else {
+		meshIP := network.getMeshIPForNara(name)
+		if meshIP == "" {
+			return ""
+		}
+		baseURL = fmt.Sprintf("http://%s:%d", meshIP, DefaultMeshPort)
 	}
-	// In production, construct URL from mesh IP
-	meshIP := network.getMeshIPForNara(name)
-	if meshIP != "" {
-		return fmt.Sprintf("http://%s:%d", meshIP, DefaultMeshPort)
+
+	if path != "" {
+		return baseURL + path
 	}
-	return ""
+	return baseURL
+}
+
+// getMeshURLForNara returns the base mesh URL for a nara (for backwards compatibility)
+func (network *Network) getMeshURLForNara(name string) string {
+	return network.buildMeshURL(name, "")
+}
+
+// hasMeshConnectivity returns true if a nara is reachable via mesh
+// Checks both test URLs and production mesh IPs
+func (network *Network) hasMeshConnectivity(name string) bool {
+	if network.testMeshURLs != nil {
+		return network.testMeshURLs[name] != ""
+	}
+	return network.getMeshIPForNara(name) != ""
 }
 
 // getHTTPClient returns the HTTP client to use (test override or default)
@@ -1207,7 +1253,19 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 		}
 	}
 
-	// Initialize world journey handler
+	// Initialize stash manager if we have a keypair
+	if network.local.Keypair.PrivateKey != nil {
+		network.stashManager = NewStashManager(
+			network.meName(),
+			network.local.Keypair,
+			3, // target 3 confidants
+		)
+	}
+
+	// Initialize unified stash service
+	network.initStashService()
+
+	// Initialize mesh networking and world journey handler
 	if !network.ReadOnly {
 		if meshConfig != nil {
 			// Use real tsnet mesh with Headscale
@@ -1342,6 +1400,11 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 
 	// Start coordinate maintenance (Vivaldi pings)
 	go network.coordinateMaintenance()
+
+	// Start stash maintenance (confidant selection, inventory)
+	if !network.ReadOnly && network.stashService != nil {
+		go network.stashMaintenance()
+	}
 }
 
 func (network *Network) meName() string {
@@ -1370,6 +1433,15 @@ func (network *Network) announce() {
 		slimStatus.EventStoreTotal = 0
 		slimStatus.EventStoreCritical = 0
 	}
+
+	// Populate stash metrics
+	if network.stashService != nil {
+		metrics := network.stashService.GetStorageMetrics()
+		slimStatus.StashStored = metrics.StashesStored
+		slimStatus.StashBytes = metrics.TotalStashBytes
+		slimStatus.StashConfidants = network.stashService.ConfidantCount()
+	}
+
 	signedEvent := network.SignNewspaper(slimStatus)
 	network.postEvent(topic, signedEvent)
 }
@@ -3131,15 +3203,10 @@ func VerifyZine(z *Zine, publicKey ed25519.PublicKey) bool {
 func (network *Network) selectGossipTargets() []string {
 	online := network.NeighbourhoodOnlineNames()
 
-	// Filter to mesh-enabled only (or test URLs if in test mode)
+	// Filter to mesh-enabled only
 	var meshEnabled []string
 	for _, name := range online {
-		if network.testMeshURLs != nil {
-			// In test mode, use testMeshURLs
-			if network.testMeshURLs[name] != "" {
-				meshEnabled = append(meshEnabled, name)
-			}
-		} else if network.getMeshIPForNara(name) != "" {
+		if network.hasMeshConnectivity(name) {
 			meshEnabled = append(meshEnabled, name)
 		}
 	}
@@ -3531,6 +3598,11 @@ func (network *Network) performGossipRound() {
 		go func(name string) {
 			defer wg.Done()
 			network.exchangeZine(name, zine)
+			// Also exchange stashes (rate-limited via stashSyncTracker)
+			// Only if we have stash data to share
+			if network.stashService != nil && network.stashService.HasStashData() {
+				network.exchangeStashWithPeer(name)
+			}
 		}(targetName)
 	}
 	wg.Wait()
@@ -3538,20 +3610,10 @@ func (network *Network) performGossipRound() {
 
 // exchangeZine sends our zine to a neighbor and receives theirs back
 func (network *Network) exchangeZine(targetName string, myZine *Zine) {
-	// Determine URL - use test override if available
-	var url string
-	if network.testMeshURLs != nil {
-		url = network.testMeshURLs[targetName]
-		if url == "" {
-			return
-		}
-		url = url + "/gossip/zine"
-	} else {
-		meshIP := network.getMeshIPForNara(targetName)
-		if meshIP == "" {
-			return
-		}
-		url = fmt.Sprintf("http://%s:%d/gossip/zine", meshIP, DefaultMeshPort)
+	// Determine URL
+	url := network.buildMeshURL(targetName, "/gossip/zine")
+	if url == "" {
+		return
 	}
 
 	// Encode our zine
@@ -3617,27 +3679,32 @@ func (network *Network) exchangeZine(targetName string, myZine *Zine) {
 	network.recordObservationOnlineNara(targetName, theirZine.CreatedAt)
 }
 
+// exchangeStashWithPeer performs stash operations with a peer (store or retrieve)
+func (network *Network) exchangeStashWithPeer(targetName string) {
+	if network.stashService != nil {
+		network.stashService.ExchangeStashWithPeer(targetName)
+	}
+}
+
+// pushStashToOwner pushes a stash back to its owner via HTTP POST to /stash/push.
+// This is called during hey-there recovery or stash-refresh requests.
+// Runs the push in a background goroutine with optional delay.
+func (network *Network) pushStashToOwner(targetName string, delay time.Duration) {
+	if network.stashService != nil {
+		network.stashService.PushStashToOwner(targetName, delay)
+	}
+}
+
 // SendDM sends a SyncEvent directly to a target nara via HTTP POST to /dm.
 // Returns true if the DM was successfully delivered.
 // If delivery fails, the event should already be in the sender's ledger and
 // will spread via gossip instead.
 func (network *Network) SendDM(targetName string, event SyncEvent) bool {
 	// Determine URL - use test override if available
-	var url string
-	if network.testMeshURLs != nil {
-		url = network.testMeshURLs[targetName]
-		if url == "" {
-			logrus.Debugf("📬 Cannot DM %s: no test URL", targetName)
-			return false
-		}
-		url = url + "/dm"
-	} else {
-		meshIP := network.getMeshIPForNara(targetName)
-		if meshIP == "" {
-			logrus.Debugf("📬 Cannot DM %s: no mesh IP", targetName)
-			return false
-		}
-		url = fmt.Sprintf("http://%s:%d/dm", meshIP, DefaultMeshPort)
+	url := network.buildMeshURL(targetName, "/dm")
+	if url == "" {
+		logrus.Debugf("📬 Cannot DM %s: not reachable via mesh", targetName)
+		return false
 	}
 
 	// Encode the event
@@ -4376,4 +4443,101 @@ func (network *Network) emitSeenEvent(subject, via string) {
 	if network.local.Projections != nil {
 		network.local.Projections.Trigger()
 	}
+}
+
+// stashMaintenance manages confidant selection and inventory
+func (network *Network) stashMaintenance() {
+	if network.stashService != nil {
+		network.stashService.RunMaintenanceLoop(network.stashDistributeTrigger)
+	}
+}
+
+// reactToConfidantOffline is called immediately when we detect a nara went offline
+// If they're one of our confidants, remove them and trigger immediate replacement search
+func (network *Network) reactToConfidantOffline(name string) {
+	if network.stashService != nil {
+		network.stashService.ReactToConfidantOffline(name)
+	}
+}
+
+// getPeerInfo gathers metadata about peers for confidant selection
+func (network *Network) getPeerInfo(names []string) []PeerInfo {
+	network.local.mu.Lock()
+	defer network.local.mu.Unlock()
+
+	peers := make([]PeerInfo, 0, len(names))
+	for _, name := range names {
+		nara, ok := network.Neighbourhood[name]
+		if !ok {
+			continue
+		}
+
+		nara.mu.Lock()
+		memoryMode := MemoryModeMedium // Default
+		if modeStr := nara.Status.MemoryMode; modeStr != "" {
+			memoryMode = MemoryMode(modeStr)
+		}
+
+		// Calculate uptime approximation
+		// Use the time since last event as a proxy for reliability
+		uptimeSecs := int64(0)
+		if state := network.local.Projections.OnlineStatus().GetState(name); state != nil {
+			if state.Status == "ONLINE" {
+				// Longer time online (in this session) = more reliable
+				elapsedNanos := time.Now().UnixNano() - state.LastEventTime
+				uptimeSecs = elapsedNanos / 1e9 // Convert to seconds
+				if uptimeSecs < 0 {
+					uptimeSecs = 0
+				}
+			}
+		}
+		nara.mu.Unlock()
+
+		peers = append(peers, PeerInfo{
+			Name:       name,
+			MemoryMode: memoryMode,
+			UptimeSecs: uptimeSecs,
+		})
+	}
+
+	return peers
+}
+
+// broadcastStashRefresh broadcasts an MQTT event asking confidants to push stash back
+// This is used during boot if hey-there didn't trigger recovery
+func (network *Network) broadcastStashRefresh() {
+	if network.Mqtt == nil || !network.Mqtt.IsConnected() {
+		logrus.Debugf("📦 Cannot broadcast stash-refresh: MQTT not connected")
+		return
+	}
+
+	if network.stashService == nil {
+		return
+	}
+
+	// Create a stash-refresh event (similar to hey-there)
+	event := map[string]interface{}{
+		"from":      network.meName(),
+		"timestamp": time.Now().Unix(),
+	}
+
+	// Broadcast on MQTT
+	topic := "nara/plaza/stash_refresh"
+	network.postEvent(topic, event)
+	logrus.Infof("📦 Broadcast stash-refresh request")
+}
+
+// =============================================================================
+// Stash Service initialization
+// =============================================================================
+
+// initStashService initializes the unified stash service.
+// This can be called by tests after manually setting up stashManager.
+func (network *Network) initStashService() {
+	network.stashService = NewStashService(
+		network.stashManager,
+		network.confidantStore,
+		network.stashSyncTracker,
+		newStashServiceContext(network),
+	)
 }

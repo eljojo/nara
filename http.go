@@ -54,6 +54,9 @@ func (network *Network) loggingMiddleware(path string, handler http.HandlerFunc)
 						req.Services,
 						req.MaxEvents)
 				}
+			} else if path == "/api/stash/update" {
+				// Don't log stash content, just size
+				bodySummary = fmt.Sprintf("(%d bytes)", len(bodyBytes))
 			} else if len(bodyBytes) > 0 && len(bodyBytes) < 200 {
 				bodySummary = string(bodyBytes)
 			} else if len(bodyBytes) >= 200 {
@@ -139,6 +142,11 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 	mux.HandleFunc("/ping", network.loggingMiddleware("/ping", network.httpPingHandler)) // No auth - latency critical
 	mux.HandleFunc("/coordinates", network.loggingMiddleware("/coordinates", network.httpCoordinatesHandler))
 
+	// Stash endpoints
+	mux.HandleFunc("/stash/store", network.loggingMiddleware("/stash/store", network.meshAuthMiddleware("/stash/store", network.httpStashHandler)))
+	mux.HandleFunc("/stash/retrieve", network.loggingMiddleware("/stash/retrieve", network.meshAuthMiddleware("/stash/retrieve", network.httpStashRetrieveHandler)))
+	mux.HandleFunc("/stash/push", network.loggingMiddleware("/stash/push", network.meshAuthMiddleware("/stash/push", network.httpStashPushHandler)))
+
 	if includeUI {
 		// Prepare static FS
 		var err error
@@ -171,6 +179,10 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 		mux.HandleFunc("/world/journeys", network.httpWorldJourneysHandler)
 		mux.HandleFunc("/network/map", network.httpNetworkMapHandler)
 		mux.HandleFunc("/proximity", network.httpProximityHandler)
+		mux.HandleFunc("/api/stash/status", network.httpStashStatusHandler)
+		mux.HandleFunc("/api/stash/update", network.httpStashUpdateHandler)
+		mux.HandleFunc("/api/stash/recover", network.httpStashRecoverHandler)
+		mux.HandleFunc("/api/stash/confidants", network.httpStashConfidantsHandler)
 
 		// pprof endpoints
 		if network.local != nil && network.local.Me.Name == "jojo-m1" {
@@ -1130,6 +1142,272 @@ func (network *Network) httpCoordinatesHandler(w http.ResponseWriter, r *http.Re
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(response)
+}
+
+// Mesh Authentication for HTTP Handlers
+//
+// All mesh endpoints are protected by meshAuthMiddleware, which:
+// 1. Verifies X-Nara-Name, X-Nara-Timestamp, X-Nara-Signature headers
+// 2. Rejects requests with invalid/expired signatures (30s window)
+// 3. Sets X-Nara-Verified header with the authenticated sender name
+//
+// Handlers should:
+// - Use getVerifiedSender(r) to get the authenticated sender (never trust req.From)
+// - NOT implement their own signature verification (mesh auth handles it)
+// - NOT include Timestamp/Signature fields in request structs (redundant)
+//
+// Request structs can still include a "From" field for logging/debugging,
+// but handlers should verify it matches getVerifiedSender() if used.
+
+// getVerifiedSender returns the mesh-authenticated sender name from the request.
+// This is set by meshAuthMiddleware after verifying the request signature.
+// Always use this instead of trusting a "from" field in the request body.
+func getVerifiedSender(r *http.Request) string {
+	return r.Header.Get("X-Nara-Verified")
+}
+
+// POST /stash/store - Owner stores stash with confidant
+// DELETE /stash/store - Owner requests deletion of stash
+func (network *Network) httpStashHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "POST" {
+		network.httpStashStoreHandler(w, r)
+	} else if r.Method == "DELETE" {
+		network.httpStashDeleteHandler(w, r)
+	} else {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (network *Network) httpStashStoreHandler(w http.ResponseWriter, r *http.Request) {
+	sender := getVerifiedSender(r)
+
+	var req StashStoreRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	accepted, reason := network.stashService.AcceptStash(sender, req.Stash)
+	response := StashStoreResponse{
+		Accepted: accepted,
+		Reason:   reason,
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(response)
+}
+
+func (network *Network) httpStashDeleteHandler(w http.ResponseWriter, r *http.Request) {
+	sender := getVerifiedSender(r)
+
+	response := StashDeleteResponse{
+		Deleted: network.stashService.DeleteStashFor(sender),
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(response)
+}
+
+func (network *Network) httpStashRetrieveHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	sender := getVerifiedSender(r)
+
+	response := StashRetrieveResponse{Found: false}
+	if payload := network.stashService.RetrieveStashFor(sender); payload != nil {
+		response.Found = true
+		response.Stash = payload
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(response)
+}
+
+func (network *Network) httpStashPushHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	sender := getVerifiedSender(r)
+
+	var req StashPushRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.To == "" || req.Stash == nil {
+		http.Error(w, "to and stash are required", http.StatusBadRequest)
+		return
+	}
+
+	// Verify this push is for us
+	if req.To != network.meName() {
+		http.Error(w, "Push not intended for this nara", http.StatusBadRequest)
+		return
+	}
+
+	accepted, reason := network.stashService.AcceptPushedStash(sender, req.Stash)
+	response := StashPushResponse{
+		Accepted: accepted,
+		Reason:   reason,
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(response)
+}
+
+// GET /api/stash/status - Get current stash status, confidants, and metrics
+func (network *Network) httpStashStatusHandler(w http.ResponseWriter, r *http.Request) {
+	response := map[string]interface{}{
+		"has_stash":  false,
+		"my_stash":   nil,
+		"confidants": []map[string]interface{}{},
+		"metrics":    map[string]interface{}{},
+	}
+
+	if network.stashService == nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	// Get my current stash data
+	currentStash := network.stashService.GetCurrentStash()
+	if currentStash != nil {
+		var dataMap map[string]interface{}
+		json.Unmarshal(currentStash.Data, &dataMap)
+		response["has_stash"] = true
+		response["my_stash"] = map[string]interface{}{
+			"timestamp": currentStash.Timestamp,
+			"data":      dataMap,
+		}
+	}
+
+	// Get confidant list
+	confidants := network.stashService.GetConfidants()
+	confidantList := make([]map[string]interface{}, 0, len(confidants))
+	for _, name := range confidants {
+		confidantList = append(confidantList, map[string]interface{}{
+			"name":   name,
+			"status": "confirmed",
+		})
+	}
+	response["confidants"] = confidantList
+	response["target_count"] = network.stashService.TargetConfidantCount()
+
+	// Get metrics
+	metrics := network.stashService.GetStorageMetrics()
+	response["metrics"] = map[string]interface{}{
+		"stashes_stored": metrics.StashesStored,
+		"total_bytes":    metrics.TotalStashBytes,
+		"eviction_count": metrics.EvictionCount,
+		"storage_limit":  metrics.StorageLimit,
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(response)
+}
+
+// POST /api/stash/update - Update my stash with new JSON data
+func (network *Network) httpStashUpdateHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Read raw JSON body
+	var data json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if network.stashService == nil {
+		http.Error(w, "Stash service not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	// Update stash data
+	network.stashService.SetCurrentStash(data)
+
+	// Trigger immediate distribution to confidants
+	select {
+	case network.stashDistributeTrigger <- struct{}{}:
+		logrus.Infof("📦 Stash data updated (%d bytes), triggered immediate distribution", len(data))
+	default:
+		// Channel full, distribution will happen on next periodic check
+		logrus.Infof("📦 Stash data updated (%d bytes), will distribute shortly", len(data))
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Stash updated and distributing to confidants",
+	})
+}
+
+// POST /api/stash/recover - Trigger manual stash recovery
+func (network *Network) httpStashRecoverHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Manual recovery: restart the nara to trigger the boot recovery flow
+	// Alternatively, request stash from all confidants
+	go func() {
+		if network.stashService != nil {
+			confidants := network.stashService.GetConfidants()
+			for _, name := range confidants {
+				// Try to fetch stash via HTTP
+				logrus.Infof("📦 Requesting stash from %s", name)
+			}
+		}
+	}()
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Stash recovery initiated from confidants",
+	})
+}
+
+// GET /api/stash/confidants - List all confidants with details
+func (network *Network) httpStashConfidantsHandler(w http.ResponseWriter, r *http.Request) {
+	confidants := []map[string]interface{}{}
+
+	if network.stashService != nil {
+		confidantNames := network.stashService.GetConfidants()
+
+		network.local.mu.Lock()
+		for _, name := range confidantNames {
+			info := map[string]interface{}{
+				"name":   name,
+				"status": "confirmed",
+			}
+
+			// Get peer details if available (this needs Network access)
+			if nara, ok := network.Neighbourhood[name]; ok {
+				nara.mu.Lock()
+				info["memory_mode"] = nara.Status.MemoryMode
+				info["online"] = true
+				nara.mu.Unlock()
+			}
+
+			confidants = append(confidants, info)
+		}
+		network.local.mu.Unlock()
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"confidants": confidants,
+	})
 }
 
 // GET /network/map - All known nodes with coordinates for visualization

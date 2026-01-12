@@ -45,7 +45,9 @@ These events use **importance levels** (1-3) and have anti-abuse protection (per
 ### Social Events (`service: "social"`)
 Social interactions between naras:
 - **tease**: One nara teasing another (for high restarts, comebacks, etc.)
+- **observed**: One nara reporting a tease they saw elsewhere
 - **observation**: Legacy system observations (online/offline, journey events)
+- **service**: Helpful actions (like `stash-stored`) that award clout to the actor
 - **gossip**: Hearsay about what happened
 
 ### Ping Observations (`service: "ping"`)
@@ -96,6 +98,55 @@ Every 30-300 seconds (personality-based):
 - **Decentralized**: No MQTT broker bottleneck
 - **Redundant paths**: Multiple naras carrying same news
 - **Organic propagation**: Events spread like rumors, not announcements
+
+### Stash Exchange (HTTP State Backup)
+**Separate distribution system** - encrypted state backup with commitment model.
+
+**Stash** is encrypted arbitrary JSON data that naras store for each other based on **mutual promises**. Stash distribution happens via HTTP mesh with its own trigger system:
+
+```
+Distribution triggers (finding confidants):
+  1. Immediate: When stash data is updated (via /api/stash/update)
+  2. Periodic: Every 5 minutes (maintenance + health checks)
+  3. Reactive: When a confidant goes offline (immediate replacement)
+
+When distributing (to find confidants):
+  1. Pick best nara first (high memory + uptime)
+  2. Pick remaining confidants randomly (avoid hotspots)
+  3. POST /stash/store with encrypted stash to each
+  4. Peer verifies signature & timestamp
+  5. Peer checks capacity:
+     - If space: Accepts (creates commitment) ✓
+     - If full: Rejects (at_capacity) ✗
+  6. If accepted: Peer tracks commitment, owner adds to confirmed confidants
+  7. Keep trying until target count (3) reached or max attempts
+
+On boot (recovery):
+  1. Owner broadcasts hey-there event (MQTT)
+  2. Confidants detect and wait 2s
+  3. POST /stash/push owner's stash back via HTTP
+  4. Owner receives, decrypts, uses newest
+```
+
+**Why Separate Stash System?**
+- **Clear semantics**: Store, retrieve, push, and delete are distinct operations
+- **Timestamp security**: All requests signed with timestamp (replay protection)
+- **No disk writes**: Pure memory storage (ephemeral by design)
+- **Commitment-based**: Accept/reject model (not LRU cache)
+- **Mutual promises**: Both sides know who's storing what
+- **Health monitoring**: Owners detect offline confidants, find replacements
+- **Ghost pruning**: Evict stashes for naras offline 7+ days
+- **Memory-aware**: Storage limits based on memory mode (5/20/50)
+- **Hybrid selection**: 1 best confidant (reliability) + 2 random (distribution)
+- **Immediate triggers**: Reacts to stash updates and offline confidants within seconds
+- **Boot recovery**: Hey-there events trigger HTTP stash push back
+
+**Integration with mesh:**
+- Stash uses same HTTP mesh infrastructure as zines
+- Same Ed25519 authentication mechanism
+- Independent distribution system (not tied to zine gossip)
+- Complements event sync with state backup
+- Unlike events (spread to all), stash is targeted (3 confidants)
 
 **Transport Modes:**
 
@@ -165,8 +216,13 @@ These fields are broadcast via `nara/newspaper/{name}` and are **NOT** in the ev
 | `EventStoreTotal` | int | Total events in the local event store |
 | `EventStoreByService` | map | Event counts per service (social, ping, observation, etc.) |
 | `EventStoreCritical` | int | Count of critical events |
+| `StashStored` | int | Number of stashes stored for others |
+| `StashBytes` | int64 | Total bytes of stash data stored |
+| `StashConfidants` | int | Number of confidants storing my stash |
 
 Newspapers are **current state snapshots**, not history. They answer "what is this nara like right now?" rather than "what happened?"
+
+**Stash metrics** help monitor distributed storage health - who's storing what, capacity usage, and confidant network status.
 
 ### Event Store (SyncLedger + Zines)
 
@@ -174,13 +230,13 @@ These survive in the distributed event log and spread via zine gossip:
 
 | Service | Key Data | Purpose |
 |---------|----------|---------|
-| `hey-there` | PublicKey, MeshIP | Identity/discovery |
-| `chau` | From, PublicKey | Graceful shutdown signal |
+| `chau` | From, PublicKey | Identity/discovery |
 | `observation` | StartTime, RestartNum, LastRestart, OnlineState | Network state consensus |
 | `ping` | Observer, Target, RTT | Latency measurements |
-| `social` | Actor, Target, Reason | Teases and interactions |
+| `social` | Actor, Target, Reason | Teases, helpful services, and interactions |
 | `seen` | Observer, Subject, Via | Lightweight presence detection |
 
+### Implications
 Events are **state transitions** - they record what happened, not current state.
 
 ### Implications

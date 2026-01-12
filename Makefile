@@ -1,4 +1,4 @@
-.PHONY: all build test run run2 clean build-nix
+.PHONY: all build test run run2 clean build-nix test-v test-fast lint-report
 
 # Default target: build and test
 all: build test
@@ -50,3 +50,6 @@ build-nix:
 	@echo "Building nara using Nix..."
 	@nix build .#nara
 	@echo "✓ Built nara using Nix"
+
+lint-report:
+	@golangci-lint run

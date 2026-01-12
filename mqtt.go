@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/sirupsen/logrus"
 	"math/rand"
@@ -38,6 +39,7 @@ func (network *Network) subscribeHandlers(client mqtt.Client) {
 	subscribeMqtt(client, "nara/plaza/howdy", network.howdyHandler)
 	subscribeMqtt(client, "nara/plaza/social", network.socialHandler)
 	subscribeMqtt(client, "nara/plaza/journey_complete", network.journeyCompleteHandler)
+	subscribeMqtt(client, "nara/plaza/stash_refresh", network.stashRefreshHandler)
 	subscribeMqtt(client, "nara/newspaper/#", network.newspaperHandler)
 
 	// Subscribe to ledger requests and responses for this nara
@@ -54,31 +56,80 @@ func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 		return
 	}
 
+	var fromName string
+
 	// Try new SyncEvent format first
 	if event.Service == ServiceHeyThere && event.HeyThere != nil {
 		if event.HeyThere.From == network.meName() || event.HeyThere.From == "" {
+			logrus.Debugf("📦 hey-there: ignoring own message from %s", event.HeyThere.From)
 			return
 		}
-		network.heyThereInbox <- event
+		fromName = event.HeyThere.From
+		logrus.Debugf("📦 hey-there: received from %s (I am %s)", fromName, network.meName())
+		select {
+		case network.heyThereInbox <- event:
+		default:
+			// Don't block if inbox is full or not being processed (e.g., in tests)
+			logrus.Debugf("hey-there inbox full, skipping event processing")
+		}
+	} else {
+		// Fallback: try legacy HeyThereEvent format (for old nodes during rollout)
+		legacy := HeyThereEvent{}
+		if err := json.Unmarshal(msg.Payload(), &legacy); err != nil {
+			return
+		}
+		if legacy.From == "" || legacy.From == network.meName() {
+			return
+		}
+		fromName = legacy.From
+		// Convert legacy to SyncEvent
+		event = SyncEvent{
+			Timestamp: time.Now().UnixNano(),
+			Service:   ServiceHeyThere,
+			HeyThere:  &legacy,
+		}
+		event.ComputeID()
+		select {
+		case network.heyThereInbox <- event:
+		default:
+			logrus.Debugf("hey-there inbox full, skipping event processing")
+		}
+	}
+
+	// Stash Recovery Trigger: If we have this nara's stash, push it back via HTTP
+	// This allows naras to recover their state when they boot up
+	hasStash := network.stashService != nil && network.stashService.HasStashFor(fromName)
+	logrus.Debugf("📦 hey-there recovery check: stashService=%v, HasStashFor(%s)=%v",
+		network.stashService != nil, fromName, hasStash)
+	if hasStash {
+		logrus.Debugf("📦 %s has stash for %s, triggering hey-there recovery", network.meName(), fromName)
+		network.pushStashToOwner(fromName, 2*time.Second)
+	}
+}
+
+// stashRefreshHandler handles stash-refresh events (on-demand recovery request)
+// This is similar to hey-there but specifically for requesting stash back
+func (network *Network) stashRefreshHandler(client mqtt.Client, msg mqtt.Message) {
+	var event map[string]interface{}
+	if err := json.Unmarshal(msg.Payload(), &event); err != nil {
+		logrus.Debugf("stashRefreshHandler: invalid JSON: %v", err)
 		return
 	}
 
-	// Fallback: try legacy HeyThereEvent format (for old nodes during rollout)
-	legacy := HeyThereEvent{}
-	if err := json.Unmarshal(msg.Payload(), &legacy); err != nil {
+	fromName, ok := event["from"].(string)
+	if !ok || fromName == "" || fromName == network.meName() {
 		return
 	}
-	if legacy.From == "" || legacy.From == network.meName() {
+
+	logrus.Debugf("📦 stash-refresh request from %s", fromName)
+
+	// Check if we have their stash
+	if network.stashService == nil || !network.stashService.HasStashFor(fromName) {
 		return
 	}
-	// Convert legacy to SyncEvent
-	event = SyncEvent{
-		Timestamp: time.Now().UnixNano(),
-		Service:   ServiceHeyThere,
-		HeyThere:  &legacy,
-	}
-	event.ComputeID()
-	network.heyThereInbox <- event
+
+	// Push stash back to them (small delay to avoid thundering herd)
+	network.pushStashToOwner(fromName, 500*time.Millisecond)
 }
 
 func (network *Network) howdyHandler(client mqtt.Client, msg mqtt.Message) {

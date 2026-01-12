@@ -72,6 +72,9 @@ type NaraStatus struct {
 	MemoryMode          string             `json:"memory_mode,omitempty"`
 	MemoryBudgetMB      int                `json:"memory_budget_mb,omitempty"`
 	MemoryMaxEvents     int                `json:"memory_max_events,omitempty"`
+	StashStored         int                `json:"stash_stored,omitempty"`     // Number of stashes stored for others
+	StashBytes          int64              `json:"stash_bytes,omitempty"`      // Total bytes of stash data stored
+	StashConfidants     int                `json:"stash_confidants,omitempty"` // Number of confidants storing my stash
 	// remember to sync with setValuesFrom
 	// NOTE: Soul was removed - NEVER serialize private keys!
 }
@@ -129,9 +132,10 @@ func NewLocalNara(identity IdentityResult, mqtt_host string, mqtt_user string, m
 
 	hostinfo, err := host.Info()
 	if err != nil || hostinfo == nil {
-		logrus.Panicf("⚠️  Warning: failed to get host info: %v", err)
+		logrus.Warnf("⚠️  Warning: failed to get host info: %v", err)
+	} else {
+		ln.Me.Hostname = hostinfo.Hostname
 	}
-	ln.Me.Hostname = hostinfo.Hostname
 
 	observation := ln.getMeObservation()
 	observation.LastRestart = time.Now().Unix()

@@ -22,6 +22,7 @@ const (
 	ReasonJourneyPass     = "journey-pass"     // a world journey passed through us
 	ReasonJourneyComplete = "journey-complete" // heard a journey completed
 	ReasonJourneyTimeout  = "journey-timeout"  // a journey we saw never completed
+	ReasonStashStored     = "stash-stored"     // confident stored stash for owner
 )
 
 // SocialEvent represents an immutable social fact in the network
@@ -68,6 +69,7 @@ func (e *SocialEvent) IsValid() bool {
 		"observed":    true,
 		"gossip":      true,
 		"observation": true, // system observations (online/offline, journey events)
+		"service":     true, // helpful actions like storing stash
 	}
 	return validTypes[e.Type]
 }
