@@ -2,6 +2,33 @@
 
 This file provides guidance for AI agents when working with code in this repository.
 
+## Troubleshooting Protocol (READ BEFORE DEBUGGING)
+
+When the user reports something is broken: **STOP. Do not immediately edit code.**
+
+1. **Run tests first** - Use `make test` or `go test` to see actual failures. Integration tests run real production code - trust them over assumptions.
+2. **Gather evidence** - If tests pass, get actual error output: curl endpoints, check API responses, read logs. Run the real code, don't guess.
+3. **Confirm the root cause** - Verify with concrete evidence before proposing fixes
+4. **Make minimal changes** - Fix ONE thing, run tests again, verify it works, then continue if needed
+5. **Ask when uncertain** - If evidence is missing, ask the user for the minimal additional detail instead of assuming
+
+**Prefer automated verification:**
+- Run existing tests to understand current behavior
+- Use `curl` or similar to check actual API responses
+- Read the actual struct definitions and json tags, don't assume naming conventions
+- If a test doesn't exist for the bug, consider writing one first
+
+**DO NOT:**
+- Change multiple things at once hoping one fixes it
+- Assume naming conventions, field formats, or data shapes without checking
+- Make "while I'm here" improvements during debugging
+- Apply fixes based on pattern-matching from other codebases
+- Replicate production logic in tests - run the real code instead
+
+**After ANY fix:** Run tests and verify with the user before making additional changes.
+
+---
+
 ## What is Nara?
 
 Nara is an experiment. It's a distributed network with a hazy memory. It's a social network, for computers. It's a game about uptime. It's a database without persistence.
@@ -115,8 +142,3 @@ Individual tests can override with `logrus.SetLevel(logrus.DebugLevel)`.
 - `WORLD.md` - "Around the world" journey feature
 - `COORDINATES.md` - Vivaldi network coordinate system
 
-## Troubleshooting Protocol
-
-- Do not guess the root cause. Confirm with failing tests, reproduction steps, or concrete error output before proposing or applying fixes.
-- If evidence is missing, ask the user for the minimal additional detail (logs, exact command/URL, steps) instead of assuming.
-- Keep changes minimal and reversible; avoid broad edits while narrowing down an issue.
