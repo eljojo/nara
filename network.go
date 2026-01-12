@@ -422,11 +422,11 @@ func (h *HowdyEvent) Verify() bool {
 func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Network {
 	network := &Network{local: localNara}
 	network.Neighbourhood = make(map[string]*Nara)
-	network.heyThereInbox = make(chan SyncEvent)
-	network.chauInbox = make(chan SyncEvent)
+	network.heyThereInbox = make(chan SyncEvent, 50)
+	network.chauInbox = make(chan SyncEvent, 50)
 	network.howdyInbox = make(chan HowdyEvent, 50)
-	network.newspaperInbox = make(chan NewspaperEvent)
-	network.socialInbox = make(chan SyncEvent, 100)
+	network.newspaperInbox = make(chan NewspaperEvent, 50)
+	network.socialInbox = make(chan SyncEvent, 50)
 	network.ledgerRequestInbox = make(chan LedgerRequest, 50)
 	network.ledgerResponseInbox = make(chan LedgerResponse, 50)
 	network.stashDistributeTrigger = make(chan struct{}, 5) // Buffered to avoid blocking
@@ -1903,7 +1903,7 @@ func (network *Network) handleHeyThereEvent(event SyncEvent) {
 	}
 
 	// Start howdy coordinator with self-selection timer
-	// The coordinator uses random delays (0-3s) to spread responses
+	// The coordinator uses random delays (0-3s) to spread responses and prevent thundering herd
 	if !network.ReadOnly {
 		network.startHowdyCoordinator(heyThere.From)
 	}
@@ -1932,8 +1932,14 @@ func (network *Network) startHowdyCoordinator(to string) {
 	}
 	network.howdyCoordinators.Store(to, coord)
 
-	// Initial random delay: 0-3 seconds
-	delay := time.Duration(rand.Intn(3000)) * time.Millisecond
+	// Initial random delay: 0-3 seconds to spread howdy responses
+	// Skip jitter in tests for faster discovery
+	var delay time.Duration
+	if network.testSkipJitter {
+		delay = 0
+	} else {
+		delay = time.Duration(rand.Intn(3000)) * time.Millisecond
+	}
 	coord.timer = time.AfterFunc(delay, func() {
 		network.maybeRespondWithHowdy(coord)
 	})

@@ -59,8 +59,8 @@ type LogService struct {
 	instantLogsMu sync.Mutex
 
 	// Configuration
-	batchInterval       time.Duration
-	verbose             bool // When true, log everything immediately with full detail
+	batchInterval        time.Duration
+	verbose              bool // When true, log everything immediately with full detail
 	suppressLedgerEvents bool // When true, suppress events from ledger listener (during boot recovery)
 
 	// Lifecycle

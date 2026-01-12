@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"sort"
 	"sync"
 	"time"
@@ -346,20 +347,34 @@ func (s *CheckpointService) HandleProposal(proposal *CheckpointProposal) {
 	// Sign the vote
 	vote.Signature = SignContent(vote, s.local.Keypair)
 
-	// Publish vote
-	payload, err := json.Marshal(vote)
-	if err != nil {
-		logrus.Warnf("checkpoint: failed to marshal vote: %v", err)
-		return
+	// Publish vote with jitter (0-3s) to prevent thundering herd
+	// In tests, use zero jitter for faster consensus
+	var jitter time.Duration
+	if !s.network.testSkipJitter {
+		jitter = time.Duration(rand.Intn(3000)) * time.Millisecond
 	}
 
-	if s.mqttClient != nil && s.mqttClient.IsConnected() {
-		token := s.mqttClient.Publish(TopicCheckpointVote, 1, false, payload)
-		if token.Wait() && token.Error() != nil {
-			logrus.Warnf("checkpoint: failed to publish vote: %v", token.Error())
-		} else {
-			logrus.Debugf("checkpoint: voted %v for %s round %d", approved, proposal.Subject, proposal.Round)
+	publishVote := func() {
+		payload, err := json.Marshal(vote)
+		if err != nil {
+			logrus.Warnf("checkpoint: failed to marshal vote: %v", err)
+			return
 		}
+
+		if s.mqttClient != nil && s.mqttClient.IsConnected() {
+			token := s.mqttClient.Publish(TopicCheckpointVote, 1, false, payload)
+			if token.Wait() && token.Error() != nil {
+				logrus.Warnf("checkpoint: failed to publish vote: %v", token.Error())
+			} else {
+				logrus.Debugf("checkpoint: voted %v for %s round %d", approved, proposal.Subject, proposal.Round)
+			}
+		}
+	}
+
+	if jitter == 0 {
+		publishVote()
+	} else {
+		time.AfterFunc(jitter, publishVote)
 	}
 }
 
