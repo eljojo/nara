@@ -97,7 +97,6 @@ func TestHowdy_StartTimeRecovery(t *testing.T) {
 	t.Log("✅ Start time/observations recorded")
 }
 
-
 // TestHowdy_NeighborDiscovery tests that howdy responses include neighbor info
 func TestHowdy_NeighborDiscovery(t *testing.T) {
 	if testing.Short() {

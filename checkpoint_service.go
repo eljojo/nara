@@ -2,7 +2,6 @@ package nara
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -30,10 +29,10 @@ const (
 
 // CheckpointProposal is broadcast when a nara proposes a checkpoint about itself
 type CheckpointProposal struct {
-	Subject     string `json:"subject"`      // The nara proposing (itself)
-	SubjectID   string `json:"subject_id"`   // Nara ID
-	ProposedAt  int64  `json:"proposed_at"`  // Unix timestamp
-	Round       int    `json:"round"`        // 1 or 2
+	Subject    string `json:"subject"`     // The nara proposing (itself)
+	SubjectID  string `json:"subject_id"`  // Nara ID
+	ProposedAt int64  `json:"proposed_at"` // Unix timestamp
+	Round      int    `json:"round"`       // 1 or 2
 
 	// Values to sign (proposer's view)
 	Restarts    int64 `json:"restarts"`
@@ -75,12 +74,12 @@ func (v *CheckpointVote) SignableContent() string {
 
 // pendingProposal tracks an in-flight checkpoint proposal awaiting votes
 type pendingProposal struct {
-	proposal   *CheckpointProposal
-	votes      []*CheckpointVote
-	votesMu    sync.Mutex
-	expiresAt  time.Time
-	round      int
-	finalized  bool
+	proposal    *CheckpointProposal
+	votes       []*CheckpointVote
+	votesMu     sync.Mutex
+	expiresAt   time.Time
+	round       int
+	finalized   bool
 	finalizedMu sync.Mutex
 }
 
@@ -240,8 +239,7 @@ func (s *CheckpointService) proposeCheckpointRound(round int, consensusValues *r
 	}
 
 	// Sign the proposal
-	signableData := sha256.Sum256([]byte(proposal.SignableContent()))
-	proposal.Signature = s.local.Keypair.SignBase64(signableData[:])
+	proposal.Signature = SignContent(proposal, s.local.Keypair)
 
 	// Store as pending
 	pending := &pendingProposal{
@@ -337,8 +335,7 @@ func (s *CheckpointService) HandleProposal(proposal *CheckpointProposal) {
 	}
 
 	// Sign the vote
-	signableData := sha256.Sum256([]byte(vote.SignableContent()))
-	vote.Signature = s.local.Keypair.SignBase64(signableData[:])
+	vote.Signature = SignContent(vote, s.local.Keypair)
 
 	// Publish vote
 	payload, err := json.Marshal(vote)
@@ -416,9 +413,8 @@ func (s *CheckpointService) verifyVoteSignature(vote *CheckpointVote) bool {
 		return false
 	}
 
-	// Verify signature
-	signableData := sha256.Sum256([]byte(vote.SignableContent()))
-	return VerifySignatureBase64(pubKey, signableData[:], vote.Signature)
+	// Verify signature using Signable interface
+	return VerifyContent(vote, pubKey, vote.Signature)
 }
 
 // verifyProposalSignature verifies that a proposal has a valid signature from the proposer
@@ -434,9 +430,8 @@ func (s *CheckpointService) verifyProposalSignature(proposal *CheckpointProposal
 		return false
 	}
 
-	// Verify signature
-	signableData := sha256.Sum256([]byte(proposal.SignableContent()))
-	return VerifySignatureBase64(pubKey, signableData[:], proposal.Signature)
+	// Verify signature using Signable interface
+	return VerifyContent(proposal, pubKey, proposal.Signature)
 }
 
 // finalizeProposal attempts to finalize the current pending proposal
@@ -726,8 +721,7 @@ func (s *CheckpointService) verifyCheckpointSignatures(checkpoint *CheckpointEve
 				voterID, checkpoint.AsOfTime, checkpoint.Restarts, checkpoint.TotalUptime, checkpoint.FirstSeen, 1)
 		}
 
-		signableData := sha256.Sum256([]byte(signableContent))
-		if VerifySignatureBase64(pubKey, signableData[:], signature) {
+		if VerifySignatureBase64(pubKey, []byte(signableContent), signature) {
 			validCount++
 		} else {
 			logrus.Debugf("checkpoint: invalid signature from voter %s for %s", voterID, checkpoint.Subject)

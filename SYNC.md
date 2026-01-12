@@ -603,44 +603,17 @@ Lightweight latency probe for Vivaldi coordinates.
 }
 ```
 
-### POST /checkpoint/sign
+### Checkpoint Consensus (MQTT)
 
-Request a signature for a checkpoint proposal. Only available when `USE_CHECKPOINT_CREATION=true`.
+Checkpoints are created through MQTT-based consensus rather than HTTP endpoints:
 
-**Request:**
-```json
-{
-  "proposal": {
-    "subject": "lisa",
-    "as_of_time": 1704067200,
-    "first_seen": 1624066568,
-    "restarts": 47,
-    "total_uptime": 23456789,
-    "importance": 3
-  },
-  "requester": "homer"
-}
-```
+**Topics:**
+- `nara/checkpoint/propose` - Nara broadcasts proposal about itself
+- `nara/checkpoint/vote` - Other naras respond with their observations
 
-**Response (approved):**
-```json
-{
-  "attester": "marge",
-  "signature": "base64-ed25519-signature",
-  "approved": true
-}
-```
-
-**Response (declined):**
-```json
-{
-  "attester": "marge",
-  "approved": false,
-  "reason": "restart count mismatch: proposal has 100, we have 47"
-}
-```
-
-The recipient validates the proposal against their local data before signing. Validation fails if:
-- Restart count differs by more than ±5
-- FirstSeen time differs by more than ±60 seconds
-- Recipient doesn't qualify as high-uptime attester (≥7 days uptime)
+**Flow:**
+1. Proposer broadcasts proposal with their values
+2. Voters respond within 5-minute window (APPROVE or REJECT)
+3. If consensus reached → checkpoint event created and broadcast
+4. If not → Round 2 with trimmed mean values
+5. Final checkpoint requires minimum 2 voters (outside proposer)

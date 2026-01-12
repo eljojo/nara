@@ -85,6 +85,27 @@ func VerifySignatureBase64(publicKey []byte, message []byte, signatureBase64 str
 	return VerifySignature(publicKey, message, signature)
 }
 
+// Signable is implemented by types that can produce canonical content for signing.
+// This provides a unified interface for cryptographic signing across different message types.
+type Signable interface {
+	// SignableContent returns the canonical string representation for signing.
+	// The string should be deterministic and include all fields that need authentication.
+	SignableContent() string
+}
+
+// SignContent signs a Signable's content directly (no pre-hashing).
+// This matches the existing signing pattern used throughout the codebase.
+// Returns a base64-encoded Ed25519 signature.
+func SignContent(s Signable, kp NaraKeypair) string {
+	return kp.SignBase64([]byte(s.SignableContent()))
+}
+
+// VerifyContent verifies a signature against a Signable's content.
+// The signature should have been created with SignContent.
+func VerifyContent(s Signable, publicKey []byte, signature string) bool {
+	return VerifySignatureBase64(publicKey, []byte(s.SignableContent()), signature)
+}
+
 // EncryptionKeypair holds a symmetric key derived from an Ed25519 private key
 // Used for self-encryption (encrypt data that only the owner can decrypt)
 type EncryptionKeypair struct {

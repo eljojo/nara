@@ -92,7 +92,7 @@ Observer detected ONLINE ↔ OFFLINE ↔ MISSING transition.
 Events with `is_backfill: true` represent historical knowledge being converted to events during migration from newspapers to event-driven mode.
 
 **When created:**
-- On startup if USE_OBSERVATION_EVENTS=true and no events exist yet
+- On startup if no events exist yet for a known nara
 - When seeing a nara for first time but already have newspaper data about them
 
 **Purpose:**
@@ -121,12 +121,11 @@ Nara boots with event mode enabled:
 
 ### Checkpoint Events
 
-Checkpoint events are multi-party attested snapshots of historical state. They provide a more robust "historical anchor" than backfill events by requiring multiple high-uptime naras to sign off on the data.
+Checkpoint events are multi-party attested snapshots of historical state. They provide a more robust "historical anchor" than backfill events by requiring multiple naras to vote on and sign the data through MQTT-based consensus.
 
 **When created:**
-- During migration from backfill to proper event-based tracking
-- When high-uptime naras agree on historical data for a subject
-- Feature flag: `USE_CHECKPOINTS=true` to enable reading, `USE_CHECKPOINT_CREATION=true` to participate in creating
+- Each nara proposes a checkpoint about itself every 24 hours
+- Consensus is reached through a two-round MQTT voting process
 
 **Purpose:**
 - Permanent anchor for historical restart counts and uptime
@@ -139,30 +138,29 @@ Checkpoint events are multi-party attested snapshots of historical state. They p
   "service": "checkpoint",
   "checkpoint": {
     "subject": "lisa",
+    "subject_id": "nara-id-hash",
     "as_of_time": 1704067200,
     "first_seen": 1624066568,
     "restarts": 47,
     "total_uptime": 23456789,
     "importance": 3,
-    "attesters": ["homer", "marge", "bart"],
+    "voter_ids": ["homer-id", "marge-id", "bart-id"],
     "signatures": ["sig1", "sig2", "sig3"]
   }
 }
 ```
 
-**Checkpoint Creation Flow:**
-1. High-uptime nara identifies subject with backfill but no checkpoint
-2. Nara prepares proposal from local data (deriving restart count, uptime)
-3. Nara signs the proposal itself
-4. Nara requests signatures from other high-uptime naras via `POST /checkpoint/sign`
-5. Each recipient validates proposal against their data
-6. If data matches (±5 restarts tolerance), recipient signs and returns signature
-7. Once enough signatures collected (MIN_CHECKPOINT_ATTESTERS), checkpoint is stored
+**MQTT Checkpoint Consensus Flow:**
+1. Nara proposes checkpoint about itself via `nara/checkpoint/propose`
+2. Other naras respond within 5-minute vote window via `nara/checkpoint/vote`
+3. Voters can APPROVE (sign proposer's values) or REJECT (sign their own values)
+4. If majority agrees on same values → checkpoint finalized
+5. If no consensus → Round 2 with trimmed mean values
+6. Round 2 is final - if no consensus, try again in 24 hours
 
-**High-Uptime Eligibility:**
-- Must be ONLINE
-- Must have ≥7 days of uptime (DefaultMinCheckpointUptime)
-- OR be in top 20% of naras by uptime (DefaultCheckpointTopPercentile)
+**Minimum Requirements:**
+- At least 2 voters required (outside the proposer, so 3+ total signatures)
+- Each signature is for specific values (verifiable)
 
 **Deriving Restart Count:**
 ```
@@ -173,11 +171,6 @@ Priority order:
 2. Backfill (if exists) - single observer historical data
 3. Count events - no historical baseline
 ```
-
-**Configuration:**
-- `MIN_CHECKPOINT_ATTESTERS`: Minimum signatures required (default: 2)
-- `USE_CHECKPOINTS`: Enable reading checkpoint events
-- `USE_CHECKPOINT_CREATION`: Enable participating in checkpoint creation
 
 ## Importance Levels
 
@@ -260,19 +253,18 @@ Four layers protect against malicious or misconfigured naras:
 
 ## Migration Path
 
-### Phase 1: Backfill (Current)
-- Feature flag: `USE_OBSERVATION_EVENTS=true`
+### Phase 1: Backfill (Complete)
 - On startup: backfill existing observations into events
 - Consensus switches to events-primary, newspapers-fallback
 - Newspapers stop broadcasting Observations map
 - Newspaper frequency reduced (30-300s)
 - Network supports both old (newspaper) and new (event) modes simultaneously
 
-### Phase 2: Checkpoints
-- Feature flags: `USE_CHECKPOINTS=true`, `USE_CHECKPOINT_CREATION=true`
-- High-uptime naras create multi-signed checkpoint events
+### Phase 2: Checkpoints (Current)
+- Naras create multi-signed checkpoint events via MQTT consensus
 - Checkpoint takes precedence over backfill for restart counting
 - Historical data anchored with stronger guarantees
+- Each nara proposes checkpoint about itself every 24 hours
 
 ### Phase 3: Event-Only (Future)
 - Remove Observations map from NaraStatus struct entirely

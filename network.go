@@ -10,10 +10,8 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
-	"os"
 	"runtime"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1534,20 +1532,9 @@ func (network *Network) meName() string {
 // useCheckpointCreation returns true if this nara should actively create checkpoints.
 // When disabled, this nara can still receive, validate, and store checkpoints from others,
 // but won't propose new checkpoints or participate in voting.
-// This allows gradual rollout of the checkpoint creation feature.
+// TODO: Remove this function once checkpoint creation is stable - always on now.
 func useCheckpointCreation() bool {
-	return os.Getenv("USE_CHECKPOINT_CREATION") == "true"
-}
-
-// getMinCheckpointAttesters returns the minimum number of attesters required for a checkpoint
-// to be considered valid for consensus. Default is 2.
-func getMinCheckpointAttesters() int {
-	if val := os.Getenv("MIN_CHECKPOINT_ATTESTERS"); val != "" {
-		if n, err := strconv.Atoi(val); err == nil && n > 0 {
-			return n
-		}
-	}
-	return 2 // Default: require at least 2 attesters
+	return true
 }
 
 func (network *Network) announce() {

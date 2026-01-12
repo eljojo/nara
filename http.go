@@ -1416,7 +1416,6 @@ func (network *Network) httpNetworkMapHandler(w http.ResponseWriter, r *http.Req
 	json.NewEncoder(w).Encode(response)
 }
 
-
 // httpProximityHandler returns this nara's barrio information
 // Naras in the same barrio (grid cell) share the same emoji and are considered "nearby"
 func (network *Network) httpProximityHandler(w http.ResponseWriter, r *http.Request) {
