@@ -350,7 +350,21 @@ func (network *Network) initializeMQTT(onConnect mqtt.OnConnectHandler, name str
 	opts.OnConnect = onConnect
 	opts.OnConnectionLost = func(client mqtt.Client, err error) {
 		logrus.Printf("MQTT Connection lost: %v", err)
+		network.mqttReconnectMu.Lock()
+		if network.mqttReconnectActive {
+			network.mqttReconnectMu.Unlock()
+			logrus.Debug("MQTT reconnect already running; skipping duplicate")
+			return
+		}
+		network.mqttReconnectActive = true
+		network.mqttReconnectMu.Unlock()
+
 		go func() {
+			defer func() {
+				network.mqttReconnectMu.Lock()
+				network.mqttReconnectActive = false
+				network.mqttReconnectMu.Unlock()
+			}()
 			for {
 				select {
 				case <-network.ctx.Done():

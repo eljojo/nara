@@ -2,6 +2,7 @@ package nara
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -173,10 +174,21 @@ func (network *Network) tryDiscoverUnknownSender(name, remoteAddr string) bool {
 	}
 
 	url := fmt.Sprintf("http://%s:%d/ping", ip, DefaultMeshPort)
-	client := network.tsnetMesh.Server().HTTPClient()
-	client.Timeout = 2 * time.Second
+	client := network.getMeshHTTPClient()
+	if client == nil {
+		logrus.Debugf("📡 Cannot discover %s: no mesh HTTP client available", name)
+		return false
+	}
 
-	resp, err := client.Get(url)
+	ctx, cancel := context.WithTimeout(network.ctx, 2*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return false
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		logrus.Debugf("📡 Failed to ping %s at %s: %v", name, ip, err)
 		return false

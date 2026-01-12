@@ -108,8 +108,12 @@ type Network struct {
 	// HTTP servers for graceful shutdown
 	httpServer     *http.Server
 	meshHttpServer *http.Server
+	meshHTTPClient *http.Client
 	// Peer resolution tracking
 	pendingResolutions sync.Map // map[string]uint64 (seconds) - tracks when we last tried to resolve a peer
+	// MQTT reconnect guard
+	mqttReconnectMu     sync.Mutex
+	mqttReconnectActive bool
 }
 
 // PendingJourney tracks a journey we participated in, waiting for completion
@@ -1112,6 +1116,22 @@ func (network *Network) getHTTPClient() *http.Client {
 	return &http.Client{Timeout: 5 * time.Second}
 }
 
+// getMeshHTTPClient returns the mesh HTTP client to use (test override or tsnet client).
+func (network *Network) getMeshHTTPClient() *http.Client {
+	if network.testHTTPClient != nil {
+		return network.testHTTPClient
+	}
+	if network.meshHTTPClient != nil {
+		return network.meshHTTPClient
+	}
+	if network.tsnetMesh != nil && network.tsnetMesh.Server() != nil {
+		network.meshHTTPClient = network.tsnetMesh.Server().HTTPClient()
+		network.meshHTTPClient.Timeout = 30 * time.Second
+		return network.meshHTTPClient
+	}
+	return nil
+}
+
 func (network *Network) onWorldJourneyComplete(wm *WorldMessage) {
 	network.worldJourneysMu.Lock()
 	network.worldJourneys = append(network.worldJourneys, wm)
@@ -1203,6 +1223,9 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 					network.tsnetMesh = tsnetMesh
 					network.local.Me.Status.MeshEnabled = true
 					network.local.Me.Status.MeshIP = tsnetMesh.IP()
+
+					network.meshHTTPClient = tsnetMesh.Server().HTTPClient()
+					network.meshHTTPClient.Timeout = 30 * time.Second
 
 					// Initialize peer discovery for gossip-only mode
 					peerDiscoveryClient := tsnetMesh.Server().HTTPClient()
@@ -2630,8 +2653,7 @@ func (network *Network) bootRecoveryViaMesh(online []string) {
 	// Use tsnet HTTP client to route through Tailscale
 	var client *http.Client
 	if network.tsnetMesh != nil {
-		client = network.tsnetMesh.Server().HTTPClient()
-		client.Timeout = 30 * time.Second
+		client = network.getMeshHTTPClient()
 	} else {
 		// Fallback (shouldn't happen if mesh is enabled)
 		client = &http.Client{Timeout: 30 * time.Second}
@@ -3315,8 +3337,10 @@ func (network *Network) fetchPublicKeysFromPeers(peers []DiscoveredPeer) []Disco
 		return peers
 	}
 
-	client := network.tsnetMesh.Server().HTTPClient()
-	client.Timeout = 2 * time.Second
+	client := network.getMeshHTTPClient()
+	if client == nil {
+		return peers
+	}
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -3338,7 +3362,14 @@ func (network *Network) fetchPublicKeysFromPeers(peers []DiscoveredPeer) []Disco
 			defer func() { <-sem }() // Release semaphore
 
 			url := fmt.Sprintf("http://%s:%d/ping", peers[idx].MeshIP, DefaultMeshPort)
-			resp, err := client.Get(url)
+			ctx, cancel := context.WithTimeout(network.ctx, 2*time.Second)
+			defer cancel()
+			req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+			if err != nil {
+				return
+			}
+
+			resp, err := client.Do(req)
 			if err != nil {
 				return
 			}
@@ -3544,12 +3575,9 @@ func (network *Network) exchangeZine(targetName string, myZine *Zine) {
 	// Add mesh authentication headers (Ed25519 signature)
 	network.AddMeshAuthHeaders(req)
 
-	// Use test client if available, otherwise use tsnet client
-	var client *http.Client
-	if network.testHTTPClient != nil {
-		client = network.testHTTPClient
-	} else {
-		client = network.tsnetMesh.Server().HTTPClient()
+	client := network.getMeshHTTPClient()
+	if client == nil {
+		return
 	}
 
 	resp, err := client.Do(req)
@@ -3619,8 +3647,11 @@ func (network *Network) SendDM(targetName string, event SyncEvent) bool {
 		return false
 	}
 
+	ctx, cancel := context.WithTimeout(network.ctx, 30*time.Second)
+	defer cancel()
+
 	// Create request with auth headers
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(eventBytes))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(eventBytes))
 	if err != nil {
 		logrus.Warnf("📬 Failed to create DM request for %s: %v", targetName, err)
 		return false
@@ -3630,16 +3661,7 @@ func (network *Network) SendDM(targetName string, event SyncEvent) bool {
 	// Add mesh authentication headers (Ed25519 signature)
 	network.AddMeshAuthHeaders(req)
 
-	// Use test client if available, otherwise use tsnet client
-	var client *http.Client
-	if network.testHTTPClient != nil {
-		client = network.testHTTPClient
-	} else if network.tsnetMesh != nil {
-		client = network.tsnetMesh.Server().HTTPClient()
-		client.Timeout = 10 * time.Second
-	} else {
-		return false
-	}
+	client := network.getMeshHTTPClient()
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -3776,8 +3798,10 @@ func (network *Network) recoverSelfStartTimeFromMesh() {
 		targetCount = 3
 	}
 
-	client := network.tsnetMesh.Server().HTTPClient()
-	client.Timeout = 10 * time.Second
+	client := network.getMeshHTTPClient()
+	if client == nil {
+		return
+	}
 	subjects := []string{network.meName()}
 	totalAdded := 0
 

@@ -42,6 +42,7 @@ type HTTPMeshTransport struct {
 	tsnetServer *tsnet.Server
 	network     *Network // For auth headers
 	port        int
+	client      *http.Client
 	inbox       chan *WorldMessage // Not used with HTTP (handler calls HandleIncoming directly)
 	closed      bool
 	mu          sync.Mutex
@@ -49,10 +50,14 @@ type HTTPMeshTransport struct {
 
 // NewHTTPMeshTransport creates a new HTTP-based mesh transport
 func NewHTTPMeshTransport(tsnetServer *tsnet.Server, network *Network, port int) *HTTPMeshTransport {
+	client := tsnetServer.HTTPClient()
+	client.Timeout = 30 * time.Second
+
 	return &HTTPMeshTransport{
 		tsnetServer: tsnetServer,
 		network:     network,
 		port:        port,
+		client:      client,
 		inbox:       make(chan *WorldMessage, 10), // Small buffer, not really used
 	}
 }
@@ -74,7 +79,10 @@ func (t *HTTPMeshTransport) Send(target string, msg *WorldMessage) error {
 
 	// Build request
 	url := fmt.Sprintf("http://%s:%d/world/relay", target, t.port)
-	req, err := http.NewRequest("POST", url, bytes.NewReader(jsonBody))
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonBody))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -85,12 +93,8 @@ func (t *HTTPMeshTransport) Send(target string, msg *WorldMessage) error {
 		t.network.AddMeshAuthHeaders(req)
 	}
 
-	// Use tsnet HTTP client for routing through Tailscale
-	client := t.tsnetServer.HTTPClient()
-	client.Timeout = 30 * time.Second
-
 	logrus.Infof("🌍 Sending world message to %s via HTTP", target)
-	resp, err := client.Do(req)
+	resp, err := t.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send world message to %s: %w", target, err)
 	}
