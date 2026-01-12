@@ -38,9 +38,7 @@ func TestHowdy_StartTimeRecovery(t *testing.T) {
 
 	t.Log("✅ Started nara1")
 	// Wait for nara1 to connect to MQTT
-	waitForCondition(t, 5*time.Second, func() bool {
-		return nara1.Network.Mqtt != nil && nara1.Network.Mqtt.IsConnected()
-	}, "nara1 should connect to MQTT")
+	waitForMQTTConnected(t, nara1, 5*time.Second)
 
 	// Step 2: Boot nara2 - it says hey_there, nara1 responds with howdy
 	nara2, err := createTestNara(t, "howdy-nara-2", 11884)
@@ -53,33 +51,37 @@ func TestHowdy_StartTimeRecovery(t *testing.T) {
 
 	t.Log("✅ Started nara2")
 	// Wait for nara2 to connect to MQTT
-	waitForCondition(t, 5*time.Second, func() bool {
-		return nara2.Network.Mqtt != nil && nara2.Network.Mqtt.IsConnected()
-	}, "nara2 should connect to MQTT")
+	waitForMQTTConnected(t, nara2, 5*time.Second)
 
 	// Step 3: Wait for nara1 to discover nara2 via howdy
-	waitForCondition(t, 10*time.Second, func() bool {
+	if !waitForCondition(t, func() bool {
 		nara1.Network.local.mu.Lock()
 		_, found := nara1.Network.Neighbourhood["howdy-nara-2"]
 		nara1.Network.local.mu.Unlock()
 		return found
-	}, "nara1 should discover nara2 via howdy")
+	}, 10*time.Second, "nara1 should discover nara2 via howdy") {
+		t.Fatal("Timeout: nara1 should discover nara2 via howdy")
+	}
 	t.Log("✅ nara1 discovered nara2")
 
 	// Step 4: Wait for nara2 to discover nara1 via howdy
-	waitForCondition(t, 10*time.Second, func() bool {
+	if !waitForCondition(t, func() bool {
 		nara2.Network.local.mu.Lock()
 		_, found := nara2.Network.Neighbourhood["howdy-nara-1"]
 		nara2.Network.local.mu.Unlock()
 		return found
-	}, "nara2 should discover nara1 via howdy")
+	}, 10*time.Second, "nara2 should discover nara1 via howdy") {
+		t.Fatal("Timeout: nara2 should discover nara1 via howdy")
+	}
 	t.Log("✅ nara2 discovered nara1")
 
 	// Step 5: Wait for nara1 to record LastSeen for nara2
-	waitForCondition(t, 5*time.Second, func() bool {
+	if !waitForCondition(t, func() bool {
 		obs := nara1.getObservation("howdy-nara-2")
 		return obs.LastSeen != 0
-	}, "nara1 should record LastSeen for nara2")
+	}, 5*time.Second, "nara1 should record LastSeen for nara2") {
+		t.Fatal("Timeout: nara1 should record LastSeen for nara2")
+	}
 
 	// nara1 should have recorded when it first saw nara2
 	obs1AboutNara2 := nara1.getObservation("howdy-nara-2")
@@ -95,27 +97,6 @@ func TestHowdy_StartTimeRecovery(t *testing.T) {
 	t.Log("✅ Start time/observations recorded")
 }
 
-// waitForCondition polls a condition function until it returns true or timeout is reached.
-// This replaces fixed sleeps with proper synchronization.
-func waitForCondition(t *testing.T, timeout time.Duration, condition func() bool, description string) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		if condition() {
-			return
-		}
-
-		select {
-		case <-ticker.C:
-			if time.Now().After(deadline) {
-				t.Fatalf("Timeout waiting for condition: %s (waited %v)", description, timeout)
-			}
-		}
-	}
-}
 
 // TestHowdy_NeighborDiscovery tests that howdy responses include neighbor info
 func TestHowdy_NeighborDiscovery(t *testing.T) {
@@ -140,9 +121,7 @@ func TestHowdy_NeighborDiscovery(t *testing.T) {
 	defer nara1.Network.Shutdown()
 	defer nara1.Network.disconnectMQTT()
 
-	waitForCondition(t, 5*time.Second, func() bool {
-		return nara1.Network.Mqtt != nil && nara1.Network.Mqtt.IsConnected()
-	}, "nara1 should connect to MQTT")
+	waitForMQTTConnected(t, nara1, 5*time.Second)
 
 	nara2, err := createTestNara(t, "discover-nara-2", 11885)
 	if err != nil {
@@ -152,17 +131,17 @@ func TestHowdy_NeighborDiscovery(t *testing.T) {
 	defer nara2.Network.Shutdown()
 	defer nara2.Network.disconnectMQTT()
 
-	waitForCondition(t, 5*time.Second, func() bool {
-		return nara2.Network.Mqtt != nil && nara2.Network.Mqtt.IsConnected()
-	}, "nara2 should connect to MQTT")
+	waitForMQTTConnected(t, nara2, 5*time.Second)
 
 	// Wait for nara1 and nara2 to discover each other
-	waitForCondition(t, 10*time.Second, func() bool {
+	if !waitForCondition(t, func() bool {
 		nara1.Network.local.mu.Lock()
 		_, found := nara1.Network.Neighbourhood["discover-nara-2"]
 		nara1.Network.local.mu.Unlock()
 		return found
-	}, "nara1 should discover nara2")
+	}, 10*time.Second, "nara1 should discover nara2") {
+		t.Fatal("Timeout: nara1 should discover nara2")
+	}
 
 	// Now boot nara3 - it should learn about both nara1 and nara2 via howdy
 	nara3, err := createTestNara(t, "discover-nara-3", 11885)
@@ -175,18 +154,18 @@ func TestHowdy_NeighborDiscovery(t *testing.T) {
 
 	t.Log("✅ Started all 3 naras")
 
-	waitForCondition(t, 5*time.Second, func() bool {
-		return nara3.Network.Mqtt != nil && nara3.Network.Mqtt.IsConnected()
-	}, "nara3 should connect to MQTT")
+	waitForMQTTConnected(t, nara3, 5*time.Second)
 
 	// Wait for nara3 to discover both nara1 and nara2
-	waitForCondition(t, 10*time.Second, func() bool {
+	if !waitForCondition(t, func() bool {
 		nara3.Network.local.mu.Lock()
 		_, hasNara1 := nara3.Network.Neighbourhood["discover-nara-1"]
 		_, hasNara2 := nara3.Network.Neighbourhood["discover-nara-2"]
 		nara3.Network.local.mu.Unlock()
 		return hasNara1 && hasNara2
-	}, "nara3 should discover both nara1 and nara2")
+	}, 10*time.Second, "nara3 should discover both nara1 and nara2") {
+		t.Fatal("Timeout: nara3 should discover both nara1 and nara2")
+	}
 
 	// Verify final state
 	nara3.Network.local.mu.Lock()
@@ -234,10 +213,7 @@ func TestHowdy_SelfSelection(t *testing.T) {
 
 	// Wait for all 14 naras to connect
 	for i := 0; i < numNaras-1; i++ {
-		nara := naras[i]
-		waitForCondition(t, 5*time.Second, func() bool {
-			return nara.Network.Mqtt != nil && nara.Network.Mqtt.IsConnected()
-		}, fmt.Sprintf("select-nara-%d should connect to MQTT", i))
+		waitForMQTTConnected(t, naras[i], 5*time.Second)
 	}
 
 	t.Log("✅ Started 14 naras, waiting for them to discover each other")
@@ -255,19 +231,19 @@ func TestHowdy_SelfSelection(t *testing.T) {
 	defer lastNara.Network.Shutdown()
 	defer lastNara.Network.disconnectMQTT()
 
-	waitForCondition(t, 5*time.Second, func() bool {
-		return lastNara.Network.Mqtt != nil && lastNara.Network.Mqtt.IsConnected()
-	}, "last nara should connect to MQTT")
+	waitForMQTTConnected(t, lastNara, 5*time.Second)
 
 	t.Log("✅ Started 15th nara, waiting for neighbor discovery")
 
 	// Wait for the last nara to discover at least 10 neighbors
-	waitForCondition(t, 15*time.Second, func() bool {
+	if !waitForCondition(t, func() bool {
 		lastNara.Network.local.mu.Lock()
 		count := len(lastNara.Network.Neighbourhood)
 		lastNara.Network.local.mu.Unlock()
 		return count >= 10
-	}, "last nara should discover at least 10 neighbors")
+	}, 15*time.Second, "last nara should discover at least 10 neighbors") {
+		t.Fatal("Timeout: last nara should discover at least 10 neighbors")
+	}
 
 	// Check final count
 	lastNara.Network.local.mu.Lock()

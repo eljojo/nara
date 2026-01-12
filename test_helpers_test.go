@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	mqttserver "github.com/mochi-mqtt/server/v2"
 	"github.com/mochi-mqtt/server/v2/hooks/auth"
@@ -149,4 +150,126 @@ func startTestMQTTBroker(t *testing.T, port int) *mqttserver.Server {
 	}()
 
 	return server
+}
+
+// waitForCondition polls until condition returns true or timeout expires.
+// This is the base helper for all wait functions.
+func waitForCondition(t *testing.T, condition func() bool, timeout time.Duration, description string) bool {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if condition() {
+			return true
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return false
+}
+
+// waitForMQTTConnected blocks until the nara's MQTT client is connected, or times out.
+func waitForMQTTConnected(t *testing.T, ln *LocalNara, timeout time.Duration) {
+	t.Helper()
+	ok := waitForCondition(t, func() bool {
+		return ln.Network.Mqtt != nil && ln.Network.Mqtt.IsConnected()
+	}, timeout, "MQTT connected")
+	if !ok {
+		t.Fatalf("Timed out waiting for %s MQTT to connect", ln.Me.Name)
+	}
+}
+
+// waitForCheckpoint blocks until a checkpoint exists for the subject in the ledger, or times out.
+// Returns the checkpoint if found, nil if timed out.
+func waitForCheckpoint(t *testing.T, ledger *SyncLedger, subject string, timeout time.Duration) *CheckpointEventPayload {
+	t.Helper()
+	var checkpoint *CheckpointEventPayload
+	ok := waitForCondition(t, func() bool {
+		checkpoint = ledger.GetCheckpoint(subject)
+		return checkpoint != nil
+	}, timeout, "checkpoint for "+subject)
+	if ok {
+		return checkpoint
+	}
+	return nil
+}
+
+// waitForCheckpointPropagation blocks until all naras have the checkpoint for a subject.
+func waitForCheckpointPropagation(t *testing.T, naras []*LocalNara, subject string, timeout time.Duration) bool {
+	t.Helper()
+	return waitForCondition(t, func() bool {
+		for _, ln := range naras {
+			if ln.SyncLedger.GetCheckpoint(subject) == nil {
+				return false
+			}
+		}
+		return true
+	}, timeout, "checkpoint propagation")
+}
+
+// waitForFullDiscovery blocks until all naras have discovered each other with public keys,
+// or times out. Each nara should know (numNaras - 1) neighbors, all with public keys.
+func waitForFullDiscovery(t *testing.T, naras []*LocalNara, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	expectedNeighbors := len(naras) - 1
+
+	for time.Now().Before(deadline) {
+		allReady := true
+		for _, ln := range naras {
+			ln.Network.local.mu.Lock()
+			neighborCount := len(ln.Network.Neighbourhood)
+			keysKnown := 0
+			for _, neighbor := range ln.Network.Neighbourhood {
+				neighbor.mu.Lock()
+				if neighbor.Status.PublicKey != "" {
+					keysKnown++
+				}
+				neighbor.mu.Unlock()
+			}
+			ln.Network.local.mu.Unlock()
+
+			if neighborCount < expectedNeighbors || keysKnown < expectedNeighbors {
+				allReady = false
+				break
+			}
+		}
+
+		if allReady {
+			// Log final state
+			for _, ln := range naras {
+				ln.Network.local.mu.Lock()
+				neighborCount := len(ln.Network.Neighbourhood)
+				keysKnown := 0
+				for _, neighbor := range ln.Network.Neighbourhood {
+					neighbor.mu.Lock()
+					if neighbor.Status.PublicKey != "" {
+						keysKnown++
+					}
+					neighbor.mu.Unlock()
+				}
+				ln.Network.local.mu.Unlock()
+				t.Logf("  %s knows %d neighbors (%d with public keys)", ln.Me.Name, neighborCount, keysKnown)
+			}
+			return
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Timeout - log current state and fail
+	t.Log("⚠️  Discovery timed out, current state:")
+	for _, ln := range naras {
+		ln.Network.local.mu.Lock()
+		neighborCount := len(ln.Network.Neighbourhood)
+		keysKnown := 0
+		for _, neighbor := range ln.Network.Neighbourhood {
+			neighbor.mu.Lock()
+			if neighbor.Status.PublicKey != "" {
+				keysKnown++
+			}
+			neighbor.mu.Unlock()
+		}
+		ln.Network.local.mu.Unlock()
+		t.Logf("  %s knows %d neighbors (%d with public keys)", ln.Me.Name, neighborCount, keysKnown)
+	}
+	t.Fatalf("Timed out waiting for full discovery (expected %d neighbors with keys)", expectedNeighbors)
 }
