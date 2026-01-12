@@ -322,6 +322,7 @@ func (s *CheckpointService) HandleProposal(proposal *CheckpointProposal) {
 
 	// Determine if we approve (values match within tolerance)
 	approved := s.valuesMatch(proposal.Restarts, ourRestarts, 5) &&
+		s.valuesMatch(proposal.TotalUptime, ourUptime, 60) &&
 		s.valuesMatch(proposal.FirstSeen, ourFirstSeen, 60)
 
 	// Build vote with either their values (if approved) or our values (if rejected)
