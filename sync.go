@@ -437,23 +437,35 @@ func (p *ObservationEventPayload) ToLogEvent() *LogEvent {
 // This solves the "historians' note" problem: old data was tracked differently,
 // we snapshot what we knew then, and track properly going forward.
 type CheckpointEventPayload struct {
-	Subject     string `json:"subject"`      // Who this checkpoint is about
+	Subject     string `json:"subject"`      // Who this checkpoint is about (name)
+	SubjectID   string `json:"subject_id"`   // Nara ID (for indexing)
 	AsOfTime    int64  `json:"as_of_time"`   // Unix timestamp (SECONDS) when snapshot was taken
 	FirstSeen   int64  `json:"first_seen"`   // Unix timestamp (SECONDS) when network first saw this nara
 	Restarts    int64  `json:"restarts"`     // Historical restart count at checkpoint time
 	TotalUptime int64  `json:"total_uptime"` // Total verified online seconds at checkpoint time
 	Importance  int    `json:"importance"`   // Always Critical (3) - never pruned
 
-	// Multi-party attestation - high-uptime naras vouch for this data
-	Attesters  []string `json:"attesters,omitempty"`  // Nara names who attest to this data
-	Signatures []string `json:"signatures,omitempty"` // Base64 Ed25519 signatures from attesters
+	// Community consensus - voters who participated in checkpoint creation
+	VoterIDs   []string `json:"voter_ids,omitempty"`  // Nara IDs who voted for these values
+	Signatures []string `json:"signatures,omitempty"` // Base64 Ed25519 signatures (each verifies the values)
 }
 
 // ContentString returns canonical string for hashing/signing
-// Checkpoints are unique per (subject, as_of_time) pair
+// Checkpoints are unique per (subject_id, as_of_time) pair
 func (p *CheckpointEventPayload) ContentString() string {
+	// Use SubjectID if available, fall back to Subject for backward compatibility
+	id := p.SubjectID
+	if id == "" {
+		id = p.Subject
+	}
 	return fmt.Sprintf("checkpoint:%s:%d:%d:%d:%d",
-		p.Subject, p.AsOfTime, p.FirstSeen, p.Restarts, p.TotalUptime)
+		id, p.AsOfTime, p.FirstSeen, p.Restarts, p.TotalUptime)
+}
+
+// SignableContent returns the canonical string for signature verification
+// All voters sign the same content, making signatures verifiable
+func (p *CheckpointEventPayload) SignableContent() string {
+	return p.ContentString()
 }
 
 // IsValid checks if the checkpoint payload is well-formed
@@ -470,17 +482,17 @@ func (p *CheckpointEventPayload) IsValid() bool {
 	if p.TotalUptime < 0 {
 		return false
 	}
-	// Attesters and Signatures must match in length if present
-	if len(p.Attesters) != len(p.Signatures) {
+	// VoterIDs and Signatures must match in length if present
+	if len(p.VoterIDs) != len(p.Signatures) {
 		return false
 	}
 	return true
 }
 
-// GetActor implements Payload (first attester is the primary actor)
+// GetActor implements Payload (first voter is the primary actor)
 func (p *CheckpointEventPayload) GetActor() string {
-	if len(p.Attesters) > 0 {
-		return p.Attesters[0]
+	if len(p.VoterIDs) > 0 {
+		return p.VoterIDs[0]
 	}
 	return ""
 }
@@ -490,8 +502,8 @@ func (p *CheckpointEventPayload) GetTarget() string { return p.Subject }
 
 // LogFormat returns technical log description
 func (p *CheckpointEventPayload) LogFormat() string {
-	return fmt.Sprintf("checkpoint: %s as-of %d (restarts: %d, uptime: %ds, attesters: %d)",
-		p.Subject, p.AsOfTime, p.Restarts, p.TotalUptime, len(p.Attesters))
+	return fmt.Sprintf("checkpoint: %s as-of %d (restarts: %d, uptime: %ds, voters: %d)",
+		p.Subject, p.AsOfTime, p.Restarts, p.TotalUptime, len(p.VoterIDs))
 }
 
 // ToLogEvent returns a structured log event for checkpoint creation
@@ -771,7 +783,7 @@ func NewCheckpointEvent(subject string, asOfTime, firstSeen, restarts, totalUpti
 			Restarts:    restarts,
 			TotalUptime: totalUptime,
 			Importance:  ImportanceCritical,
-			Attesters:   []string{},
+			VoterIDs:    []string{},
 			Signatures:  []string{},
 		},
 	}
@@ -779,10 +791,11 @@ func NewCheckpointEvent(subject string, asOfTime, firstSeen, restarts, totalUpti
 	return e
 }
 
-// AddCheckpointAttester adds an attester's signature to a checkpoint event
-// Multiple high-uptime naras can attest to the same checkpoint data,
+// AddCheckpointVoter adds a voter's signature to a checkpoint event
+// Multiple naras can vote on the same checkpoint data,
 // making it a trusted anchor for historical state.
-func (e *SyncEvent) AddCheckpointAttester(attester string, keypair NaraKeypair) {
+// voterID is the nara's unique ID (not name).
+func (e *SyncEvent) AddCheckpointVoter(voterID string, keypair NaraKeypair) {
 	if e.Service != ServiceCheckpoint || e.Checkpoint == nil {
 		return
 	}
@@ -790,7 +803,7 @@ func (e *SyncEvent) AddCheckpointAttester(attester string, keypair NaraKeypair) 
 	// Sign the checkpoint content
 	sig := keypair.SignBase64(e.Checkpoint.signableData())
 
-	e.Checkpoint.Attesters = append(e.Checkpoint.Attesters, attester)
+	e.Checkpoint.VoterIDs = append(e.Checkpoint.VoterIDs, voterID)
 	e.Checkpoint.Signatures = append(e.Checkpoint.Signatures, sig)
 
 	// Recompute ID since content changed
@@ -799,7 +812,7 @@ func (e *SyncEvent) AddCheckpointAttester(attester string, keypair NaraKeypair) 
 
 // VerifyCheckpointSignatures verifies all signatures on a checkpoint event
 // Returns the number of valid signatures found
-// publicKeys maps attester name -> base64 public key string
+// publicKeys maps voterID -> base64 public key string
 func (e *SyncEvent) VerifyCheckpointSignatures(publicKeys map[string]string) int {
 	if e.Service != ServiceCheckpoint || e.Checkpoint == nil {
 		return 0
@@ -808,12 +821,12 @@ func (e *SyncEvent) VerifyCheckpointSignatures(publicKeys map[string]string) int
 	validCount := 0
 	data := e.Checkpoint.signableData()
 
-	for i, attester := range e.Checkpoint.Attesters {
+	for i, voterID := range e.Checkpoint.VoterIDs {
 		if i >= len(e.Checkpoint.Signatures) {
 			break
 		}
 
-		pubKeyStr, ok := publicKeys[attester]
+		pubKeyStr, ok := publicKeys[voterID]
 		if !ok {
 			continue
 		}
@@ -1688,6 +1701,36 @@ func (l *SyncLedger) DeriveTotalUptime(subject string) int64 {
 	}
 
 	return baseUptime
+}
+
+// GetFirstSeenFromEvents returns the earliest known StartTime for a subject from events
+func (l *SyncLedger) GetFirstSeenFromEvents(subject string) int64 {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	var earliest int64 = 0
+
+	for _, e := range l.Events {
+		// Check observation events (including backfill)
+		if e.Service == ServiceObservation && e.Observation != nil {
+			if e.Observation.Subject == subject && e.Observation.StartTime > 0 {
+				if earliest == 0 || e.Observation.StartTime < earliest {
+					earliest = e.Observation.StartTime
+				}
+			}
+		}
+
+		// Check existing checkpoints
+		if e.Service == ServiceCheckpoint && e.Checkpoint != nil {
+			if e.Checkpoint.Subject == subject && e.Checkpoint.FirstSeen > 0 {
+				if earliest == 0 || e.Checkpoint.FirstSeen < earliest {
+					earliest = e.Checkpoint.FirstSeen
+				}
+			}
+		}
+	}
+
+	return earliest
 }
 
 // AddEventFiltered adds an event with personality-based filtering

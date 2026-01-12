@@ -186,21 +186,21 @@ func TestCheckpoint_NeverPruned(t *testing.T) {
 	}
 }
 
-// Test checkpoint with single attester (basic case)
-func TestCheckpoint_SingleAttester(t *testing.T) {
+// Test checkpoint with single voter (basic case)
+func TestCheckpoint_SingleVoter(t *testing.T) {
 	subject := "lisa"
-	attester := "homer"
+	voterID := "homer-id-123"
 	keypair := generateTestKeypair()
 
 	event := NewCheckpointEvent(subject, time.Now().Unix(), 1624066568, 47, 23456789)
-	event.AddCheckpointAttester(attester, keypair)
+	event.AddCheckpointVoter(voterID, keypair)
 
-	if len(event.Checkpoint.Attesters) != 1 {
-		t.Errorf("Expected 1 attester, got %d", len(event.Checkpoint.Attesters))
+	if len(event.Checkpoint.VoterIDs) != 1 {
+		t.Errorf("Expected 1 voter, got %d", len(event.Checkpoint.VoterIDs))
 	}
 
-	if event.Checkpoint.Attesters[0] != attester {
-		t.Errorf("Expected attester=%s, got %s", attester, event.Checkpoint.Attesters[0])
+	if event.Checkpoint.VoterIDs[0] != voterID {
+		t.Errorf("Expected voterID=%s, got %s", voterID, event.Checkpoint.VoterIDs[0])
 	}
 
 	if len(event.Checkpoint.Signatures) != 1 {
@@ -208,10 +208,10 @@ func TestCheckpoint_SingleAttester(t *testing.T) {
 	}
 }
 
-// Test checkpoint with multiple attesters
-func TestCheckpoint_MultipleAttesters(t *testing.T) {
+// Test checkpoint with multiple voters
+func TestCheckpoint_MultipleVoters(t *testing.T) {
 	subject := "lisa"
-	attesters := []string{"homer", "marge", "bart"}
+	voterIDs := []string{"homer-id", "marge-id", "bart-id"}
 	keypairs := make([]NaraKeypair, 3)
 	for i := range keypairs {
 		keypairs[i] = generateTestKeypair()
@@ -219,12 +219,12 @@ func TestCheckpoint_MultipleAttesters(t *testing.T) {
 
 	event := NewCheckpointEvent(subject, time.Now().Unix(), 1624066568, 47, 23456789)
 
-	for i, attester := range attesters {
-		event.AddCheckpointAttester(attester, keypairs[i])
+	for i, voterID := range voterIDs {
+		event.AddCheckpointVoter(voterID, keypairs[i])
 	}
 
-	if len(event.Checkpoint.Attesters) != 3 {
-		t.Errorf("Expected 3 attesters, got %d", len(event.Checkpoint.Attesters))
+	if len(event.Checkpoint.VoterIDs) != 3 {
+		t.Errorf("Expected 3 voters, got %d", len(event.Checkpoint.VoterIDs))
 	}
 
 	if len(event.Checkpoint.Signatures) != 3 {
@@ -235,18 +235,18 @@ func TestCheckpoint_MultipleAttesters(t *testing.T) {
 // Test checkpoint signature verification
 func TestCheckpoint_VerifySignatures(t *testing.T) {
 	subject := "lisa"
-	attesters := []string{"homer", "marge", "bart"}
+	voterIDs := []string{"homer-id", "marge-id", "bart-id"}
 	keypairs := make([]NaraKeypair, 3)
 	publicKeys := make(map[string]string)
 
-	for i, attester := range attesters {
+	for i, voterID := range voterIDs {
 		keypairs[i] = generateTestKeypair()
-		publicKeys[attester] = pubKeyToBase64(keypairs[i].PublicKey)
+		publicKeys[voterID] = pubKeyToBase64(keypairs[i].PublicKey)
 	}
 
 	event := NewCheckpointEvent(subject, time.Now().Unix(), 1624066568, 47, 23456789)
-	for i, attester := range attesters {
-		event.AddCheckpointAttester(attester, keypairs[i])
+	for i, voterID := range voterIDs {
+		event.AddCheckpointVoter(voterID, keypairs[i])
 	}
 
 	// Verify with correct public keys
@@ -259,49 +259,21 @@ func TestCheckpoint_VerifySignatures(t *testing.T) {
 // Test checkpoint signature verification with wrong keys
 func TestCheckpoint_VerifySignatures_WrongKeys(t *testing.T) {
 	subject := "lisa"
-	attester := "homer"
+	voterID := "homer-id"
 	keypair := generateTestKeypair()
 	wrongKeypair := generateTestKeypair()
 
 	event := NewCheckpointEvent(subject, time.Now().Unix(), 1624066568, 47, 23456789)
-	event.AddCheckpointAttester(attester, keypair)
+	event.AddCheckpointVoter(voterID, keypair)
 
 	// Verify with wrong public key
 	publicKeys := map[string]string{
-		attester: pubKeyToBase64(wrongKeypair.PublicKey), // Wrong key!
+		voterID: pubKeyToBase64(wrongKeypair.PublicKey), // Wrong key!
 	}
 
 	validCount := event.VerifyCheckpointSignatures(publicKeys)
 	if validCount != 0 {
 		t.Errorf("Expected 0 valid signatures with wrong key, got %d", validCount)
-	}
-}
-
-// Test checkpoint minimum attesters requirement
-func TestCheckpoint_MinimumAttesters(t *testing.T) {
-	if !useCheckpoints() {
-		t.Skip("Checkpoints not enabled")
-	}
-
-	ledger := NewSyncLedger(1000)
-	subject := "lisa"
-
-	// Create checkpoint with only 1 attester (below minimum)
-	event := NewCheckpointEvent(subject, time.Now().Unix(), 1624066568, 47, 23456789)
-	keypair := generateTestKeypair()
-	event.AddCheckpointAttester("homer", keypair)
-
-	// Should still be added (validation happens at consensus time, not add time)
-	added := ledger.AddEvent(event)
-	if !added {
-		t.Error("Expected checkpoint to be added even with few attesters")
-	}
-
-	// But it shouldn't be considered valid for consensus without enough attesters
-	minAttesters := getMinCheckpointAttesters()
-	if minAttesters > 1 && len(event.Checkpoint.Attesters) < minAttesters {
-		// This is expected - checkpoint exists but isn't trusted yet
-		t.Logf("Checkpoint has %d attesters, needs %d for consensus", len(event.Checkpoint.Attesters), minAttesters)
 	}
 }
 
@@ -451,270 +423,6 @@ func TestCheckpoint_DeriveTotalUptime(t *testing.T) {
 	}
 }
 
-// --- Checkpoint Creation Tests ---
-
-// Test that high-uptime naras are identified correctly
-func TestCheckpoint_IsHighUptime(t *testing.T) {
-	// Create test observations with various uptimes
-	observations := map[string]NaraObservation{
-		"homer":  {StartTime: time.Now().Unix() - 86400*30, Online: "ONLINE"},  // 30 days (high)
-		"marge":  {StartTime: time.Now().Unix() - 86400*14, Online: "ONLINE"},  // 14 days (high)
-		"bart":   {StartTime: time.Now().Unix() - 86400*7, Online: "ONLINE"},   // 7 days (medium)
-		"lisa":   {StartTime: time.Now().Unix() - 86400*3, Online: "ONLINE"},   // 3 days (low)
-		"maggie": {StartTime: time.Now().Unix() - 3600, Online: "ONLINE"},      // 1 hour (very low)
-		"patty":  {StartTime: time.Now().Unix() - 86400*60, Online: "OFFLINE"}, // 60 days but offline
-	}
-
-	// Test with minimum 7 days uptime threshold
-	minUptimeSeconds := int64(7 * 24 * 60 * 60) // 7 days
-
-	// Homer (30 days) should be high uptime
-	if !IsHighUptime(observations["homer"], minUptimeSeconds) {
-		t.Error("Expected homer (30 days) to be high uptime")
-	}
-
-	// Marge (14 days) should be high uptime
-	if !IsHighUptime(observations["marge"], minUptimeSeconds) {
-		t.Error("Expected marge (14 days) to be high uptime")
-	}
-
-	// Bart (7 days) should be high uptime (exactly at threshold)
-	if !IsHighUptime(observations["bart"], minUptimeSeconds) {
-		t.Error("Expected bart (7 days) to be high uptime")
-	}
-
-	// Lisa (3 days) should NOT be high uptime
-	if IsHighUptime(observations["lisa"], minUptimeSeconds) {
-		t.Error("Expected lisa (3 days) to NOT be high uptime")
-	}
-
-	// Maggie (1 hour) should NOT be high uptime
-	if IsHighUptime(observations["maggie"], minUptimeSeconds) {
-		t.Error("Expected maggie (1 hour) to NOT be high uptime")
-	}
-
-	// Patty is offline, so not considered high uptime for checkpoint purposes
-	if IsHighUptime(observations["patty"], minUptimeSeconds) {
-		t.Error("Expected offline nara to NOT be considered high uptime")
-	}
-}
-
-// Test that checkpoint eligibility considers top N% uptime
-func TestCheckpoint_GetHighUptimeNaras(t *testing.T) {
-	observations := map[string]NaraObservation{
-		"homer":  {StartTime: time.Now().Unix() - 86400*30, Online: "ONLINE"},
-		"marge":  {StartTime: time.Now().Unix() - 86400*20, Online: "ONLINE"},
-		"bart":   {StartTime: time.Now().Unix() - 86400*10, Online: "ONLINE"},
-		"lisa":   {StartTime: time.Now().Unix() - 86400*5, Online: "ONLINE"},
-		"maggie": {StartTime: time.Now().Unix() - 86400*1, Online: "ONLINE"},
-	}
-
-	// Get top 40% (2 out of 5 naras)
-	topNaras := GetHighUptimeNaras(observations, 0.4)
-
-	if len(topNaras) != 2 {
-		t.Errorf("Expected 2 high-uptime naras (top 40%%), got %d", len(topNaras))
-	}
-
-	// Should include homer and marge (highest uptime)
-	found := make(map[string]bool)
-	for _, name := range topNaras {
-		found[name] = true
-	}
-
-	if !found["homer"] {
-		t.Error("Expected homer in high-uptime list")
-	}
-	if !found["marge"] {
-		t.Error("Expected marge in high-uptime list")
-	}
-}
-
-// Test determining when to propose a checkpoint for a subject
-func TestCheckpoint_ShouldProposeCheckpoint(t *testing.T) {
-	ledger := NewSyncLedger(1000)
-	subject := "lisa"
-
-	// With no data at all, should not propose
-	if ShouldProposeCheckpoint(ledger, subject) {
-		t.Error("Should not propose checkpoint when no data exists")
-	}
-
-	// Add backfill event (indicates we have historical data to checkpoint)
-	backfill := NewBackfillObservationEvent("homer", subject, 1624066568, 47, 1704067200)
-	ledger.AddEvent(backfill)
-
-	// Now should propose (have backfill, no checkpoint)
-	if !ShouldProposeCheckpoint(ledger, subject) {
-		t.Error("Should propose checkpoint when backfill exists but no checkpoint")
-	}
-
-	// Add a checkpoint - now should NOT propose
-	checkpoint := NewCheckpointEvent(subject, time.Now().Unix(), 1624066568, 47, 23456789)
-	keypair := generateTestKeypair()
-	checkpoint.AddCheckpointAttester("homer", keypair)
-	checkpoint.AddCheckpointAttester("marge", generateTestKeypair())
-	ledger.AddEvent(checkpoint)
-
-	if ShouldProposeCheckpoint(ledger, subject) {
-		t.Error("Should not propose checkpoint when valid checkpoint already exists")
-	}
-}
-
-// Test preparing a checkpoint proposal from existing data
-func TestCheckpoint_PrepareCheckpointProposal(t *testing.T) {
-	ledger := NewSyncLedger(1000)
-	subject := "lisa"
-
-	// Add backfill event with historical data
-	backfill := NewBackfillObservationEvent("homer", subject, 1624066568, 47, 1704067200)
-	ledger.AddEvent(backfill)
-
-	// Add some restart events
-	restart1 := NewRestartObservationEvent("homer", subject, 1704100000, 48)
-	ledger.AddEvent(restart1)
-
-	restart2 := NewRestartObservationEvent("marge", subject, 1704200000, 49)
-	ledger.AddEvent(restart2)
-
-	// Prepare proposal
-	proposal := PrepareCheckpointProposal(ledger, subject)
-
-	if proposal == nil {
-		t.Fatal("Expected proposal to be created")
-	}
-
-	if proposal.Subject != subject {
-		t.Errorf("Expected subject=%s, got %s", subject, proposal.Subject)
-	}
-
-	// Should have derived restart count (backfill 47 + 2 new = 49)
-	if proposal.Restarts != 49 {
-		t.Errorf("Expected restarts=49, got %d", proposal.Restarts)
-	}
-
-	// FirstSeen should come from backfill
-	if proposal.FirstSeen != 1624066568 {
-		t.Errorf("Expected first_seen=1624066568, got %d", proposal.FirstSeen)
-	}
-}
-
-// Test signing a checkpoint proposal
-func TestCheckpoint_SignProposal(t *testing.T) {
-	subject := "lisa"
-	asOfTime := time.Now().Unix()
-
-	// Create proposal
-	proposal := &CheckpointEventPayload{
-		Subject:     subject,
-		AsOfTime:    asOfTime,
-		FirstSeen:   1624066568,
-		Restarts:    47,
-		TotalUptime: 23456789,
-		Importance:  ImportanceCritical,
-	}
-
-	// Sign it
-	attester := "homer"
-	keypair := generateTestKeypair()
-
-	signature := SignCheckpointProposal(proposal, keypair)
-
-	if signature == "" {
-		t.Error("Expected signature to be generated")
-	}
-
-	// Verify signature
-	pubKeys := map[string]string{
-		attester: pubKeyToBase64(keypair.PublicKey),
-	}
-
-	// Create event with signature to verify
-	event := NewCheckpointEvent(subject, asOfTime, 1624066568, 47, 23456789)
-	event.Checkpoint.Attesters = []string{attester}
-	event.Checkpoint.Signatures = []string{signature}
-
-	validCount := event.VerifyCheckpointSignatures(pubKeys)
-	if validCount != 1 {
-		t.Errorf("Expected 1 valid signature, got %d", validCount)
-	}
-}
-
-// Test checkpoint signature request structure
-func TestCheckpoint_SignatureRequest(t *testing.T) {
-	proposal := &CheckpointEventPayload{
-		Subject:     "lisa",
-		AsOfTime:    time.Now().Unix(),
-		FirstSeen:   1624066568,
-		Restarts:    47,
-		TotalUptime: 23456789,
-		Importance:  ImportanceCritical,
-	}
-
-	// Create request
-	request := CheckpointSignatureRequest{
-		Proposal:  proposal,
-		Requester: "homer",
-	}
-
-	if request.Proposal.Subject != "lisa" {
-		t.Errorf("Expected subject=lisa, got %s", request.Proposal.Subject)
-	}
-	if request.Requester != "homer" {
-		t.Errorf("Expected requester=homer, got %s", request.Requester)
-	}
-}
-
-// Test checkpoint signature response structure
-func TestCheckpoint_SignatureResponse(t *testing.T) {
-	keypair := generateTestKeypair()
-	proposal := &CheckpointEventPayload{
-		Subject:     "lisa",
-		AsOfTime:    time.Now().Unix(),
-		FirstSeen:   1624066568,
-		Restarts:    47,
-		TotalUptime: 23456789,
-		Importance:  ImportanceCritical,
-	}
-
-	signature := SignCheckpointProposal(proposal, keypair)
-
-	// Create response
-	response := CheckpointSignatureResponse{
-		Attester:  "marge",
-		Signature: signature,
-		Approved:  true,
-	}
-
-	if response.Attester != "marge" {
-		t.Errorf("Expected attester=marge, got %s", response.Attester)
-	}
-	if response.Signature == "" {
-		t.Error("Expected signature to be set")
-	}
-	if !response.Approved {
-		t.Error("Expected approved=true")
-	}
-}
-
-// Test declining to sign a checkpoint (disagreement on data)
-func TestCheckpoint_DeclineSignature(t *testing.T) {
-	// Response when declining
-	response := CheckpointSignatureResponse{
-		Attester:  "marge",
-		Signature: "",
-		Approved:  false,
-		Reason:    "restart count mismatch",
-	}
-
-	if response.Approved {
-		t.Error("Expected approved=false")
-	}
-	if response.Reason == "" {
-		t.Error("Expected reason to be set when declining")
-	}
-}
-
 // Test that restart events are NOT pruned when no checkpoint exists
 // This ensures we don't lose historical restart data before it's checkpointed
 func TestCheckpoint_RestartEventsPreservedWithoutCheckpoint(t *testing.T) {
@@ -758,8 +466,8 @@ func TestCheckpoint_RestartEventsPrunedAfterCheckpoint(t *testing.T) {
 	// First add a checkpoint
 	checkpoint := NewCheckpointEvent(subject, checkpointTime, 1624066568, 10, 1000)
 	keypair := generateTestKeypair()
-	checkpoint.AddCheckpointAttester("attester1", keypair)
-	checkpoint.AddCheckpointAttester("attester2", generateTestKeypair())
+	checkpoint.AddCheckpointVoter("voter1-id", keypair)
+	checkpoint.AddCheckpointVoter("voter2-id", generateTestKeypair())
 	ledger.AddEvent(checkpoint)
 
 	// Now add 25 restart events after the checkpoint
@@ -830,50 +538,5 @@ func TestCheckpoint_StatusChangeEventsPrunedFirst(t *testing.T) {
 	// Status-change events should have been pruned to make room
 	if statusCount > 5 {
 		t.Errorf("Expected status-change events to be pruned (got %d), restarts should be preserved", statusCount)
-	}
-}
-
-// Test validating a checkpoint proposal before signing
-func TestCheckpoint_ValidateProposalBeforeSigning(t *testing.T) {
-	ledger := NewSyncLedger(1000)
-	subject := "lisa"
-
-	// Add data to ledger that matches proposal
-	backfill := NewBackfillObservationEvent("homer", subject, 1624066568, 47, 1704067200)
-	ledger.AddEvent(backfill)
-
-	restart := NewRestartObservationEvent("homer", subject, 1704100000, 48)
-	ledger.AddEvent(restart)
-
-	// Proposal that matches our data
-	goodProposal := &CheckpointEventPayload{
-		Subject:     subject,
-		AsOfTime:    time.Now().Unix(),
-		FirstSeen:   1624066568,
-		Restarts:    48, // matches: 47 + 1
-		TotalUptime: 0,
-		Importance:  ImportanceCritical,
-	}
-
-	// Should validate successfully
-	err := ValidateCheckpointProposal(ledger, goodProposal)
-	if err != nil {
-		t.Errorf("Expected good proposal to validate, got error: %v", err)
-	}
-
-	// Proposal with wrong restart count
-	badProposal := &CheckpointEventPayload{
-		Subject:     subject,
-		AsOfTime:    time.Now().Unix(),
-		FirstSeen:   1624066568,
-		Restarts:    100, // Wrong!
-		TotalUptime: 0,
-		Importance:  ImportanceCritical,
-	}
-
-	// Should fail validation
-	err = ValidateCheckpointProposal(ledger, badProposal)
-	if err == nil {
-		t.Error("Expected bad proposal to fail validation")
 	}
 }

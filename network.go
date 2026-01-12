@@ -130,6 +130,9 @@ type Network struct {
 
 	// Logging service
 	logService *LogService
+
+	// Checkpoint service: consensus-based checkpointing
+	checkpointService *CheckpointService
 }
 
 // PendingJourney tracks a journey we participated in, waiting for completion
@@ -453,6 +456,9 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	// Initialize log service
 	network.logService = NewLogService(localNara.Me.Name)
 	network.logService.RegisterWithLedger(localNara.SyncLedger)
+
+	// Initialize checkpoint service
+	network.checkpointService = NewCheckpointService(network, localNara.SyncLedger, localNara)
 
 	network.Mqtt = network.initializeMQTT(network.mqttOnConnectHandler(), network.meName(), host, user, pass)
 
@@ -1473,9 +1479,10 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 		go network.stashMaintenance()
 	}
 
-	// Start checkpoint maintenance (multi-party attestation)
-	if !network.ReadOnly {
-		go network.checkpointMaintenance()
+	// Start checkpoint service (consensus-based checkpointing via MQTT)
+	if !network.ReadOnly && network.checkpointService != nil {
+		network.checkpointService.SetMQTTClient(network.Mqtt)
+		network.checkpointService.Start()
 	}
 }
 

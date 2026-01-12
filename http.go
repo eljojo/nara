@@ -100,7 +100,6 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 	mux.HandleFunc("/world/relay", network.loggingMiddleware("/world/relay", network.meshAuthMiddleware("/world/relay", network.httpWorldRelayHandler)))
 	mux.HandleFunc("/ping", network.loggingMiddleware("/ping", network.httpPingHandler)) // No auth - latency critical
 	mux.HandleFunc("/coordinates", network.loggingMiddleware("/coordinates", network.httpCoordinatesHandler))
-	mux.HandleFunc("/checkpoint/sign", network.loggingMiddleware("/checkpoint/sign", network.meshAuthMiddleware("/checkpoint/sign", network.httpCheckpointSignHandler)))
 
 	// Stash endpoints
 	mux.HandleFunc("/stash/store", network.loggingMiddleware("/stash/store", network.meshAuthMiddleware("/stash/store", network.httpStashHandler)))
@@ -1417,75 +1416,6 @@ func (network *Network) httpNetworkMapHandler(w http.ResponseWriter, r *http.Req
 	json.NewEncoder(w).Encode(response)
 }
 
-// POST /checkpoint/sign - Request signature for a checkpoint proposal
-// Other high-uptime naras validate the proposal against their data and sign if valid
-func (network *Network) httpCheckpointSignHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Check if checkpoint creation is enabled
-	if !useCheckpointCreation() {
-		http.Error(w, "Checkpoint creation not enabled", http.StatusServiceUnavailable)
-		return
-	}
-
-	var req CheckpointSignatureRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	// Validate request
-	if req.Proposal == nil {
-		http.Error(w, "proposal is required", http.StatusBadRequest)
-		return
-	}
-	if req.Requester == "" {
-		http.Error(w, "requester is required", http.StatusBadRequest)
-		return
-	}
-
-	// Validate proposal against our local data
-	err := ValidateCheckpointProposal(network.local.SyncLedger, req.Proposal)
-	if err != nil {
-		logrus.Printf("📋 Checkpoint proposal for %s from %s rejected: %v", req.Proposal.Subject, req.Requester, err)
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		json.NewEncoder(w).Encode(CheckpointSignatureResponse{
-			Attester: network.meName(),
-			Approved: false,
-			Reason:   err.Error(),
-		})
-		return
-	}
-
-	// Check if we qualify as a high-uptime attester
-	myObs := network.local.getMeObservation()
-	if !IsHighUptime(myObs, DefaultMinCheckpointUptime) {
-		logrus.Printf("📋 Checkpoint proposal for %s from %s: declining (insufficient uptime)", req.Proposal.Subject, req.Requester)
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		json.NewEncoder(w).Encode(CheckpointSignatureResponse{
-			Attester: network.meName(),
-			Approved: false,
-			Reason:   "insufficient uptime to attest",
-		})
-		return
-	}
-
-	// Sign the proposal
-	signature := SignCheckpointProposal(req.Proposal, network.local.Keypair)
-
-	logrus.Printf("📋 Signed checkpoint for %s (restarts=%d) requested by %s",
-		req.Proposal.Subject, req.Proposal.Restarts, req.Requester)
-
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(CheckpointSignatureResponse{
-		Attester:  network.meName(),
-		Signature: signature,
-		Approved:  true,
-	})
-}
 
 // httpProximityHandler returns this nara's barrio information
 // Naras in the same barrio (grid cell) share the same emoji and are considered "nearby"

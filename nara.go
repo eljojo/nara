@@ -111,8 +111,6 @@ func NewLocalNara(identity IdentityResult, mqtt_host string, mqtt_user string, m
 	ln.Me.Status.PublicKey = FormatPublicKey(ln.Keypair.PublicKey)
 	logrus.Printf("🔑 Keypair derived from soul")
 
-	ln.Network = NewNetwork(ln, mqtt_host, mqtt_user, mqtt_pass)
-
 	ln.seedPersonality()
 
 	// Set aura after personality is initialized
@@ -120,6 +118,7 @@ func NewLocalNara(identity IdentityResult, mqtt_host string, mqtt_user string, m
 
 	// Initialize unified sync ledger for all service types (social + ping + observation)
 	// GUARANTEE: SyncLedger is ALWAYS non-nil after NewLocalNara() completes
+	// NOTE: Must be initialized BEFORE Network so CheckpointService can use it
 	ln.SyncLedger = NewSyncLedger(memoryProfile.MaxEvents)
 	if ln.SyncLedger == nil {
 		panic("SyncLedger initialization failed - this should never happen")
@@ -127,6 +126,9 @@ func NewLocalNara(identity IdentityResult, mqtt_host string, mqtt_user string, m
 
 	// Initialize projections after SyncLedger
 	ln.Projections = NewProjectionStore(ln.SyncLedger)
+
+	// Initialize network (needs SyncLedger for CheckpointService)
+	ln.Network = NewNetwork(ln, mqtt_host, mqtt_user, mqtt_pass)
 
 	ln.updateHostStats()
 

@@ -47,6 +47,11 @@ func (network *Network) subscribeHandlers(client mqtt.Client) {
 	ledgerResponseTopic := fmt.Sprintf("nara/ledger/%s/response", network.meName())
 	subscribeMqtt(client, ledgerRequestTopic, network.ledgerRequestHandler)
 	subscribeMqtt(client, ledgerResponseTopic, network.ledgerResponseHandler)
+
+	// Subscribe to checkpoint topics for consensus-based checkpointing
+	subscribeMqtt(client, TopicCheckpointPropose, network.checkpointProposalHandler)
+	subscribeMqtt(client, TopicCheckpointVote, network.checkpointVoteHandler)
+	subscribeMqtt(client, TopicCheckpointFinal, network.checkpointFinalHandler)
 }
 
 func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
