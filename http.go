@@ -144,7 +144,7 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 		mux.HandleFunc("/api/stash/confidants", network.httpStashConfidantsHandler)
 
 		// pprof endpoints
-		if network.local != nil && network.local.Me.Name == "jojo-m1" {
+		if network.local != nil && (network.local.Me.Name == "grumpy-comet" || network.local.Me.Name == "r2d2") {
 			mux.HandleFunc("/debug/pprof/", pprof.Index)
 			mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
 			mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
