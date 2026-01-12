@@ -2,9 +2,13 @@ package nara
 
 import (
 	"crypto/sha256"
+	"fmt"
 	"os"
 	"testing"
 
+	mqttserver "github.com/mochi-mqtt/server/v2"
+	"github.com/mochi-mqtt/server/v2/hooks/auth"
+	"github.com/mochi-mqtt/server/v2/listeners"
 	"github.com/sirupsen/logrus"
 )
 
@@ -116,4 +120,33 @@ func testLocalNaraWithSoulAndParams(name string, soul string, chattiness int, le
 		panic(err)
 	}
 	return ln
+}
+
+// startTestMQTTBroker starts an embedded MQTT broker for testing on the given port.
+// Returns the broker server which should be closed with defer broker.Close() after the test.
+func startTestMQTTBroker(t *testing.T, port int) *mqttserver.Server {
+	server := mqttserver.New(nil)
+
+	err := server.AddHook(new(auth.AllowHook), nil)
+	if err != nil {
+		t.Fatalf("Failed to add auth hook to MQTT broker: %v", err)
+	}
+
+	tcp := listeners.NewTCP(listeners.Config{
+		ID:      fmt.Sprintf("test-broker-%d", port),
+		Address: fmt.Sprintf(":%d", port),
+	})
+	err = server.AddListener(tcp)
+	if err != nil {
+		t.Fatalf("Failed to add listener to MQTT broker: %v", err)
+	}
+
+	go func() {
+		err := server.Serve()
+		if err != nil {
+			t.Logf("MQTT broker stopped: %v", err)
+		}
+	}()
+
+	return server
 }

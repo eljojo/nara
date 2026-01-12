@@ -3,6 +3,7 @@ package nara
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +15,16 @@ var (
 	stashHW2 = hashBytes([]byte("stash-test-hw-2"))
 	stashHW3 = hashBytes([]byte("stash-test-hw-3"))
 )
+
+// Helper function to create StashData from emojis (for testing)
+func testStashData(timestamp int64, emojis []string) *StashData {
+	dataJSON, _ := MigrateEmojiStashToJSON(emojis)
+	return &StashData{
+		Timestamp: timestamp,
+		Data:      dataJSON,
+		Version:   1,
+	}
+}
 
 // =====================================================
 // Crypto Tests
@@ -134,10 +145,17 @@ func TestDecryptWithWrongKey(t *testing.T) {
 // =====================================================
 
 func TestStashDataSerialization(t *testing.T) {
-	// Create StashData
+	// Create StashData with JSON payload
+	emojis := []string{"🌸", "🦋", "🌊", "🔥", "⭐"}
+	dataJSON, err := MigrateEmojiStashToJSON(emojis)
+	if err != nil {
+		t.Fatalf("Failed to create JSON data: %v", err)
+	}
+
 	data := &StashData{
 		Timestamp: time.Now().Unix(),
-		Emojis:    []string{"🌸", "🦋", "🌊", "🔥", "⭐"},
+		Data:      dataJSON,
+		Version:   1,
 	}
 
 	// Serialize
@@ -157,12 +175,22 @@ func TestStashDataSerialization(t *testing.T) {
 	if parsed.Timestamp != data.Timestamp {
 		t.Error("Timestamp mismatch after serialization")
 	}
-	if len(parsed.Emojis) != len(data.Emojis) {
-		t.Error("Emojis length mismatch after serialization")
+	if parsed.Version != data.Version {
+		t.Error("Version mismatch after serialization")
 	}
-	for i, e := range data.Emojis {
-		if parsed.Emojis[i] != e {
-			t.Errorf("Emoji mismatch at %d: expected %s, got %s", i, e, parsed.Emojis[i])
+
+	// Extract emojis from parsed data
+	var parsedPayload map[string]interface{}
+	if err := json.Unmarshal(parsed.Data, &parsedPayload); err != nil {
+		t.Fatalf("Failed to unmarshal parsed data: %v", err)
+	}
+	parsedEmojis := parsedPayload["emojis"].([]interface{})
+	if len(parsedEmojis) != len(emojis) {
+		t.Errorf("Emojis length mismatch: expected %d, got %d", len(emojis), len(parsedEmojis))
+	}
+	for i, e := range emojis {
+		if parsedEmojis[i].(string) != e {
+			t.Errorf("Emoji mismatch at %d: expected %s, got %s", i, e, parsedEmojis[i])
 		}
 	}
 }
@@ -173,9 +201,11 @@ func TestStashDataTimestampPreserved(t *testing.T) {
 	encKeypair := DeriveEncryptionKeys(DeriveKeypair(soul).PrivateKey)
 
 	originalTimestamp := int64(1234567890)
+	dataJSON, _ := MigrateEmojiStashToJSON([]string{"🌸", "🦋", "🌊"})
 	data := &StashData{
 		Timestamp: originalTimestamp,
-		Emojis:    []string{"🌸", "🦋", "🌊"},
+		Data:      dataJSON,
+		Version:   1,
 	}
 
 	// Serialize, encrypt, decrypt, deserialize
@@ -235,15 +265,15 @@ func TestEmojiPoolSize(t *testing.T) {
 // Confident Management Tests
 // =====================================================
 
-func TestConfidentTrackerAddRemove(t *testing.T) {
-	tracker := NewConfidentTracker(3)
+func TestConfidantTrackerAddRemove(t *testing.T) {
+	tracker := NewConfidantTracker(3)
 
-	// Add some confidents
+	// Add some confidants
 	tracker.Add("bob", time.Now().Unix())
 	tracker.Add("carol", time.Now().Unix())
 
 	if tracker.Count() != 2 {
-		t.Errorf("Expected 2 confidents, got %d", tracker.Count())
+		t.Errorf("Expected 2 confidants, got %d", tracker.Count())
 	}
 
 	// Check if bob is tracked
@@ -257,12 +287,12 @@ func TestConfidentTrackerAddRemove(t *testing.T) {
 		t.Error("Should not have bob after removal")
 	}
 	if tracker.Count() != 1 {
-		t.Errorf("Expected 1 confident after removal, got %d", tracker.Count())
+		t.Errorf("Expected 1 confidant after removal, got %d", tracker.Count())
 	}
 }
 
-func TestConfidentTrackerTargetCount(t *testing.T) {
-	tracker := NewConfidentTracker(2)
+func TestConfidantTrackerTargetCount(t *testing.T) {
+	tracker := NewConfidantTracker(2)
 
 	// Add up to target
 	tracker.Add("bob", time.Now().Unix())
@@ -279,20 +309,20 @@ func TestConfidentTrackerTargetCount(t *testing.T) {
 		t.Error("Should not need more when at target")
 	}
 
-	// Get excess confidents
+	// Get excess confidants
 	excess := tracker.GetExcess()
 	if len(excess) != 1 {
-		t.Errorf("Expected 1 excess confident, got %d", len(excess))
+		t.Errorf("Expected 1 excess confidant, got %d", len(excess))
 	}
 }
 
 func TestRandomConfidentSelection(t *testing.T) {
-	tracker := NewConfidentTracker(2)
+	tracker := NewConfidantTracker(2)
 	tracker.Add("bob", time.Now().Unix())
 
 	online := []string{"alice", "bob", "carol", "dave", "eve"}
 
-	// Select should not return self or existing confidents
+	// Select should not return self or existing confidants
 	selected := tracker.SelectRandom("alice", online)
 	if selected == "" {
 		t.Error("Should select a confident")
@@ -316,12 +346,12 @@ func TestRandomConfidentSelection(t *testing.T) {
 		t.Error("Selection should be distributed among eligible candidates")
 	}
 	if counts["alice"] > 0 || counts["bob"] > 0 {
-		t.Error("Selection should exclude self and existing confidents")
+		t.Error("Selection should exclude self and existing confidants")
 	}
 }
 
 func TestConfidentSelectionExcludesExisting(t *testing.T) {
-	tracker := NewConfidentTracker(3)
+	tracker := NewConfidantTracker(3)
 	tracker.Add("bob", time.Now().Unix())
 	tracker.Add("carol", time.Now().Unix())
 
@@ -342,7 +372,7 @@ func TestConfidentSelectionExcludesExisting(t *testing.T) {
 }
 
 func TestPendingConfidentTimeout(t *testing.T) {
-	tracker := NewConfidentTracker(2)
+	tracker := NewConfidantTracker(2)
 
 	online := []string{"alice", "bob", "carol", "dave"}
 
@@ -356,13 +386,13 @@ func TestPendingConfidentTimeout(t *testing.T) {
 
 	// Pending should not count as confirmed
 	if tracker.Has("bob") {
-		t.Error("Pending confident should not count as confirmed")
+		t.Error("Pending confidant should not count as confirmed")
 	}
 	if tracker.Count() != 0 {
-		t.Errorf("Expected 0 confirmed confidents, got %d", tracker.Count())
+		t.Errorf("Expected 0 confirmed confidants, got %d", tracker.Count())
 	}
 
-	// SelectRandom should exclude pending confidents
+	// SelectRandom should exclude pending confidants
 	for i := 0; i < 100; i++ {
 		selected := tracker.SelectRandom("alice", online)
 		if selected == "bob" {
@@ -384,7 +414,7 @@ func TestPendingConfidentTimeout(t *testing.T) {
 }
 
 func TestPendingConfidentExpiry(t *testing.T) {
-	tracker := NewConfidentTracker(2)
+	tracker := NewConfidantTracker(2)
 
 	// Manually set an expired pending entry (simulating old timestamp)
 	tracker.mu.Lock()
@@ -413,7 +443,7 @@ func TestPendingConfidentExpiry(t *testing.T) {
 
 func TestPendingToConfirmedFlow(t *testing.T) {
 	// Simulate the full flow: send -> pending -> ack -> confirmed
-	tracker := NewConfidentTracker(2)
+	tracker := NewConfidantTracker(2)
 
 	online := []string{"alice", "bob", "carol", "dave"}
 
@@ -447,14 +477,14 @@ func TestPendingToConfirmedFlow(t *testing.T) {
 	// Step 5: Select another
 	selected2 := tracker.SelectRandom("alice", online)
 	if selected2 == "" || selected2 == selected {
-		t.Errorf("Should select different confident, got %s", selected2)
+		t.Errorf("Should select different confidant, got %s", selected2)
 	}
 	tracker.AddPending(selected2)
 	tracker.Add(selected2, time.Now().Unix())
 
 	// Step 6: Now satisfied
 	if !tracker.IsSatisfied() {
-		t.Error("Should be satisfied with 2 confirmed confidents")
+		t.Error("Should be satisfied with 2 confirmed confidants")
 	}
 }
 
@@ -469,10 +499,7 @@ func TestStashPayloadTimestamp(t *testing.T) {
 	encKeypair := DeriveEncryptionKeys(signingKeypair.PrivateKey)
 
 	timestamp := time.Now().Unix()
-	stashData := &StashData{
-		Timestamp: timestamp,
-		Emojis:    []string{"🌸", "🦋", "🌊"},
-	}
+	stashData := testStashData(timestamp, []string{"🌸", "🦋", "🌊"})
 
 	// Create payload
 	payload, err := CreateStashPayload("alice", stashData, encKeypair)
@@ -496,10 +523,7 @@ func TestSignatureVerification(t *testing.T) {
 	keypair := DeriveKeypair(soul)
 	encKeypair := DeriveEncryptionKeys(keypair.PrivateKey)
 
-	stashData := &StashData{
-		Timestamp: time.Now().Unix(),
-		Emojis:    []string{"🔥", "⭐"},
-	}
+	stashData := testStashData(time.Now().Unix(), []string{"🔥", "⭐"})
 	payload, _ := CreateStashPayload("alice", stashData, encKeypair)
 
 	// Create signed StashStore message
@@ -562,7 +586,7 @@ func TestBootstrapNoStash(t *testing.T) {
 }
 
 func TestBootstrapWithStash(t *testing.T) {
-	// Nara boots, requests stash, receives from confident, recovers emojis
+	// Nara boots, requests stash, receives from confidant, recovers emojis
 	network := NewMockMeshNetwork()
 
 	// Set up owner
@@ -573,13 +597,10 @@ func TestBootstrapWithStash(t *testing.T) {
 	// Create stash data with emojis
 	originalEmojis := []string{"🌸", "🦋", "🌊", "🔥", "⭐"}
 	originalTimestamp := time.Now().Unix() - 3600 // 1 hour ago
-	stashData := &StashData{
-		Timestamp: originalTimestamp,
-		Emojis:    originalEmojis,
-	}
+	stashData := testStashData(originalTimestamp, originalEmojis)
 	payload, _ := CreateStashPayload("alice", stashData, ownerEncKeypair)
 
-	// Set up confident (bob) who has alice's stash
+	// Set up confidant (bob) who has alice's stash
 	bobTransport := NewMockMeshTransport()
 	network.Register("bob", bobTransport)
 
@@ -606,8 +627,17 @@ func TestBootstrapWithStash(t *testing.T) {
 		t.Error("Should have recovered stash")
 	}
 
-	// Verify recovered emojis
-	recoveredEmojis := manager.GetRecoveredEmojis()
+	// Verify recovered emojis (extract from JSON data)
+	recoveredData := manager.GetRecoveredData()
+	var recoveredPayload map[string]interface{}
+	if err := json.Unmarshal(recoveredData, &recoveredPayload); err != nil {
+		t.Fatalf("Failed to unmarshal recovered data: %v", err)
+	}
+	recoveredEmojisRaw := recoveredPayload["emojis"].([]interface{})
+	recoveredEmojis := make([]string, len(recoveredEmojisRaw))
+	for i, e := range recoveredEmojisRaw {
+		recoveredEmojis[i] = e.(string)
+	}
 	if len(recoveredEmojis) != len(originalEmojis) {
 		t.Errorf("Emoji count mismatch: expected %d, got %d", len(originalEmojis), len(recoveredEmojis))
 	}
@@ -624,7 +654,7 @@ func TestBootstrapWithStash(t *testing.T) {
 }
 
 func TestBootstrapMultipleResponses(t *testing.T) {
-	// Multiple confidents respond, pick newest timestamp
+	// Multiple confidants respond, pick newest timestamp
 	ownerSoul := NativeSoulCustom(stashHW1, "alice")
 	ownerKeypair := DeriveKeypair(ownerSoul)
 	ownerEncKeypair := DeriveEncryptionKeys(ownerKeypair.PrivateKey)
@@ -632,17 +662,11 @@ func TestBootstrapMultipleResponses(t *testing.T) {
 	now := time.Now().Unix()
 
 	// Create older stash (from bob)
-	olderData := &StashData{
-		Timestamp: now - 3600, // 1 hour ago
-		Emojis:    []string{"🌳", "🌲"},
-	}
+	olderData := testStashData(now-3600, []string{"🌳", "🌲"}) // 1 hour ago
 	olderPayload, _ := CreateStashPayload("alice", olderData, ownerEncKeypair)
 
 	// Create newer stash (from carol)
-	newerData := &StashData{
-		Timestamp: now - 60, // 1 minute ago
-		Emojis:    []string{"🌴", "🌵", "🌾"},
-	}
+	newerData := testStashData(now-60, []string{"🌴", "🌵", "🌾"}) // 1 minute ago
 	newerPayload, _ := CreateStashPayload("alice", newerData, ownerEncKeypair)
 
 	// Create manager
@@ -677,10 +701,7 @@ func TestBootstrapStaleStash(t *testing.T) {
 	manager.SetCurrentTimestamp(now - 60) // 1 minute ago
 
 	// Receive older stash
-	staleData := &StashData{
-		Timestamp: now - 3600, // 1 hour ago (stale!)
-		Emojis:    []string{"🍄", "🪨"},
-	}
+	staleData := testStashData(now-3600, []string{"🍄", "🪨"}) // 1 hour ago (stale!)
 	stalePayload, _ := CreateStashPayload("alice", staleData, ownerEncKeypair)
 
 	responses := make(chan *StashResponse, 10)
@@ -701,13 +722,13 @@ func TestBootstrapStaleStash(t *testing.T) {
 // =====================================================
 
 func TestStashStoreAndAck(t *testing.T) {
-	// Owner sends StashStore, confident stores and acks
+	// Owner sends StashStore, confidant stores and acks
 	network := NewMockMeshNetwork()
 
-	// Set up confident (bob)
+	// Set up confidant (bob)
 	bobTransport := NewMockMeshTransport()
 	network.Register("bob", bobTransport)
-	bobManager := NewConfidentStashStore() // in-memory store for confidents
+	bobManager := NewConfidantStashStore() // in-memory store for confidants
 
 	// Set up owner (alice)
 	aliceSoul := NativeSoulCustom(stashHW1, "alice")
@@ -715,10 +736,7 @@ func TestStashStoreAndAck(t *testing.T) {
 	aliceEncKeypair := DeriveEncryptionKeys(aliceKeypair.PrivateKey)
 
 	// Create stash
-	stashData := &StashData{
-		Timestamp: time.Now().Unix(),
-		Emojis:    []string{"🦋", "🐝", "🐛"},
-	}
+	stashData := testStashData(time.Now().Unix(), []string{"🦋", "🐝", "🐛"})
 	payload, _ := CreateStashPayload("alice", stashData, aliceEncKeypair)
 
 	// Create signed store message
@@ -752,18 +770,15 @@ func TestStashStoreAndAck(t *testing.T) {
 }
 
 func TestStashRequestTriggersResponse(t *testing.T) {
-	// Broadcast request, confident sends payload
-	bobManager := NewConfidentStashStore()
+	// Broadcast request, confidant sends payload
+	bobManager := NewConfidantStashStore()
 
 	// Pre-store alice's stash in bob
 	aliceSoul := NativeSoulCustom(stashHW1, "alice")
 	aliceKeypair := DeriveKeypair(aliceSoul)
 	aliceEncKeypair := DeriveEncryptionKeys(aliceKeypair.PrivateKey)
 
-	stashData := &StashData{
-		Timestamp: time.Now().Unix(),
-		Emojis:    []string{"🦎", "🐢"},
-	}
+	stashData := testStashData(time.Now().Unix(), []string{"🦎", "🐢"})
 	payload, _ := CreateStashPayload("alice", stashData, aliceEncKeypair)
 	bobManager.Store("alice", payload)
 
@@ -791,50 +806,42 @@ func TestStashRequestTriggersResponse(t *testing.T) {
 }
 
 func TestStashDelete(t *testing.T) {
-	// Owner asks confident to delete, confident removes from memory
-	bobManager := NewConfidentStashStore()
+	// Test Delete method on ConfidantStashStore
+	bobManager := NewConfidantStashStore()
 
 	// Pre-store alice's stash
 	aliceSoul := NativeSoulCustom(stashHW1, "alice")
 	aliceKeypair := DeriveKeypair(aliceSoul)
 	aliceEncKeypair := DeriveEncryptionKeys(aliceKeypair.PrivateKey)
 
-	payload, _ := CreateStashPayload("alice", &StashData{
-		Timestamp: time.Now().Unix(),
-		Emojis:    []string{"🔥", "⭐"},
-	}, aliceEncKeypair)
+	payload, _ := CreateStashPayload("alice", testStashData(time.Now().Unix(), []string{"🔥", "⭐"}), aliceEncKeypair)
 	bobManager.Store("alice", payload)
 
 	if !bobManager.HasStashFor("alice") {
 		t.Fatal("Setup: bob should have alice's stash")
 	}
 
-	// Alice sends delete request
-	deleteMsg := &StashDelete{
-		From: "alice",
-	}
-	deleteMsg.Sign(aliceKeypair)
-
-	// Bob handles delete
-	err := bobManager.HandleStashDelete(deleteMsg, func(name string) []byte {
-		if name == "alice" {
-			return aliceKeypair.PublicKey
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("HandleStashDelete failed: %v", err)
+	// Delete alice's stash
+	deleted := bobManager.Delete("alice")
+	if !deleted {
+		t.Fatal("Delete should return true when stash existed")
 	}
 
 	// Bob should no longer have alice's stash
 	if bobManager.HasStashFor("alice") {
 		t.Error("Bob should have deleted alice's stash")
 	}
+
+	// Deleting again should return false
+	deleted = bobManager.Delete("alice")
+	if deleted {
+		t.Error("Delete should return false when stash doesn't exist")
+	}
 }
 
 func TestConfidentGoesOffline(t *testing.T) {
 	// Confident disappears, owner picks new random one
-	tracker := NewConfidentTracker(2)
+	tracker := NewConfidantTracker(2)
 	tracker.Add("bob", time.Now().Unix())
 	tracker.Add("carol", time.Now().Unix())
 
@@ -845,7 +852,7 @@ func TestConfidentGoesOffline(t *testing.T) {
 
 	// Bob should be removed
 	if tracker.Has("bob") {
-		t.Error("Offline confident should be removed")
+		t.Error("Offline confidant should be removed")
 	}
 
 	// Should need to pick a replacement
@@ -861,8 +868,8 @@ func TestConfidentGoesOffline(t *testing.T) {
 }
 
 func TestTooManyConfidents(t *testing.T) {
-	// >3 confidents, owner asks extras to delete
-	tracker := NewConfidentTracker(2) // target: 2
+	// >3 confidants, owner asks extras to delete
+	tracker := NewConfidantTracker(2) // target: 2
 
 	tracker.Add("bob", time.Now().Unix())
 	tracker.Add("carol", time.Now().Unix())
@@ -872,7 +879,7 @@ func TestTooManyConfidents(t *testing.T) {
 	// Should have excess
 	excess := tracker.GetExcess()
 	if len(excess) != 2 {
-		t.Errorf("Expected 2 excess confidents, got %d", len(excess))
+		t.Errorf("Expected 2 excess confidants, got %d", len(excess))
 	}
 }
 
@@ -919,7 +926,7 @@ func TestCloutRewardForStoring(t *testing.T) {
 
 func TestStashSizeLimit(t *testing.T) {
 	// Stash should be limited to 10KB
-	manager := NewConfidentStashStore()
+	manager := NewConfidantStashStore()
 
 	// Create oversized payload
 	largePayload := &StashPayload{
@@ -951,7 +958,7 @@ func TestStashSizeLimit(t *testing.T) {
 // =====================================================
 
 func TestEndToEndStashFlow(t *testing.T) {
-	// Full end-to-end flow: create emojis, stash to confidents, recover from scratch
+	// Full end-to-end flow: create emojis, stash to confidants, recover from scratch
 
 	// Setup: Create owner (alice) with emoji identity
 	aliceSoul := NativeSoulCustom(stashHW1, "alice")
@@ -961,18 +968,15 @@ func TestEndToEndStashFlow(t *testing.T) {
 	// Create stash data with emojis
 	originalEmojis := []string{"🌸", "🦋", "🌊", "🔥", "⭐", "🌙", "🌈", "⚡", "❄️", "🍄"}
 	timestamp := time.Now().Unix() - 86400 // 1 day ago
-	stashData := &StashData{
-		Timestamp: timestamp,
-		Emojis:    originalEmojis,
-	}
+	stashData := testStashData(timestamp, originalEmojis)
 	payload, err := CreateStashPayload("alice", stashData, aliceEncKeypair)
 	if err != nil {
 		t.Fatalf("CreateStashPayload failed: %v", err)
 	}
 
-	// Setup: Two confidents (bob and carol)
-	bobStore := NewConfidentStashStore()
-	carolStore := NewConfidentStashStore()
+	// Setup: Two confidants (bob and carol)
+	bobStore := NewConfidantStashStore()
+	carolStore := NewConfidantStashStore()
 
 	getPublicKey := func(name string) []byte {
 		if name == "alice" {
@@ -981,7 +985,7 @@ func TestEndToEndStashFlow(t *testing.T) {
 		return nil
 	}
 
-	// Phase 1: Alice stores stash with confidents
+	// Phase 1: Alice stores stash with confidants
 	storeMsg := &StashStore{
 		From:    "alice",
 		Payload: *payload,
@@ -997,7 +1001,7 @@ func TestEndToEndStashFlow(t *testing.T) {
 		t.Fatalf("Carol store failed: %v", err)
 	}
 
-	// Verify both confidents have the stash
+	// Verify both confidants have the stash
 	if !bobStore.HasStashFor("alice") || !carolStore.HasStashFor("alice") {
 		t.Error("Confidents should have alice's stash")
 	}
@@ -1031,8 +1035,17 @@ func TestEndToEndStashFlow(t *testing.T) {
 		t.Fatal("Should have recovered stash")
 	}
 
-	// Verify recovered emojis match original
-	recoveredEmojis := recoveryManager.GetRecoveredEmojis()
+	// Verify recovered emojis match original (extract from JSON data)
+	recoveredData := recoveryManager.GetRecoveredData()
+	var recoveredPayload map[string]interface{}
+	if err := json.Unmarshal(recoveredData, &recoveredPayload); err != nil {
+		t.Fatalf("Failed to unmarshal recovered data: %v", err)
+	}
+	recoveredEmojisRaw := recoveredPayload["emojis"].([]interface{})
+	recoveredEmojis := make([]string, len(recoveredEmojisRaw))
+	for i, e := range recoveredEmojisRaw {
+		recoveredEmojis[i] = e.(string)
+	}
 	if len(recoveredEmojis) != len(originalEmojis) {
 		t.Errorf("Emoji count mismatch: expected %d, got %d", len(originalEmojis), len(recoveredEmojis))
 	}
@@ -1050,13 +1063,13 @@ func TestEndToEndStashFlow(t *testing.T) {
 	t.Log("End-to-end stash flow completed successfully")
 }
 
-func TestConfidentTrackerWithMockNetwork(t *testing.T) {
-	// Test confident management with simulated network churn
+func TestConfidantTrackerWithMockNetwork(t *testing.T) {
+	// Test confidant management with simulated network churn
 
-	tracker := NewConfidentTracker(2)
+	tracker := NewConfidantTracker(2)
 	online := []string{"alice", "bob", "carol", "dave", "eve"}
 
-	// Alice picks initial confidents
+	// Alice picks initial confidants
 	conf1 := tracker.SelectRandom("alice", online)
 	if conf1 == "" {
 		t.Fatal("Should select first confident")
@@ -1071,7 +1084,7 @@ func TestConfidentTrackerWithMockNetwork(t *testing.T) {
 
 	// Should be satisfied
 	if !tracker.IsSatisfied() {
-		t.Error("Should be satisfied with 2 confidents")
+		t.Error("Should be satisfied with 2 confidants")
 	}
 
 	// Simulate one going offline
@@ -1084,35 +1097,32 @@ func TestConfidentTrackerWithMockNetwork(t *testing.T) {
 		// Might still be satisfied if both conf1 and conf2 are in newOnline
 		t.Log("Still satisfied after network churn")
 	} else {
-		// Need to pick new confidents
+		// Need to pick new confidants
 		newConf := tracker.SelectRandom("alice", newOnline)
 		if newConf != "" {
 			tracker.Add(newConf, time.Now().Unix())
 		}
 	}
 
-	t.Logf("Final confident count: %d", tracker.Count())
+	t.Logf("Final confidant count: %d", tracker.Count())
 }
 
 func TestConcurrentStashRequests(t *testing.T) {
 	// Test handling multiple simultaneous stash requests
 
-	// Setup one confident with alice's stash
-	confidentStore := NewConfidentStashStore()
+	// Setup one confidant with alice's stash
+	confidantStore := NewConfidantStashStore()
 
 	aliceSoul := NativeSoulCustom(stashHW1, "alice")
 	aliceKeypair := DeriveKeypair(aliceSoul)
 	aliceEncKeypair := DeriveEncryptionKeys(aliceKeypair.PrivateKey)
 
-	stashData := &StashData{
-		Timestamp: time.Now().Unix(),
-		Emojis:    []string{"🐙", "🦑", "🦀"},
-	}
+	stashData := testStashData(time.Now().Unix(), []string{"🐙", "🦑", "🦀"})
 	payload, _ := CreateStashPayload("alice", stashData, aliceEncKeypair)
 
 	storeMsg := &StashStore{From: "alice", Payload: *payload}
 	storeMsg.Sign(aliceKeypair)
-	confidentStore.HandleStashStore(storeMsg, func(name string) []byte {
+	confidantStore.HandleStashStore(storeMsg, func(name string) []byte {
 		if name == "alice" {
 			return aliceKeypair.PublicKey
 		}
@@ -1129,7 +1139,7 @@ func TestConcurrentStashRequests(t *testing.T) {
 			defer wg.Done()
 			request := &StashRequest{From: "alice"}
 			request.Sign(aliceKeypair)
-			response := confidentStore.HandleStashRequest(request, func(name string) []byte {
+			response := confidantStore.HandleStashRequest(request, func(name string) []byte {
 				if name == "alice" {
 					return aliceKeypair.PublicKey
 				}
@@ -1177,10 +1187,7 @@ func TestStashTimestampConflictResolution(t *testing.T) {
 
 	responses := make(chan *StashResponse, 10)
 	for _, s := range stashes {
-		data := &StashData{
-			Timestamp: s.timestamp,
-			Emojis:    s.emojis,
-		}
+		data := testStashData(s.timestamp, s.emojis)
 		payload, _ := CreateStashPayload("alice", data, aliceEncKeypair)
 		responses <- &StashResponse{
 			From:    s.from,

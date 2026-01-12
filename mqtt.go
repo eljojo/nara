@@ -1,10 +1,13 @@
 package nara
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"net/http"
+
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/sirupsen/logrus"
 	"math/rand"
@@ -38,6 +41,7 @@ func (network *Network) subscribeHandlers(client mqtt.Client) {
 	subscribeMqtt(client, "nara/plaza/howdy", network.howdyHandler)
 	subscribeMqtt(client, "nara/plaza/social", network.socialHandler)
 	subscribeMqtt(client, "nara/plaza/journey_complete", network.journeyCompleteHandler)
+	subscribeMqtt(client, "nara/plaza/stash_refresh", network.stashRefreshHandler)
 	subscribeMqtt(client, "nara/newspaper/#", network.newspaperHandler)
 
 	// Subscribe to ledger requests and responses for this nara
@@ -46,16 +50,9 @@ func (network *Network) subscribeHandlers(client mqtt.Client) {
 	subscribeMqtt(client, ledgerRequestTopic, network.ledgerRequestHandler)
 	subscribeMqtt(client, ledgerResponseTopic, network.ledgerResponseHandler)
 
-	// Subscribe to stash topics for distributed encrypted storage
-	stashStoreTopic := fmt.Sprintf("nara/stash/%s/store", network.meName())
-	stashAckTopic := fmt.Sprintf("nara/stash/%s/ack", network.meName())
-	stashResponseTopic := fmt.Sprintf("nara/stash/%s/response", network.meName())
-	stashDeleteTopic := fmt.Sprintf("nara/stash/%s/delete", network.meName())
-	subscribeMqtt(client, stashStoreTopic, network.stashStoreHandler)
-	subscribeMqtt(client, stashAckTopic, network.stashAckHandler)
-	subscribeMqtt(client, "nara/plaza/stash_request", network.stashRequestHandler)
-	subscribeMqtt(client, stashResponseTopic, network.stashResponseHandler)
-	subscribeMqtt(client, stashDeleteTopic, network.stashDeleteHandler)
+	// NOTE: Old MQTT-based stash system has been replaced by HTTP /stash/exchange
+	// Hey-there events are still used to trigger stash recovery (see heyThereHandler)
+	// All stash exchange now happens via HTTP over the mesh interface
 }
 
 func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
@@ -65,31 +62,183 @@ func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 		return
 	}
 
+	var fromName string
+
 	// Try new SyncEvent format first
 	if event.Service == ServiceHeyThere && event.HeyThere != nil {
 		if event.HeyThere.From == network.meName() || event.HeyThere.From == "" {
+			logrus.Debugf("📦 hey-there: ignoring own message from %s", event.HeyThere.From)
 			return
 		}
-		network.heyThereInbox <- event
+		fromName = event.HeyThere.From
+		logrus.Debugf("📦 hey-there: received from %s (I am %s)", fromName, network.meName())
+		select {
+		case network.heyThereInbox <- event:
+		default:
+			// Don't block if inbox is full or not being processed (e.g., in tests)
+			logrus.Debugf("hey-there inbox full, skipping event processing")
+		}
+	} else {
+		// Fallback: try legacy HeyThereEvent format (for old nodes during rollout)
+		legacy := HeyThereEvent{}
+		if err := json.Unmarshal(msg.Payload(), &legacy); err != nil {
+			return
+		}
+		if legacy.From == "" || legacy.From == network.meName() {
+			return
+		}
+		fromName = legacy.From
+		// Convert legacy to SyncEvent
+		event = SyncEvent{
+			Timestamp: time.Now().UnixNano(),
+			Service:   ServiceHeyThere,
+			HeyThere:  &legacy,
+		}
+		event.ComputeID()
+		select {
+		case network.heyThereInbox <- event:
+		default:
+			logrus.Debugf("hey-there inbox full, skipping event processing")
+		}
+	}
+
+	// Stash Recovery Trigger: If we have this nara's stash, push it back via HTTP
+	// This allows naras to recover their state when they boot up
+	hasStash := network.confidantStore != nil && network.confidantStore.HasStashFor(fromName)
+	logrus.Debugf("📦 hey-there recovery check: confidantStore=%v, HasStashFor(%s)=%v",
+		network.confidantStore != nil, fromName, hasStash)
+	if hasStash {
+		logrus.Debugf("📦 %s has stash for %s, triggering hey-there recovery", network.meName(), fromName)
+		go func(targetName string) {
+			// Small delay to let them finish booting
+			time.Sleep(2 * time.Second)
+
+			// Get their stash and push it back to them
+			network.confidantStore.mu.RLock()
+			theirStash := network.confidantStore.stashes[targetName]
+			network.confidantStore.mu.RUnlock()
+
+			if theirStash == nil {
+				logrus.Warnf("📦 Lost stash for %s before push", targetName)
+				return
+			}
+
+			// Build push request
+			req := StashPushRequest{
+				From:      network.meName(),
+				To:        targetName,
+				Timestamp: time.Now().Unix(),
+				Stash:     theirStash,
+			}
+			req.Sign(network.local.Keypair)
+
+			// Determine URL
+			url := network.buildMeshURL(targetName, "/stash/push")
+			if url == "" {
+				return
+			}
+
+			reqBytes, _ := json.Marshal(req)
+			ctx, cancel := context.WithTimeout(network.ctx, 10*time.Second)
+			defer cancel()
+
+			httpReq, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(reqBytes))
+			httpReq.Header.Set("Content-Type", "application/json")
+			network.AddMeshAuthHeaders(httpReq)
+
+			var client *http.Client
+			if network.testHTTPClient != nil {
+				client = network.testHTTPClient
+			} else if network.tsnetMesh != nil {
+				client = network.tsnetMesh.Server().HTTPClient()
+			} else {
+				return
+			}
+
+			resp, err := client.Do(httpReq)
+			if err != nil {
+				logrus.Debugf("📦 Failed to send stash to %s on hey-there: %v", targetName, err)
+				return
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode == http.StatusOK {
+				logrus.Infof("📦 Sent stash to %s (hey-there recovery)", targetName)
+			}
+		}(fromName)
+	}
+}
+
+// stashRefreshHandler handles stash-refresh events (on-demand recovery request)
+// This is similar to hey-there but specifically for requesting stash back
+func (network *Network) stashRefreshHandler(client mqtt.Client, msg mqtt.Message) {
+	var event map[string]interface{}
+	if err := json.Unmarshal(msg.Payload(), &event); err != nil {
+		logrus.Debugf("stashRefreshHandler: invalid JSON: %v", err)
 		return
 	}
 
-	// Fallback: try legacy HeyThereEvent format (for old nodes during rollout)
-	legacy := HeyThereEvent{}
-	if err := json.Unmarshal(msg.Payload(), &legacy); err != nil {
+	fromName, ok := event["from"].(string)
+	if !ok || fromName == "" || fromName == network.meName() {
 		return
 	}
-	if legacy.From == "" || legacy.From == network.meName() {
+
+	logrus.Debugf("📦 stash-refresh request from %s", fromName)
+
+	// Check if we have their stash
+	if network.confidantStore == nil || !network.confidantStore.HasStashFor(fromName) {
 		return
 	}
-	// Convert legacy to SyncEvent
-	event = SyncEvent{
-		Timestamp: time.Now().UnixNano(),
-		Service:   ServiceHeyThere,
-		HeyThere:  &legacy,
-	}
-	event.ComputeID()
-	network.heyThereInbox <- event
+
+	// Push stash back to them (same logic as hey-there recovery)
+	go func(targetName string) {
+		// Small delay to avoid thundering herd if multiple confidants respond
+		time.Sleep(500 * time.Millisecond)
+
+		// Get their stash and push it back to them
+		network.confidantStore.mu.RLock()
+		theirStash := network.confidantStore.stashes[targetName]
+		network.confidantStore.mu.RUnlock()
+
+		if theirStash == nil {
+			return
+		}
+
+		// Build push request
+		req := StashPushRequest{
+			From:      network.meName(),
+			To:        targetName,
+			Timestamp: time.Now().Unix(),
+			Stash:     theirStash,
+		}
+		req.Sign(network.local.Keypair)
+
+		// Determine URL
+		url := network.buildMeshURL(targetName, "/stash/push")
+		if url == "" {
+			return
+		}
+
+		// Send push request
+		reqBytes, _ := json.Marshal(req)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(reqBytes))
+		if err != nil {
+			return
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+
+		client := network.getHTTPClient()
+		resp, err := client.Do(httpReq)
+		if err == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				logrus.Infof("📦 Sent stash to %s (stash-refresh response)", targetName)
+			}
+		}
+	}(fromName)
 }
 
 func (network *Network) howdyHandler(client mqtt.Client, msg mqtt.Message) {
@@ -410,73 +559,5 @@ func (network *Network) initializeMQTT(onConnect mqtt.OnConnectHandler, name str
 
 // --- Stash Handlers (Distributed Encrypted Storage) ---
 
-func (network *Network) stashStoreHandler(client mqtt.Client, msg mqtt.Message) {
-	storeMsg := &StashStore{}
-	if err := json.Unmarshal(msg.Payload(), storeMsg); err != nil {
-		logrus.Debugf("stashStoreHandler: invalid JSON: %v", err)
-		return
-	}
-
-	if storeMsg.From == network.meName() || storeMsg.From == "" {
-		return
-	}
-
-	network.stashStoreInbox <- *storeMsg
-}
-
-func (network *Network) stashAckHandler(client mqtt.Client, msg mqtt.Message) {
-	ack := &StashStoreAck{}
-	if err := json.Unmarshal(msg.Payload(), ack); err != nil {
-		logrus.Debugf("stashAckHandler: invalid JSON: %v", err)
-		return
-	}
-
-	if ack.From == network.meName() {
-		return
-	}
-
-	network.stashAckInbox <- *ack
-}
-
-func (network *Network) stashRequestHandler(client mqtt.Client, msg mqtt.Message) {
-	req := &StashRequest{}
-	if err := json.Unmarshal(msg.Payload(), req); err != nil {
-		logrus.Debugf("stashRequestHandler: invalid JSON: %v", err)
-		return
-	}
-
-	// Ignore our own requests
-	if req.From == network.meName() || req.From == "" {
-		return
-	}
-
-	network.stashRequestInbox <- *req
-}
-
-func (network *Network) stashResponseHandler(client mqtt.Client, msg mqtt.Message) {
-	resp := &StashResponse{}
-	if err := json.Unmarshal(msg.Payload(), resp); err != nil {
-		logrus.Debugf("stashResponseHandler: invalid JSON: %v", err)
-		return
-	}
-
-	if resp.From == network.meName() {
-		return
-	}
-
-	network.stashResponseInbox <- *resp
-}
-
-func (network *Network) stashDeleteHandler(client mqtt.Client, msg mqtt.Message) {
-	deleteMsg := &StashDelete{}
-	if err := json.Unmarshal(msg.Payload(), deleteMsg); err != nil {
-		logrus.Debugf("stashDeleteHandler: invalid JSON: %v", err)
-		return
-	}
-
-	if deleteMsg.From == network.meName() || deleteMsg.From == "" {
-		return
-	}
-
-	network.stashDeleteInbox <- *deleteMsg
-}
+// Old MQTT stash handlers removed - stash now uses HTTP /stash/exchange
+// See http.go:httpStashExchangeHandler and network.go:exchangeStashWithPeer

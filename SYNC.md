@@ -99,6 +99,47 @@ Every 30-300 seconds (personality-based):
 - **Redundant paths**: Multiple naras carrying same news
 - **Organic propagation**: Events spread like rumors, not announcements
 
+### Stash Exchange (HTTP State Backup)
+**Piggybacks on gossip rounds** - encrypted state backup with commitment model.
+
+**Stash** is encrypted arbitrary JSON data that naras store for each other based on **mutual promises**. Stash storage happens via HTTP mesh during gossip rounds:
+
+```
+During each gossip round (with zine):
+  1. POST /stash/store with my encrypted stash
+  2. Peer verifies signature & timestamp
+  3. Peer checks capacity:
+     - If space: Accepts (creates commitment) ✓
+     - If full: Rejects (at_capacity) ✗
+  4. If accepted: Peer tracks commitment, owner adds to confirmed confidants
+  5. Rate limited: 5-minute intervals per peer
+
+On boot (recovery):
+  1. Owner broadcasts hey-there event (MQTT)
+  2. Confidants detect and wait 2s
+  3. POST /stash/push owner's stash back via HTTP
+  4. Owner receives, decrypts, uses newest
+```
+
+**Why Separate Stash Endpoints?**
+- **Clear semantics**: Store, retrieve, push, and delete are distinct operations
+- **Timestamp security**: All requests signed with timestamp (replay protection)
+- **No disk writes**: Pure memory storage (ephemeral by design)
+- **Commitment-based**: Accept/reject model (not LRU cache)
+- **Mutual promises**: Both sides know who's storing what
+- **Health monitoring**: Owners detect offline confidants, find replacements
+- **Ghost pruning**: Evict stashes for naras offline 7+ days
+- **Memory-aware**: Storage limits based on memory mode (5/20/50)
+- **Smart selection**: Prefer high-memory, high-uptime confidants
+- **Boot recovery**: Hey-there events trigger HTTP stash push back
+
+**Integration with sync:**
+- Stash uses same HTTP mesh infrastructure as zines
+- Same Ed25519 authentication mechanism
+- Piggybacks on gossip rounds (no extra connections)
+- Complements event sync with state backup
+- Unlike events (spread to all), stash is targeted (2-3 confidants)
+
 **Transport Modes:**
 
 Naras can operate in different modes, like preferring different social networks:
@@ -167,8 +208,13 @@ These fields are broadcast via `nara/newspaper/{name}` and are **NOT** in the ev
 | `EventStoreTotal` | int | Total events in the local event store |
 | `EventStoreByService` | map | Event counts per service (social, ping, observation, etc.) |
 | `EventStoreCritical` | int | Count of critical events |
+| `StashStored` | int | Number of stashes stored for others |
+| `StashBytes` | int64 | Total bytes of stash data stored |
+| `StashConfidants` | int | Number of confidants storing my stash |
 
 Newspapers are **current state snapshots**, not history. They answer "what is this nara like right now?" rather than "what happened?"
+
+**Stash metrics** help monitor distributed storage health - who's storing what, capacity usage, and confidant network status.
 
 ### Event Store (SyncLedger + Zines)
 

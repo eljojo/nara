@@ -51,8 +51,14 @@ Same events + same personality = same opinions (deterministic).
    - `mqtt.go` - MQTT broker connectivity (Plaza broadcasts)
    - `mesh.go` - Tailscale/Headscale P2P networking (Zine gossip)
    - `network.go` - Core network coordination
-5. **Social** (`social.go`, `teasing_test.go`) - Teasing, trends, clout
-6. **Observations** (`observations.go`) - Distributed consensus on network state
+5. **Stash** (`stash.go`, `stash_sync_tracker.go`) - Distributed encrypted storage:
+   - HTTP-based bidirectional exchange (piggybacks on gossip)
+   - Memory-only storage (no disk persistence)
+   - Memory-aware limits (5/20/50 based on memory mode)
+   - Smart confidant selection (prefer high memory + uptime)
+   - XChaCha20-Poly1305 encryption (owner-only decryption)
+6. **Social** (`social.go`, `teasing_test.go`) - Teasing, trends, clout
+7. **Observations** (`observations.go`) - Distributed consensus on network state
 
 ### Event Types (service field)
 
@@ -105,6 +111,7 @@ Individual tests can override with `logrus.SetLevel(logrus.DebugLevel)`.
 - `EVENTS.md` - Event types and structure
 - `OBSERVATIONS.md` - Event-driven consensus system
 - `SYNC.md` - Unified sync backbone and gossip protocol
+- `STASH.md` - Distributed encrypted storage system
 - `WORLD.md` - "Around the world" journey feature
 - `COORDINATES.md` - Vivaldi network coordinate system
 
