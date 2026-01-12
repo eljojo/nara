@@ -225,7 +225,10 @@ func (network *Network) tryDiscoverUnknownSender(name, remoteAddr string) bool {
 	nara.Status.MeshEnabled = true
 	network.importNara(nara)
 
-	logrus.Infof("📡 Discovered unknown sender %s via on-demand ping (🔑)", name)
+	// Log via LogService (batched)
+	if network.logService != nil {
+		network.logService.BatchDiscovery(name)
+	}
 	return true
 }
 
@@ -325,12 +328,10 @@ func (network *Network) VerifyMeshResponseBody(resp *http.Response) ([]byte, boo
 		return nil, false
 	}
 
-	sender, err := VerifyMeshResponse(resp, body, network.resolvePublicKeyForNara)
-	if err != nil {
+	if _, err := VerifyMeshResponse(resp, body, network.resolvePublicKeyForNara); err != nil {
 		logrus.Warnf("🚫 mesh response auth failed: %v", err)
 		return body, false // Return body anyway, but indicate not verified
 	}
 
-	logrus.Debugf("✅ verified mesh response from %s", sender)
 	return body, true
 }

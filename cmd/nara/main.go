@@ -203,6 +203,12 @@ func main() {
 	)
 
 	localNara.Start(*serveUiPtr, *readOnlyPtr, *httpAddrPtr, meshConfig, transportMode)
+
+	// Enable verbose logging if debug flags are set
+	if *verbosePtr || *extraVerbosePtr {
+		localNara.Network.SetVerboseLogging(true)
+	}
+
 	if *showNeighboursPtr {
 		go localNara.PrintNeigbourhoodForever(*showNeighboursSpeedPtr)
 	}

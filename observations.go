@@ -462,7 +462,7 @@ func (network *Network) recordObservationOnlineNara(name string, timestamp int64
 	}
 
 	if observation.Online == "" && name != network.meName() {
-		logrus.Printf("observation: seen %s for the first time", name)
+		// LogService handles logging via ledger watching
 		network.Buzz.increase(3)
 
 		// Emit first-seen observation event
@@ -472,7 +472,6 @@ func (network *Network) recordObservationOnlineNara(name string, timestamp int64
 				network.local.Projections.Trigger()
 			}
 			network.broadcastSSE(event)
-			logrus.Infof("📊 First-seen observation event: %s", name)
 		}
 	}
 
@@ -503,7 +502,7 @@ func (network *Network) recordObservationOnlineNara(name string, timestamp int64
 	if !observation.isOnline() && observation.Online != "" {
 		observation.LastRestart = timestamp
 		observation.Restarts = observation.Restarts + 1
-		logrus.Printf("observation: %s came back online", name)
+		// LogService handles logging via ledger watching
 		network.Buzz.increase(3)
 		wasRestart = true
 
@@ -514,7 +513,6 @@ func (network *Network) recordObservationOnlineNara(name string, timestamp int64
 				network.local.Projections.Trigger()
 			}
 			network.broadcastSSE(event)
-			logrus.Infof("📊 Restart observation event: %s (restart #%d)", name, observation.Restarts)
 		}
 	}
 
@@ -535,7 +533,7 @@ func (network *Network) recordObservationOnlineNara(name string, timestamp int64
 				network.local.Projections.Trigger()
 			}
 			network.broadcastSSE(event)
-			logrus.Infof("📊 Status-change observation event: %s → ONLINE", name)
+			// LogService handles logging via ledger watching
 		}
 	}
 
@@ -636,15 +634,13 @@ func (network *Network) observationMaintenanceOnce() {
 					continue
 				}
 
-				// Log status changes
+				// Handle status changes (LogService handles logging via ledger watching)
 				if previousState == "ONLINE" && derivedStatus == "MISSING" {
-					logrus.Printf("observation: %s has disappeared (verified)", name)
 					network.Buzz.increase(10)
 					go network.reportMissingWithDelay(name)
 					// React immediately if this is one of our confidants
 					network.reactToConfidantOffline(name)
 				} else if previousState == "ONLINE" && derivedStatus == "OFFLINE" {
-					logrus.Printf("observation: %s went offline gracefully", name)
 					// React immediately if this is one of our confidants
 					network.reactToConfidantOffline(name)
 				}
@@ -749,7 +745,7 @@ func (network *Network) reportMissingWithDelay(subject string) {
 		network.local.Projections.Trigger()
 	}
 	network.broadcastSSE(event)
-	logrus.Infof("📊 Status-change observation event: %s → MISSING (after %v delay, verified)", subject, delay)
+	// LogService handles logging via ledger watching
 }
 
 // verifyOnlineWithPing attempts to ping a nara before marking them as offline/missing.

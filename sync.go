@@ -100,13 +100,25 @@ func (s *SeenEvent) LogFormat() string {
 	return fmt.Sprintf("seen: %s saw %s via %s", s.Observer, s.Subject, s.Via)
 }
 
+// ToLogEvent returns a log event for vouching (shown in verbose mode)
+func (s *SeenEvent) ToLogEvent() *LogEvent {
+	return &LogEvent{
+		Category: CategoryPresence,
+		Type:     "seen",
+		Actor:    s.Observer,
+		Target:   s.Subject,
+		Detail:   fmt.Sprintf("👀 vouched for %s (%s)", s.Subject, s.Via),
+	}
+}
+
 // Payload is the interface for service-specific event data
 type Payload interface {
 	ContentString() string
 	IsValid() bool
 	GetActor() string
 	GetTarget() string
-	LogFormat() string // Returns technical log-friendly description
+	LogFormat() string     // Returns technical log-friendly description
+	ToLogEvent() *LogEvent // Returns structured log event (nil to skip logging)
 }
 
 // SocialEventPayload is the social event data within a SyncEvent
@@ -167,6 +179,39 @@ func (p *SocialEventPayload) LogFormat() string {
 	return fmt.Sprintf("social event: %s %s → %s (reason: %s)", p.Type, p.Actor, p.Target, p.Reason)
 }
 
+// ToLogEvent returns a structured log event for the logging system
+func (p *SocialEventPayload) ToLogEvent() *LogEvent {
+	switch p.Type {
+	case "tease":
+		msg := TeaseMessage(p.Reason, p.Actor, p.Target)
+		return &LogEvent{
+			Category: CategorySocial,
+			Type:     "tease",
+			Actor:    p.Actor,
+			Target:   p.Target,
+			Detail:   fmt.Sprintf("😈 %s teased %s: \"%s\"", p.Actor, p.Target, msg),
+			Instant:  true,
+		}
+	case "observed":
+		return &LogEvent{
+			Category: CategorySocial,
+			Type:     "observed",
+			Actor:    p.Actor,
+			Target:   p.Target,
+			Detail:   fmt.Sprintf("👁️ %s observed %s: %s", p.Actor, p.Target, p.Reason),
+		}
+	case "gossip":
+		return &LogEvent{
+			Category: CategoryGossip,
+			Type:     "social-gossip",
+			Actor:    p.Actor,
+			Target:   p.Target,
+			Detail:   fmt.Sprintf("🗣️ %s gossiped about %s", p.Actor, p.Target),
+		}
+	}
+	return nil
+}
+
 // PingObservation records a latency measurement between two naras
 type PingObservation struct {
 	Observer string  `json:"observer"` // who took the measurement
@@ -217,6 +262,11 @@ func (p *PingObservation) UIFormat() map[string]string {
 // LogFormat returns technical log description
 func (p *PingObservation) LogFormat() string {
 	return fmt.Sprintf("ping: %s → %s (%.2fms)", p.Observer, p.Target, p.RTT)
+}
+
+// ToLogEvent returns nil - pings are too noisy for individual logging
+func (p *PingObservation) ToLogEvent() *LogEvent {
+	return nil
 }
 
 // ObservationEventPayload records network state observations (restarts, status changes)
@@ -349,6 +399,32 @@ func (p *ObservationEventPayload) UIFormat() map[string]string {
 func (p *ObservationEventPayload) LogFormat() string {
 	return fmt.Sprintf("observation: %s observed %s as %s (type: %s)",
 		p.Observer, p.Subject, p.OnlineState, p.Type)
+}
+
+// ToLogEvent returns a structured log event for notable observations
+func (p *ObservationEventPayload) ToLogEvent() *LogEvent {
+	switch p.Type {
+	case "first-seen":
+		return &LogEvent{
+			Category: CategoryPresence,
+			Type:     "first-seen",
+			Actor:    p.Subject,
+			Detail:   fmt.Sprintf("✨ spotted %s for the first time", p.Subject),
+			Instant:  true,
+		}
+	case "restart":
+		// Only log milestone restarts
+		if p.RestartNum > 0 && p.RestartNum%50 == 0 {
+			return &LogEvent{
+				Category: CategoryPresence,
+				Type:     "restart-milestone",
+				Actor:    p.Subject,
+				Detail:   fmt.Sprintf("🔄 %s hit restart #%d", p.Subject, p.RestartNum),
+				Instant:  true,
+			}
+		}
+	}
+	return nil
 }
 
 // Payload returns the service-specific payload, or nil if none set
@@ -787,6 +863,9 @@ func (r *ObservationRateLimit) Cleanup() {
 const MaxObservationsPerPair = 20
 
 // SyncLedger stores all syncable events with deduplication and sync support
+// EventListener is called when a new event is added to the ledger
+type EventListener func(event SyncEvent)
+
 type SyncLedger struct {
 	Events        []SyncEvent
 	MaxEvents     int
@@ -798,6 +877,10 @@ type SyncLedger struct {
 	// isUnknownNara is an optional callback to check if a nara is unknown (no public key).
 	// Events from unknown naras are pruned first. Set via SetUnknownNaraChecker.
 	isUnknownNara func(name string) bool
+
+	// listeners are notified when new events are added
+	listeners   []EventListener
+	listenersMu sync.RWMutex
 }
 
 // NewSyncLedger creates a new unified sync ledger
@@ -807,6 +890,26 @@ func NewSyncLedger(maxEvents int) *SyncLedger {
 		MaxEvents:     maxEvents,
 		eventIDs:      make(map[string]bool),
 		observationRL: NewObservationRateLimit(),
+	}
+}
+
+// AddListener registers a callback to be notified when new events are added.
+// Listeners are called synchronously after the event is stored.
+func (l *SyncLedger) AddListener(listener EventListener) {
+	l.listenersMu.Lock()
+	defer l.listenersMu.Unlock()
+	l.listeners = append(l.listeners, listener)
+}
+
+// notifyListeners calls all registered listeners with the new event.
+// Called without holding the main mutex to avoid deadlocks.
+func (l *SyncLedger) notifyListeners(event SyncEvent) {
+	l.listenersMu.RLock()
+	listeners := l.listeners
+	l.listenersMu.RUnlock()
+
+	for _, listener := range listeners {
+		listener(event)
 	}
 }
 
@@ -887,7 +990,6 @@ func (l *SyncLedger) AddEvent(e SyncEvent) bool {
 	}
 
 	l.mu.Lock()
-	defer l.mu.Unlock()
 
 	// Compute ID if not set
 	if e.ID == "" {
@@ -896,11 +998,13 @@ func (l *SyncLedger) AddEvent(e SyncEvent) bool {
 
 	// Validate
 	if !e.IsValid() {
+		l.mu.Unlock()
 		return false
 	}
 
 	// Deduplicate
 	if l.eventIDs[e.ID] {
+		l.mu.Unlock()
 		return false
 	}
 
@@ -925,6 +1029,7 @@ func (l *SyncLedger) AddEvent(e SyncEvent) bool {
 		if pingCount >= MaxPingsPerTarget {
 			// Drop older ping events to keep the newest set for this target.
 			if e.Timestamp <= oldestTs {
+				l.mu.Unlock()
 				return false
 			}
 			kept := make([]SyncEvent, 0, len(l.Events)-1)
@@ -946,6 +1051,11 @@ func (l *SyncLedger) AddEvent(e SyncEvent) bool {
 	if l.MaxEvents > 0 && len(l.Events) > l.MaxEvents {
 		l.pruneUnlocked()
 	}
+
+	l.mu.Unlock()
+
+	// Notify listeners outside of lock to avoid deadlocks
+	l.notifyListeners(e)
 
 	return true
 }
@@ -1251,7 +1361,6 @@ func (l *SyncLedger) AddEventWithDedup(e SyncEvent) bool {
 // Caller must ensure e.Service == ServiceObservation && e.Observation != nil
 func (l *SyncLedger) addObservationWithCompaction(e SyncEvent, withDedup bool) bool {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 
 	// Content-based deduplication for restart events (only if requested)
 	// Check if we already have this exact restart (by subject, restart_num, start_time)
@@ -1263,6 +1372,7 @@ func (l *SyncLedger) addObservationWithCompaction(e SyncEvent, withDedup bool) b
 				existing.Observation.Subject == e.Observation.Subject &&
 				existing.Observation.RestartNum == e.Observation.RestartNum &&
 				existing.Observation.StartTime == e.Observation.StartTime {
+				l.mu.Unlock()
 				return false // Duplicate restart event
 			}
 		}
@@ -1315,14 +1425,21 @@ func (l *SyncLedger) addObservationWithCompaction(e SyncEvent, withDedup bool) b
 		e.ComputeID()
 	}
 	if !e.IsValid() {
+		l.mu.Unlock()
 		return false
 	}
 	if l.eventIDs[e.ID] {
+		l.mu.Unlock()
 		return false
 	}
 
 	l.Events = append(l.Events, e)
 	l.eventIDs[e.ID] = true
+	l.mu.Unlock()
+
+	// Notify listeners outside of lock to avoid deadlocks
+	l.notifyListeners(e)
+
 	return true
 }
 

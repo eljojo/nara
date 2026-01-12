@@ -143,41 +143,12 @@ func deriveProjectionStartTimeConsensus(observations []ObservationRecord, tolera
 
 	trimmed := trimmedMeanConsensus(values)
 
-	// Log with context
-	if len(values) > 2 {
-		// Calculate stats for logging
-		sorted := make([]int64, len(values))
-		copy(sorted, values)
-		sort.Slice(sorted, func(i, j int) bool {
-			return sorted[i] < sorted[j]
-		})
-		median := sorted[len(sorted)/2]
-
-		// Count agreement
-		freqMap := make(map[int64]int)
-		for _, v := range values {
-			freqMap[v]++
-		}
-		maxFreq := 0
-		var mostCommon int64
-		for val, freq := range freqMap {
-			if freq > maxFreq {
-				maxFreq = freq
-				mostCommon = val
-			}
-		}
-		agreement := float64(maxFreq) / float64(len(values)) * 100
-
-		logrus.Debugf("starttime consensus for %s: %d observers, median=%d, avg=%d, agreement=%.0f%% on %d",
-			subject, len(values), median, trimmed, agreement, mostCommon)
-
-		// Warn about max difference
-		if trimmed != maxStartTime && trimmed > 0 {
-			diff := maxStartTime - trimmed
-			if diff > 60 {
-				logrus.Debugf("starttime consensus for %s: max=%d, trimmed=%d (diff=%ds)",
-					subject, maxStartTime, trimmed, diff)
-			}
+	// Only log significant differences (>1 hour)
+	if trimmed != maxStartTime && trimmed > 0 {
+		diff := maxStartTime - trimmed
+		if diff > 3600 {
+			logrus.Debugf("starttime consensus for %s: max=%d, trimmed=%d (diff=%ds)",
+				subject, maxStartTime, trimmed, diff)
 		}
 	}
 
@@ -204,9 +175,6 @@ func deriveProjectionRestartsConsensus(observations []ObservationRecord, subject
 
 	// If only one observer is reporting restarts, use max (most recent from that observer)
 	if len(uniqueObservers) <= 1 {
-		if maxRestarts > 0 {
-			logrus.Debugf("restarts consensus for %s: using max algorithm (single observer fallback) → %d", subject, maxRestarts)
-		}
 		return maxRestarts
 	}
 
@@ -215,45 +183,14 @@ func deriveProjectionRestartsConsensus(observations []ObservationRecord, subject
 
 	// Fallback to max if trimmed mean returns 0
 	if trimmedRestarts == 0 {
-		if maxRestarts > 0 {
-			logrus.Debugf("restarts consensus for %s: using max algorithm (trimmed mean returned 0) → %d", subject, maxRestarts)
-		}
 		return maxRestarts
 	}
 
-	// Calculate stats for logging
-	if len(values) > 2 {
-		sorted := make([]int64, len(values))
-		copy(sorted, values)
-		sort.Slice(sorted, func(i, j int) bool {
-			return sorted[i] < sorted[j]
-		})
-		median := sorted[len(sorted)/2]
-
-		// Count agreement
-		freqMap := make(map[int64]int)
-		for _, v := range values {
-			freqMap[v]++
-		}
-		maxFreq := 0
-		var mostCommon int64
-		for val, freq := range freqMap {
-			if freq > maxFreq {
-				maxFreq = freq
-				mostCommon = val
-			}
-		}
-		agreement := float64(maxFreq) / float64(len(values)) * 100
-
-		logrus.Debugf("restarts consensus for %s: %d observers, median=%d, avg=%d, agreement=%.0f%% on %d",
-			subject, len(values), median, trimmedRestarts, agreement, mostCommon)
-	}
-
-	// Warn if the difference is significant (>10% or >5 absolute)
+	// Only warn about very significant differences (>20% and >10 absolute)
 	diff := maxRestarts - trimmedRestarts
-	if diff > 0 {
+	if diff > 10 {
 		percentDiff := float64(diff) / float64(maxRestarts) * 100
-		if diff >= 5 || percentDiff >= 10.0 {
+		if percentDiff >= 20.0 {
 			logrus.Warnf("🔍 restarts consensus diff for %s: max=%d, trimmed=%d (diff=%d, %.1f%%)",
 				subject, maxRestarts, trimmedRestarts, diff, percentDiff)
 		}

@@ -122,6 +122,9 @@ type Network struct {
 	confidantStore   *ConfidantStashStore // Confidant side: stores others' stash for them
 	stashSyncTracker *StashSyncTracker    // Memory-only tracker for last sync time with each peer
 	stashService     *StashService        // Unified stash service layer
+
+	// Logging service
+	logService *LogService
 }
 
 // PendingJourney tracks a journey we participated in, waiting for completion
@@ -262,6 +265,17 @@ func (h *HeyThereEvent) LogFormat() string {
 	return fmt.Sprintf("hey-there from %s (mesh: %s)", h.From, h.MeshIP)
 }
 
+// ToLogEvent returns a structured log event for the logging system
+func (h *HeyThereEvent) ToLogEvent() *LogEvent {
+	return &LogEvent{
+		Category: CategoryPresence,
+		Type:     "welcome",
+		Actor:    h.From,
+		Target:   h.From,
+		Detail:   h.LogFormat(),
+	}
+}
+
 type ChauEvent struct {
 	From      string
 	PublicKey string // Base64-encoded Ed25519 public key
@@ -339,6 +353,16 @@ func (c *ChauEvent) UIFormat() map[string]string {
 // LogFormat returns technical log description
 func (c *ChauEvent) LogFormat() string {
 	return fmt.Sprintf("chau from %s", c.From)
+}
+
+// ToLogEvent returns a structured log event for the logging system
+func (c *ChauEvent) ToLogEvent() *LogEvent {
+	return &LogEvent{
+		Category: CategoryPresence,
+		Type:     "goodbye",
+		Actor:    c.From,
+		Detail:   c.LogFormat(),
+	}
 }
 
 // PeerResponse contains identity information about a peer.
@@ -421,6 +445,10 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	logrus.Infof("📦 Stash storage limit: %d (memory mode: %s)", stashLimit, localNara.MemoryProfile.Mode)
 	// stashManager initialized after keypair is available
 
+	// Initialize log service
+	network.logService = NewLogService(localNara.Me.Name)
+	network.logService.RegisterWithLedger(localNara.SyncLedger)
+
 	network.Mqtt = network.initializeMQTT(network.mqttOnConnectHandler(), network.meName(), host, user, pass)
 
 	// Set up pruning priority for unknown naras (events from naras without public keys are pruned first)
@@ -436,6 +464,14 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 // Context returns the network's context, which is canceled when the network shuts down.
 func (network *Network) Context() context.Context {
 	return network.ctx
+}
+
+// SetVerboseLogging enables or disables verbose logging mode.
+// In verbose mode, all log events are printed immediately with full detail.
+func (network *Network) SetVerboseLogging(verbose bool) {
+	if network.logService != nil {
+		network.logService.SetVerbose(verbose)
+	}
 }
 
 // InitWorldJourney sets up the world journey handler with the given mesh transport
@@ -566,7 +602,10 @@ func (network *Network) resolvePublicKeyForNara(name string) []byte {
 		return network.getPublicKeyForNara(name)
 	}
 
-	logrus.Warnf("📡 Unable to resolve public key for %s", name)
+	// Log via LogService (batched)
+	if network.logService != nil {
+		network.logService.BatchPeerResolutionFailed(name)
+	}
 	return nil
 }
 
@@ -843,9 +882,7 @@ func (network *Network) processChauSyncEvents(events []SyncEvent) {
 			observation.Online = "OFFLINE"
 			observation.LastSeen = time.Now().Unix()
 			network.local.setObservation(c.From, observation)
-			if !network.local.isBooting() {
-				logrus.Infof("📡 %s: chau! (via gossip)", c.From)
-			}
+			// LogService handles logging via ledger watching
 			network.Buzz.increase(2)
 		}
 	}
@@ -876,7 +913,7 @@ func (network *Network) emitChauSyncEvent() {
 	if network.local.Projections != nil {
 		network.local.Projections.Trigger()
 	}
-	logrus.Infof("%s: chau! (gossip)", network.meName())
+	// LogService handles logging via ledger watching
 }
 
 // --- Peer Resolution Protocol ---
@@ -1265,6 +1302,11 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 	// Initialize unified stash service
 	network.initStashService()
 
+	// Start log service
+	if network.logService != nil {
+		network.logService.Start(network.ctx)
+	}
+
 	// Initialize mesh networking and world journey handler
 	if !network.ReadOnly {
 		if meshConfig != nil {
@@ -1523,8 +1565,8 @@ func (network *Network) handleNewspaperEvent(event NewspaperEvent) {
 		if nara.Version != "" && event.Status.Version != "" && nara.Version != event.Status.Version {
 			changes = append(changes, fmt.Sprintf("Version:%s→%s", nara.Version, event.Status.Version))
 		}
-		if len(changes) > 0 {
-			logrus.Debugf("📰 newspaper from %s: %s", event.From, strings.Join(changes, ", "))
+		if len(changes) > 0 && network.logService != nil {
+			network.logService.BatchNewspaper(event.From, strings.Join(changes, ", "))
 		}
 		nara.Status.setValuesFrom(event.Status)
 		nara.mu.Unlock()
@@ -1555,8 +1597,10 @@ func (network *Network) processHowdyEvents() {
 }
 
 func (network *Network) handleHowdyEvent(howdy HowdyEvent) {
-	// Log observed howdy
-	logrus.Infof("👀 Observed howdy: %s → %s (seq=%d, neighbors=%d)", howdy.From, howdy.To, howdy.Seq, len(howdy.Neighbors))
+	// Batch observed howdys for aggregated logging
+	if network.logService != nil {
+		network.logService.BatchObservedHowdy(howdy.From, howdy.To)
+	}
 
 	// Notify coordinator that we saw a howdy (for self-selection)
 	network.onHowdySeen(howdy)
@@ -1576,7 +1620,10 @@ func (network *Network) handleHowdyEvent(howdy HowdyEvent) {
 
 	// 2. If this howdy is for us, process it fully
 	if howdy.To == network.meName() {
-		logrus.Infof("📬 Received howdy for me from %s (seq=%d, neighbors=%d)", howdy.From, howdy.Seq, len(howdy.Neighbors))
+		// Log via LogService (batched)
+		if network.logService != nil {
+			network.logService.BatchHowdyForMe(howdy.From)
+		}
 
 		// Apply their observation about us (includes StartTime!)
 		network.collectStartTimeVote(howdy.You, howdy.Me.HostStats.Uptime)
@@ -1710,8 +1757,8 @@ func (network *Network) handleHeyThereEvent(event SyncEvent) {
 		}
 	}
 
-	logrus.Printf("%s says: hey there!", heyThere.From)
 	// The hey_there itself is an event they emitted - they prove themselves
+	// (LogService handles logging via ledger watching)
 	network.recordObservationOnlineNara(heyThere.From, event.Timestamp/1e9)
 
 	// Add to ledger for gossip propagation
@@ -2070,10 +2117,9 @@ func (network *Network) handleChauEvent(syncEvent SyncEvent) {
 	if previousState == "ONLINE" && !network.local.isBooting() && network.local.SyncLedger != nil {
 		obsEvent := NewObservationSocialSyncEvent(network.meName(), chau.From, ReasonOffline, network.local.Keypair)
 		network.local.SyncLedger.AddSocialEventFiltered(obsEvent, network.local.Me.Status.Personality)
-		logrus.Printf("observation: %s went offline", chau.From)
+		// LogService handles logging via ledger watching
 	}
 
-	logrus.Printf("%s: chau!", chau.From)
 	network.Buzz.increase(2)
 }
 
@@ -2108,7 +2154,7 @@ func (network *Network) Chau() {
 
 	// Emit new SyncEvent format for new naras
 	network.postEvent(topic, event)
-	logrus.Printf("%s: chau! (MQTT)", network.meName())
+	// LogService handles logging via ledger watching
 
 	// Also add to ledger for gossip propagation
 	if network.local.SyncLedger != nil {
@@ -2587,8 +2633,8 @@ func (network *Network) processLedgerResponses() {
 func (network *Network) handleLedgerResponse(resp LedgerResponse) {
 	// Merge received events into our ledger (with personality filtering)
 	added := network.local.SyncLedger.MergeSocialEventsFiltered(resp.Events, network.local.Me.Status.Personality)
-	if added > 0 {
-		logrus.Printf("📥 merged %d events from %s", added, resp.From)
+	if added > 0 && network.logService != nil {
+		network.logService.BatchGossipMerge(resp.From, added)
 	}
 }
 
@@ -2784,13 +2830,12 @@ func (network *Network) bootRecoveryViaMesh(online []string) {
 		if len(result.events) > 0 {
 			added, warned := network.MergeSyncEventsWithVerification(result.events)
 			totalMerged += added
-			verifiedStr := ""
-			if result.respVerified && warned == 0 {
-				verifiedStr = " ✓"
-			} else if warned > 0 {
-				verifiedStr = fmt.Sprintf(" ⚠%d", warned)
+			if added > 0 && network.logService != nil {
+				network.logService.BatchMeshSync(result.name, added)
 			}
-			logrus.Printf("📦 mesh sync from %s: received %d events, merged %d%s", result.name, len(result.events), added, verifiedStr)
+			if warned > 0 {
+				logrus.Debugf("📦 mesh sync from %s: %d events with %d verification warnings", result.name, added, warned)
+			}
 		} else if !result.success {
 			// Track failed slices for retry
 			failedSlices = append(failedSlices, result.sliceIndex)
@@ -2846,23 +2891,24 @@ func (network *Network) bootRecoveryViaMesh(online []string) {
 				if len(result.events) > 0 {
 					added, warned := network.MergeSyncEventsWithVerification(result.events)
 					totalMerged += added
-					verifiedStr := ""
-					if result.respVerified && warned == 0 {
-						verifiedStr = " ✓"
-					} else if warned > 0 {
-						verifiedStr = fmt.Sprintf(" ⚠%d", warned)
+					if added > 0 && network.logService != nil {
+						network.logService.BatchMeshSync(result.name, added)
 					}
-					logrus.Printf("📦 retry mesh sync from %s (slice %d): received %d events, merged %d%s", result.name, result.sliceIndex, len(result.events), added, verifiedStr)
+					if warned > 0 {
+						logrus.Debugf("📦 retry mesh sync from %s: %d events with %d verification warnings", result.name, added, warned)
+					}
 				} else {
-					logrus.Printf("📦 retry mesh sync from %s (slice %d) also failed", result.name, result.sliceIndex)
+					logrus.Debugf("📦 retry mesh sync from %s (slice %d) failed", result.name, result.sliceIndex)
 				}
 			}
 		} else {
-			logrus.Printf("📦 no available neighbors for retry, %d slices remain unsynced", len(failedSlices))
+			logrus.Debugf("📦 no available neighbors for retry, %d slices remain unsynced", len(failedSlices))
 		}
 	}
 
-	logrus.Printf("📦 boot recovery via mesh complete: merged %d events total", totalMerged)
+	if network.logService != nil {
+		network.logService.Info(CategoryMesh, "boot recovery complete: %d events total", totalMerged)
+	}
 
 	// Seed AvgPingRTT from recovered ping observations
 	network.seedAvgPingRTTFromHistory()
@@ -2888,7 +2934,7 @@ func (network *Network) fetchSyncEventsFromMesh(client *http.Client, meshIP, nam
 
 	// Make HTTP request to neighbor's mesh endpoint
 	url := fmt.Sprintf("http://%s:%d/events/sync", meshIP, DefaultMeshPort)
-	logrus.Infof("🌐 HTTP POST %s (requesting %d events from %s)", url, maxEvents, name)
+	// Boot sync requests are batched via the summary log, not individual lines
 	req, err := http.NewRequest("POST", url, bytes.NewReader(jsonBody))
 	if err != nil {
 		logrus.Warnf("📦 failed to create mesh sync request: %v", err)
@@ -3670,8 +3716,8 @@ func (network *Network) exchangeZine(targetName string, myZine *Zine) {
 
 	// Merge their events into our ledger
 	added, _ := network.MergeSyncEventsWithVerification(theirZine.Events)
-	if added > 0 {
-		logrus.Infof("📰 Merged %d events from %s's zine", added, targetName)
+	if added > 0 && network.logService != nil {
+		network.logService.BatchGossipMerge(targetName, added)
 	}
 
 	// Mark peer as online - successful zine exchange proves they're reachable

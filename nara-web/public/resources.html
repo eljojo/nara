@@ -223,7 +223,6 @@
       .service-row {
         display: flex;
         align-items: center;
-        justify-content: space-between;
         gap: 8px;
         font-family: "IBM Plex Mono", monospace;
         font-size: 11px;
@@ -328,7 +327,7 @@
             <th>mem sys <span class="hint" title="Total memory the Go runtime has asked the OS for. Can stay high even after alloc drops.">?</span></th>
             <th>heap / stack <span class="hint" title="Heap space reserved (HeapSys) vs goroutine stack space reserved (StackSys). Large StackSys + high goroutines suggests many idle stacks.">?</span></th>
             <th>event store <span class="hint" title="Total events in SyncLedger, plus critical events. If total grows without pruning, memory will climb.">?</span></th>
-            <th>services <span class="hint" title="Top event services by count from SyncLedger. Skew can hint at noisy producers.">?</span></th>
+            <th>events by type <span class="hint" title="Event counts per type in the SyncLedger, including critical events.">?</span></th>
           </tr>
         </thead>
         <tbody id="tableBody"></tbody>
@@ -411,21 +410,29 @@
         tableBody.innerHTML = filtered.map(n => {
           const stats = n.HostStats || {};
           const services = n.EventStoreByService || {};
-          const serviceEntries = Object.entries(services)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 4);
-          const maxService = serviceEntries.reduce((max, entry) => Math.max(max, entry[1]), 1);
+          const eventTypes = [
+            { key: 'observation', label: 'observation' },
+            { key: 'ping', label: 'ping' },
+            { key: 'hey-there', label: 'hey-there' },
+            { key: 'chau', label: 'chau' },
+            { key: 'social', label: 'social' },
+            { key: 'critical', label: 'critical', source: 'critical' },
+          ];
+          const eventRows = eventTypes.map(type => {
+            const count = type.source === 'critical'
+              ? safeNum(n.EventStoreCritical)
+              : safeNum(services[type.key]);
+            return { label: type.label, count };
+          });
 
           const goroutines = safeNum(stats.NumGoroutines);
           const cpu = safeNum(stats.ProcCPUPercent);
           const memAlloc = safeNum(stats.MemAllocMB);
           const memSys = safeNum(stats.MemSysMB);
 
-          const serviceRows = serviceEntries.map(([name, count]) => `
+          const serviceRows = eventRows.map(row => `
             <div class="service-row">
-              <span>${name}</span>
-              <span>${count}</span>
-              <div class="bar"><span style="width:${Math.min(100, (count / maxService) * 100)}%"></span></div>
+              <span>${row.label}=${row.count}</span>
             </div>
           `).join('');
 

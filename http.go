@@ -5,7 +5,6 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/fs"
 	"net"
 	"net/http"
@@ -30,53 +29,13 @@ var pingLogger = &pingLoggerState{}
 // loggingMiddleware wraps an http.HandlerFunc with request/response logging
 func (network *Network) loggingMiddleware(path string, handler http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-
-		// Try to identify the caller
-		caller := r.Header.Get("X-Nara-From")
-		if caller == "" {
-			caller = r.RemoteAddr
-		}
-
-		// For POST requests, peek at the body
-		var bodySummary string
-		if r.Method == "POST" && r.Body != nil {
-			bodyBytes, _ := io.ReadAll(r.Body)
-			r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes)) // restore body
-
-			// Summarize based on endpoint
-			if path == "/events/sync" {
-				var req SyncRequest
-				if json.Unmarshal(bodyBytes, &req) == nil {
-					bodySummary = fmt.Sprintf("from=%s since=%s services=%v max=%d",
-						req.From,
-						time.Unix(req.SinceTime, 0).Format("15:04:05"),
-						req.Services,
-						req.MaxEvents)
-				}
-			} else if path == "/api/stash/update" {
-				// Don't log stash content, just size
-				bodySummary = fmt.Sprintf("(%d bytes)", len(bodyBytes))
-			} else if len(bodyBytes) > 0 && len(bodyBytes) < 200 {
-				bodySummary = string(bodyBytes)
-			} else if len(bodyBytes) >= 200 {
-				bodySummary = fmt.Sprintf("(%d bytes)", len(bodyBytes))
-			}
-		}
-
 		// Wrap response writer to capture status
 		wrapped := &responseLogger{ResponseWriter: w, status: 200}
 		handler(wrapped, r)
 
-		duration := time.Since(start)
-
-		// Log the request
-		if bodySummary != "" {
-			logrus.Infof("📨 %s %s from %s [%s] → %d (%v)",
-				r.Method, path, caller, bodySummary, wrapped.status, duration.Round(time.Millisecond))
-		} else {
-			logrus.Infof("📨 %s %s from %s → %d (%v)",
-				r.Method, path, caller, wrapped.status, duration.Round(time.Millisecond))
+		// Batch log the request (aggregated every 3s by LogService)
+		if network.logService != nil {
+			network.logService.BatchHTTP(r.Method, path, wrapped.status)
 		}
 	}
 }
@@ -347,29 +306,29 @@ func (network *Network) httpProfileJsonHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	payload := map[string]interface{}{
-		"id":                   id,
-		"name":                 name,
-		"flair":                status.Flair,
-		"license_plate":        status.LicensePlate,
-		"aura":                 status.Aura,
-		"personality":          status.Personality,
-		"chattiness":           status.Chattiness,
-		"buzz":                 status.Buzz,
-		"memory_mode":          status.MemoryMode,
-		"memory_budget_mb":     status.MemoryBudgetMB,
-		"memory_max_events":    status.MemoryMaxEvents,
-		"mesh_enabled":         status.MeshEnabled,
-		"mesh_ip":              status.MeshIP,
-		"transport_mode":       status.TransportMode,
-		"trend":                status.Trend,
-		"trend_emoji":          status.TrendEmoji,
-		"host_stats":           status.HostStats,
-		"online":               obs.Online,
-		"last_seen":            obs.LastSeen,
-		"last_restart":         obs.LastRestart,
-		"start_time":           obs.StartTime,
-		"restarts":             obs.Restarts,
-		"observations":         observations,
+		"id":                     id,
+		"name":                   name,
+		"flair":                  status.Flair,
+		"license_plate":          status.LicensePlate,
+		"aura":                   status.Aura,
+		"personality":            status.Personality,
+		"chattiness":             status.Chattiness,
+		"buzz":                   status.Buzz,
+		"memory_mode":            status.MemoryMode,
+		"memory_budget_mb":       status.MemoryBudgetMB,
+		"memory_max_events":      status.MemoryMaxEvents,
+		"mesh_enabled":           status.MeshEnabled,
+		"mesh_ip":                status.MeshIP,
+		"transport_mode":         status.TransportMode,
+		"trend":                  status.Trend,
+		"trend_emoji":            status.TrendEmoji,
+		"host_stats":             status.HostStats,
+		"online":                 obs.Online,
+		"last_seen":              obs.LastSeen,
+		"last_restart":           obs.LastRestart,
+		"start_time":             obs.StartTime,
+		"restarts":               obs.Restarts,
+		"observations":           observations,
 		"event_store_by_service": eventStoreByService,
 		"event_store_total":      eventStoreTotal,
 		"event_store_critical":   eventStoreCritical,
@@ -989,9 +948,9 @@ func (network *Network) httpGossipZineHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	// Merge their events into our ledger
-	added, warned := network.MergeSyncEventsWithVerification(theirZine.Events)
-	if added > 0 {
-		logrus.Debugf("📰 Received zine from %s: merged %d events (%d warned)", theirZine.From, added, warned)
+	added, _ := network.MergeSyncEventsWithVerification(theirZine.Events)
+	if added > 0 && network.logService != nil {
+		network.logService.BatchGossipMerge(theirZine.From, added)
 	}
 
 	// Mark sender as online - receiving a zine proves they're reachable
@@ -1085,12 +1044,10 @@ func (network *Network) httpDMHandler(w http.ResponseWriter, r *http.Request) {
 		network.recordObservationOnlineNara(event.Emitter, event.Timestamp/1e9)
 	}
 
-	// Format event content for logging
-	contentStr := "unknown event"
-	if payload := event.Payload(); payload != nil {
-		contentStr = payload.LogFormat()
+	// Log via LogService (batched) - skip for social events since the ledger listener handles teases
+	if network.logService != nil && event.Service != ServiceSocial {
+		network.logService.BatchDMReceived(event.Emitter)
 	}
-	logrus.Infof("📬 Received DM from %s: %s (added=%v)", event.Emitter, contentStr, added)
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -1110,15 +1067,10 @@ func (network *Network) httpPingHandler(w http.ResponseWriter, r *http.Request) 
 		caller = r.RemoteAddr
 	}
 
-	pingLogger.mu.Lock()
-	pingLogger.pingers = append(pingLogger.pingers, caller)
-	pingLogger.count++
-	if pingLogger.count >= 10 {
-		logrus.Infof("🏓 received 10 pings from: %v", pingLogger.pingers)
-		pingLogger.count = 0
-		pingLogger.pingers = nil
+	// Log via LogService (batched)
+	if network.logService != nil {
+		network.logService.BatchPingsReceived(caller)
 	}
-	pingLogger.mu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(map[string]interface{}{
