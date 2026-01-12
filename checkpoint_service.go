@@ -164,6 +164,12 @@ func (s *CheckpointService) maintenanceLoop() {
 
 // checkAndPropose checks if 24h have passed and proposes a checkpoint if needed
 func (s *CheckpointService) checkAndPropose() {
+	// Don't propose until boot recovery is complete - we need accurate derived values
+	if !s.network.IsBootRecoveryComplete() {
+		logrus.Debug("checkpoint: skipping proposal - boot recovery not complete, opinions still forming")
+		return
+	}
+
 	s.lastCheckpointTimeMu.RLock()
 	lastCheckpoint := s.lastCheckpointTime
 	s.lastCheckpointTimeMu.RUnlock()
@@ -286,6 +292,12 @@ func (s *CheckpointService) proposeCheckpointRound(round int, consensusValues *r
 func (s *CheckpointService) HandleProposal(proposal *CheckpointProposal) {
 	// Ignore our own proposals
 	if proposal.Subject == s.local.Me.Name {
+		return
+	}
+
+	// Don't vote until boot recovery is complete - we need accurate derived values
+	if !s.network.IsBootRecoveryComplete() {
+		logrus.Debugf("checkpoint: skipping vote for %s - boot recovery not complete, opinions still forming", proposal.Subject)
 		return
 	}
 

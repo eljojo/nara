@@ -475,6 +475,20 @@ func (network *Network) Context() context.Context {
 	return network.ctx
 }
 
+// IsBootRecoveryComplete returns true if boot recovery has finished and opinions are formed.
+// This should be checked before participating in checkpoint consensus to ensure accurate values.
+func (network *Network) IsBootRecoveryComplete() bool {
+	if network.bootRecoveryDone == nil {
+		return false
+	}
+	select {
+	case <-network.bootRecoveryDone:
+		return true
+	default:
+		return false
+	}
+}
+
 // SetVerboseLogging enables or disables verbose logging mode.
 // In verbose mode, all log events are printed immediately with full detail.
 func (network *Network) SetVerboseLogging(verbose bool) {
