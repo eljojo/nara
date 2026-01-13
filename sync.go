@@ -111,12 +111,17 @@ func (s *SeenEvent) LogFormat() string {
 
 // ToLogEvent returns a log event for vouching (shown in verbose mode)
 func (s *SeenEvent) ToLogEvent() *LogEvent {
+	subject := s.Subject
+	via := s.Via
 	return &LogEvent{
 		Category: CategoryPresence,
 		Type:     "seen",
 		Actor:    s.Observer,
 		Target:   s.Subject,
-		Detail:   fmt.Sprintf("👀 vouched for %s (%s)", s.Subject, s.Via),
+		Detail:   via, // Use via as detail for grouping
+		GroupFormat: func(actors string) string {
+			return fmt.Sprintf("👀 %s vouched for %s (%s)", actors, subject, via)
+		},
 	}
 }
 
@@ -192,30 +197,42 @@ func (p *SocialEventPayload) LogFormat() string {
 func (p *SocialEventPayload) ToLogEvent() *LogEvent {
 	switch p.Type {
 	case "tease":
-		msg := TeaseMessage(p.Reason, p.Actor, p.Target)
+		target := p.Target
+		reason := p.Reason
 		return &LogEvent{
 			Category: CategorySocial,
 			Type:     "tease",
 			Actor:    p.Actor,
 			Target:   p.Target,
-			Detail:   msg,   // Store the message in Detail for batch formatting
-			Instant:  false, // Batch teases together
+			Detail:   p.Reason, // Store reason as detail for grouping key
+			Instant:  false,    // Batch teases together
+			GroupFormat: func(actors string) string {
+				return fmt.Sprintf("😈 %s teased %s (%s)", actors, target, reason)
+			},
 		}
 	case "observed":
+		target := p.Target
+		reason := p.Reason
 		return &LogEvent{
 			Category: CategorySocial,
 			Type:     "observed",
 			Actor:    p.Actor,
 			Target:   p.Target,
-			Detail:   fmt.Sprintf("%s observed %s: %s", p.Actor, p.Target, p.Reason),
+			Detail:   p.Reason,
+			GroupFormat: func(actors string) string {
+				return fmt.Sprintf("👀 %s observed %s: %s", actors, target, reason)
+			},
 		}
 	case "gossip":
+		target := p.Target
 		return &LogEvent{
 			Category: CategoryGossip,
 			Type:     "social-gossip",
 			Actor:    p.Actor,
 			Target:   p.Target,
-			Detail:   fmt.Sprintf("%s gossiped about %s", p.Actor, p.Target),
+			GroupFormat: func(actors string) string {
+				return fmt.Sprintf("🗣️ %s gossiped about %s", actors, target)
+			},
 		}
 	}
 	return nil

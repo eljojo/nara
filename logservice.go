@@ -38,6 +38,21 @@ type LogEvent struct {
 	Detail    string // optional extra info
 	Instant   bool   // bypass batching, log immediately
 	Timestamp time.Time
+
+	// GroupFormat is an optional formatter for grouped verbose logs.
+	// If set, this function is called instead of the default formatGroupedMessage switch.
+	// The actors parameter is a pre-formatted string like "alice and bob" or "alice, bob, and carol".
+	GroupFormat func(actors string) string
+}
+
+// verboseGroup holds aggregated events for verbose mode logging
+type verboseGroup struct {
+	eventType   string
+	actors      []string
+	target      string
+	detail      string
+	timer       *time.Timer
+	groupFormat func(actors string) string // Optional custom formatter from event
 }
 
 // LogService provides unified logging with batching and event watching.
@@ -63,6 +78,10 @@ type LogService struct {
 	verbose              bool // When true, log everything immediately with full detail
 	suppressLedgerEvents bool // When true, suppress events from ledger listener (during boot recovery)
 
+	// Verbose mode aggregation - auto-groups similar events
+	verboseBuffer   map[string]*verboseGroup // Key: "type\x00target\x00detail", Value: group data
+	verboseBufferMu sync.Mutex
+
 	// Lifecycle
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -76,6 +95,7 @@ func NewLogService(localName string) *LogService {
 		events:        make(chan LogEvent, 100),
 		batch:         make(map[string][]LogEvent),
 		batchInterval: defaultBatchInterval,
+		verboseBuffer: make(map[string]*verboseGroup),
 	}
 }
 
@@ -165,20 +185,140 @@ func (ls *LogService) processEvents() {
 	}
 }
 
-// logVerbose prints an event immediately with full detail (for verbose mode)
+// logVerbose handles verbose mode logging with smart auto-grouping.
+// Events with the same type+target+detail are grouped and actors are aggregated.
+// After 1 second of no new events for a group, it's flushed and logged.
 func (ls *LogService) logVerbose(event LogEvent) {
-	msg := ls.formatVerboseMessage(event)
+	// Events marked instant or without an actor bypass grouping
+	if event.Instant || event.Actor == "" {
+		msg := ls.formatVerboseMessage(event)
+		logrus.Debugf("%s", msg)
+		return
+	}
+
+	// Build grouping key: type + target + detail
+	key := event.Type + "\x00" + event.Target + "\x00" + event.Detail
+
+	ls.verboseBufferMu.Lock()
+	defer ls.verboseBufferMu.Unlock()
+
+	group, exists := ls.verboseBuffer[key]
+	if !exists {
+		group = &verboseGroup{
+			eventType:   event.Type,
+			target:      event.Target,
+			detail:      event.Detail,
+			actors:      []string{},
+			groupFormat: event.GroupFormat,
+		}
+		ls.verboseBuffer[key] = group
+	} else if event.GroupFormat != nil && group.groupFormat == nil {
+		// Use the first non-nil formatter we see
+		group.groupFormat = event.GroupFormat
+	}
+
+	// Add actor if not already present
+	actorExists := false
+	for _, a := range group.actors {
+		if a == event.Actor {
+			actorExists = true
+			break
+		}
+	}
+	if !actorExists {
+		group.actors = append(group.actors, event.Actor)
+	}
+
+	// Reset timer
+	if group.timer != nil {
+		group.timer.Stop()
+	}
+	group.timer = time.AfterFunc(1*time.Second, func() {
+		ls.flushVerboseGroup(key)
+	})
+}
+
+// flushVerboseGroup logs an aggregated group of events
+func (ls *LogService) flushVerboseGroup(key string) {
+	ls.verboseBufferMu.Lock()
+	group, exists := ls.verboseBuffer[key]
+	if !exists {
+		ls.verboseBufferMu.Unlock()
+		return
+	}
+	delete(ls.verboseBuffer, key)
+	ls.verboseBufferMu.Unlock()
+
+	if len(group.actors) == 0 {
+		return
+	}
+
+	// Format the log message with aggregated actors
+	actorsList := formatActorsList(group.actors)
+
+	var msg string
+	if group.groupFormat != nil {
+		// Use custom formatter provided by the event type
+		msg = group.groupFormat(actorsList)
+	} else {
+		// Fall back to default formatting
+		msg = ls.formatGroupedMessage(group.eventType, actorsList, group.target, group.detail)
+	}
 	logrus.Debugf("%s", msg)
+}
+
+// formatActorsList formats a list of actors nicely
+func formatActorsList(actors []string) string {
+	switch len(actors) {
+	case 1:
+		return actors[0]
+	case 2:
+		return actors[0] + " and " + actors[1]
+	case 3, 4:
+		return strings.Join(actors[:len(actors)-1], ", ") + ", and " + actors[len(actors)-1]
+	default:
+		return strings.Join(actors[:3], ", ") + fmt.Sprintf(", and %d others", len(actors)-3)
+	}
+}
+
+// formatGroupedMessage creates a message for aggregated events
+func (ls *LogService) formatGroupedMessage(eventType, actors, target, detail string) string {
+	switch eventType {
+	case "tease":
+		return fmt.Sprintf("😈 %s teased %s (%s)", actors, target, detail)
+	case "barrio-movement":
+		return fmt.Sprintf("🏘️  %s moved barrio: %s", actors, detail)
+	case "newspaper":
+		if detail != "" {
+			return fmt.Sprintf("📰 %s posted newspapers (%s)", actors, detail)
+		}
+		return fmt.Sprintf("📰 %s posted newspapers", actors)
+	case "gossip-merge":
+		return fmt.Sprintf("📰 merged events from %s", actors)
+	case "howdy-for-me":
+		return fmt.Sprintf("📬 got howdy from %s", actors)
+	case "dm-received":
+		return fmt.Sprintf("📬 got DM from %s", actors)
+	case "ping-received":
+		return fmt.Sprintf("🏓 got ping from %s", actors)
+	case "discovery":
+		return fmt.Sprintf("📡 discovered %s on mesh", actors)
+	default:
+		// Generic format
+		if target != "" && detail != "" {
+			return fmt.Sprintf("• %s → %s: %s", actors, target, detail)
+		} else if target != "" {
+			return fmt.Sprintf("• %s → %s", actors, target)
+		} else if detail != "" {
+			return fmt.Sprintf("• %s: %s", actors, detail)
+		}
+		return fmt.Sprintf("• %s", actors)
+	}
 }
 
 // formatVerboseMessage creates a descriptive message for verbose mode
 func (ls *LogService) formatVerboseMessage(event LogEvent) string {
-	// Use Detail if provided (ledger events use payload.LogFormat())
-	if event.Detail != "" {
-		return event.Detail
-	}
-
-	// Type-specific formatting for manual batch events (not from ledger)
+	// Type-specific formatting (handle batched event types properly in verbose mode)
 	switch event.Type {
 	case "gossip-merge":
 		return fmt.Sprintf("📰 merged %d events from %s", event.Count, event.Actor)
@@ -196,7 +336,21 @@ func (ls *LogService) formatVerboseMessage(event LogEvent) string {
 		return fmt.Sprintf("⚠️ couldn't resolve peer %s", event.Actor)
 	case "newspaper":
 		return fmt.Sprintf("📰 got newspaper from %s", event.Actor)
+	case "barrio-movement":
+		// Format: "🏘️  sand moved barrio: sand→ufo 🛸 (via grid, grid=174)"
+		return fmt.Sprintf("🏘️  %s moved barrio: %s", event.Actor, event.Detail)
+	case "tease":
+		// Format: "😈 alice teased bob (sup)"
+		if event.Detail != "" {
+			return fmt.Sprintf("😈 %s teased %s (%s)", event.Actor, event.Target, event.Detail)
+		}
+		return fmt.Sprintf("😈 %s teased %s", event.Actor, event.Target)
 	default:
+		// Use Detail if provided (ledger events use payload.LogFormat())
+		if event.Detail != "" {
+			return event.Detail
+		}
+
 		// Fallback to generic format
 		emoji := categoryEmoji[event.Category]
 		if emoji == "" {
@@ -748,6 +902,9 @@ func (ls *LogService) BatchGossipMerge(from string, eventCount int) {
 		Type:     "gossip-merge",
 		Actor:    from,
 		Count:    eventCount,
+		GroupFormat: func(actors string) string {
+			return fmt.Sprintf("📰 merged events from %s", actors)
+		},
 	})
 }
 
@@ -758,6 +915,9 @@ func (ls *LogService) BatchMeshSync(from string, eventCount int) {
 		Type:     "mesh-sync",
 		Actor:    from,
 		Count:    eventCount,
+		GroupFormat: func(actors string) string {
+			return fmt.Sprintf("📦 synced events from %s", actors)
+		},
 	})
 }
 
@@ -767,6 +927,9 @@ func (ls *LogService) BatchHowdyForMe(from string) {
 		Category: CategoryPresence,
 		Type:     "howdy-for-me",
 		Actor:    from,
+		GroupFormat: func(actors string) string {
+			return fmt.Sprintf("📬 got howdy from %s", actors)
+		},
 	})
 }
 
@@ -776,6 +939,9 @@ func (ls *LogService) BatchDMReceived(from string) {
 		Category: CategorySocial,
 		Type:     "dm-received",
 		Actor:    from,
+		GroupFormat: func(actors string) string {
+			return fmt.Sprintf("📬 got DM from %s", actors)
+		},
 	})
 }
 
@@ -785,16 +951,23 @@ func (ls *LogService) BatchDiscovery(name string) {
 		Category: CategoryMesh,
 		Type:     "discovery",
 		Actor:    name,
+		GroupFormat: func(actors string) string {
+			return fmt.Sprintf("📡 discovered %s on mesh", actors)
+		},
 	})
 }
 
 // BatchObservedHowdy records an observed howdy for batched output
 func (ls *LogService) BatchObservedHowdy(observer, target string) {
+	t := target
 	ls.Push(LogEvent{
 		Category: CategoryPresence,
 		Type:     "observed-howdy",
 		Actor:    observer,
 		Target:   target,
+		GroupFormat: func(actors string) string {
+			return fmt.Sprintf("👀 %s observed howdy from %s", actors, t)
+		},
 	})
 }
 
@@ -804,6 +977,9 @@ func (ls *LogService) BatchPeerResolutionFailed(name string) {
 		Category: CategoryMesh,
 		Type:     "peer-resolution-failed",
 		Actor:    name,
+		GroupFormat: func(actors string) string {
+			return fmt.Sprintf("⚠️ couldn't resolve peer %s", actors)
+		},
 	})
 }
 
@@ -839,11 +1015,18 @@ func (ls *LogService) BatchConsensus(subject, consensusType string, observers in
 
 // BatchNewspaper records a received newspaper for batched output
 func (ls *LogService) BatchNewspaper(from string, changes string) {
+	c := changes
 	ls.Push(LogEvent{
 		Category: CategoryGossip,
 		Type:     "newspaper",
 		Actor:    from,
 		Detail:   changes,
+		GroupFormat: func(actors string) string {
+			if c != "" {
+				return fmt.Sprintf("📰 %s posted newspapers (%s)", actors, c)
+			}
+			return fmt.Sprintf("📰 %s posted newspapers", actors)
+		},
 	})
 }
 
@@ -853,6 +1036,9 @@ func (ls *LogService) BatchPingsReceived(from string) {
 		Category: CategoryMesh,
 		Type:     "ping-received",
 		Actor:    from,
+		GroupFormat: func(actors string) string {
+			return fmt.Sprintf("🏓 got ping from %s", actors)
+		},
 	})
 }
 
@@ -868,12 +1054,16 @@ func (ls *LogService) BatchBootInfo(key, value string) {
 
 // BatchBarrioMovement records a barrio movement for batched output
 func (ls *LogService) BatchBarrioMovement(name, oldCluster, newCluster, emoji, method string, gridSize float64) {
+	detail := fmt.Sprintf("%s→%s %s (via %s, grid=%.0f)", oldCluster, newCluster, emoji, method, gridSize)
 	ls.Push(LogEvent{
 		Category: CategorySystem,
 		Type:     "barrio-movement",
 		Actor:    name,
 		Target:   oldCluster,
-		Detail:   fmt.Sprintf("%s→%s %s (via %s, grid=%.0f)", oldCluster, newCluster, emoji, method, gridSize),
+		Detail:   detail,
+		GroupFormat: func(actors string) string {
+			return fmt.Sprintf("🏘️  %s moved barrio: %s", actors, detail)
+		},
 	})
 }
 

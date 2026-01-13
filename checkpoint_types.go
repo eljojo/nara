@@ -96,12 +96,22 @@ func (p *CheckpointEventPayload) LogFormat() string {
 
 // ToLogEvent returns a structured log event for checkpoint creation
 func (p *CheckpointEventPayload) ToLogEvent() *LogEvent {
+	subject := p.Subject
+	restarts := p.Observation.Restarts
 	return &LogEvent{
 		Category: CategoryPresence,
 		Type:     "checkpoint",
-		Actor:    p.GetActor(),
+		Actor:    p.GetActor(), // Returns "" since VoterIDs are IDs not names
 		Target:   p.Subject,
-		Detail:   fmt.Sprintf("📸 checkpoint for %s (restarts: %d)", p.Subject, p.Observation.Restarts),
+		Detail:   fmt.Sprintf("restarts: %d", p.Observation.Restarts),
+		GroupFormat: func(actors string) string {
+			// Note: actors will usually be empty since GetActor() returns ""
+			// but provide format anyway for consistency
+			if actors == "" {
+				return fmt.Sprintf("📸 checkpoint for %s (restarts: %d)", subject, restarts)
+			}
+			return fmt.Sprintf("📸 %s created checkpoint for %s (restarts: %d)", actors, subject, restarts)
+		},
 	}
 }
 

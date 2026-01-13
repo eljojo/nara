@@ -14,6 +14,7 @@ import (
 
 // TestHowdy_StartTimeRecovery tests the scenario where a nara goes offline
 // and comes back, recovering its original start time via howdy responses
+// TODO(flakey)
 func TestHowdy_StartTimeRecovery(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -185,6 +186,7 @@ func TestHowdy_NeighborDiscovery(t *testing.T) {
 }
 
 // TestHowdy_SelfSelection tests that only ~10 naras respond to a hey_there
+// TODO(flakey)
 func TestHowdy_SelfSelection(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")

@@ -172,6 +172,7 @@ func TestNewspaperEvent_VerifyWithRawStatusJSON(t *testing.T) {
 	}
 }
 
+// TODO(flakey)
 func TestChauEvent_SignAndVerify(t *testing.T) {
 	t.Parallel()
 	// Create a keypair from a test soul

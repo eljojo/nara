@@ -280,6 +280,9 @@ func (h *HeyThereEvent) ToLogEvent() *LogEvent {
 		Actor:    h.From,
 		Target:   h.From,
 		Detail:   h.LogFormat(),
+		GroupFormat: func(actors string) string {
+			return fmt.Sprintf("👋 %s said hey-there", actors)
+		},
 	}
 }
 
@@ -369,6 +372,9 @@ func (c *ChauEvent) ToLogEvent() *LogEvent {
 		Type:     "goodbye",
 		Actor:    c.From,
 		Detail:   c.LogFormat(),
+		GroupFormat: func(actors string) string {
+			return fmt.Sprintf("💨 %s bounced", actors)
+		},
 	}
 }
 
