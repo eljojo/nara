@@ -2,7 +2,6 @@ package nara
 
 import (
 	"encoding/json"
-	"math/rand"
 	"net/http"
 	"sync"
 	"time"
@@ -526,11 +525,11 @@ func (network *Network) recordObservationOnlineNara(name string, timestamp int64
 
 		// Emit restart observation event
 		if !network.local.isBooting() && network.local.SyncLedger != nil && name != network.meName() {
-			event := NewRestartObservationEvent(network.meName(), name, observation.StartTime, observation.Restarts)
-			if network.local.SyncLedger.AddEventWithDedup(event) && network.local.Projections != nil {
-				network.local.Projections.Trigger()
+			if network.testObservationDelay != nil && *network.testObservationDelay == 0 {
+				network.reportRestartWithDelay(name, observation.StartTime, observation.Restarts)
+			} else {
+				go network.reportRestartWithDelay(name, observation.StartTime, observation.Restarts)
 			}
-			network.broadcastSSE(event)
 		}
 	}
 
@@ -718,36 +717,45 @@ func (obs NaraObservation) isOnline() bool {
 	return obs.Online == "ONLINE"
 }
 
+func (network *Network) hasRecentObservationEvent(subject string, window time.Duration, match func(*ObservationEventPayload) bool) *ObservationEventPayload {
+	if network.local.SyncLedger == nil {
+		return nil
+	}
+
+	recentCutoff := time.Now().Add(-window).UnixNano()
+	events := network.local.SyncLedger.GetObservationEventsAbout(subject)
+	for _, e := range events {
+		if e.Timestamp <= recentCutoff || e.Observation == nil {
+			continue
+		}
+		if match(e.Observation) {
+			return e.Observation
+		}
+	}
+
+	return nil
+}
+
 // reportMissingWithDelay implements "if no one says anything, I guess I'll say something"
 // Waits a random delay, then checks if another observer already reported the subject as missing.
 // If yes, stays silent. If no, emits the MISSING event.
 // To read more, see: https://meshtastic.org/docs/overview/mesh-algo/#broadcasts-using-managed-flooding
 func (network *Network) reportMissingWithDelay(subject string) {
 	// Random delay 0-10 seconds to stagger reports
-	delay := time.Duration(rand.Intn(10)) * time.Second
-
-	select {
-	case <-time.After(delay):
-		// Continue to check and potentially report
-	case <-network.ctx.Done():
-		// Shutdown initiated, don't report
+	if !network.waitWithJitter(10*time.Second, network.testObservationDelay) {
 		return
 	}
 
 	// Check if another observer already reported this subject as MISSING/offline
 	// Look for recent events (within last 15 seconds)
-	recentCutoff := time.Now().Add(-15 * time.Second).UnixNano()
-
-	events := network.local.SyncLedger.GetObservationEventsAbout(subject)
-	for _, e := range events {
-		// Check if this is a recent MISSING event from another observer
-		if e.Timestamp > recentCutoff &&
-			e.Observation != nil &&
-			e.Observation.Observer != network.meName() &&
-			(e.Observation.Type == "status-change" && e.Observation.OnlineState == "MISSING") {
-			logrus.Debugf("🤐 Not reporting %s MISSING - %s already reported it", subject, e.Observation.Observer)
-			return
-		}
+	recent := network.hasRecentObservationEvent(subject, 15*time.Second, func(obs *ObservationEventPayload) bool {
+		return obs.Observer != network.meName() &&
+			obs.Type == "status-change" &&
+			obs.OnlineState == "MISSING"
+	})
+	if recent != nil {
+		logrus.Debugf("🤐 Not reporting %s MISSING - %s already reported it", subject, recent.Observer)
+		return
 	}
 
 	// Final verification: try pinging before broadcasting they're missing
@@ -764,6 +772,29 @@ func (network *Network) reportMissingWithDelay(subject string) {
 	}
 	network.broadcastSSE(event)
 	// LogService handles logging via ledger watching
+}
+
+// reportRestartWithDelay implements "if no one says anything, I guess I'll say something"
+// Waits a random delay, then checks if another observer already reported the subject restart.
+// If yes, stays silent. If no, emits the restart event.
+func (network *Network) reportRestartWithDelay(subject string, startTime, restartNum int64) {
+	if !network.waitWithJitter(5*time.Second, network.testObservationDelay) {
+		return
+	}
+
+	recent := network.hasRecentObservationEvent(subject, 15*time.Second, func(obs *ObservationEventPayload) bool {
+		return obs.Observer != network.meName() && obs.Type == "restart"
+	})
+	if recent != nil {
+		logrus.Debugf("🤐 Not reporting %s restart - %s already reported it", subject, recent.Observer)
+		return
+	}
+
+	event := NewRestartObservationEvent(network.meName(), subject, startTime, restartNum)
+	if network.local.SyncLedger.AddEventWithDedup(event) && network.local.Projections != nil {
+		network.local.Projections.Trigger()
+	}
+	network.broadcastSSE(event)
 }
 
 // verifyOnlineWithPing attempts to ping a nara before marking them as offline/missing.

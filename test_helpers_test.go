@@ -59,6 +59,8 @@ func testLocalNara(name string) *LocalNara {
 	if err != nil {
 		panic(err)
 	}
+	delay := time.Duration(0)
+	ln.Network.testObservationDelay = &delay
 	return ln
 }
 
@@ -74,6 +76,8 @@ func testLocalNaraWithParams(name string, chattiness int, ledgerCapacity int) *L
 	if err != nil {
 		panic(err)
 	}
+	delay := time.Duration(0)
+	ln.Network.testObservationDelay = &delay
 	return ln
 }
 

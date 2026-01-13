@@ -103,6 +103,7 @@ type Network struct {
 	testHTTPClient        *http.Client                    // Override HTTP client for testing
 	testMeshURLs          map[string]string               // Override mesh URLs for testing (nara name -> URL)
 	testTeaseDelay        *time.Duration                  // Override tease delay for testing (nil = use default 0-5s random)
+	testObservationDelay  *time.Duration                  // Override observation debounce delay for testing
 	testAnnounceCount     int                             // Counter for announce() calls (for testing)
 	testSkipHeyThereSleep bool                            // Skip the 1s sleep in handleHeyThereEvent (for testing)
 	testSkipJitter        bool                            // Skip jitter delays in hey_there for faster tests
@@ -2614,6 +2615,26 @@ func (network *Network) Tease(target, reason string) bool {
 	return true
 }
 
+func (network *Network) waitWithJitter(maxDelay time.Duration, override *time.Duration) bool {
+	delay := time.Duration(0)
+	if override != nil {
+		delay = *override
+	} else if maxDelay > 0 {
+		delay = time.Duration(rand.Int63n(int64(maxDelay)))
+	}
+
+	if delay <= 0 {
+		return true
+	}
+
+	select {
+	case <-time.After(delay):
+		return true
+	case <-network.ctx.Done():
+		return false
+	}
+}
+
 // TeaseWithDelay implements "if no one says anything, I guess I'll say something" for teasing.
 // Waits a random delay, then checks if another nara already teased the target for the same reason.
 // If yes, stays silent. If no, proceeds with the tease.
@@ -2624,18 +2645,7 @@ func (network *Network) TeaseWithDelay(target, reason string) {
 	}
 
 	// Random delay 0-5 seconds to stagger teases (overridable for testing)
-	var delay time.Duration
-	if network.testTeaseDelay != nil {
-		delay = *network.testTeaseDelay
-	} else {
-		delay = time.Duration(rand.Intn(5)) * time.Second
-	}
-
-	select {
-	case <-time.After(delay):
-		// Continue to check and potentially tease
-	case <-network.ctx.Done():
-		// Shutdown initiated, don't tease
+	if !network.waitWithJitter(5*time.Second, network.testTeaseDelay) {
 		return
 	}
 

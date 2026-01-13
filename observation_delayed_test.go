@@ -12,7 +12,7 @@ import (
 // when they detect the same nara going offline - uses "if no one says anything" algorithm
 func TestDelayedMissingReporting(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping slow test in short mode (requires 12s delay)")
+		t.Skip("skipping slow test in short mode (requires delays)")
 	}
 
 	logrus.SetLevel(logrus.ErrorLevel)
@@ -30,6 +30,8 @@ func TestDelayedMissingReporting(t *testing.T) {
 		name := "observer-" + string(rune('a'+i))
 		ln := testLocalNaraWithParams(name, 50, 1000)
 		ln.SyncLedger = sharedLedger // Share the same ledger
+		delay := time.Duration(i) * 50 * time.Millisecond
+		ln.Network.testObservationDelay = &delay
 
 		// Fake older start time to not be in booting mode
 		me := ln.getMeObservation()
@@ -49,8 +51,8 @@ func TestDelayedMissingReporting(t *testing.T) {
 		go network.reportMissingWithDelay(subject)
 	}
 
-	// Wait for delayed reporting to complete (max delay is 10s, so wait 12s to be safe)
-	time.Sleep(12 * time.Second)
+	// Wait for delayed reporting to complete
+	time.Sleep(1 * time.Second)
 
 	// Check how many MISSING events were emitted
 	events := sharedLedger.GetObservationEventsAbout(subject)
@@ -85,7 +87,7 @@ func TestDelayedMissingReporting(t *testing.T) {
 // others stay silent
 func TestDelayedMissingReporting_NoRedundancy(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping slow test in short mode (requires 11s delay)")
+		t.Skip("skipping slow test in short mode (requires delays)")
 	}
 
 	logrus.SetLevel(logrus.DebugLevel)
@@ -99,6 +101,8 @@ func TestDelayedMissingReporting_NoRedundancy(t *testing.T) {
 	// Create first observer who reports immediately
 	ln1 := testLocalNaraWithParams("observer-fast", 50, 1000)
 	ln1.SyncLedger = sharedLedger
+	fastDelay := time.Duration(0)
+	ln1.Network.testObservationDelay = &fastDelay
 	me1 := ln1.getMeObservation()
 	me1.LastRestart = time.Now().Unix() - 200
 	me1.LastSeen = time.Now().Unix()
@@ -107,6 +111,8 @@ func TestDelayedMissingReporting_NoRedundancy(t *testing.T) {
 	// Create second observer who will check later
 	ln2 := testLocalNaraWithParams("observer-slow", 50, 1000)
 	ln2.SyncLedger = sharedLedger
+	slowDelay := 100 * time.Millisecond
+	ln2.Network.testObservationDelay = &slowDelay
 	me2 := ln2.getMeObservation()
 	me2.LastRestart = time.Now().Unix() - 200
 	me2.LastSeen = time.Now().Unix()
@@ -125,7 +131,7 @@ func TestDelayedMissingReporting_NoRedundancy(t *testing.T) {
 	go ln2.Network.reportMissingWithDelay(subject)
 
 	// Wait for delayed reporting to complete
-	time.Sleep(11 * time.Second)
+	time.Sleep(1 * time.Second)
 
 	// Check that we only have 1 MISSING event (from fast observer)
 	events := sharedLedger.GetObservationEventsAbout(subject)
@@ -143,6 +149,117 @@ func TestDelayedMissingReporting_NoRedundancy(t *testing.T) {
 
 	if missingCount != 1 {
 		t.Errorf("Expected exactly 1 MISSING event (slow observer should stay silent), got %d", missingCount)
+	}
+
+	if lastObserver != "observer-fast" {
+		t.Errorf("Expected event from observer-fast, got %s", lastObserver)
+	}
+
+	t.Logf("✅ Redundancy prevention working: observer-slow stayed silent when observer-fast reported first")
+}
+
+// TestDelayedRestartReporting validates that multiple observers don't all report restart events
+// when they detect the same nara restarting - uses "if no one says anything" algorithm
+func TestDelayedRestartReporting(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping slow test in short mode (requires delays)")
+	}
+
+	logrus.SetLevel(logrus.ErrorLevel)
+
+	sharedLedger := NewSyncLedger(1000)
+
+	observers := make([]*LocalNara, 5)
+	for i := 0; i < 5; i++ {
+		name := "observer-" + string(rune('a'+i))
+		ln := testLocalNaraWithParams(name, 50, 1000)
+		ln.SyncLedger = sharedLedger
+		delay := time.Duration(i) * 50 * time.Millisecond
+		ln.Network.testObservationDelay = &delay
+		observers[i] = ln
+	}
+
+	subject := "target-nara"
+	startTime := time.Now().Unix() - 300
+	restartNum := int64(10)
+
+	for i := 0; i < 5; i++ {
+		network := observers[i].Network
+		go network.reportRestartWithDelay(subject, startTime, restartNum)
+	}
+
+	time.Sleep(1 * time.Second)
+
+	events := sharedLedger.GetObservationEventsAbout(subject)
+	restartCount := 0
+	observersReported := make(map[string]bool)
+
+	for _, e := range events {
+		if e.Observation != nil && e.Observation.Type == "restart" {
+			restartCount++
+			observersReported[e.Observation.Observer] = true
+		}
+	}
+
+	if restartCount > 3 {
+		t.Errorf("Expected at most 3 restart events (delayed reporting), got %d from observers: %v",
+			restartCount, observersReported)
+	}
+
+	if restartCount == 0 {
+		t.Error("Expected at least 1 restart event to be reported")
+	}
+
+	t.Logf("✅ Delayed restart reporting working: %d/%d observers reported (expected 1-3)", restartCount, 5)
+}
+
+// TestDelayedRestartReporting_NoRedundancy validates that if one observer reports first,
+// others stay silent
+func TestDelayedRestartReporting_NoRedundancy(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping slow test in short mode (requires delays)")
+	}
+
+	logrus.SetLevel(logrus.DebugLevel)
+
+	sharedLedger := NewSyncLedger(1000)
+
+	ln1 := testLocalNaraWithParams("observer-fast", 50, 1000)
+	ln1.SyncLedger = sharedLedger
+	fastDelay := time.Duration(0)
+	ln1.Network.testObservationDelay = &fastDelay
+
+	ln2 := testLocalNaraWithParams("observer-slow", 50, 1000)
+	ln2.SyncLedger = sharedLedger
+	slowDelay := 100 * time.Millisecond
+	ln2.Network.testObservationDelay = &slowDelay
+
+	subject := "target-nara"
+	startTime := time.Now().Unix() - 300
+	restartNum := int64(10)
+
+	event := NewRestartObservationEvent("observer-fast", subject, startTime, restartNum)
+	sharedLedger.AddEventWithDedup(event)
+
+	time.Sleep(50 * time.Millisecond)
+
+	go ln2.Network.reportRestartWithDelay(subject, startTime, restartNum)
+
+	time.Sleep(1 * time.Second)
+
+	events := sharedLedger.GetObservationEventsAbout(subject)
+	restartCount := 0
+	lastObserver := ""
+
+	for _, e := range events {
+		if e.Observation != nil && e.Observation.Type == "restart" {
+			restartCount++
+			lastObserver = e.Observation.Observer
+		}
+	}
+
+	if restartCount != 1 {
+		t.Errorf("Expected exactly 1 restart event (slow observer should stay silent), got %d", restartCount)
 	}
 
 	if lastObserver != "observer-fast" {
