@@ -59,6 +59,8 @@ func TestIntegration_CheckpointConsensus(t *testing.T) {
 
 		// Skip jitter delays for faster discovery
 		ln.Network.testSkipJitter = true
+		// Skip boot recovery - we'll manually add observation data
+		ln.Network.testSkipBootRecovery = true
 		naras[i] = ln
 	}
 
@@ -88,17 +90,6 @@ func TestIntegration_CheckpointConsensus(t *testing.T) {
 	for _, ln := range naras {
 		if ln.Network.checkpointService != nil && ln.Network.Mqtt != nil {
 			ln.Network.checkpointService.SetMQTTClient(ln.Network.Mqtt)
-		}
-	}
-
-	// Mark boot recovery complete for all naras so they can vote
-	// Without this, naras will skip voting because "opinions still forming"
-	for _, ln := range naras {
-		select {
-		case <-ln.Network.bootRecoveryDone:
-			// Already closed
-		default:
-			close(ln.Network.bootRecoveryDone)
 		}
 	}
 

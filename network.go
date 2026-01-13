@@ -106,6 +106,7 @@ type Network struct {
 	testAnnounceCount     int                             // Counter for announce() calls (for testing)
 	testSkipHeyThereSleep bool                            // Skip the 1s sleep in handleHeyThereEvent (for testing)
 	testSkipJitter        bool                            // Skip jitter delays in hey_there for faster tests
+	testSkipBootRecovery  bool                            // Skip boot recovery entirely (for checkpoint tests)
 	testPingFunc          func(name string) (bool, error) // Override ping behavior for testing (returns success, error)
 	// HTTP servers for graceful shutdown
 	httpServer        *http.Server
@@ -1493,7 +1494,7 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 	if network.logService != nil {
 		network.logService.SetSuppressLedgerEvents(true)
 	}
-	if !network.ReadOnly {
+	if !network.ReadOnly && !network.testSkipBootRecovery {
 		network.bootRecovery()
 	} else {
 		close(network.bootRecoveryDone)
