@@ -320,6 +320,11 @@ func createTestNara(t *testing.T, name string, port int) (*LocalNara, error) {
 	ln.Network.testSkipHeyThereSleep = true
 	// Skip jitter delays for faster discovery in tests
 	ln.Network.testSkipJitter = true
+	// Skip 5s rate limit on hey_there - CRITICAL for non-flaky tests:
+	// Without this, naras that send hey_there during boot are rate-limited
+	// and cannot send another hey_there when explicitly triggered by tests,
+	// causing discovery failures and test timeouts.
+	ln.Network.testSkipHeyThereRateLimit = true
 
 	return ln, nil
 }

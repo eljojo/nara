@@ -313,9 +313,12 @@ func (network *Network) heyThere() {
 	// Always record our own online observation (needed for local state)
 	network.recordObservationOnlineNara(network.meName(), 0)
 
-	ts := int64(5) // seconds
-	if (time.Now().Unix() - network.LastHeyThere) <= ts {
-		return
+	// Rate limit: only send hey_there every 5 seconds (skip in tests for faster execution)
+	if !network.testSkipHeyThereRateLimit {
+		ts := int64(5) // seconds
+		if (time.Now().Unix() - network.LastHeyThere) <= ts {
+			return
+		}
 	}
 	network.LastHeyThere = time.Now().Unix()
 

@@ -84,13 +84,14 @@ type Network struct {
 	// Test hooks (only used in tests)
 	testHTTPClient        *http.Client                    // Override HTTP client for testing
 	testMeshURLs          map[string]string               // Override mesh URLs for testing (nara name -> URL)
-	testTeaseDelay        *time.Duration                  // Override tease delay for testing (nil = use default 0-5s random)
-	testObservationDelay  *time.Duration                  // Override observation debounce delay for testing
-	testAnnounceCount     int                             // Counter for announce() calls (for testing)
-	testSkipHeyThereSleep bool                            // Skip the 1s sleep in handleHeyThereEvent (for testing)
-	testSkipJitter        bool                            // Skip jitter delays in hey_there for faster tests
-	testSkipBootRecovery  bool                            // Skip boot recovery entirely (for checkpoint tests)
-	testPingFunc          func(name string) (bool, error) // Override ping behavior for testing (returns success, error)
+	testTeaseDelay            *time.Duration                  // Override tease delay for testing (nil = use default 0-5s random)
+	testObservationDelay      *time.Duration                  // Override observation debounce delay for testing
+	testAnnounceCount         int                             // Counter for announce() calls (for testing)
+	testSkipHeyThereSleep     bool                            // Skip the 1s sleep in handleHeyThereEvent (for testing)
+	testSkipJitter            bool                            // Skip jitter delays in hey_there for faster tests
+	testSkipBootRecovery      bool                            // Skip boot recovery entirely (for checkpoint tests)
+	testSkipHeyThereRateLimit bool                            // Skip the 5s rate limit on hey_there (for testing)
+	testPingFunc              func(name string) (bool, error) // Override ping behavior for testing (returns success, error)
 	// HTTP servers for graceful shutdown
 	httpServer        *http.Server
 	meshHttpServer    *http.Server
