@@ -3,6 +3,8 @@ package nara
 import (
 	"crypto/sha256"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -169,11 +171,25 @@ func waitForCondition(t *testing.T, condition func() bool, timeout time.Duration
 // waitForMQTTConnected blocks until the nara's MQTT client is connected, or times out.
 func waitForMQTTConnected(t *testing.T, ln *LocalNara, timeout time.Duration) {
 	t.Helper()
+	waitForAllMQTTConnected(t, []*LocalNara{ln}, timeout)
+}
+
+// waitForAllMQTTConnected blocks until all naras have MQTT clients connected, or times out.
+func waitForAllMQTTConnected(t *testing.T, naras []*LocalNara, timeout time.Duration) {
+	t.Helper()
 	ok := waitForCondition(t, func() bool {
-		return ln.Network.Mqtt != nil && ln.Network.Mqtt.IsConnected()
-	}, timeout, "MQTT connected")
+		for _, ln := range naras {
+			if ln.Network.Mqtt == nil || !ln.Network.Mqtt.IsConnected() {
+				return false
+			}
+		}
+		return true
+	}, timeout, "all MQTT connections established")
 	if !ok {
-		t.Fatalf("Timed out waiting for %s MQTT to connect", ln.Me.Name)
+		if len(naras) == 1 {
+			t.Fatalf("Timed out waiting for %s MQTT to connect", naras[0].Me.Name)
+		}
+		t.Fatal("Timed out waiting for all naras to connect to MQTT")
 	}
 }
 
@@ -338,4 +354,99 @@ func testAddCheckpointToLedger(ledger *SyncLedger, subject string, attester stri
 	ledger.eventIDs[event.ID] = true
 	ledger.mu.Unlock()
 	return event
+}
+
+// =============================================================================
+// Network Mesh Setup Helpers
+// =============================================================================
+
+// testMeshNetwork holds a mesh of interconnected test naras with HTTP servers.
+type testMeshNetwork struct {
+	Naras   []*LocalNara
+	Servers []*httptest.Server
+	Client  *http.Client
+	t       *testing.T
+}
+
+// testCreateMeshNetwork creates N naras in a full mesh topology with HTTP servers.
+// Each nara knows all others and has testMeshURLs configured for HTTP communication.
+func testCreateMeshNetwork(t *testing.T, names []string, chattiness, ledgerCapacity int) *testMeshNetwork {
+	t.Helper()
+	count := len(names)
+
+	mesh := &testMeshNetwork{
+		Naras:   make([]*LocalNara, count),
+		Servers: make([]*httptest.Server, count),
+		Client:  &http.Client{Timeout: 5 * time.Second},
+		t:       t,
+	}
+
+	// Create naras and servers
+	for i, name := range names {
+		ln := testLocalNaraWithParams(name, chattiness, ledgerCapacity)
+
+		// Mark not booting (common integration test requirement)
+		me := ln.getMeObservation()
+		me.LastRestart = time.Now().Unix() - 200
+		me.LastSeen = time.Now().Unix()
+		ln.setMeObservation(me)
+
+		// Create HTTP server with common endpoints
+		mux := http.NewServeMux()
+		mux.HandleFunc("/gossip/zine", ln.Network.httpGossipZineHandler)
+		mux.HandleFunc("/api/checkpoints/all", ln.Network.httpCheckpointsAllHandler)
+		server := httptest.NewServer(mux)
+
+		mesh.Naras[i] = ln
+		mesh.Servers[i] = server
+
+		// Configure test hooks
+		ln.Network.testHTTPClient = mesh.Client
+		ln.Network.testMeshURLs = make(map[string]string)
+		ln.Network.TransportMode = TransportGossip
+	}
+
+	// Create full mesh: each nara knows all others
+	for i := 0; i < count; i++ {
+		for j := 0; j < count; j++ {
+			if i != j {
+				neighbor := NewNara(mesh.Naras[j].Me.Name)
+				neighbor.Status.ID = mesh.Naras[j].Me.Status.ID
+				neighbor.Status.PublicKey = FormatPublicKey(mesh.Naras[j].Keypair.PublicKey)
+				mesh.Naras[i].Network.importNara(neighbor)
+				mesh.Naras[i].setObservation(mesh.Naras[j].Me.Name, NaraObservation{Online: "ONLINE"})
+				mesh.Naras[i].Network.testMeshURLs[mesh.Naras[j].Me.Name] = mesh.Servers[j].URL
+			}
+		}
+	}
+
+	// Register cleanup
+	t.Cleanup(func() {
+		for _, s := range mesh.Servers {
+			s.Close()
+		}
+	})
+
+	return mesh
+}
+
+// Get returns the nara at index i.
+func (m *testMeshNetwork) Get(i int) *LocalNara {
+	return m.Naras[i]
+}
+
+// GetByName finds a nara by name.
+func (m *testMeshNetwork) GetByName(name string) *LocalNara {
+	for _, ln := range m.Naras {
+		if ln.Me.Name == name {
+			return ln
+		}
+	}
+	m.t.Fatalf("No nara named %s in mesh", name)
+	return nil
+}
+
+// ServerURL returns the HTTP server URL for the nara at index i.
+func (m *testMeshNetwork) ServerURL(i int) string {
+	return m.Servers[i].URL
 }

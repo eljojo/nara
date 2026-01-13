@@ -15,66 +15,17 @@ import (
 func TestIntegration_GossipOnlyMode(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
-	// Create 5 naras in gossip-only mode with real HTTP test servers
-	type testNara struct {
-		ln     *LocalNara
-		server *httptest.Server
-	}
-	naras := make([]testNara, 5)
-
-	for i := 0; i < 5; i++ {
-		name := fmt.Sprintf("gossip-nara-%c", 'a'+i)
-		ln := testLocalNaraWithParams(name, 50, 1000)
-		ln.Network.TransportMode = TransportGossip
-
-		// Mark as not booting
-		me := ln.getMeObservation()
-		me.LastRestart = time.Now().Unix() - 200
-		me.LastSeen = time.Now().Unix()
-		ln.setMeObservation(me)
-
-		// Create HTTP test server for this nara's gossip endpoint
-		mux := http.NewServeMux()
-		mux.HandleFunc("/gossip/zine", ln.Network.httpGossipZineHandler)
-		server := httptest.NewServer(mux)
-
-		naras[i] = testNara{ln: ln, server: server}
-	}
-	defer func() {
-		for _, n := range naras {
-			n.server.Close()
-		}
-	}()
-
-	// Shared HTTP client for all naras
-	sharedClient := &http.Client{Timeout: 5 * time.Second}
-
-	// Set up test hooks and neighborhood: each nara knows about the others
-	for i := 0; i < 5; i++ {
-		naras[i].ln.Network.testHTTPClient = sharedClient
-		naras[i].ln.Network.testMeshURLs = make(map[string]string)
-
-		for j := 0; j < 5; j++ {
-			if i != j {
-				neighborName := naras[j].ln.Me.Name
-				neighbor := NewNara(neighborName)
-				neighbor.Status.PublicKey = FormatPublicKey(naras[j].ln.Keypair.PublicKey)
-				naras[i].ln.Network.importNara(neighbor)
-				naras[i].ln.setObservation(neighborName, NaraObservation{Online: "ONLINE"})
-				// Store test server URL for this neighbor
-				naras[i].ln.Network.testMeshURLs[neighborName] = naras[j].server.URL
-			}
-		}
-	}
+	// Create 5 naras in gossip-only mode with full mesh topology
+	mesh := testCreateMeshNetwork(t, []string{"gossip-nara-a", "gossip-nara-b", "gossip-nara-c", "gossip-nara-d", "gossip-nara-e"}, 50, 1000)
 
 	// Nara A creates a social event
-	event := NewSocialSyncEvent("tease", naras[0].ln.Me.Name, "gossip-nara-b", "high restarts", "")
-	naras[0].ln.SyncLedger.AddEvent(event)
+	event := NewSocialSyncEvent("tease", mesh.Get(0).Me.Name, "gossip-nara-b", "high restarts", "")
+	mesh.Get(0).SyncLedger.AddEvent(event)
 
 	// Run gossip rounds using the REAL performGossipRound() production code
 	for round := 0; round < 3; round++ {
 		for i := 0; i < 5; i++ {
-			naras[i].ln.Network.performGossipRound()
+			mesh.Get(i).Network.performGossipRound()
 		}
 		// Wait for async exchanges to complete
 		time.Sleep(50 * time.Millisecond)
@@ -83,7 +34,7 @@ func TestIntegration_GossipOnlyMode(t *testing.T) {
 	// Verify event propagated to most naras via gossip
 	propagatedCount := 0
 	for i := 0; i < 5; i++ {
-		events := naras[i].ln.SyncLedger.GetEventsByService(ServiceSocial)
+		events := mesh.Get(i).SyncLedger.GetEventsByService(ServiceSocial)
 		for _, e := range events {
 			if e.Social != nil && e.Social.Type == "tease" && e.Social.Target == "gossip-nara-b" {
 				propagatedCount++
@@ -105,69 +56,27 @@ func TestIntegration_GossipOnlyMode(t *testing.T) {
 func TestIntegration_HybridMode(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
-	// Create 3 naras in hybrid mode with HTTP servers for gossip
-	type testNara struct {
-		ln     *LocalNara
-		server *httptest.Server
-	}
-	naras := make([]testNara, 3)
-
+	// Create 3 naras in hybrid mode with full mesh topology
+	mesh := testCreateMeshNetwork(t, []string{"hybrid-nara-a", "hybrid-nara-b", "hybrid-nara-c"}, 50, 1000)
 	for i := 0; i < 3; i++ {
-		name := fmt.Sprintf("hybrid-nara-%c", 'a'+i)
-		ln := testLocalNaraWithParams(name, 50, 1000)
-		ln.Network.TransportMode = TransportHybrid
-
-		me := ln.getMeObservation()
-		me.LastRestart = time.Now().Unix() - 200
-		me.LastSeen = time.Now().Unix()
-		ln.setMeObservation(me)
-
-		mux := http.NewServeMux()
-		mux.HandleFunc("/gossip/zine", ln.Network.httpGossipZineHandler)
-		server := httptest.NewServer(mux)
-
-		naras[i] = testNara{ln: ln, server: server}
-	}
-	defer func() {
-		for _, n := range naras {
-			n.server.Close()
-		}
-	}()
-
-	// Shared HTTP client for all naras
-	sharedClient := &http.Client{Timeout: 5 * time.Second}
-
-	// Set up test hooks and neighborhood
-	for i := 0; i < 3; i++ {
-		naras[i].ln.Network.testHTTPClient = sharedClient
-		naras[i].ln.Network.testMeshURLs = make(map[string]string)
-
-		for j := 0; j < 3; j++ {
-			if i != j {
-				neighbor := NewNara(naras[j].ln.Me.Name)
-				neighbor.Status.PublicKey = FormatPublicKey(naras[j].ln.Keypair.PublicKey)
-				naras[i].ln.Network.importNara(neighbor)
-				naras[i].ln.setObservation(naras[j].ln.Me.Name, NaraObservation{Online: "ONLINE"})
-				naras[i].ln.Network.testMeshURLs[naras[j].ln.Me.Name] = naras[j].server.URL
-			}
-		}
+		mesh.Get(i).Network.TransportMode = TransportHybrid
 	}
 
 	// Nara A creates an event
 	event := NewSocialSyncEvent("tease", "hybrid-nara-a", "hybrid-nara-b", "came back", "")
-	naras[0].ln.SyncLedger.AddEvent(event)
+	mesh.Get(0).SyncLedger.AddEvent(event)
 
 	// Run gossip rounds using performGossipRound() production code
 	for round := 0; round < 2; round++ {
 		for i := 0; i < 3; i++ {
-			naras[i].ln.Network.performGossipRound()
+			mesh.Get(i).Network.performGossipRound()
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 
 	// All naras should see the event via gossip transport
 	for i := 0; i < 3; i++ {
-		events := naras[i].ln.SyncLedger.GetEventsByService(ServiceSocial)
+		events := mesh.Get(i).SyncLedger.GetEventsByService(ServiceSocial)
 		if len(events) < 1 {
 			t.Errorf("Nara %d expected to see at least 1 event, got %d", i, len(events))
 		}
@@ -286,49 +195,10 @@ func TestIntegration_MixedNetworkTopology(t *testing.T) {
 func TestIntegration_ZineCreationAndExchange(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
-	// Create 2 naras with valid souls for keypair generation
-	alice := testLocalNaraWithParams("alice", 50, 1000)
-	bob := testLocalNaraWithParams("bob", 50, 1000)
-	// Verify keypairs were generated
-	if len(alice.Keypair.PrivateKey) == 0 {
-		t.Fatal("Alice keypair not generated - soul invalid")
-	}
-	if len(bob.Keypair.PrivateKey) == 0 {
-		t.Fatal("Bob keypair not generated - soul invalid")
-	}
-
-	alice.Network.TransportMode = TransportGossip
-	bob.Network.TransportMode = TransportGossip
-
-	// Create HTTP servers for both naras (these handle /gossip/zine requests)
-	aliceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		alice.Network.httpGossipZineHandler(w, r)
-	}))
-	defer aliceServer.Close()
-
-	bobServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		bob.Network.httpGossipZineHandler(w, r)
-	}))
-	defer bobServer.Close()
-
-	// Set up test hooks so performGossipRound() can reach the test servers
-	sharedClient := &http.Client{Timeout: 5 * time.Second}
-
-	// Alice knows about bob
-	alice.Network.testHTTPClient = sharedClient
-	alice.Network.testMeshURLs = map[string]string{"bob": bobServer.URL}
-	bobNara := NewNara("bob")
-	bobNara.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
-	alice.Network.importNara(bobNara)
-	alice.setObservation("bob", NaraObservation{Online: "ONLINE"})
-
-	// Bob knows about alice
-	bob.Network.testHTTPClient = sharedClient
-	bob.Network.testMeshURLs = map[string]string{"alice": aliceServer.URL}
-	aliceNara := NewNara("alice")
-	aliceNara.Status.PublicKey = FormatPublicKey(alice.Keypair.PublicKey)
-	bob.Network.importNara(aliceNara)
-	bob.setObservation("alice", NaraObservation{Online: "ONLINE"})
+	// Create 2 naras with full mesh topology
+	mesh := testCreateMeshNetwork(t, []string{"alice", "bob"}, 50, 1000)
+	alice := mesh.GetByName("alice")
+	bob := mesh.GetByName("bob")
 
 	// Alice creates some events
 	// NOTE: Each event must have unique content to avoid ID collisions when

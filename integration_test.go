@@ -7,10 +7,6 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
-
-	mqttserver "github.com/mochi-mqtt/server/v2"
-	"github.com/mochi-mqtt/server/v2/hooks/auth"
-	"github.com/mochi-mqtt/server/v2/listeners"
 )
 
 // TestIntegration_MultiNaraNetwork runs a full integration test with multiple naras
@@ -25,7 +21,7 @@ func TestIntegration_MultiNaraNetwork(t *testing.T) {
 	}
 
 	// Start embedded MQTT broker
-	broker := startEmbeddedBroker(t)
+	broker := startTestMQTTBroker(t, 11883)
 	defer broker.Close()
 
 	// Give broker time to start
@@ -279,7 +275,7 @@ func TestIntegration_HeyThereDiscovery(t *testing.T) {
 	}
 
 	// Start embedded MQTT broker
-	broker := startEmbeddedBroker(t)
+	broker := startTestMQTTBroker(t, 11883)
 	defer broker.Close()
 
 	// Give broker time to start
@@ -412,39 +408,6 @@ func TestIntegration_HeyThereDiscovery(t *testing.T) {
 	t.Logf("   • Two naras discovered each other in %v", discoveryDuration)
 	t.Log("   • hey_there → announce mechanism working")
 	t.Log("═══════════════════════════════════════")
-}
-
-// startEmbeddedBroker starts an in-memory MQTT broker for testing
-func startEmbeddedBroker(t *testing.T) *mqttserver.Server {
-	server := mqttserver.New(nil)
-
-	// Allow all connections (no auth for testing)
-	err := server.AddHook(new(auth.AllowHook), nil)
-	if err != nil {
-		t.Fatalf("Failed to add auth hook: %v", err)
-	}
-
-	// Listen on TCP port 11883 (different from default 1883)
-	tcp := listeners.NewTCP(listeners.Config{
-		ID:      "test-broker",
-		Address: ":11883",
-	})
-	err = server.AddListener(tcp)
-	if err != nil {
-		t.Fatalf("Failed to add listener: %v", err)
-	}
-
-	// Start the server in a goroutine
-	go func() {
-		err := server.Serve()
-		if err != nil {
-			t.Logf("MQTT broker stopped: %v", err)
-		}
-	}()
-
-	t.Log("🔌 Embedded MQTT broker started on :11883")
-
-	return server
 }
 
 // TestIntegration_CheckpointSync tests checkpoint timeline recovery via HTTP

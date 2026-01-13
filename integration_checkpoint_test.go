@@ -21,7 +21,7 @@ func TestIntegration_CheckpointConsensus(t *testing.T) {
 	}
 
 	// Start embedded MQTT broker
-	broker := startEmbeddedBroker(t)
+	broker := startTestMQTTBroker(t, 11883)
 	defer broker.Close()
 
 	// Give broker time to start
@@ -33,7 +33,8 @@ func TestIntegration_CheckpointConsensus(t *testing.T) {
 	logrus.SetLevel(logrus.DebugLevel)
 	defer logrus.SetLevel(logrus.WarnLevel)
 
-	const numNaras = 4 // Need at least 3 (1 proposer + 2 voters minimum)
+	// Need MinVotersRequired + 1 naras (1 proposer + MinVotersRequired voters)
+	const numNaras = MinVotersRequired + 1
 
 	// Create naras with test configuration
 	naras := make([]*LocalNara, numNaras)
@@ -78,6 +79,8 @@ func TestIntegration_CheckpointConsensus(t *testing.T) {
 
 	// Wait for naras to discover each other and exchange public keys
 	t.Log("🌐 Waiting for peer discovery and key exchange...")
+
+	waitForAllMQTTConnected(t, naras, 10*time.Second)
 	waitForFullDiscovery(t, naras, 10*time.Second)
 
 	// Ensure all naras' checkpoint services have MQTT clients set
@@ -85,6 +88,17 @@ func TestIntegration_CheckpointConsensus(t *testing.T) {
 	for _, ln := range naras {
 		if ln.Network.checkpointService != nil && ln.Network.Mqtt != nil {
 			ln.Network.checkpointService.SetMQTTClient(ln.Network.Mqtt)
+		}
+	}
+
+	// Mark boot recovery complete for all naras so they can vote
+	// Without this, naras will skip voting because "opinions still forming"
+	for _, ln := range naras {
+		select {
+		case <-ln.Network.bootRecoveryDone:
+			// Already closed
+		default:
+			close(ln.Network.bootRecoveryDone)
 		}
 	}
 
@@ -143,31 +157,34 @@ func TestIntegration_CheckpointConsensus(t *testing.T) {
 	t.Log("⏳ Waiting for checkpoint finalization...")
 	checkpoint := waitForCheckpoint(t, proposer.SyncLedger, proposer.Me.Name, 10*time.Second)
 
-	// Check if checkpoint was created
+	// Check if checkpoint was created - this MUST succeed
 	t.Log("🔍 Checking for finalized checkpoint...")
 	if checkpoint == nil {
-		t.Log("⚠️  No checkpoint found in proposer's ledger")
-	} else {
-		t.Logf("✅ Checkpoint found in proposer's ledger:")
-		t.Logf("   Subject: %s", checkpoint.Subject)
-		t.Logf("   SubjectID: %s", checkpoint.SubjectID)
-		t.Logf("   Restarts: %d", checkpoint.Observation.Restarts)
-		t.Logf("   TotalUptime: %d", checkpoint.Observation.TotalUptime)
-		t.Logf("   VoterIDs: %v", checkpoint.VoterIDs)
-		t.Logf("   Signatures: %d", len(checkpoint.Signatures))
+		t.Fatal("❌ No checkpoint found in proposer's ledger - consensus failed")
+	}
+
+	t.Logf("✅ Checkpoint found in proposer's ledger:")
+	t.Logf("   Subject: %s", checkpoint.Subject)
+	t.Logf("   SubjectID: %s", checkpoint.SubjectID)
+	t.Logf("   Restarts: %d", checkpoint.Observation.Restarts)
+	t.Logf("   TotalUptime: %d", checkpoint.Observation.TotalUptime)
+	t.Logf("   VoterIDs: %v", checkpoint.VoterIDs)
+	t.Logf("   Signatures: %d", len(checkpoint.Signatures))
+
+	// Verify we got enough voters
+	if len(checkpoint.VoterIDs) < MinVotersRequired {
+		t.Fatalf("❌ Insufficient voters: got %d, need %d", len(checkpoint.VoterIDs), MinVotersRequired)
 	}
 
 	// Wait for checkpoint to propagate to other naras
-	if checkpoint != nil {
-		waitForCheckpointPropagation(t, naras[1:], proposer.Me.Name, 3*time.Second)
-	}
+	waitForCheckpointPropagation(t, naras[1:], proposer.Me.Name, 3*time.Second)
 	checkpointsPropagated := 0
 	for _, ln := range naras[1:] {
 		if ln.SyncLedger.GetCheckpoint(proposer.Me.Name) != nil {
 			checkpointsPropagated++
-			t.Logf("✅ Checkpoint propagated to %s", ln.Me.Name)
 		}
 	}
+	t.Logf("✅ Checkpoint propagated to %d/%d other naras", checkpointsPropagated, numNaras-1)
 
 	// Cleanup
 	t.Log("🛑 Stopping naras...")
@@ -175,27 +192,7 @@ func TestIntegration_CheckpointConsensus(t *testing.T) {
 		ln.Network.disconnectMQTT()
 	}
 
-	// Final validation
-	t.Log("")
-	t.Log("═══════════════════════════════════════")
-	if checkpoint != nil {
-		if len(checkpoint.VoterIDs) >= MinVotersRequired {
-			t.Log("🎉 CHECKPOINT CONSENSUS TEST PASSED")
-			t.Logf("   • Proposer: %s", proposer.Me.Name)
-			t.Logf("   • Voters: %d (minimum required: %d)", len(checkpoint.VoterIDs), MinVotersRequired)
-			t.Logf("   • Signatures verified: %d", len(checkpoint.Signatures))
-			t.Logf("   • Checkpoints propagated to: %d/%d other naras", checkpointsPropagated, numNaras-1)
-		} else {
-			t.Errorf("❌ Insufficient voters: got %d, need %d", len(checkpoint.VoterIDs), MinVotersRequired)
-		}
-	} else {
-		// This can happen if signature verification fails or voters don't have enough data
-		t.Log("⚠️  Checkpoint not created - this may be expected if:")
-		t.Log("   • Signature verification failed (voters don't know proposer's public key)")
-		t.Log("   • Not enough voters responded")
-		t.Log("   • Check logs for more details")
-	}
-	t.Log("═══════════════════════════════════════")
+	t.Log("🎉 CHECKPOINT CONSENSUS TEST PASSED")
 }
 
 // TestIntegration_CheckpointRound2 tests the round 2 fallback when round 1 fails consensus
@@ -205,7 +202,7 @@ func TestIntegration_CheckpointRound2(t *testing.T) {
 	}
 
 	// Start embedded MQTT broker
-	broker := startEmbeddedBroker(t)
+	broker := startTestMQTTBroker(t, 11883)
 	defer broker.Close()
 
 	time.Sleep(200 * time.Millisecond)
@@ -250,7 +247,7 @@ func TestIntegration_CheckpointRound2(t *testing.T) {
 	}
 
 	// Wait for discovery
-	time.Sleep(3 * time.Second)
+	waitForAllMQTTConnected(t, naras, 10*time.Second)
 
 	// Add DIFFERENT observation data to each nara to force disagreement in round 1
 	// This should trigger the trimmed mean calculation in round 2
@@ -313,7 +310,7 @@ func TestIntegration_CheckpointSignatureVerification(t *testing.T) {
 	}
 
 	// Start embedded MQTT broker
-	broker := startEmbeddedBroker(t)
+	broker := startTestMQTTBroker(t, 11883)
 	defer broker.Close()
 
 	time.Sleep(200 * time.Millisecond)
@@ -360,18 +357,9 @@ func TestIntegration_CheckpointSignatureVerification(t *testing.T) {
 	}
 
 	// Wait for discovery
-	time.Sleep(2 * time.Second)
-
-	// Verify they know each other
-	alice.Network.local.mu.Lock()
-	_, aliceKnowsBob := alice.Network.Neighbourhood["bob-sig"]
-	alice.Network.local.mu.Unlock()
-
-	bob.Network.local.mu.Lock()
-	_, bobKnowsAlice := bob.Network.Neighbourhood["alice-sig"]
-	bob.Network.local.mu.Unlock()
-
-	t.Logf("Discovery: Alice knows Bob: %v, Bob knows Alice: %v", aliceKnowsBob, bobKnowsAlice)
+	naras := []*LocalNara{alice, bob}
+	waitForAllMQTTConnected(t, naras, 10*time.Second)
+	waitForFullDiscovery(t, naras, 10*time.Second)
 
 	// Test 1: Valid signature should be accepted
 	// Add observation data
@@ -421,7 +409,7 @@ func TestIntegration_CheckpointTop10Voters(t *testing.T) {
 	}
 
 	// Start embedded MQTT broker
-	broker := startEmbeddedBroker(t)
+	broker := startTestMQTTBroker(t, 11883)
 	defer broker.Close()
 
 	time.Sleep(200 * time.Millisecond)
@@ -469,7 +457,8 @@ func TestIntegration_CheckpointTop10Voters(t *testing.T) {
 
 	// Wait for discovery
 	t.Log("🌐 Waiting for peer discovery...")
-	time.Sleep(5 * time.Second)
+	waitForAllMQTTConnected(t, naras, 15*time.Second)
+	waitForFullDiscovery(t, naras, 15*time.Second)
 
 	// Add observation data with varying uptimes
 	proposer := naras[0]
