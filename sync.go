@@ -1040,6 +1040,10 @@ func shouldFilterCheckpoint(e SyncEvent) bool {
 		return false // Not a checkpoint, don't filter
 	}
 
+	if e.ID == "6dcdc8702237bf69b82e41ba3c07fab9" {
+		return true // Known bad checkpoint ID to filter
+	}
+
 	// Filter checkpoints created before or at the cutoff time
 	return e.Checkpoint.AsOfTime <= CheckpointCutoffTime
 }
