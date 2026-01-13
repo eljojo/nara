@@ -34,8 +34,8 @@
     "preact": "^10.28.2"
   },
   "devDependencies": {
-    "@astrojs/starlight": "^0.24.1",
-    "astro": "^4.15.0",
+    "@astrojs/starlight": "^0.37.2",
+    "astro": "^5.16.9",
     "esbuild": "^0.27.2"
   }
 }
