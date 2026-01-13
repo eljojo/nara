@@ -14,7 +14,7 @@ import (
 // - All 10 votes: correct cluster around 2000 wins (5 observers, high total weight)
 func TestStartTimeConsensus_DeferredToFormOpinion(t *testing.T) {
 	t.Parallel()
-	ln := testLocalNara("me")
+	ln := testLocalNara(t,"me")
 	network := ln.Network
 
 	obsMe := network.local.getMeObservation()
@@ -85,7 +85,7 @@ func TestStartTimeConsensus_DeferredToFormOpinion(t *testing.T) {
 // observer has higher uptime.
 func TestStartTimeConsensus_PreferMultiObserverCluster(t *testing.T) {
 	t.Parallel()
-	ln := testLocalNara("me")
+	ln := testLocalNara(t,"me")
 	network := ln.Network
 
 	obsMe := network.local.getMeObservation()
@@ -127,7 +127,7 @@ func TestStartTimeConsensus_PreferMultiObserverCluster(t *testing.T) {
 // has ≥2 observers, the highest-weight single-observer cluster wins.
 func TestStartTimeConsensus_FallbackToHighestWeight(t *testing.T) {
 	t.Parallel()
-	ln := testLocalNara("me")
+	ln := testLocalNara(t,"me")
 	network := ln.Network
 
 	obsMe := network.local.getMeObservation()
@@ -165,7 +165,7 @@ func TestStartTimeConsensus_FallbackToHighestWeight(t *testing.T) {
 // are grouped into the same cluster.
 func TestStartTimeConsensus_ToleranceGrouping(t *testing.T) {
 	t.Parallel()
-	ln := testLocalNara("me")
+	ln := testLocalNara(t,"me")
 	network := ln.Network
 
 	obsMe := network.local.getMeObservation()
@@ -207,7 +207,7 @@ func TestStartTimeConsensus_ToleranceGrouping(t *testing.T) {
 // TestFlair_ShowsThinkingEmoji_WhenStartTimeUnknown verifies UI behavior during boot
 func TestFlair_ShowsThinkingEmoji_WhenStartTimeUnknown(t *testing.T) {
 	t.Parallel()
-	ln := testLocalNara("me")
+	ln := testLocalNara(t,"me")
 	network := ln.Network
 
 	obsMe := network.local.getMeObservation()
@@ -235,7 +235,7 @@ func TestFlair_ShowsThinkingEmoji_WhenStartTimeUnknown(t *testing.T) {
 // TestFlair_ShowsAgeFlair_WhenStartTimeKnown verifies normal flair after opinions form
 func TestFlair_ShowsAgeFlair_WhenStartTimeKnown(t *testing.T) {
 	t.Parallel()
-	ln := testLocalNara("me")
+	ln := testLocalNara(t,"me")
 	network := ln.Network
 
 	obsMe := network.local.getMeObservation()

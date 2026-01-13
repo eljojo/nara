@@ -158,11 +158,71 @@ Same events + same personality = same opinions (deterministic).
 
 ### Test Helpers (`test_helpers_test.go`)
 
+**CRITICAL: Always use `testNara()` with automatic cleanup!**
+
+LocalNara instances start background goroutines that must be shut down properly. Without cleanup, tests will experience goroutine leaks, port conflicts, resource exhaustion, logrus nil pointer panics, and test flakiness.
+
+#### Unified Test Helper (Use This!)
+
+```go
+// testNara creates a test LocalNara with options. Auto-cleanup via t.Cleanup().
+testNara(t, name, opts ...TestNaraOption)
+
+// Available options:
+WithMQTT(port)                          // Configure MQTT connection
+WithParams(chattiness, ledgerCapacity)  // Set custom parameters
+WithSoul(soul)                          // Use custom soul string
+WithHowdyTestConfig()                   // Enable flags for howdy tests
+```
+
+**Examples:**
+```go
+func TestBasicFeature(t *testing.T) {
+    // Simple test nara
+    ln := testNara(t, "test-nara")
+}
+
+func TestWithCustomParams(t *testing.T) {
+    // Custom chattiness and ledger size
+    ln := testNara(t, "test-nara", WithParams(50, 1000))
+}
+
+func TestMQTTIntegration(t *testing.T) {
+    // MQTT-enabled nara
+    ln := testNara(t, "test-nara", WithMQTT(11883), WithParams(50, 1000))
+    go ln.Start(false, false, "", nil, TransportMQTT)
+}
+
+func TestWithCustomSoul(t *testing.T) {
+    // Specific soul for identity tests
+    soul := "BZbvJDjG3hkhsb9y8e4nYy3DPmPFUQ5DKLHe6oqH5sbe"
+    ln := testNara(t, "test-nara", WithSoul(soul))
+}
+
+func TestHowdyDiscovery(t *testing.T) {
+    // Combine multiple options for complex scenarios
+    ln := testNara(t, "test-nara",
+        WithMQTT(11884),
+        WithParams(-1, 1000),
+        WithHowdyTestConfig())
+}
+```
+
+#### Legacy Helpers (Deprecated - use testNara instead)
+
+```go
+testLocalNara(t, name)                  // → testNara(t, name)
+testLocalNaraWithParams(t, ...)         // → testNara(t, name, WithParams(...))
+testLocalNaraWithSoul(t, name, soul)    // → testNara(t, name, WithSoul(soul))
+createTestNaraForMQTT(t, name, port)    // → testNara(t, name, WithMQTT(port), WithParams(-1, 1000))
+```
+
+#### Utility Helpers
+
 ```go
 testSoul(name)                          // Generate valid test soul
-testLocalNara(name)                     // Create test LocalNara with valid identity
-testLocalNaraWithParams(name, chattiness, ledgerCapacity)
 testIdentity(name)                      // Create valid identity result
+startTestNaras(t, port, names, ensureDiscovery)  // Start multiple MQTT naras
 ```
 
 ### TestMain Setup
@@ -171,6 +231,7 @@ Tests automatically configure:
 - `OpinionRepeatOverride = 1`
 - `OpinionIntervalOverride = 0`
 - Log level set to WarnLevel (suppresses info/debug)
+- Logrus output to stderr (prevents nil pointer panics)
 
 Individual tests can override with `logrus.SetLevel(logrus.DebugLevel)`.
 

@@ -634,7 +634,7 @@ func TestCheckpoint_Round2SignatureVerification(t *testing.T) {
 
 	// Create a CheckpointService with a mock network that returns public keys
 	ledger := NewSyncLedger(1000)
-	local := testLocalNara("verifier")
+	local := testLocalNara(t,"verifier")
 
 	// Create a minimal network with public key lookup
 	network := &Network{
@@ -755,7 +755,7 @@ func TestCheckpoint_PartialSignatureVerification(t *testing.T) {
 
 	// Create a CheckpointService with a network that only knows voter1
 	ledger := NewSyncLedger(1000)
-	local := testLocalNara("verifier")
+	local := testLocalNara(t,"verifier")
 
 	network := &Network{
 		Neighbourhood: make(map[string]*Nara),

@@ -6,7 +6,7 @@ import (
 )
 
 func TestObservations_Record(t *testing.T) {
-	ln := testLocalNara("me")
+	ln := testLocalNara(t,"me")
 	obs := ln.getMeObservation()
 	obs.LastSeen = 100
 	ln.setMeObservation(obs)
@@ -18,7 +18,7 @@ func TestObservations_Record(t *testing.T) {
 }
 
 func TestObservations_Online(t *testing.T) {
-	ln := testLocalNara("me")
+	ln := testLocalNara(t,"me")
 	network := ln.Network
 	name := "other"
 	network.importNara(NewNara(name))
@@ -55,7 +55,7 @@ func TestObservations_Online(t *testing.T) {
 }
 
 func TestIsGhostNara_TrueWhenNoData(t *testing.T) {
-	ln := testLocalNara("me")
+	ln := testLocalNara(t,"me")
 	network := ln.Network
 
 	// Add some neighbors that have observations but no data about the ghost
@@ -76,7 +76,7 @@ func TestIsGhostNara_TrueWhenNoData(t *testing.T) {
 }
 
 func TestIsGhostNara_FalseWhenNeighborHasStartTime(t *testing.T) {
-	ln := testLocalNara("me")
+	ln := testLocalNara(t,"me")
 	network := ln.Network
 
 	// Add neighbor with StartTime data
@@ -92,7 +92,7 @@ func TestIsGhostNara_FalseWhenNeighborHasStartTime(t *testing.T) {
 }
 
 func TestIsGhostNara_FalseWhenNeighborHasRestarts(t *testing.T) {
-	ln := testLocalNara("me")
+	ln := testLocalNara(t,"me")
 	network := ln.Network
 
 	neighbor := NewNara("neighbor-a")
@@ -107,7 +107,7 @@ func TestIsGhostNara_FalseWhenNeighborHasRestarts(t *testing.T) {
 }
 
 func TestIsGhostNara_FalseWhenWeHaveData(t *testing.T) {
-	ln := testLocalNara("me")
+	ln := testLocalNara(t,"me")
 	network := ln.Network
 
 	// We have data, even if neighbors don't
@@ -120,7 +120,7 @@ func TestIsGhostNara_FalseWhenWeHaveData(t *testing.T) {
 }
 
 func TestIsGhostNaraSafeToDelete_NeverDeleteSelf(t *testing.T) {
-	ln := testLocalNara("me")
+	ln := testLocalNara(t,"me")
 	network := ln.Network
 
 	if network.isGhostNaraSafeToDelete("me") {
@@ -129,7 +129,7 @@ func TestIsGhostNaraSafeToDelete_NeverDeleteSelf(t *testing.T) {
 }
 
 func TestIsGhostNaraSafeToDelete_FalseWhenOnline(t *testing.T) {
-	ln := testLocalNara("me")
+	ln := testLocalNara(t,"me")
 	network := ln.Network
 
 	// Add enough neighbors for the check
@@ -148,7 +148,7 @@ func TestIsGhostNaraSafeToDelete_FalseWhenOnline(t *testing.T) {
 }
 
 func TestIsGhostNaraSafeToDelete_FalseWhenRecentLastSeen(t *testing.T) {
-	ln := testLocalNara("me")
+	ln := testLocalNara(t,"me")
 	network := ln.Network
 
 	for i := 0; i < 5; i++ {
@@ -167,7 +167,7 @@ func TestIsGhostNaraSafeToDelete_FalseWhenRecentLastSeen(t *testing.T) {
 }
 
 func TestIsGhostNaraSafeToDelete_FalseWhenNeighborHasData(t *testing.T) {
-	ln := testLocalNara("me")
+	ln := testLocalNara(t,"me")
 	network := ln.Network
 
 	// One neighbor has data
@@ -189,7 +189,7 @@ func TestIsGhostNaraSafeToDelete_FalseWhenNeighborHasData(t *testing.T) {
 }
 
 func TestIsGhostNaraSafeToDelete_FalseWhenNeighborThinksOnline(t *testing.T) {
-	ln := testLocalNara("me")
+	ln := testLocalNara(t,"me")
 	network := ln.Network
 
 	// Neighbor thinks it's online (even with no other data)
@@ -210,7 +210,7 @@ func TestIsGhostNaraSafeToDelete_FalseWhenNeighborThinksOnline(t *testing.T) {
 }
 
 func TestIsGhostNaraSafeToDelete_FalseWhenTooFewNeighbors(t *testing.T) {
-	ln := testLocalNara("me")
+	ln := testLocalNara(t,"me")
 	network := ln.Network
 
 	// Only 2 neighbors (need at least 3)
@@ -227,7 +227,7 @@ func TestIsGhostNaraSafeToDelete_FalseWhenTooFewNeighbors(t *testing.T) {
 }
 
 func TestIsGhostNaraSafeToDelete_TrueWhenAllCriteriaMet(t *testing.T) {
-	ln := testLocalNara("me")
+	ln := testLocalNara(t,"me")
 	network := ln.Network
 
 	// Add enough neighbors with no data about ghost
@@ -248,7 +248,7 @@ func TestIsGhostNaraSafeToDelete_TrueWhenAllCriteriaMet(t *testing.T) {
 }
 
 func TestIsGhostNaraSafeToDelete_TrueWhenNeverSeen(t *testing.T) {
-	ln := testLocalNara("me")
+	ln := testLocalNara(t,"me")
 	network := ln.Network
 
 	for i := 0; i < 5; i++ {
@@ -266,7 +266,7 @@ func TestIsGhostNaraSafeToDelete_TrueWhenNeverSeen(t *testing.T) {
 }
 
 func TestGarbageCollectGhostNaras(t *testing.T) {
-	ln := testLocalNara("me")
+	ln := testLocalNara(t,"me")
 	network := ln.Network
 
 	// Add neighbors - give them real data so they're not detected as ghosts
@@ -445,7 +445,7 @@ func TestGarbageCollectGhostNaras(t *testing.T) {
 //	📊 Status-change observation event: racoon → MISSING (after 9s delay, verified)
 func TestPingVerificationRateLimitBug(t *testing.T) {
 	// Setup
-	ln := testLocalNara("me")
+	ln := testLocalNara(t,"me")
 	network := ln.Network
 	other := NewNara("other")
 	network.importNara(other)

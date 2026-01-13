@@ -55,13 +55,13 @@ func TestIntegration_HeyThereEventPropagation(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
 	// Setup: alice, bob, carol in a chain: alice <-> bob <-> carol
-	alice := testLocalNaraWithParams("alice", 50, 1000)
+	alice := testLocalNaraWithParams(t, "alice", 50, 1000)
 	alice.Network.TransportMode = TransportGossip
 
-	bob := testLocalNaraWithParams("bob", 50, 1000)
+	bob := testLocalNaraWithParams(t, "bob", 50, 1000)
 	bob.Network.TransportMode = TransportGossip
 
-	carol := testLocalNaraWithParams("carol", 50, 1000)
+	carol := testLocalNaraWithParams(t, "carol", 50, 1000)
 	carol.Network.TransportMode = TransportGossip
 
 	// Set up test servers
@@ -149,16 +149,16 @@ func TestIntegration_PeerResolutionProtocol(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
 	// Setup: alice <-> bob <-> carol, carol knows ghost's identity
-	alice := testLocalNaraWithParams("alice", 50, 1000)
+	alice := testLocalNaraWithParams(t, "alice", 50, 1000)
 	alice.Network.TransportMode = TransportGossip
 
-	bob := testLocalNaraWithParams("bob", 50, 1000)
+	bob := testLocalNaraWithParams(t, "bob", 50, 1000)
 	bob.Network.TransportMode = TransportGossip
 
-	carol := testLocalNaraWithParams("carol", 50, 1000)
+	carol := testLocalNaraWithParams(t, "carol", 50, 1000)
 	carol.Network.TransportMode = TransportGossip
 
-	ghost := testLocalNaraWithParams("ghost", 50, 1000)
+	ghost := testLocalNaraWithParams(t, "ghost", 50, 1000)
 	ghost.Network.TransportMode = TransportGossip
 
 	// Set up test servers with peer query handlers
@@ -257,10 +257,10 @@ func TestIntegration_HeyThereSyncEventEmittedOnStartup(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
 	// Setup: alice and bob, both in gossip mode
-	alice := testLocalNaraWithParams("alice", 50, 1000)
+	alice := testLocalNaraWithParams(t, "alice", 50, 1000)
 	alice.Network.TransportMode = TransportGossip
 
-	bob := testLocalNaraWithParams("bob", 50, 1000)
+	bob := testLocalNaraWithParams(t, "bob", 50, 1000)
 	bob.Network.TransportMode = TransportGossip
 
 	// Set up test servers
@@ -354,16 +354,16 @@ func TestIntegration_GossipOnlyPeerDiscovery(t *testing.T) {
 
 	// Setup: alice, bob, carol in hybrid mode, ghost in gossip-only mode
 	// Network topology: alice <-> bob <-> carol <-> ghost
-	alice := testLocalNaraWithParams("alice", 50, 1000)
+	alice := testLocalNaraWithParams(t, "alice", 50, 1000)
 	alice.Network.TransportMode = TransportHybrid
 
-	bob := testLocalNaraWithParams("bob", 50, 1000)
+	bob := testLocalNaraWithParams(t, "bob", 50, 1000)
 	bob.Network.TransportMode = TransportHybrid
 
-	carol := testLocalNaraWithParams("carol", 50, 1000)
+	carol := testLocalNaraWithParams(t, "carol", 50, 1000)
 	carol.Network.TransportMode = TransportHybrid
 
-	ghost := testLocalNaraWithParams("ghost", 50, 1000)
+	ghost := testLocalNaraWithParams(t, "ghost", 50, 1000)
 	ghost.Network.TransportMode = TransportGossip // Gossip-only!
 
 	// Set up test servers
@@ -516,13 +516,13 @@ func TestIntegration_ZineVerificationTriggersResolution(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
 	// Setup: alice <-> bob <-> carol
-	alice := testLocalNaraWithSoulAndParams("alice", testPeerDiscoverySoul("alice-zv"), 50, 1000)
+	alice := testLocalNaraWithSoulAndParams(t, "alice", testPeerDiscoverySoul("alice-zv"), 50, 1000)
 	alice.Network.TransportMode = TransportGossip
 
-	bob := testLocalNaraWithSoulAndParams("bob", testPeerDiscoverySoul("bob-zv"), 50, 1000)
+	bob := testLocalNaraWithSoulAndParams(t, "bob", testPeerDiscoverySoul("bob-zv"), 50, 1000)
 	bob.Network.TransportMode = TransportGossip
 
-	carol := testLocalNaraWithSoulAndParams("carol", testPeerDiscoverySoul("carol-zv"), 50, 1000)
+	carol := testLocalNaraWithSoulAndParams(t, "carol", testPeerDiscoverySoul("carol-zv"), 50, 1000)
 	carol.Network.TransportMode = TransportGossip
 
 	// Set up test servers
@@ -611,9 +611,9 @@ func TestIntegration_WorldJourneyTriggersResolution(t *testing.T) {
 	logrus.SetLevel(logrus.DebugLevel)
 
 	// Setup: alice <-> bob <-> carol
-	alice := testLocalNaraWithSoulAndParams("alice", testPeerDiscoverySoul("alice-wj"), 50, 1000)
-	bob := testLocalNaraWithSoulAndParams("bob", testPeerDiscoverySoul("bob-wj"), 50, 1000)
-	carol := testLocalNaraWithSoulAndParams("carol", testPeerDiscoverySoul("carol-wj"), 50, 1000)
+	alice := testLocalNaraWithSoulAndParams(t, "alice", testPeerDiscoverySoul("alice-wj"), 50, 1000)
+	bob := testLocalNaraWithSoulAndParams(t, "bob", testPeerDiscoverySoul("bob-wj"), 50, 1000)
+	carol := testLocalNaraWithSoulAndParams(t, "carol", testPeerDiscoverySoul("carol-wj"), 50, 1000)
 
 	// Set up test servers
 	aliceMux := http.NewServeMux()
@@ -712,9 +712,9 @@ func TestIntegration_MeshAuthTriggersResolution(t *testing.T) {
 	logrus.SetLevel(logrus.DebugLevel)
 
 	// Setup: alice <-> bob <-> carol
-	alice := testLocalNaraWithSoulAndParams("alice", testPeerDiscoverySoul("alice-ma"), 50, 1000)
-	bob := testLocalNaraWithSoulAndParams("bob", testPeerDiscoverySoul("bob-ma"), 50, 1000)
-	carol := testLocalNaraWithSoulAndParams("carol", testPeerDiscoverySoul("carol-ma"), 50, 1000)
+	alice := testLocalNaraWithSoulAndParams(t, "alice", testPeerDiscoverySoul("alice-ma"), 50, 1000)
+	bob := testLocalNaraWithSoulAndParams(t, "bob", testPeerDiscoverySoul("bob-ma"), 50, 1000)
+	carol := testLocalNaraWithSoulAndParams(t, "carol", testPeerDiscoverySoul("carol-ma"), 50, 1000)
 
 	// Set up test servers
 	// Alice's server has meshAuthMiddleware

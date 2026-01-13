@@ -10,7 +10,7 @@ import (
 // This ensures gradual rollout without breaking compatibility.
 func TestHeyThereEvent_BackwardsCompatibleSignature(t *testing.T) {
 	// Create a keypair for an "old nara" that doesn't know about IDs
-	ln := testLocalNara("old-nara")
+	ln := testLocalNara(t,"old-nara")
 
 	// Simulate an old nara creating a hey_there event WITHOUT ID in the signature
 	// The old nara would sign: "hey_there:name:publicKey:meshIP"
@@ -45,7 +45,7 @@ func TestHeyThereEvent_BackwardsCompatibleSignature(t *testing.T) {
 // (with ID) create signatures that include the ID and verify correctly.
 func TestHeyThereEvent_NewFormatSignature(t *testing.T) {
 	// Create a new nara with ID
-	ln := testLocalNara("new-nara")
+	ln := testLocalNara(t,"new-nara")
 
 	// New nara creates event WITH ID
 	newEvent := &HeyThereEvent{
@@ -70,7 +70,7 @@ func TestHeyThereEvent_NewFormatSignature(t *testing.T) {
 // still work correctly (for old naras that never set ID).
 func TestHeyThereEvent_OldFormatWithoutID(t *testing.T) {
 	// Simulate an old nara that doesn't know about IDs at all
-	ln := testLocalNara("ancient-nara")
+	ln := testLocalNara(t,"ancient-nara")
 
 	oldEvent := &HeyThereEvent{
 		From:      "ancient-nara",
@@ -93,7 +93,7 @@ func TestHeyThereEvent_OldFormatWithoutID(t *testing.T) {
 // TestChauEvent_BackwardsCompatibleSignature verifies backwards compatibility for chau events
 func TestChauEvent_BackwardsCompatibleSignature(t *testing.T) {
 	// Create a keypair for an "old nara"
-	ln := testLocalNara("old-nara")
+	ln := testLocalNara(t,"old-nara")
 
 	// Old nara creates chau event WITHOUT ID in signature
 	oldFormatEvent := &ChauEvent{
@@ -123,7 +123,7 @@ func TestChauEvent_BackwardsCompatibleSignature(t *testing.T) {
 
 // TestChauEvent_NewFormatSignature verifies new format chau signatures
 func TestChauEvent_NewFormatSignature(t *testing.T) {
-	ln := testLocalNara("new-nara")
+	ln := testLocalNara(t,"new-nara")
 
 	newEvent := &ChauEvent{
 		From:      "new-nara",
@@ -142,7 +142,7 @@ func TestChauEvent_NewFormatSignature(t *testing.T) {
 
 // TestChauEvent_OldFormatWithoutID verifies old format chau events
 func TestChauEvent_OldFormatWithoutID(t *testing.T) {
-	ln := testLocalNara("ancient-nara")
+	ln := testLocalNara(t,"ancient-nara")
 
 	oldEvent := &ChauEvent{
 		From:      "ancient-nara",
@@ -162,10 +162,10 @@ func TestChauEvent_OldFormatWithoutID(t *testing.T) {
 // TestMixedRollout_OldAndNewNaras simulates a network with both old and new naras
 func TestMixedRollout_OldAndNewNaras(t *testing.T) {
 	// Create an old nara (simulated by signing without ID)
-	oldNara := testLocalNara("old-nara")
+	oldNara := testLocalNara(t,"old-nara")
 
 	// Create a new nara (with ID)
-	newNara := testLocalNara("new-nara")
+	newNara := testLocalNara(t,"new-nara")
 
 	// Old nara sends hey_there (old format signature)
 	oldHeyThere := &HeyThereEvent{
@@ -210,7 +210,7 @@ func TestMixedRollout_OldAndNewNaras(t *testing.T) {
 func TestHeyThereEvent_SignatureMustIncludeID(t *testing.T) {
 	t.Skip("To be added after rollout of new ID signatures") // TODO(signature)
 
-	ln := testLocalNara("new-nara")
+	ln := testLocalNara(t,"new-nara")
 	event := &HeyThereEvent{
 		From:      "new-nara",
 		PublicKey: FormatPublicKey(ln.Keypair.PublicKey),
@@ -236,7 +236,7 @@ func TestHeyThereEvent_SignatureMustIncludeID(t *testing.T) {
 func TestChauEvent_SignatureMustIncludeID(t *testing.T) {
 	t.Skip("To be added after rollout of new ID signatures") // TODO(signature)
 
-	ln := testLocalNara("new-nara")
+	ln := testLocalNara(t,"new-nara")
 	event := &ChauEvent{
 		From:      "new-nara",
 		PublicKey: FormatPublicKey(ln.Keypair.PublicKey),

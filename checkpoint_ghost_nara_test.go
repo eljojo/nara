@@ -12,7 +12,7 @@ import (
 func TestCheckpoint_VoterIDsNotUsedAsNames(t *testing.T) {
 	t.Parallel()
 
-	ln := testLocalNaraWithParams("test-nara", 50, 1000)
+	ln := testLocalNaraWithParams(t,"test-nara", 50, 1000)
 	network := ln.Network
 
 	// Create a checkpoint event with a VoterID (nara ID, not name)

@@ -87,7 +87,7 @@ func TestPingVerificationUpdatesProjectionImmediately(t *testing.T) {
 // 5. RunOnce() returns empty, projection never sees new ping event
 // 6. GetStatus() still returns MISSING, creating log spam every second for 60 seconds
 func TestMarkOnlineFromPingUpdatesProjectionSynchronously(t *testing.T) {
-	ln := testLocalNara("jojo-m1")
+	ln := testLocalNara(t,"jojo-m1")
 	network := ln.Network
 	network.local.Projections = NewProjectionStore(network.local.SyncLedger)
 
@@ -144,12 +144,12 @@ func TestBootTimeChauDoesNotClobberOnlineStatus(t *testing.T) {
 	defer logrus.SetLevel(logrus.WarnLevel)
 
 	// Create a LocalNara that is booting (default state after creation)
-	observer := testLocalNara("observer")
+	observer := testLocalNara(t,"observer")
 	network := observer.Network
 	network.local.Projections = NewProjectionStore(network.local.SyncLedger)
 
 	// Create a neighbor nara with valid keypair for signing
-	neighbor := testLocalNara("raccoon")
+	neighbor := testLocalNara(t,"raccoon")
 
 	// Observer knows about neighbor (has their public key)
 	neighborNara := NewNara("raccoon")

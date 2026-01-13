@@ -11,7 +11,7 @@ import (
 )
 
 func TestHttpNaraeJsonHandler(t *testing.T) {
-	ln := testLocalNara("test-nara")
+	ln := testLocalNara(t, "test-nara")
 	network := ln.Network
 
 	req, err := http.NewRequest("GET", "/narae.json", nil)
@@ -55,7 +55,7 @@ func TestHttpNaraeJsonHandler(t *testing.T) {
 }
 
 func TestHttpApiJsonHandler(t *testing.T) {
-	ln := testLocalNara("test-nara")
+	ln := testLocalNara(t, "test-nara")
 	network := ln.Network
 
 	req, err := http.NewRequest("GET", "/api.json", nil)
@@ -83,7 +83,7 @@ func TestHttpApiJsonHandler(t *testing.T) {
 }
 
 func TestHttpStatusJsonHandler(t *testing.T) {
-	ln := testLocalNara("test-nara")
+	ln := testLocalNara(t, "test-nara")
 	network := ln.Network
 
 	// Test existing nara
@@ -124,7 +124,7 @@ func TestHttpStatusJsonHandler(t *testing.T) {
 }
 
 func TestHttpMetricsHandler(t *testing.T) {
-	ln := testLocalNara("test-nara")
+	ln := testLocalNara(t, "test-nara")
 	network := ln.Network
 
 	otherNara := NewNara("other")
@@ -160,7 +160,7 @@ func TestHttpMetricsHandler(t *testing.T) {
 }
 
 func TestHttpPingHandler(t *testing.T) {
-	ln := testLocalNara("test-nara")
+	ln := testLocalNara(t, "test-nara")
 	network := ln.Network
 
 	req, err := http.NewRequest("GET", "/ping", nil)
@@ -194,7 +194,7 @@ func TestHttpPingHandler(t *testing.T) {
 }
 
 func TestHttpCoordinatesHandler(t *testing.T) {
-	ln := testLocalNara("test-nara")
+	ln := testLocalNara(t, "test-nara")
 	network := ln.Network
 
 	req, err := http.NewRequest("GET", "/coordinates", nil)
@@ -243,7 +243,7 @@ func TestHttpCoordinatesHandler(t *testing.T) {
 }
 
 func TestHttpNetworkMapHandler(t *testing.T) {
-	ln := testLocalNara("test-nara")
+	ln := testLocalNara(t, "test-nara")
 	network := ln.Network
 
 	// Add a neighbor with coordinates
@@ -316,7 +316,7 @@ func TestHttpNetworkMapHandler(t *testing.T) {
 }
 
 func TestHttpNetworkMapHandler_NodesWithoutCoordinates(t *testing.T) {
-	ln := testLocalNara("test-nara")
+	ln := testLocalNara(t, "test-nara")
 	network := ln.Network
 
 	// Add a neighbor WITHOUT coordinates (simulating older version)
@@ -386,7 +386,7 @@ func TestHttpNetworkMapHandler_NodesWithoutCoordinates(t *testing.T) {
 }
 
 func TestHttpEventsSyncHandler(t *testing.T) {
-	ln := testLocalNara("test-nara")
+	ln := testLocalNara(t, "test-nara")
 	network := ln.Network
 
 	// Add some events to the SyncLedger
@@ -443,7 +443,7 @@ func TestHttpEventsSyncHandler(t *testing.T) {
 }
 
 func TestHttpEventsSyncHandler_FilterByService(t *testing.T) {
-	ln := testLocalNara("test-nara")
+	ln := testLocalNara(t, "test-nara")
 	network := ln.Network
 
 	// Add mixed events
@@ -477,7 +477,7 @@ func TestHttpEventsSyncHandler_FilterByService(t *testing.T) {
 }
 
 func TestHttpTeaseCountsHandler(t *testing.T) {
-	ln := testLocalNara("test-nara")
+	ln := testLocalNara(t, "test-nara")
 	network := ln.Network
 
 	// Add some tease events
@@ -530,9 +530,9 @@ func TestHttpTeaseCountsHandler(t *testing.T) {
 
 func TestHttpDMHandler(t *testing.T) {
 	// Create receiver nara
-	receiver := testLocalNara("receiver")
+	receiver := testLocalNara(t, "receiver")
 	// Create sender nara (we need their keypair to sign the event)
-	sender := testLocalNara("sender")
+	sender := testLocalNara(t, "sender")
 	// Receiver must know about sender (public key) to verify signature
 	senderNara := NewNara("sender")
 	senderNara.Status.PublicKey = FormatPublicKey(sender.Keypair.PublicKey)
@@ -586,7 +586,7 @@ func TestHttpDMHandler(t *testing.T) {
 }
 
 func TestHttpDMHandler_UnsignedEvent(t *testing.T) {
-	receiver := testLocalNara("receiver")
+	receiver := testLocalNara(t, "receiver")
 	// Create an unsigned event
 	event := NewSocialSyncEvent("tease", "sender", "receiver", "high-restarts", "")
 
@@ -606,8 +606,8 @@ func TestHttpDMHandler_UnsignedEvent(t *testing.T) {
 }
 
 func TestHttpDMHandler_UnknownEmitter(t *testing.T) {
-	receiver := testLocalNara("receiver")
-	sender := testLocalNara("unknown-sender")
+	receiver := testLocalNara(t, "receiver")
+	sender := testLocalNara(t, "unknown-sender")
 	// Create a signed event but receiver doesn't know sender
 	event := NewTeaseSyncEvent("unknown-sender", "receiver", "high-restarts", sender.Keypair)
 
@@ -627,9 +627,9 @@ func TestHttpDMHandler_UnknownEmitter(t *testing.T) {
 }
 
 func TestHttpDMHandler_InvalidSignature(t *testing.T) {
-	receiver := testLocalNara("receiver")
-	sender := testLocalNara("sender")
-	wrongSender := testLocalNara("wrong-sender")
+	receiver := testLocalNara(t, "receiver")
+	sender := testLocalNara(t, "sender")
+	wrongSender := testLocalNara(t, "wrong-sender")
 	// Receiver knows about sender
 	senderNara := NewNara("sender")
 	senderNara.Status.PublicKey = FormatPublicKey(sender.Keypair.PublicKey)
@@ -654,7 +654,7 @@ func TestHttpDMHandler_InvalidSignature(t *testing.T) {
 }
 
 func TestHttpDMHandler_MethodNotAllowed(t *testing.T) {
-	receiver := testLocalNara("receiver")
+	receiver := testLocalNara(t, "receiver")
 	req, _ := http.NewRequest("GET", "/dm", nil)
 
 	rr := httptest.NewRecorder()
@@ -667,8 +667,8 @@ func TestHttpDMHandler_MethodNotAllowed(t *testing.T) {
 }
 
 func TestHttpEventsSSEHandler(t *testing.T) {
-	sender := testLocalNaraWithParams("sender", 50, 1000)
-	receiver := testLocalNaraWithParams("receiver", 50, 1000)
+	sender := testLocalNaraWithParams(t, "sender", 50, 1000)
+	receiver := testLocalNaraWithParams(t, "receiver", 50, 1000)
 	// Add sender to receiver's neighbourhood so we can verify events
 	receiver.Network.importNara(sender.Me)
 

@@ -81,7 +81,7 @@ func TestCheckpoint_VoteAsOfTimeMismatch(t *testing.T) {
 
 	// Setup network for verification
 	ledger := NewSyncLedger(1000)
-	local := testLocalNara("verifier")
+	local := testLocalNara(t,"verifier")
 	network := &Network{
 		Neighbourhood: make(map[string]*Nara),
 		local:         local,
@@ -202,7 +202,7 @@ func TestCheckpoint_SignatureFormatMismatch(t *testing.T) {
 
 	// Setup network
 	ledger := NewSyncLedger(1000)
-	local := testLocalNara("verifier")
+	local := testLocalNara(t,"verifier")
 	network := &Network{
 		Neighbourhood: make(map[string]*Nara),
 		local:         local,

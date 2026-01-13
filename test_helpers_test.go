@@ -51,53 +51,140 @@ func TestMain(m *testing.M) {
 	os.Exit(exitCode)
 }
 
-// testLocalNara creates a LocalNara for testing with a valid identity bonded to the name.
-func testLocalNara(name string) *LocalNara {
-	identity := testIdentity(name)
+// TestNaraOptions configures test nara creation
+type TestNaraOptions struct {
+	mqttHost       string
+	mqttPort       int
+	chattiness     int
+	ledgerCapacity int
+	soul           string
+	skipJitter     bool
+	skipBootRecovery bool
+	skipHeyThereRateLimit bool
+}
+
+// TestNaraOption is a functional option for configuring test naras
+type TestNaraOption func(*TestNaraOptions)
+
+// WithMQTT configures MQTT connection
+func WithMQTT(port int) TestNaraOption {
+	return func(o *TestNaraOptions) {
+		o.mqttHost = fmt.Sprintf("tcp://127.0.0.1:%d", port)
+		o.mqttPort = port
+		o.skipJitter = true
+		o.skipBootRecovery = true
+	}
+}
+
+// WithParams sets custom chattiness and ledger capacity
+func WithParams(chattiness, ledgerCapacity int) TestNaraOption {
+	return func(o *TestNaraOptions) {
+		o.chattiness = chattiness
+		o.ledgerCapacity = ledgerCapacity
+	}
+}
+
+// WithSoul sets a custom soul string
+func WithSoul(soul string) TestNaraOption {
+	return func(o *TestNaraOptions) {
+		o.soul = soul
+	}
+}
+
+// WithHowdyTestConfig enables all flags needed for howdy tests
+func WithHowdyTestConfig() TestNaraOption {
+	return func(o *TestNaraOptions) {
+		o.skipJitter = true
+		o.skipHeyThereRateLimit = true
+	}
+}
+
+// testNara creates a LocalNara for testing with optional configuration.
+// Automatically registers cleanup via t.Cleanup() to ensure proper shutdown.
+// This is the unified test helper - use this for all test nara creation.
+func testNara(t *testing.T, name string, opts ...TestNaraOption) *LocalNara {
+	t.Helper()
+
+	// Apply options
+	config := &TestNaraOptions{
+		mqttHost:       "host",
+		chattiness:     -1,
+		ledgerCapacity: 0,
+	}
+	for _, opt := range opts {
+		opt(config)
+	}
+
+	// Create identity
+	var identity IdentityResult
+	if config.soul != "" {
+		parsed, _ := ParseSoul(config.soul)
+		id, _ := ComputeNaraID(config.soul, name)
+		identity = IdentityResult{
+			Name:        name,
+			Soul:        parsed,
+			ID:          id,
+			IsValidBond: true,
+			IsNative:    true,
+		}
+	} else {
+		identity = testIdentity(name)
+	}
+
+	// Create memory profile
 	profile := DefaultMemoryProfile()
-	ln, err := NewLocalNara(identity, "host", "user", "pass", -1, profile)
+	if config.ledgerCapacity > 0 {
+		profile.Mode = MemoryModeCustom
+		profile.MaxEvents = config.ledgerCapacity
+	}
+
+	// Create LocalNara
+	ln, err := NewLocalNara(identity, config.mqttHost, "", "", config.chattiness, profile)
 	if err != nil {
 		panic(err)
 	}
+
+	// Apply test configurations
 	delay := time.Duration(0)
 	ln.Network.testObservationDelay = &delay
+	if config.skipJitter {
+		ln.Network.testSkipJitter = true
+	}
+	if config.skipBootRecovery {
+		ln.Network.testSkipBootRecovery = true
+	}
+	if config.skipHeyThereRateLimit {
+		ln.Network.testSkipHeyThereSleep = true
+		ln.Network.testSkipHeyThereRateLimit = true
+	}
+
+	// Automatic cleanup
+	t.Cleanup(func() {
+		ln.Network.Shutdown()
+		if config.mqttPort > 0 {
+			ln.Network.disconnectMQTT()
+		}
+	})
+
 	return ln
+}
+
+// testLocalNara creates a basic LocalNara for testing.
+// Deprecated: Use testNara(t, name) instead.
+func testLocalNara(t *testing.T, name string) *LocalNara {
+	return testNara(t, name)
 }
 
 // testLocalNaraWithParams creates a LocalNara for testing with specific chattiness and ledger capacity.
-func testLocalNaraWithParams(name string, chattiness int, ledgerCapacity int) *LocalNara {
-	identity := testIdentity(name)
-	profile := DefaultMemoryProfile()
-	if ledgerCapacity > 0 {
-		profile.Mode = MemoryModeCustom
-		profile.MaxEvents = ledgerCapacity
-	}
-	ln, err := NewLocalNara(identity, "", "", "", chattiness, profile)
-	if err != nil {
-		panic(err)
-	}
-	delay := time.Duration(0)
-	ln.Network.testObservationDelay = &delay
-	return ln
+// Deprecated: Use testNara(t, name, WithParams(chattiness, ledgerCapacity)) instead.
+func testLocalNaraWithParams(t *testing.T, name string, chattiness int, ledgerCapacity int) *LocalNara {
+	return testNara(t, name, WithParams(chattiness, ledgerCapacity))
 }
 
 // testLocalNaraWithSoul creates a LocalNara for testing with a specific soul string.
-func testLocalNaraWithSoul(name string, soul string) *LocalNara {
-	parsed, _ := ParseSoul(soul)
-	id, _ := ComputeNaraID(soul, name)
-	identity := IdentityResult{
-		Name:        name,
-		Soul:        parsed,
-		ID:          id,
-		IsValidBond: true,
-		IsNative:    true,
-	}
-	profile := DefaultMemoryProfile()
-	ln, err := NewLocalNara(identity, "host", "user", "pass", -1, profile)
-	if err != nil {
-		panic(err)
-	}
-	return ln
+// Deprecated: Use testNara(t, name, WithSoul(soul)) instead.
+func testLocalNaraWithSoul(t *testing.T, name string, soul string) *LocalNara {
+	return testNara(t, name, WithSoul(soul))
 }
 
 func testIdentity(name string) IdentityResult {
@@ -114,26 +201,9 @@ func testIdentity(name string) IdentityResult {
 }
 
 // testLocalNaraWithSoulAndParams creates a LocalNara for testing with a specific soul and parameters.
-func testLocalNaraWithSoulAndParams(name string, soul string, chattiness int, ledgerCapacity int) *LocalNara {
-	parsed, _ := ParseSoul(soul)
-	id, _ := ComputeNaraID(soul, name)
-	identity := IdentityResult{
-		Name:        name,
-		Soul:        parsed,
-		ID:          id,
-		IsValidBond: true,
-		IsNative:    true,
-	}
-	profile := DefaultMemoryProfile()
-	if ledgerCapacity > 0 {
-		profile.Mode = MemoryModeCustom
-		profile.MaxEvents = ledgerCapacity
-	}
-	ln, err := NewLocalNara(identity, "", "", "", chattiness, profile)
-	if err != nil {
-		panic(err)
-	}
-	return ln
+// Deprecated: Use testNara(t, name, WithSoul(soul), WithParams(chattiness, ledgerCapacity)) instead.
+func testLocalNaraWithSoulAndParams(t *testing.T, name string, soul string, chattiness int, ledgerCapacity int) *LocalNara {
+	return testNara(t, name, WithSoul(soul), WithParams(chattiness, ledgerCapacity))
 }
 
 // startTestMQTTBroker starts an embedded MQTT broker for testing on the given port.
@@ -165,39 +235,14 @@ func startTestMQTTBroker(t *testing.T, port int) *mqttserver.Server {
 	return server
 }
 
-// createTestNaraForMQTT creates a LocalNara for MQTT testing with proper test flags
+// createTestNaraForMQTT creates a LocalNara for MQTT testing with proper test flags.
+// Deprecated: Use testNara(t, name, WithMQTT(port), WithParams(-1, 1000)) instead.
 func createTestNaraForMQTT(t *testing.T, name string, port int) *LocalNara {
-	t.Helper()
-	hwFingerprint := []byte(fmt.Sprintf("test-hw-%s", name))
-	identity := DetermineIdentity("", "", name, hwFingerprint)
-
-	profile := DefaultMemoryProfile()
-	profile.Mode = MemoryModeCustom
-	profile.MaxEvents = 1000
-	ln, err := NewLocalNara(
-		identity,
-		fmt.Sprintf("tcp://127.0.0.1:%d", port),
-		"", "",
-		-1,
-		profile,
-	)
-	if err != nil {
-		t.Fatalf("Failed to create LocalNara: %v", err)
-	}
-
-	// Use standard test configuration from testLocalNara
-	delay := time.Duration(0)
-	ln.Network.testObservationDelay = &delay
-
-	// Skip jitter delays for faster, more predictable test execution
-	ln.Network.testSkipJitter = true
-	// Skip boot recovery - tests will manually add observation data
-	ln.Network.testSkipBootRecovery = true
-
-	return ln
+	return testNara(t, name, WithMQTT(port), WithParams(-1, 1000))
 }
 
-// startTestNaras creates and starts multiple naras, ensuring MQTT connection and full discovery
+// startTestNaras creates and starts multiple naras, ensuring MQTT connection and full discovery.
+// Automatically registers cleanup for all naras via t.Cleanup().
 func startTestNaras(t *testing.T, port int, names []string, ensureDiscovery bool) []*LocalNara {
 	t.Helper()
 	naras := make([]*LocalNara, len(names))
@@ -208,6 +253,16 @@ func startTestNaras(t *testing.T, port int, names []string, ensureDiscovery bool
 		go naras[i].Start(false, false, "", nil, TransportMQTT)
 		time.Sleep(100 * time.Millisecond) // Small delay between starts
 	}
+
+	// Register cleanup for all naras
+	t.Cleanup(func() {
+		for _, ln := range naras {
+			if ln != nil && ln.Network != nil {
+				ln.Network.Shutdown()
+				ln.Network.disconnectMQTT()
+			}
+		}
+	})
 
 	// Wait for all to connect
 	waitForAllMQTTConnected(t, naras, 15*time.Second)
@@ -456,7 +511,7 @@ func testCreateMeshNetwork(t *testing.T, names []string, chattiness, ledgerCapac
 
 	// Create naras and servers
 	for i, name := range names {
-		ln := testLocalNaraWithParams(name, chattiness, ledgerCapacity)
+		ln := testLocalNaraWithParams(t, name, chattiness, ledgerCapacity)
 
 		// Mark not booting (common integration test requirement)
 		me := ln.getMeObservation()

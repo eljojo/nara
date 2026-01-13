@@ -314,6 +314,16 @@ func (network *Network) Shutdown() {
 		time.Sleep(500 * time.Millisecond)
 	}
 
+	// Stop checkpoint service (has its own context)
+	if network.checkpointService != nil {
+		network.checkpointService.Stop()
+	}
+
+	// Stop projections (has its own context)
+	if network.local != nil && network.local.Projections != nil {
+		network.local.Projections.Shutdown()
+	}
+
 	// Cancel context to signal all goroutines to stop
 	if network.cancelFunc != nil {
 		network.cancelFunc()

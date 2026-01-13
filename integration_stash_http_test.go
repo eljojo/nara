@@ -249,7 +249,7 @@ func TestStashHTTPExchange_Rejection(t *testing.T) {
 	owner.Network.importNara(confidantNara)
 
 	// Fill confidant's capacity with someone else's stash first
-	dummyNara := testLocalNara("dummy")
+	dummyNara := testLocalNara(t,"dummy")
 	dummyData := testStashData(time.Now().Unix(), []string{"🎲"})
 	dummyKeypair := DeriveEncryptionKeys(dummyNara.Keypair.PrivateKey)
 	dummyPayload, _ := CreateStashPayload("dummy", dummyData, dummyKeypair)

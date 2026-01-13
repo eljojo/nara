@@ -34,8 +34,6 @@ func TestHowdy_StartTimeRecovery(t *testing.T) {
 		t.Fatalf("Failed to create test nara: %v", err)
 	}
 	go nara1.Start(false, false, "", nil, TransportMQTT)
-	defer nara1.Network.Shutdown()
-	defer nara1.Network.disconnectMQTT()
 
 	t.Log("✅ Started nara1")
 	// Wait for nara1 to connect to MQTT
@@ -47,8 +45,6 @@ func TestHowdy_StartTimeRecovery(t *testing.T) {
 		t.Fatalf("Failed to create test nara: %v", err)
 	}
 	go nara2.Start(false, false, "", nil, TransportMQTT)
-	defer nara2.Network.Shutdown()
-	defer nara2.Network.disconnectMQTT()
 
 	t.Log("✅ Started nara2")
 	// Wait for nara2 to connect to MQTT
@@ -119,8 +115,6 @@ func TestHowdy_NeighborDiscovery(t *testing.T) {
 		t.Fatalf("Failed to create test nara: %v", err)
 	}
 	go nara1.Start(false, false, "", nil, TransportMQTT)
-	defer nara1.Network.Shutdown()
-	defer nara1.Network.disconnectMQTT()
 
 	waitForMQTTConnected(t, nara1, 5*time.Second)
 
@@ -129,8 +123,6 @@ func TestHowdy_NeighborDiscovery(t *testing.T) {
 		t.Fatalf("Failed to create test nara: %v", err)
 	}
 	go nara2.Start(false, false, "", nil, TransportMQTT)
-	defer nara2.Network.Shutdown()
-	defer nara2.Network.disconnectMQTT()
 
 	waitForMQTTConnected(t, nara2, 5*time.Second)
 
@@ -150,8 +142,6 @@ func TestHowdy_NeighborDiscovery(t *testing.T) {
 		t.Fatalf("Failed to create test nara: %v", err)
 	}
 	go nara3.Start(false, false, "", nil, TransportMQTT)
-	defer nara3.Network.Shutdown()
-	defer nara3.Network.disconnectMQTT()
 
 	t.Log("✅ Started all 3 naras")
 
@@ -213,8 +203,6 @@ func TestHowdy_SelfSelection(t *testing.T) {
 			t.Fatalf("Failed to create test nara: %v", err)
 		}
 		go naras[i].Start(false, false, "", nil, TransportMQTT)
-		defer naras[i].Network.Shutdown()
-		defer naras[i].Network.disconnectMQTT()
 	}
 
 	// Wait for all 14 naras to connect
@@ -234,8 +222,6 @@ func TestHowdy_SelfSelection(t *testing.T) {
 	}
 	naras[numNaras-1] = lastNara
 	go lastNara.Start(false, false, "", nil, TransportMQTT)
-	defer lastNara.Network.Shutdown()
-	defer lastNara.Network.disconnectMQTT()
 
 	waitForMQTTConnected(t, lastNara, 5*time.Second)
 
@@ -295,36 +281,7 @@ func startHowdyTestBroker(t *testing.T, port int) *mqttserver.Server {
 }
 
 func createTestNara(t *testing.T, name string, port int) (*LocalNara, error) {
-	identity := testIdentity(name)
-
-	profile := DefaultMemoryProfile()
-	profile.Mode = MemoryModeCustom
-	profile.MaxEvents = 1000
-	ln, err := NewLocalNara(
-		identity,
-		fmt.Sprintf("tcp://127.0.0.1:%d", port),
-		"",
-		"",
-		-1,
-		profile,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// Use standard test configuration from testLocalNara
-	delay := time.Duration(0)
-	ln.Network.testObservationDelay = &delay
-
-	// Skip the 1s sleep in handleHeyThereEvent for faster tests
-	ln.Network.testSkipHeyThereSleep = true
-	// Skip jitter delays for faster discovery in tests
-	ln.Network.testSkipJitter = true
-	// Skip 5s rate limit on hey_there - CRITICAL for non-flaky tests:
-	// Without this, naras that send hey_there during boot are rate-limited
-	// and cannot send another hey_there when explicitly triggered by tests,
-	// causing discovery failures and test timeouts.
-	ln.Network.testSkipHeyThereRateLimit = true
-
+	// Use unified testNara with MQTT and howdy test config
+	ln := testNara(t, name, WithMQTT(port), WithParams(-1, 1000), WithHowdyTestConfig())
 	return ln, nil
 }
