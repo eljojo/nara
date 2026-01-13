@@ -36,14 +36,19 @@ Autonomous agents (naras) observe events, form opinions based on personality, an
 
 ## Build & Development Commands
 
+**IMPORTANT:** Always use `/usr/bin/make` instead of `make` to avoid shell issues:
+
 ```bash
-make build       # Build binary to bin/nara
-make test        # Run all tests (2-minute timeout)
-make test-v      # Run tests with verbose output
-make test-fast   # Run fast tests only (skips integration tests via -short flag)
-make clean       # Remove build artifacts
-make build-nix   # Build using Nix
+/usr/bin/make build       # Build binary to bin/nara
+/usr/bin/make build-web   # Build JS bundle (Preact app)
+/usr/bin/make test        # Run all tests (2-minute timeout)
+/usr/bin/make test-v      # Run tests with verbose output
+/usr/bin/make test-fast   # Run fast tests only (skips integration tests via -short flag)
+/usr/bin/make clean       # Remove build artifacts
+/usr/bin/make build-nix   # Build using Nix
 ```
+
+- When working, always use `gofmt -w` to format code.
 
 ### Running a Single Test
 

@@ -33,6 +33,23 @@
             };
           };
         };
+
+        devShells.default = pkgs.mkShell {
+          buildInputs = with pkgs; [
+            go
+            gopls
+            esbuild
+            nodejs
+          ];
+
+          shellHook = ''
+            echo "nara dev shell"
+            echo "  make build-web  - build JS assets"
+            echo "  make watch-web  - watch JS assets (dev mode)"
+            echo "  make build      - build Go binary (includes JS)"
+            echo "  make run        - run nara locally"
+          '';
+        };
       }) // {
       nixosModules.default = self.nixosModules.nara;
       nixosModules.nara = import ./nara.nix;

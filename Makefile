@@ -1,10 +1,22 @@
-.PHONY: all build test run run2 clean build-nix test-v test-fast lint-report
+.PHONY: all build test run run2 clean build-nix test-v test-fast lint-report build-web watch-web
 
 # Default target: build and test
 all: build test
 
-# Build the nara binary
-build:
+# Build web assets (JS + CSS bundles)
+# Bundles Preact, D3, dayjs - no CDN dependencies
+build-web:
+	@echo "Building web assets..."
+	@npm run build
+	@echo "✓ Built nara-web/public/app.js, app.css, vendor.css"
+
+# Watch web assets for changes (dev mode)
+watch-web:
+	@echo "Watching web assets for changes..."
+	@npm run watch
+
+# Build the nara binary (depends on web assets)
+build: build-web
 	@echo "Building nara..."
 	@mkdir -p bin
 	@go build -mod=mod -o bin/nara cmd/nara/main.go
@@ -43,6 +55,8 @@ run3: build
 clean:
 	@echo "Cleaning build artifacts..."
 	@rm -rf bin/
+	@rm -f nara-web/public/app.js nara-web/public/app.js.map nara-web/public/app.css nara-web/public/vendor.css
+	@rm -f nara-web/src/generated/iconoir.css
 	@echo "✓ Cleaned"
 
 # Build using Nix

@@ -119,10 +119,10 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 			logrus.Errorf("failed to load embedded UI assets: %v", err)
 		}
 
-		// Profile pages: serve a single template for /nara/{name}
+		// Profile pages: serve SPA for /nara/{name}
 		mux.HandleFunc("/nara/", func(w http.ResponseWriter, r *http.Request) {
-			if data, err := fs.ReadFile(staticContent, "nara-web/public/profile.html"); err == nil {
-				http.ServeContent(w, r, "profile.html", time.Now(), bytes.NewReader(data))
+			if data, err := fs.ReadFile(staticContent, "nara-web/public/inspector.html"); err == nil {
+				http.ServeContent(w, r, "inspector.html", time.Now(), bytes.NewReader(data))
 				return
 			}
 			http.NotFound(w, r)
@@ -148,16 +148,7 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 		mux.HandleFunc("/api/stash/recover", network.httpStashRecoverHandler)
 		mux.HandleFunc("/api/stash/confidants", network.httpStashConfidantsHandler)
 
-		// Inspector UI - SPA routing (serve inspector.html for all /inspector/* paths)
-		inspectorHandler := func(w http.ResponseWriter, r *http.Request) {
-			if data, err := fs.ReadFile(staticContent, "nara-web/public/inspector.html"); err == nil {
-				http.ServeContent(w, r, "inspector.html", time.Now(), bytes.NewReader(data))
-				return
-			}
-			http.NotFound(w, r)
-		}
-		mux.HandleFunc("/inspector", inspectorHandler)
-		mux.HandleFunc("/inspector/", inspectorHandler)
+		// Inspector API endpoints
 		mux.HandleFunc("/api/inspector/events", network.local.inspectorEventsHandler)
 		mux.HandleFunc("/api/inspector/checkpoints", network.local.inspectorCheckpointsHandler)
 		mux.HandleFunc("/api/inspector/checkpoint/", network.local.inspectorCheckpointDetailHandler)
@@ -175,7 +166,55 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 			mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 		}
 
-		mux.Handle("/", http.FileServer(http.FS(publicFS)))
+		// SPA handler - serves inspector.html for all app routes
+		// This is the main page at / with all tabs (Home, World, Timeline, etc.)
+		spaHandler := func(w http.ResponseWriter, r *http.Request) {
+			if data, err := fs.ReadFile(staticContent, "nara-web/public/inspector.html"); err == nil {
+				http.ServeContent(w, r, "inspector.html", time.Now(), bytes.NewReader(data))
+				return
+			}
+			http.NotFound(w, r)
+		}
+
+		// SPA routes - all these serve inspector.html, React router handles the rest
+		mux.HandleFunc("/world", spaHandler)
+		mux.HandleFunc("/world/", spaHandler)
+		mux.HandleFunc("/timeline", spaHandler)
+		mux.HandleFunc("/timeline/", spaHandler)
+		mux.HandleFunc("/checkpoints", spaHandler)
+		mux.HandleFunc("/checkpoints/", spaHandler)
+		mux.HandleFunc("/projections", spaHandler)
+		mux.HandleFunc("/projections/", spaHandler)
+		mux.HandleFunc("/events/", spaHandler)
+		// Legacy inspector route redirects to root
+		mux.HandleFunc("/inspector", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/", http.StatusMovedPermanently)
+		})
+		mux.HandleFunc("/inspector/", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/", http.StatusMovedPermanently)
+		})
+
+		// Static file server with SPA fallback for root
+		// First try to serve static files, then fall back to SPA
+		staticHandler := http.FileServer(http.FS(publicFS))
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			// If path is exactly "/" or doesn't match a static file, serve SPA
+			if r.URL.Path == "/" || r.URL.Path == "/home" {
+				spaHandler(w, r)
+				return
+			}
+
+			// Check if it's a static file (CSS, JS, etc.)
+			// Try to open the file - if it exists, serve it
+			filePath := strings.TrimPrefix(r.URL.Path, "/")
+			if _, err := fs.Stat(publicFS, filePath); err == nil {
+				staticHandler.ServeHTTP(w, r)
+				return
+			}
+
+			// Not a static file, serve SPA (for client-side routing)
+			spaHandler(w, r)
+		})
 	}
 
 	return mux
@@ -372,6 +411,12 @@ func (network *Network) httpNaraeJsonHandler(w http.ResponseWriter, r *http.Requ
 
 	allNarae := network.getNarae()
 
+	// Get clout scores
+	var cloutScores map[string]float64
+	if network.local.Projections != nil {
+		cloutScores = network.local.Projections.Clout().DeriveClout(network.local.Soul, network.local.Me.Status.Personality)
+	}
+
 	var naras []map[string]interface{}
 	for _, nara := range allNarae {
 		obs := network.local.getObservationLocked(nara.Name)
@@ -408,6 +453,7 @@ func (network *Network) httpNaraeJsonHandler(w http.ResponseWriter, r *http.Requ
 			"event_store_total":      nara.Status.EventStoreTotal,
 			"event_store_by_service": nara.Status.EventStoreByService,
 			"event_store_critical":   nara.Status.EventStoreCritical,
+			"Clout":                  cloutScores[nara.Name],
 		}
 		nara.mu.Unlock()
 		naras = append(naras, naraMap)
@@ -865,6 +911,7 @@ func (network *Network) httpWorldJourneysHandler(w http.ResponseWriter, r *http.
 				"nara":      hop.Nara,
 				"timestamp": hop.Timestamp,
 				"stamp":     hop.Stamp,
+				"signature": hop.Signature,
 			}
 		}
 

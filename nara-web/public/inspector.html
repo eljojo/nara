@@ -2,29 +2,16 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>nara inspector</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/dayjs.min.js" crossorigin="anonymous"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/plugin/relativeTime.min.js" crossorigin="anonymous"></script>
-    <link rel="stylesheet" href="/inspector.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>nara</title>
+    <link rel="stylesheet" href="/vendor.css">
+    <link rel="stylesheet" href="/app.css">
   </head>
   <body>
-    <div class="inspector-container">
-      <!-- Header with navigation -->
-      <div class="inspector-header">
-        <div class="header-left">
-          <a href="/" class="back-link">← dashboard</a>
-          <div class="inspector-title">🔍 inspector</div>
-        </div>
-      </div>
+    <!-- App root - React app mounts here -->
+    <div id="app_root"></div>
 
-      <!-- Main content area -->
-      <div id="inspector_root"></div>
-    </div>
-
-    <!-- React and Babel -->
-    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
-    <script src="https://unpkg.com/react@17/umd/react.development.js" crossorigin></script>
-    <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js" crossorigin></script>
-    <script src="/inspector.js" type="text/babel" data-presets="react"></script>
+    <!-- Main app bundle (includes React, D3, dayjs, and avatar) -->
+    <script src="/app.js"></script>
   </body>
 </html>

@@ -15,7 +15,11 @@
       "Bash(gh pr diff:*)",
       "Bash(make test:*)",
       "Bash(go vet:*)",
-      "Bash(goimports:*)"
+      "Bash(goimports:*)",
+      "Bash(npm install:*)",
+      "Bash(/usr/bin/make build:*)",
+      "Bash(/usr/bin/make:*)",
+      "Bash(npm run build:*)"
     ]
   }
 }
