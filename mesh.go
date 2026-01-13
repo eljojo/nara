@@ -254,11 +254,19 @@ type TsnetMesh struct {
 	myIP       string // Our tailscale IP (for broadcasting to others)
 	port       int
 	stateStore *mem.Store // In-memory state store (no disk writes)
+	httpClient *http.Client
 }
 
 // Server returns the underlying tsnet.Server for HTTP client access
 func (t *TsnetMesh) Server() *tsnet.Server {
 	return t.server
+}
+
+// SetHTTPClient allows sharing a single mesh HTTP client/transport across requests.
+func (t *TsnetMesh) SetHTTPClient(client *http.Client) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.httpClient = client
 }
 
 // TsnetConfig holds configuration for creating a TsnetMesh
@@ -449,6 +457,7 @@ func (t *TsnetMesh) Ping(targetIP string, from string, timeout time.Duration) (t
 		t.mu.Unlock()
 		return 0, errors.New("transport closed")
 	}
+	client := t.httpClient
 	t.mu.Unlock()
 
 	if targetIP == "" {
@@ -456,14 +465,18 @@ func (t *TsnetMesh) Ping(targetIP string, from string, timeout time.Duration) (t
 	}
 
 	// Use tsnet's HTTP client
-	client := t.server.HTTPClient()
-	client.Timeout = timeout
+	if client == nil {
+		client = t.server.HTTPClient()
+	}
 
 	// Build the ping URL (using mesh IP and mesh port)
 	url := fmt.Sprintf("http://%s:%d/ping", targetIP, DefaultMeshPort)
 
 	// Create request with X-Nara-From header
-	req, err := http.NewRequest("GET", url, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create ping request: %w", err)
 	}

@@ -99,6 +99,7 @@ func TestHowdy_StartTimeRecovery(t *testing.T) {
 }
 
 // TestHowdy_NeighborDiscovery tests that howdy responses include neighbor info
+// TODO(flakey)
 func TestHowdy_NeighborDiscovery(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")

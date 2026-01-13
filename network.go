@@ -1489,6 +1489,7 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 					network.local.Me.Status.MeshIP = tsnetMesh.IP()
 
 					network.initMeshHTTPClients(tsnetMesh.Server())
+					tsnetMesh.SetHTTPClient(network.getMeshHTTPClient())
 
 					// Initialize peer discovery for gossip-only mode
 					network.peerDiscovery = &TailscalePeerDiscovery{
