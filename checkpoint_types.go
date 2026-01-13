@@ -77,12 +77,12 @@ func (p *CheckpointEventPayload) IsValid() bool {
 	return true
 }
 
-// GetActor implements Payload (first voter is the primary actor)
+// GetActor implements Payload
+// Returns empty string because checkpoint voters are identified by IDs, not names.
+// VoterIDs contain nara IDs (public key hashes), not names, so we cannot use them
+// for name-based operations like discovery or logging.
 func (p *CheckpointEventPayload) GetActor() string {
-	if len(p.VoterIDs) > 0 {
-		return p.VoterIDs[0]
-	}
-	return ""
+	return "" // Don't return VoterIDs - they're IDs, not names
 }
 
 // GetTarget implements Payload (Subject is the target)

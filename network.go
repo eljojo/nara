@@ -1225,6 +1225,7 @@ func (network *Network) httpPeerResponseHandler(w http.ResponseWriter, r *http.R
 // Examples:
 //   - buildMeshURL("alice", "") -> "http://100.64.0.1:5683"
 //   - buildMeshURL("alice", "/stash/push") -> "http://100.64.0.1:5683/stash/push"
+//
 // buildMeshURLFromIP builds a mesh URL from an IP address and optional path.
 // Handles both test URLs (with port already included) and production IPs (adds DefaultMeshPort).
 // Examples:
