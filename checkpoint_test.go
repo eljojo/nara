@@ -26,7 +26,7 @@ func TestCheckpoint_Create(t *testing.T) {
 	restarts := int64(47)
 	totalUptime := int64(23456789)
 
-	event := NewCheckpointEvent(subject, asOfTime, firstSeen, restarts, totalUptime)
+	event := NewTestCheckpointEvent(subject, asOfTime, firstSeen, restarts, totalUptime)
 
 	if event.Service != ServiceCheckpoint {
 		t.Errorf("Expected service=%s, got %s", ServiceCheckpoint, event.Service)
@@ -117,7 +117,7 @@ func TestCheckpoint_AddToLedger(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	subject := "lisa"
 
-	event := NewCheckpointEvent(subject, time.Now().Unix(), 1624066568, 47, 23456789)
+	event := NewTestCheckpointEvent(subject, time.Now().Unix(), 1624066568, 47, 23456789)
 
 	added := ledger.AddEvent(event)
 	if !added {
@@ -141,14 +141,16 @@ func TestCheckpoint_OnlyOnePerSubject(t *testing.T) {
 	subject := "lisa"
 
 	// Add first checkpoint
-	event1 := NewCheckpointEvent(subject, 1000, 1624066568, 47, 23456789)
+	asOfTime1 := int64(1000)
+	event1 := NewTestCheckpointEvent(subject, asOfTime1, 1624066568, 47, 23456789)
 	ledger.AddEvent(event1)
 
 	// Add second checkpoint with later AsOfTime
-	event2 := NewCheckpointEvent(subject, 2000, 1624066568, 50, 24000000)
+	asOfTime2 := int64(2000)
+	event2 := NewTestCheckpointEvent(subject, asOfTime2, 1624066568, 50, 24000000)
 	ledger.AddEvent(event2)
 
-	// Should get the latest checkpoint
+	// Should get the latest checkpoint (the one with later asOfTime)
 	checkpoint := ledger.GetCheckpoint(subject)
 	if checkpoint == nil {
 		t.Fatal("Expected to retrieve checkpoint, got nil")
@@ -158,8 +160,10 @@ func TestCheckpoint_OnlyOnePerSubject(t *testing.T) {
 		t.Errorf("Expected latest checkpoint restarts=50, got %d", checkpoint.Observation.Restarts)
 	}
 
-	if checkpoint.AsOfTime != 2000 {
-		t.Errorf("Expected latest checkpoint as_of_time=2000, got %d", checkpoint.AsOfTime)
+	// NewTestCheckpointEvent preserves relative ordering by adding offset
+	expectedAsOfTime := CheckpointCutoffTime + 1000 + asOfTime2
+	if checkpoint.AsOfTime != expectedAsOfTime {
+		t.Errorf("Expected latest checkpoint as_of_time=%d, got %d", expectedAsOfTime, checkpoint.AsOfTime)
 	}
 }
 
@@ -170,7 +174,7 @@ func TestCheckpoint_NeverPruned(t *testing.T) {
 	subject := "lisa"
 
 	// Add checkpoint
-	checkpointEvent := NewCheckpointEvent(subject, time.Now().Unix(), 1624066568, 47, 23456789)
+	checkpointEvent := NewTestCheckpointEvent(subject, time.Now().Unix(), 1624066568, 47, 23456789)
 	ledger.AddEvent(checkpointEvent)
 
 	// Flood with other events to trigger pruning
@@ -196,7 +200,7 @@ func TestCheckpoint_SingleVoter(t *testing.T) {
 	voterID := "homer-id-123"
 	keypair := generateTestKeypair()
 
-	event := NewCheckpointEvent(subject, time.Now().Unix(), 1624066568, 47, 23456789)
+	event := NewTestCheckpointEvent(subject, time.Now().Unix(), 1624066568, 47, 23456789)
 	event.AddCheckpointVoter(voterID, keypair)
 
 	if len(event.Checkpoint.VoterIDs) != 1 {
@@ -221,7 +225,7 @@ func TestCheckpoint_MultipleVoters(t *testing.T) {
 		keypairs[i] = generateTestKeypair()
 	}
 
-	event := NewCheckpointEvent(subject, time.Now().Unix(), 1624066568, 47, 23456789)
+	event := NewTestCheckpointEvent(subject, time.Now().Unix(), 1624066568, 47, 23456789)
 
 	for i, voterID := range voterIDs {
 		event.AddCheckpointVoter(voterID, keypairs[i])
@@ -248,7 +252,7 @@ func TestCheckpoint_VerifySignatures(t *testing.T) {
 		publicKeys[voterID] = pubKeyToBase64(keypairs[i].PublicKey)
 	}
 
-	event := NewCheckpointEvent(subject, time.Now().Unix(), 1624066568, 47, 23456789)
+	event := NewTestCheckpointEvent(subject, time.Now().Unix(), 1624066568, 47, 23456789)
 	for i, voterID := range voterIDs {
 		event.AddCheckpointVoter(voterID, keypairs[i])
 	}
@@ -267,7 +271,7 @@ func TestCheckpoint_VerifySignatures_WrongKeys(t *testing.T) {
 	keypair := generateTestKeypair()
 	wrongKeypair := generateTestKeypair()
 
-	event := NewCheckpointEvent(subject, time.Now().Unix(), 1624066568, 47, 23456789)
+	event := NewTestCheckpointEvent(subject, time.Now().Unix(), 1624066568, 47, 23456789)
 	event.AddCheckpointVoter(voterID, keypair)
 
 	// Verify with wrong public key
@@ -285,10 +289,10 @@ func TestCheckpoint_VerifySignatures_WrongKeys(t *testing.T) {
 func TestCheckpoint_DeriveRestartCount(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	subject := "lisa"
-	checkpointTime := time.Now().Unix() - 3600 // 1 hour ago
+	checkpointTime := time.Now().Unix() // Use current time (after cutoff, won't be adjusted)
 
-	// Add checkpoint: lisa had 47 restarts as of 1 hour ago
-	checkpointEvent := NewCheckpointEvent(subject, checkpointTime, 1624066568, 47, 23456789)
+	// Add checkpoint: lisa had 47 restarts as of now
+	checkpointEvent := NewTestCheckpointEvent(subject, checkpointTime, 1624066568, 47, 23456789)
 	ledger.AddEvent(checkpointEvent)
 
 	// Add 3 new restart events after the checkpoint
@@ -350,14 +354,14 @@ func TestCheckpoint_DeriveRestartCount_BackfillFallback(t *testing.T) {
 func TestCheckpoint_PrecedenceOverBackfill(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	subject := "lisa"
-	checkpointTime := time.Now().Unix() - 3600
+	checkpointTime := time.Now().Unix() // Use current time (after cutoff, won't be adjusted)
 
 	// Add backfill event with old data
 	backfillEvent := NewBackfillObservationEvent("observer", subject, 1624066568, 40, 1704067200)
 	ledger.AddEvent(backfillEvent)
 
 	// Add checkpoint with newer data (should take precedence)
-	checkpointEvent := NewCheckpointEvent(subject, checkpointTime, 1624066568, 47, 23456789)
+	checkpointEvent := NewTestCheckpointEvent(subject, checkpointTime, 1624066568, 47, 23456789)
 	ledger.AddEvent(checkpointEvent)
 
 	// Add 1 new restart event
@@ -396,10 +400,10 @@ func TestCheckpoint_UniqueStartTimes(t *testing.T) {
 func TestCheckpoint_DeriveTotalUptime(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	subject := "lisa"
-	checkpointTime := time.Now().Unix() - 3600 // 1 hour ago
+	checkpointTime := time.Now().Unix() // Use current time (after cutoff, won't be adjusted)
 
-	// Add checkpoint: lisa had 1000 seconds of uptime as of 1 hour ago
-	checkpointEvent := NewCheckpointEvent(subject, checkpointTime, 1624066568, 10, 1000)
+	// Add checkpoint: lisa had 1000 seconds of uptime as of now
+	checkpointEvent := NewTestCheckpointEvent(subject, checkpointTime, 1624066568, 10, 1000)
 	ledger.AddEvent(checkpointEvent)
 
 	// Add status change events after checkpoint
@@ -513,7 +517,7 @@ func TestCheckpoint_RestartEventsPrunedAfterCheckpoint(t *testing.T) {
 	checkpointTime := int64(1704067200)
 
 	// First add a checkpoint
-	checkpoint := NewCheckpointEvent(subject, checkpointTime, 1624066568, 10, 1000)
+	checkpoint := NewTestCheckpointEvent(subject, checkpointTime, 1624066568, 10, 1000)
 	keypair := generateTestKeypair()
 	checkpoint.AddCheckpointVoter("voter1-id", keypair)
 	checkpoint.AddCheckpointVoter("voter2-id", generateTestKeypair())

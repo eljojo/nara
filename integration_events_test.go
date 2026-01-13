@@ -303,7 +303,7 @@ func TestIntegration_CompactionAndDeduplicationIndependent(t *testing.T) {
 
 	// Scenario 1: Compaction without deduplication (using AddEvent)
 	// First add a checkpoint so compaction works
-	checkpoint := NewCheckpointEvent("bob", time.Now().Unix()-3600, time.Now().Unix()-86400, 0, 0)
+	checkpoint := NewTestCheckpointEvent("bob", time.Now().Unix()-3600, time.Now().Unix()-86400, 0, 0)
 	ledger.AddEvent(checkpoint)
 
 	// alice adds 25 different restart events about bob
@@ -346,7 +346,7 @@ func TestIntegration_CompactionAndDeduplicationIndependent(t *testing.T) {
 	ledger.eventIDs = make(map[string]bool)
 
 	// Add checkpoint for bob so compaction works
-	checkpoint = NewCheckpointEvent("bob", time.Now().Unix()-3600, time.Now().Unix()-86400, 0, 0)
+	checkpoint = NewTestCheckpointEvent("bob", time.Now().Unix()-3600, time.Now().Unix()-86400, 0, 0)
 	ledger.AddEvent(checkpoint)
 
 	// dave adds 25 unique events (should compact to 20)

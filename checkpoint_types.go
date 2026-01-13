@@ -143,6 +143,21 @@ func NewCheckpointEvent(subject string, asOfTime, firstSeen, restarts, totalUpti
 	return e
 }
 
+// NewTestCheckpointEvent creates a checkpoint event for tests, ensuring the AsOfTime
+// is after the checkpoint cutoff so it won't be filtered during ingestion.
+// Preserves relative ordering of timestamps by adding an offset when needed.
+// Use this in tests that need checkpoints to exist in the ledger.
+// Use NewCheckpointEvent() for tests that need precise timestamp control.
+func NewTestCheckpointEvent(subject string, asOfTime, firstSeen, restarts, totalUptime int64) SyncEvent {
+	// Ensure test checkpoints aren't filtered by the cutoff time
+	// Preserve relative ordering by adding the same offset to all old timestamps
+	if asOfTime <= CheckpointCutoffTime {
+		offset := CheckpointCutoffTime + 1000
+		asOfTime = offset + asOfTime // Preserve relative differences
+	}
+	return NewCheckpointEvent(subject, asOfTime, firstSeen, restarts, totalUptime)
+}
+
 // AddCheckpointVoter adds a voter's signature to a checkpoint event
 // Multiple naras can vote on the same checkpoint data,
 // making it a trusted anchor for historical state.

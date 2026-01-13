@@ -42,7 +42,7 @@ func TestObservationCompaction_OverLimit(t *testing.T) {
 	subject := "nara-b"
 
 	// First add a checkpoint so compaction of restart events is allowed
-	checkpoint := NewCheckpointEvent(subject, time.Now().Unix()-3600, time.Now().Unix()-86400, 0, 0)
+	checkpoint := NewTestCheckpointEvent(subject, time.Now().Unix()-3600, time.Now().Unix()-86400, 0, 0)
 	ledger.AddEvent(checkpoint)
 
 	// Add 21 events with distinct restart numbers
@@ -249,7 +249,7 @@ func TestObservationCompaction_HeavyLoad(t *testing.T) {
 	subject := "nara-b"
 
 	// First add a checkpoint so compaction of restart events is allowed
-	checkpoint := NewCheckpointEvent(subject, time.Now().Unix()-3600, time.Now().Unix()-86400, 0, 0)
+	checkpoint := NewTestCheckpointEvent(subject, time.Now().Unix()-3600, time.Now().Unix()-86400, 0, 0)
 	ledger.AddEvent(checkpoint)
 
 	// Add 100 events
@@ -337,7 +337,7 @@ func TestObservationCompaction_WithBackfill(t *testing.T) {
 	subject := "nara-b"
 
 	// First add a checkpoint so compaction of restart events is allowed
-	checkpoint := NewCheckpointEvent(subject, time.Now().Unix()-3600, time.Now().Unix()-86400, 0, 0)
+	checkpoint := NewTestCheckpointEvent(subject, time.Now().Unix()-3600, time.Now().Unix()-86400, 0, 0)
 	ledger.AddEvent(checkpoint)
 
 	// Add 15 backfill events

@@ -647,33 +647,35 @@ func TestDeriveOpinionFromCheckpoint_WithPostCheckpointEvents(t *testing.T) {
 	subject := "nara-target"
 	attester := testLocalNara("attester")
 
-	checkpointTime := int64(1000)
+	// Use times after cutoff to avoid filtering
+	timeOffset := CheckpointCutoffTime + 10000
+	checkpointTime := timeOffset + 1000
 
-	// Add checkpoint saying 10 restarts, 3600s uptime as of time 1000
+	// Add checkpoint saying 10 restarts, 3600s uptime as of checkpointTime
 	observation := NaraObservation{
 		Restarts:    10,
 		TotalUptime: 3600,
-		StartTime:   500,
+		StartTime:   timeOffset + 500,
 	}
 	checkpointEvent := testCheckpointEvent(subject, attester.Me.Name, attester.Keypair, observation)
 	checkpointEvent.Checkpoint.AsOfTime = checkpointTime
 	ledger.AddEvent(checkpointEvent)
 
 	// Add 3 restart observations AFTER the checkpoint (different StartTimes)
-	obs1 := NewRestartObservationEvent("observer-a", subject, 1100, 11) // StartTime=1100 > checkpoint
-	obs2 := NewRestartObservationEvent("observer-b", subject, 1200, 12) // StartTime=1200 > checkpoint
-	obs3 := NewRestartObservationEvent("observer-c", subject, 1300, 13) // StartTime=1300 > checkpoint
+	obs1 := NewRestartObservationEvent("observer-a", subject, timeOffset+1100, 11) // StartTime > checkpoint
+	obs2 := NewRestartObservationEvent("observer-b", subject, timeOffset+1200, 12) // StartTime > checkpoint
+	obs3 := NewRestartObservationEvent("observer-c", subject, timeOffset+1300, 13) // StartTime > checkpoint
 	ledger.AddEvent(obs1)
 	ledger.AddEvent(obs2)
 	ledger.AddEvent(obs3)
 
-	// Add status-change events after checkpoint: ONLINE at 1100, OFFLINE at 1600 = 500 seconds
+	// Add status-change events after checkpoint: ONLINE at +1100, OFFLINE at +1600 = 500 seconds
 	onlineEvent := NewStatusChangeObservationEvent("observer-a", subject, "ONLINE")
-	onlineEvent.Timestamp = 1100 * 1e9 // Convert to nanoseconds
+	onlineEvent.Timestamp = (timeOffset + 1100) * 1e9 // Convert to nanoseconds
 	ledger.AddEvent(onlineEvent)
 
 	offlineEvent := NewStatusChangeObservationEvent("observer-a", subject, "OFFLINE")
-	offlineEvent.Timestamp = 1600 * 1e9
+	offlineEvent.Timestamp = (timeOffset + 1600) * 1e9
 	ledger.AddEvent(offlineEvent)
 
 	projection.RunToEnd(context.Background())
@@ -688,8 +690,9 @@ func TestDeriveOpinionFromCheckpoint_WithPostCheckpointEvents(t *testing.T) {
 	}
 
 	// StartTime should come from checkpoint
-	if opinion.StartTime != 500 {
-		t.Errorf("Expected StartTime=500 from checkpoint, got %d", opinion.StartTime)
+	expectedStartTime := timeOffset + 500
+	if opinion.StartTime != expectedStartTime {
+		t.Errorf("Expected StartTime=%d from checkpoint, got %d", expectedStartTime, opinion.StartTime)
 	}
 
 	// TotalUptime should be: 3600 (checkpoint) + 500 (new online period) = 4100
@@ -706,13 +709,15 @@ func TestDeriveOpinionFromCheckpoint_WithOfflinePeriods(t *testing.T) {
 	subject := "nara-target"
 	attester := testLocalNara("attester")
 
-	checkpointTime := int64(1000)
+	// Use times after cutoff to avoid filtering
+	timeOffset := CheckpointCutoffTime + 10000
+	checkpointTime := timeOffset + 1000
 
-	// Add checkpoint with 1000s of uptime as of time 1000
+	// Add checkpoint with 1000s of uptime as of checkpointTime
 	observation := NaraObservation{
 		Restarts:    5,
 		TotalUptime: 1000,
-		StartTime:   100,
+		StartTime:   timeOffset + 100,
 	}
 	checkpointEvent := testCheckpointEvent(subject, attester.Me.Name, attester.Keypair, observation)
 	checkpointEvent.Checkpoint.AsOfTime = checkpointTime
@@ -720,28 +725,28 @@ func TestDeriveOpinionFromCheckpoint_WithOfflinePeriods(t *testing.T) {
 
 	// Add a restart observation so DeriveOpinion doesn't return early
 	// (DeriveOpinion returns empty if no restart/first-seen observations exist)
-	restartObs := NewRestartObservationEvent("observer-a", subject, 100, 5)
+	restartObs := NewRestartObservationEvent("observer-a", subject, timeOffset+100, 5)
 	ledger.AddEvent(restartObs)
 
-	// Simulate timeline after checkpoint:
-	// 1100: ONLINE  (start period 1)
-	// 1400: OFFLINE (end period 1: 300s online)
-	// 1500: ONLINE  (start period 2)
-	// 1800: OFFLINE (end period 2: 300s online)
-	// 2000: ONLINE  (start period 3)
-	// 2200: OFFLINE (end period 3: 200s online)
+	// Simulate timeline after checkpoint (relative to timeOffset):
+	// +1100: ONLINE  (start period 1)
+	// +1400: OFFLINE (end period 1: 300s online)
+	// +1500: ONLINE  (start period 2)
+	// +1800: OFFLINE (end period 2: 300s online)
+	// +2000: ONLINE  (start period 3)
+	// +2200: OFFLINE (end period 3: 200s online)
 	// Total new uptime: 300 + 300 + 200 = 800s
 
 	events := []struct {
 		timestamp int64
 		state     string
 	}{
-		{1100, "ONLINE"},
-		{1400, "OFFLINE"},
-		{1500, "ONLINE"},
-		{1800, "OFFLINE"},
-		{2000, "ONLINE"},
-		{2200, "OFFLINE"},
+		{timeOffset + 1100, "ONLINE"},
+		{timeOffset + 1400, "OFFLINE"},
+		{timeOffset + 1500, "ONLINE"},
+		{timeOffset + 1800, "OFFLINE"},
+		{timeOffset + 2000, "ONLINE"},
+		{timeOffset + 2200, "OFFLINE"},
 	}
 
 	for _, e := range events {

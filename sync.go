@@ -8,6 +8,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 // Service types for the unified sync ledger
@@ -27,6 +29,10 @@ const (
 	ImportanceNormal   = 2 // Normal events (status-change) - may be filtered by very chill naras
 	ImportanceCritical = 3 // Critical events (restart, first-seen) - NEVER filtered
 )
+
+// CheckpointCutoffTime is the Unix timestamp (seconds) before which checkpoints are filtered out
+// Checkpoints created before this time used buggy code that didn't include LastRestart and other fields
+const CheckpointCutoffTime int64 = 1768271051 // 2026-01-12 ~18:24 EST
 
 // SyncEvent is the unified container for all syncable data across services
 // This is the fundamental unit of gossip in the nara network
@@ -1027,6 +1033,35 @@ func (l *SyncLedger) isEventFromUnknownNara(e SyncEvent) bool {
 // This method only deduplicates by event ID (hash of timestamp + content).
 // Two observers reporting the same restart will generate different IDs
 // (due to different timestamps) and both events will be stored.
+// shouldFilterCheckpoint returns true if a checkpoint event should be filtered out
+// Filters old checkpoints created before the bugfix that added LastRestart and other fields
+func shouldFilterCheckpoint(e SyncEvent) bool {
+	if e.Service != ServiceCheckpoint || e.Checkpoint == nil {
+		return false // Not a checkpoint, don't filter
+	}
+
+	// Filter checkpoints created before or at the cutoff time
+	return e.Checkpoint.AsOfTime <= CheckpointCutoffTime
+}
+
+// FilterEventsForIngestion filters a slice of events before adding them to the ledger
+// This removes old buggy checkpoints and any other events that should not be ingested
+func FilterEventsForIngestion(events []SyncEvent) []SyncEvent {
+	filtered := make([]SyncEvent, 0, len(events))
+	var filteredCount int
+	for _, e := range events {
+		if shouldFilterCheckpoint(e) {
+			filteredCount++
+		} else {
+			filtered = append(filtered, e)
+		}
+	}
+	if filteredCount > 0 {
+		logrus.Debugf("🧹 Filtered %d old checkpoint(s) from batch of %d events", filteredCount, len(events))
+	}
+	return filtered
+}
+
 func (l *SyncLedger) AddEvent(e SyncEvent) bool {
 	// Observation events get special compaction handling (without deduplication)
 	if e.Service == ServiceObservation && e.Observation != nil {
@@ -1043,6 +1078,16 @@ func (l *SyncLedger) AddEvent(e SyncEvent) bool {
 	// Validate
 	if !e.IsValid() {
 		l.mu.Unlock()
+		return false
+	}
+
+	// Filter out old buggy checkpoints (created before bugfix deployment)
+	if shouldFilterCheckpoint(e) {
+		l.mu.Unlock()
+		if e.Checkpoint != nil {
+			logrus.Debugf("🧹 Filtered old checkpoint for %s (AsOfTime=%d, cutoff=%d)",
+				e.Checkpoint.Subject, e.Checkpoint.AsOfTime, CheckpointCutoffTime)
+		}
 		return false
 	}
 
@@ -1641,7 +1686,11 @@ func (l *SyncLedger) GetEventsForSync(services []string, subjects []string, sinc
 }
 
 // MergeEvents adds events from another source (for sync/backfill)
+// Events are filtered before ingestion to remove old buggy checkpoints
 func (l *SyncLedger) MergeEvents(events []SyncEvent) int {
+	// Filter events before ingestion
+	events = FilterEventsForIngestion(events)
+
 	added := 0
 	for _, e := range events {
 		if l.AddEvent(e) {
