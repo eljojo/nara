@@ -310,6 +310,28 @@
         color: var(--muted);
         font-size: 12px;
       }
+
+      .inspector-links {
+        display: flex;
+        gap: 8px;
+        margin-top: 10px;
+        flex-wrap: wrap;
+      }
+
+      .inspector-links a {
+        font-size: 12px;
+        padding: 5px 10px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.7);
+        border: 1px solid var(--line);
+        text-decoration: none;
+        font-family: "IBM Plex Mono", monospace;
+        transition: background 0.15s;
+      }
+
+      .inspector-links a:hover {
+        background: rgba(255,255,255,0.95);
+      }
     </style>
   </head>
   <body>
@@ -327,6 +349,7 @@
         <span class="pill" id="heroMode"></span>
       </div>
       <div class="note" id="heroNote">pulling stats...</div>
+      <div class="inspector-links" id="inspectorLinks"></div>
     </div>
 
     <div class="layout">
@@ -606,12 +629,23 @@
         document.getElementById("heroNote").textContent = `couldn't find nara "${name}"`;
       }
 
+      function renderInspectorLinks(name) {
+        const el = document.getElementById("inspectorLinks");
+        const encoded = encodeURIComponent(name);
+        el.innerHTML = `
+          <a href="/inspector/checkpoints/${encoded}">checkpoint</a>
+          <a href="/inspector/projections/uptime/${encoded}">uptime timeline</a>
+          <a href="/inspector/timeline?subject=${encoded}">events</a>
+        `;
+      }
+
       function main() {
         const name = getProfileName();
         if (!name) {
           renderNotFound("(no name)");
           return;
         }
+        renderInspectorLinks(name);
         fetch(`/profile/${encodeURIComponent(name)}.json`)
           .then(res => {
             if (!res.ok) throw new Error("not found");

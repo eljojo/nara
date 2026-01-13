@@ -148,14 +148,16 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 		mux.HandleFunc("/api/stash/recover", network.httpStashRecoverHandler)
 		mux.HandleFunc("/api/stash/confidants", network.httpStashConfidantsHandler)
 
-		// Inspector UI and API endpoints
-		mux.HandleFunc("/inspector", func(w http.ResponseWriter, r *http.Request) {
+		// Inspector UI - SPA routing (serve inspector.html for all /inspector/* paths)
+		inspectorHandler := func(w http.ResponseWriter, r *http.Request) {
 			if data, err := fs.ReadFile(staticContent, "nara-web/public/inspector.html"); err == nil {
 				http.ServeContent(w, r, "inspector.html", time.Now(), bytes.NewReader(data))
 				return
 			}
 			http.NotFound(w, r)
-		})
+		}
+		mux.HandleFunc("/inspector", inspectorHandler)
+		mux.HandleFunc("/inspector/", inspectorHandler)
 		mux.HandleFunc("/api/inspector/events", network.local.inspectorEventsHandler)
 		mux.HandleFunc("/api/inspector/checkpoints", network.local.inspectorCheckpointsHandler)
 		mux.HandleFunc("/api/inspector/checkpoint/", network.local.inspectorCheckpointDetailHandler)

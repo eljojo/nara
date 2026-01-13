@@ -2,6 +2,67 @@
 dayjs.extend(window.dayjs_plugin_relativeTime);
 
 // ============================================================================
+// Simple Path Router (using History API)
+// ============================================================================
+
+// Global navigate function that broadcasts to all listeners
+const locationListeners = new Set();
+
+function broadcastLocationChange() {
+  const path = window.location.pathname;
+  locationListeners.forEach(listener => listener(path));
+}
+
+function globalNavigate(to) {
+  window.history.pushState(null, '', to);
+  broadcastLocationChange();
+}
+
+// Listen for browser back/forward
+window.addEventListener('popstate', broadcastLocationChange);
+
+// Custom hook for path-based routing
+function useLocation() {
+  const { useState, useEffect } = React;
+
+  const [location, setLocation] = useState(window.location.pathname);
+
+  useEffect(() => {
+    locationListeners.add(setLocation);
+    return () => locationListeners.delete(setLocation);
+  }, []);
+
+  return [location, globalNavigate];
+}
+
+// Simple route matching with params
+function matchRoute(pattern, path) {
+  const patternParts = pattern.split('/').filter(Boolean);
+  const pathParts = path.split('/').filter(Boolean);
+
+  if (patternParts.length !== pathParts.length) return null;
+
+  const params = {};
+  for (let i = 0; i < patternParts.length; i++) {
+    if (patternParts[i].startsWith(':')) {
+      params[patternParts[i].slice(1)] = decodeURIComponent(pathParts[i]);
+    } else if (patternParts[i] !== pathParts[i]) {
+      return null;
+    }
+  }
+  return params;
+}
+
+// Link component for path navigation
+function Link({ href, children, className, style }) {
+  const handleClick = (e) => {
+    e.preventDefault();
+    globalNavigate(href);
+  };
+  return React.createElement('a', { href, onClick: handleClick, className, style }, children);
+}
+
+// ============================================================================
 // Utility Functions
 // ============================================================================
 
@@ -142,12 +203,20 @@ function EventDetailModal({ event, onClose }) {
 
 function TimelineView() {
   const { useState, useEffect, useRef } = React;
+  const [, navigate] = useLocation();
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState({
-    service: null,
-    subject: ''
-  });
+
+  // Initialize filters from URL query params
+  const getInitialFilters = () => {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      service: params.get('service') || null,
+      subject: params.get('subject') || ''
+    };
+  };
+
+  const [filters, setFilters] = useState(getInitialFilters);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const eventSourceRef = useRef(null);
 
@@ -236,9 +305,15 @@ function TimelineView() {
       }
       const data = await response.json();
       setSelectedEvent(data);
+      navigate(`/inspector/events/${encodeURIComponent(eventId)}`);
     } catch (err) {
       console.error('Failed to fetch event detail:', err);
     }
+  };
+
+  const closeEventDetail = () => {
+    setSelectedEvent(null);
+    navigate('/inspector/timeline');
   };
 
   return (
@@ -312,7 +387,7 @@ function TimelineView() {
       {selectedEvent && (
         <EventDetailModal
           event={selectedEvent}
-          onClose={() => setSelectedEvent(null)}
+          onClose={closeEventDetail}
         />
       )}
     </div>
@@ -323,8 +398,9 @@ function TimelineView() {
 // Checkpoint Inspector
 // ============================================================================
 
-function CheckpointInspector() {
+function CheckpointInspector({ initialSubject }) {
   const { useState, useEffect } = React;
+  const [, navigate] = useLocation();
   const [checkpoints, setCheckpoints] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedCheckpoint, setSelectedCheckpoint] = useState(null);
@@ -334,6 +410,13 @@ function CheckpointInspector() {
     const interval = setInterval(fetchCheckpoints, 10000);
     return () => clearInterval(interval);
   }, []);
+
+  // Load initial subject if provided via URL
+  useEffect(() => {
+    if (initialSubject && !selectedCheckpoint) {
+      openCheckpointDetail(initialSubject);
+    }
+  }, [initialSubject]);
 
   const fetchCheckpoints = async () => {
     try {
@@ -348,6 +431,7 @@ function CheckpointInspector() {
   };
 
   const openCheckpointDetail = async (subject) => {
+    navigate(`/inspector/checkpoints/${encodeURIComponent(subject)}`);
     try {
       const response = await fetch(`/api/inspector/checkpoint/${subject}`);
       const data = await response.json();
@@ -355,6 +439,11 @@ function CheckpointInspector() {
     } catch (err) {
       console.error('Failed to fetch checkpoint detail:', err);
     }
+  };
+
+  const closeCheckpointDetail = () => {
+    setSelectedCheckpoint(null);
+    navigate('/inspector/checkpoints');
   };
 
   return (
@@ -415,11 +504,11 @@ function CheckpointInspector() {
 
       {/* Checkpoint Detail Modal */}
       {selectedCheckpoint && (
-        <div className="modal-overlay" onClick={() => setSelectedCheckpoint(null)}>
+        <div className="modal-overlay" onClick={closeCheckpointDetail}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <div className="modal-title">📸 Checkpoint: {selectedCheckpoint.checkpoint && selectedCheckpoint.checkpoint.subject}</div>
-              <button className="modal-close" onClick={() => setSelectedCheckpoint(null)}>×</button>
+              <div className="modal-title">📸 Checkpoint: {selectedCheckpoint.event && selectedCheckpoint.event.checkpoint && selectedCheckpoint.event.checkpoint.subject}</div>
+              <button className="modal-close" onClick={closeCheckpointDetail}>×</button>
             </div>
             <div className="modal-body">
               {/* Checkpoint Summary */}
@@ -632,9 +721,10 @@ function UptimeTimeline({ subject, onClose }) {
   );
 }
 
-function ProjectionExplorer() {
+function ProjectionExplorer({ initialUptimeSubject, initialTab }) {
   const { useState, useEffect } = React;
-  const [activeTab, setActiveTab] = useState('uptime');
+  const [, navigate] = useLocation();
+  const [activeTab, setActiveTab] = useState(initialTab || 'uptime');
   const [projections, setProjections] = useState({
     online_status: {},
     clout: {},
@@ -642,7 +732,14 @@ function ProjectionExplorer() {
   });
   const [loading, setLoading] = useState(true);
   const [selectedProjection, setSelectedProjection] = useState(null);
-  const [selectedUptimeSubject, setSelectedUptimeSubject] = useState(null);
+  const [selectedUptimeSubject, setSelectedUptimeSubject] = useState(initialUptimeSubject || null);
+
+  // Sync URL when uptime subject changes
+  useEffect(() => {
+    if (selectedUptimeSubject) {
+      navigate(`/inspector/projections/uptime/${encodeURIComponent(selectedUptimeSubject)}`);
+    }
+  }, [selectedUptimeSubject]);
 
   useEffect(() => {
     fetchProjections();
@@ -674,6 +771,11 @@ function ProjectionExplorer() {
     } catch (err) {
       console.error('Failed to fetch projection detail:', err);
     }
+  };
+
+  const clearUptimeSubject = () => {
+    setSelectedUptimeSubject(null);
+    navigate('/inspector/projections');
   };
 
   if (loading) {
@@ -717,13 +819,13 @@ function ProjectionExplorer() {
             <div>
               <button
                 className="uptime-back-button"
-                onClick={() => setSelectedUptimeSubject(null)}
+                onClick={clearUptimeSubject}
               >
                 ← Back to list
               </button>
               <UptimeTimeline
                 subject={selectedUptimeSubject}
-                onClose={() => setSelectedUptimeSubject(null)}
+                onClose={clearUptimeSubject}
               />
             </div>
           ) : (
@@ -898,43 +1000,140 @@ function ProjectionExplorer() {
 }
 
 // ============================================================================
-// Main Inspector App
+// Main Inspector App with Routing
 // ============================================================================
 
 function InspectorApp() {
-  const { useState } = React;
-  const [activeTab, setActiveTab] = useState('timeline');
+  const [location, navigate] = useLocation();
+
+  // Determine active tab from location
+  const getActiveTab = () => {
+    if (location.startsWith('/inspector/checkpoints')) return 'checkpoints';
+    if (location.startsWith('/inspector/projections')) return 'projections';
+    return 'timeline';
+  };
+
+  const activeTab = getActiveTab();
+
+  // Route matching
+  const renderContent = () => {
+    // Check routes in order of specificity
+    let params;
+
+    // Event detail
+    params = matchRoute('/inspector/events/:id', location);
+    if (params) {
+      return <EventDetailPage eventId={params.id} />;
+    }
+
+    // Checkpoint detail
+    params = matchRoute('/inspector/checkpoints/:subject', location);
+    if (params) {
+      return <CheckpointInspector initialSubject={params.subject} />;
+    }
+
+    // Checkpoints list
+    if (location === '/inspector/checkpoints' || location.startsWith('/inspector/checkpoints')) {
+      return <CheckpointInspector />;
+    }
+
+    // Uptime timeline for specific subject
+    params = matchRoute('/inspector/projections/uptime/:subject', location);
+    if (params) {
+      return <ProjectionExplorer initialUptimeSubject={params.subject} />;
+    }
+
+    // Projections with tab
+    params = matchRoute('/inspector/projections/:tab', location);
+    if (params) {
+      return <ProjectionExplorer initialTab={params.tab} />;
+    }
+
+    // Projections list
+    if (location === '/inspector/projections' || location.startsWith('/inspector/projections')) {
+      return <ProjectionExplorer />;
+    }
+
+    // Default: Timeline
+    return <TimelineView />;
+  };
 
   return (
     <div>
       {/* Tab Navigation */}
       <div className="tab-navigation">
-        <button
-          className={`tab-button ${activeTab === 'timeline' ? 'active' : ''}`}
-          onClick={() => setActiveTab('timeline')}
-        >
-          📅 Timeline
-        </button>
-        <button
-          className={`tab-button ${activeTab === 'checkpoints' ? 'active' : ''}`}
-          onClick={() => setActiveTab('checkpoints')}
-        >
-          📸 Checkpoints
-        </button>
-        <button
-          className={`tab-button ${activeTab === 'projections' ? 'active' : ''}`}
-          onClick={() => setActiveTab('projections')}
-        >
-          🔮 Projections
-        </button>
+        <Link href="/inspector/timeline">
+          <button className={`tab-button ${activeTab === 'timeline' ? 'active' : ''}`}>
+            📅 Timeline
+          </button>
+        </Link>
+        <Link href="/inspector/checkpoints">
+          <button className={`tab-button ${activeTab === 'checkpoints' ? 'active' : ''}`}>
+            📸 Checkpoints
+          </button>
+        </Link>
+        <Link href="/inspector/projections">
+          <button className={`tab-button ${activeTab === 'projections' ? 'active' : ''}`}>
+            🔮 Projections
+          </button>
+        </Link>
       </div>
 
       {/* Content Area */}
       <div className="inspector-content">
-        {activeTab === 'timeline' && <TimelineView />}
-        {activeTab === 'checkpoints' && <CheckpointInspector />}
-        {activeTab === 'projections' && <ProjectionExplorer />}
+        {renderContent()}
       </div>
+    </div>
+  );
+}
+
+// Standalone Event Detail Page (for direct linking)
+function EventDetailPage({ eventId }) {
+  const { useState, useEffect } = React;
+  const [event, setEvent] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [, navigate] = useLocation();
+
+  useEffect(() => {
+    fetchEvent();
+  }, [eventId]);
+
+  const fetchEvent = async () => {
+    try {
+      const response = await fetch(`/api/inspector/event/${eventId}`);
+      if (response.ok) {
+        const data = await response.json();
+        setEvent(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch event:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return <div className="loading-spinner">💫</div>;
+  }
+
+  if (!event) {
+    return (
+      <div className="empty-state">
+        <div className="empty-state-icon">❌</div>
+        <div className="empty-state-text">Event not found</div>
+        <Link href="/inspector/timeline">
+          <button className="uptime-back-button">← Back to Timeline</button>
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <Link href="/inspector/timeline">
+        <button className="uptime-back-button">← Back to Timeline</button>
+      </Link>
+      <EventDetailModal event={event} onClose={() => navigate('/inspector/timeline')} />
     </div>
   );
 }
