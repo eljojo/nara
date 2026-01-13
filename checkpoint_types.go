@@ -329,16 +329,18 @@ func (l *SyncLedger) countUniqueStartTimesExcludingLocked(subject string, exclud
 }
 
 // DeriveTotalUptime derives the total uptime for a subject in seconds
-// Priority: checkpoint baseline + uptime from status change events after checkpoint
+// Priority:
+//  1. Checkpoint: checkpoint.TotalUptime + uptime from status events after checkpoint
+//  2. Backfill: assume online since StartTime, adjusted by status-change events
+//  3. No baseline: just sum up online periods from status-change events
 //
-// The calculation:
-//  1. Start with checkpoint.TotalUptime (or 0 if no checkpoint)
-//  2. Add up online periods from status-change events after checkpoint
+// For backfill events, we assume the nara has been online since their StartTime
+// (first seen) unless status-change events indicate otherwise.
 func (l *SyncLedger) DeriveTotalUptime(subject string) int64 {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
-	// Check for checkpoint first
+	// Check for checkpoint first (highest priority)
 	var checkpoint *CheckpointEventPayload
 	var checkpointAsOfTime int64 = 0
 	for _, e := range l.Events {
@@ -352,12 +354,93 @@ func (l *SyncLedger) DeriveTotalUptime(subject string) int64 {
 
 	baseUptime := int64(0)
 	afterTime := int64(0)
+	assumeOnlineSince := int64(0) // For backfill: assume online since this time
+
 	if checkpoint != nil {
 		baseUptime = checkpoint.Observation.TotalUptime
 		afterTime = checkpoint.AsOfTime
+	} else {
+		// No checkpoint - check for backfill event
+		for _, e := range l.Events {
+			if e.Service == ServiceObservation && e.Observation != nil &&
+				e.Observation.Subject == subject && e.Observation.IsBackfill {
+				// For backfill: assume online since StartTime
+				assumeOnlineSince = e.Observation.StartTime
+				break
+			}
+		}
 	}
 
-	// Collect status change events after checkpoint
+	// Collect status change events after checkpoint/backfill time
+	type statusEvent struct {
+		timestamp int64
+		state     string
+	}
+	var statusEvents []statusEvent
+
+	for _, e := range l.Events {
+		if e.Service != ServiceObservation || e.Observation == nil {
+			continue
+		}
+		if e.Observation.Subject != subject {
+			continue
+		}
+		if e.Observation.Type != "status-change" {
+			continue
+		}
+		eventTimeSec := e.Timestamp / 1e9
+		if afterTime > 0 && eventTimeSec <= afterTime {
+			continue
+		}
+		statusEvents = append(statusEvents, statusEvent{
+			timestamp: eventTimeSec,
+			state:     e.Observation.OnlineState,
+		})
+	}
+
+	// Sort by timestamp
+	sort.Slice(statusEvents, func(i, j int) bool {
+		return statusEvents[i].timestamp < statusEvents[j].timestamp
+	})
+
+	// For backfill without checkpoint: assume online since StartTime
+	// until first OFFLINE event or until now
+	var onlineStart int64 = 0
+	if assumeOnlineSince > 0 && len(statusEvents) == 0 {
+		// No status events - assume online since StartTime until now
+		baseUptime = time.Now().Unix() - assumeOnlineSince
+		return baseUptime
+	} else if assumeOnlineSince > 0 {
+		// Have status events - start counting from assumeOnlineSince
+		onlineStart = assumeOnlineSince
+	}
+
+	// Calculate online periods from status events
+	for _, se := range statusEvents {
+		if se.state == "ONLINE" && onlineStart == 0 {
+			onlineStart = se.timestamp
+		} else if (se.state == "OFFLINE" || se.state == "MISSING") && onlineStart > 0 {
+			baseUptime += se.timestamp - onlineStart
+			onlineStart = 0
+		}
+	}
+
+	// If still online, count up to now
+	if onlineStart > 0 {
+		baseUptime += time.Now().Unix() - onlineStart
+	}
+
+	return baseUptime
+}
+
+// DeriveUptimeAfter calculates uptime from status-change events after a given timestamp.
+// This is used for checkpoint-based uptime derivation where we need to add
+// new uptime on top of a checkpoint baseline.
+func (l *SyncLedger) DeriveUptimeAfter(subject string, afterTime int64) int64 {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	// Collect status change events after the given time
 	type statusEvent struct {
 		timestamp int64
 		state     string
@@ -390,22 +473,23 @@ func (l *SyncLedger) DeriveTotalUptime(subject string) int64 {
 	})
 
 	// Calculate online periods
+	var uptime int64 = 0
 	var onlineStart int64 = 0
 	for _, se := range statusEvents {
 		if se.state == "ONLINE" && onlineStart == 0 {
 			onlineStart = se.timestamp
 		} else if (se.state == "OFFLINE" || se.state == "MISSING") && onlineStart > 0 {
-			baseUptime += se.timestamp - onlineStart
+			uptime += se.timestamp - onlineStart
 			onlineStart = 0
 		}
 	}
 
 	// If still online, count up to now
 	if onlineStart > 0 {
-		baseUptime += time.Now().Unix() - onlineStart
+		uptime += time.Now().Unix() - onlineStart
 	}
 
-	return baseUptime
+	return uptime
 }
 
 // GetFirstSeenFromEvents returns the earliest known StartTime for a subject from events

@@ -195,7 +195,7 @@ func (network *Network) runOpinionPass(pass int, total int, fetchBlueJay bool, f
 		observation := network.local.getObservation(name)
 		if network.local.Projections != nil {
 			network.local.Projections.Opinion().RunOnce()
-			opinion := network.local.Projections.Opinion().DeriveOpinion(name)
+			opinion := network.local.Projections.Opinion().DeriveOpinionWithValidation(name)
 			if opinion.StartTime > 0 {
 				observation.StartTime = opinion.StartTime
 			}
@@ -486,7 +486,7 @@ func (network *Network) recordObservationOnlineNara(name string, timestamp int64
 	if observation.StartTime == 0 || name == network.meName() {
 		if network.local.Projections != nil {
 			network.local.Projections.Opinion().RunOnce()
-			opinion := network.local.Projections.Opinion().DeriveOpinion(name)
+			opinion := network.local.Projections.Opinion().DeriveOpinionWithValidation(name)
 			if observation.StartTime == 0 && opinion.StartTime > 0 {
 				observation.StartTime = opinion.StartTime
 			}

@@ -101,13 +101,13 @@ func (ln *LocalNara) inspectorEventsHandler(w http.ResponseWriter, r *http.Reque
 
 	// Format response
 	type EventResponse struct {
-		ID        string                 `json:"id"`
-		Timestamp int64                  `json:"timestamp"`
-		Service   string                 `json:"service"`
-		Emitter   string                 `json:"emitter"`
-		EmitterID string                 `json:"emitter_id"`
-		Signed    bool                   `json:"signed"`
-		UIFormat  map[string]string      `json:"ui_format,omitempty"`
+		ID        string            `json:"id"`
+		Timestamp int64             `json:"timestamp"`
+		Service   string            `json:"service"`
+		Emitter   string            `json:"emitter"`
+		EmitterID string            `json:"emitter_id"`
+		Signed    bool              `json:"signed"`
+		UIFormat  map[string]string `json:"ui_format,omitempty"`
 	}
 
 	events := make([]EventResponse, len(paginatedEvents))
@@ -489,11 +489,11 @@ func (ln *LocalNara) inspectorProjectionDetailHandler(w http.ResponseWriter, r *
 		for i := len(events) - 1; i >= 0 && count < 5; i-- {
 			event := events[i]
 			sourceEvents = append(sourceEvents, map[string]interface{}{
-				"id":               event.ID,
-				"timestamp":        event.Timestamp,
-				"service":          event.Service,
-				"emitter":          event.Emitter,
-				"last_event_type":  state.LastEventType,
+				"id":              event.ID,
+				"timestamp":       event.Timestamp,
+				"service":         event.Service,
+				"emitter":         event.Emitter,
+				"last_event_type": state.LastEventType,
 			})
 			count++
 		}
@@ -599,9 +599,9 @@ func (ln *LocalNara) inspectorProjectionDetailHandler(w http.ResponseWriter, r *
 				"restart_num":  opinion.Restarts,
 				"last_restart": opinion.LastRestart,
 			},
-			"source_events":      sourceEvents,
-			"consensus_method":   "trimmed_mean",
-			"outliers_removed":   outliersRemoved,
+			"source_events":    sourceEvents,
+			"consensus_method": "trimmed_mean",
+			"outliers_removed": outliersRemoved,
 		}
 
 	default:

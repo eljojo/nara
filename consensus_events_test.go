@@ -572,3 +572,205 @@ func TestConsensusEvents_SparseObservations(t *testing.T) {
 		t.Errorf("Expected StartTime=1000 from sparse observation, got %d", opinion.StartTime)
 	}
 }
+
+// TestDeriveOpinionWithValidation_CheckpointComparison tests the shadow comparison
+// between observation-based and checkpoint-based opinion derivation.
+func TestDeriveOpinionWithValidation_CheckpointComparison(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+	projection := NewOpinionConsensusProjection(ledger)
+	subject := "nara-target"
+	attester := testLocalNara("attester")
+
+	// Add observation events
+	obs1 := NewRestartObservationEvent("observer-a", subject, 1000, 5)
+	obs2 := NewRestartObservationEvent("observer-b", subject, 1000, 5)
+	ledger.AddEvent(obs1)
+	ledger.AddEvent(obs2)
+
+	// Add a checkpoint that agrees with observations
+	observation := NaraObservation{
+		Restarts:    5,
+		TotalUptime: 3600,
+		StartTime:   1000,
+	}
+	checkpointEvent := testCheckpointEvent(subject, attester.Me.Name, attester.Keypair, observation)
+	ledger.AddEvent(checkpointEvent)
+
+	// Run projection
+	projection.RunToEnd(context.Background())
+
+	// DeriveOpinionWithValidation should return observation-based opinion
+	// and not warn since checkpoint agrees
+	opinion := projection.DeriveOpinionWithValidation(subject)
+
+	if opinion.Restarts != 5 {
+		t.Errorf("Expected Restarts=5, got %d", opinion.Restarts)
+	}
+
+	// DeriveOpinionFromCheckpoint should also return 5
+	checkpointOpinion, usedCheckpoint := projection.DeriveOpinionFromCheckpoint(subject)
+	if !usedCheckpoint {
+		t.Error("Expected checkpoint to be used")
+	}
+	if checkpointOpinion.Restarts != 5 {
+		t.Errorf("Expected checkpoint Restarts=5, got %d", checkpointOpinion.Restarts)
+	}
+}
+
+// TestDeriveOpinionFromCheckpoint_NoCheckpoint tests fallback when no checkpoint exists.
+func TestDeriveOpinionFromCheckpoint_NoCheckpoint(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+	projection := NewOpinionConsensusProjection(ledger)
+	subject := "nara-target"
+
+	// Only add observation events, no checkpoint
+	obs1 := NewRestartObservationEvent("observer-a", subject, 1000, 5)
+	ledger.AddEvent(obs1)
+
+	projection.RunToEnd(context.Background())
+
+	// Should fall back to observation-based
+	opinion, usedCheckpoint := projection.DeriveOpinionFromCheckpoint(subject)
+	if usedCheckpoint {
+		t.Error("Expected no checkpoint to be used")
+	}
+	if opinion.Restarts != 5 {
+		t.Errorf("Expected Restarts=5, got %d", opinion.Restarts)
+	}
+}
+
+// TestDeriveOpinionFromCheckpoint_WithPostCheckpointEvents tests that post-checkpoint
+// restart events are counted on top of checkpoint baseline.
+func TestDeriveOpinionFromCheckpoint_WithPostCheckpointEvents(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+	projection := NewOpinionConsensusProjection(ledger)
+	subject := "nara-target"
+	attester := testLocalNara("attester")
+
+	checkpointTime := int64(1000)
+
+	// Add checkpoint saying 10 restarts, 3600s uptime as of time 1000
+	observation := NaraObservation{
+		Restarts:    10,
+		TotalUptime: 3600,
+		StartTime:   500,
+	}
+	checkpointEvent := testCheckpointEvent(subject, attester.Me.Name, attester.Keypair, observation)
+	checkpointEvent.Checkpoint.AsOfTime = checkpointTime
+	ledger.AddEvent(checkpointEvent)
+
+	// Add 3 restart observations AFTER the checkpoint (different StartTimes)
+	obs1 := NewRestartObservationEvent("observer-a", subject, 1100, 11) // StartTime=1100 > checkpoint
+	obs2 := NewRestartObservationEvent("observer-b", subject, 1200, 12) // StartTime=1200 > checkpoint
+	obs3 := NewRestartObservationEvent("observer-c", subject, 1300, 13) // StartTime=1300 > checkpoint
+	ledger.AddEvent(obs1)
+	ledger.AddEvent(obs2)
+	ledger.AddEvent(obs3)
+
+	// Add status-change events after checkpoint: ONLINE at 1100, OFFLINE at 1600 = 500 seconds
+	onlineEvent := NewStatusChangeObservationEvent("observer-a", subject, "ONLINE")
+	onlineEvent.Timestamp = 1100 * 1e9 // Convert to nanoseconds
+	ledger.AddEvent(onlineEvent)
+
+	offlineEvent := NewStatusChangeObservationEvent("observer-a", subject, "OFFLINE")
+	offlineEvent.Timestamp = 1600 * 1e9
+	ledger.AddEvent(offlineEvent)
+
+	projection.RunToEnd(context.Background())
+
+	// Checkpoint-based should be: 10 (baseline) + 3 (new unique StartTimes) = 13
+	opinion, usedCheckpoint := projection.DeriveOpinionFromCheckpoint(subject)
+	if !usedCheckpoint {
+		t.Error("Expected checkpoint to be used")
+	}
+	if opinion.Restarts != 13 {
+		t.Errorf("Expected Restarts=13 (10 checkpoint + 3 new), got %d", opinion.Restarts)
+	}
+
+	// StartTime should come from checkpoint
+	if opinion.StartTime != 500 {
+		t.Errorf("Expected StartTime=500 from checkpoint, got %d", opinion.StartTime)
+	}
+
+	// TotalUptime should be: 3600 (checkpoint) + 500 (new online period) = 4100
+	if opinion.TotalUptime != 4100 {
+		t.Errorf("Expected TotalUptime=4100 (3600 checkpoint + 500 new), got %d", opinion.TotalUptime)
+	}
+}
+
+// TestDeriveOpinionFromCheckpoint_WithOfflinePeriods tests that uptime is calculated correctly
+// when the nara goes offline and online multiple times after a checkpoint.
+func TestDeriveOpinionFromCheckpoint_WithOfflinePeriods(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+	projection := NewOpinionConsensusProjection(ledger)
+	subject := "nara-target"
+	attester := testLocalNara("attester")
+
+	checkpointTime := int64(1000)
+
+	// Add checkpoint with 1000s of uptime as of time 1000
+	observation := NaraObservation{
+		Restarts:    5,
+		TotalUptime: 1000,
+		StartTime:   100,
+	}
+	checkpointEvent := testCheckpointEvent(subject, attester.Me.Name, attester.Keypair, observation)
+	checkpointEvent.Checkpoint.AsOfTime = checkpointTime
+	ledger.AddEvent(checkpointEvent)
+
+	// Add a restart observation so DeriveOpinion doesn't return early
+	// (DeriveOpinion returns empty if no restart/first-seen observations exist)
+	restartObs := NewRestartObservationEvent("observer-a", subject, 100, 5)
+	ledger.AddEvent(restartObs)
+
+	// Simulate timeline after checkpoint:
+	// 1100: ONLINE  (start period 1)
+	// 1400: OFFLINE (end period 1: 300s online)
+	// 1500: ONLINE  (start period 2)
+	// 1800: OFFLINE (end period 2: 300s online)
+	// 2000: ONLINE  (start period 3)
+	// 2200: OFFLINE (end period 3: 200s online)
+	// Total new uptime: 300 + 300 + 200 = 800s
+
+	events := []struct {
+		timestamp int64
+		state     string
+	}{
+		{1100, "ONLINE"},
+		{1400, "OFFLINE"},
+		{1500, "ONLINE"},
+		{1800, "OFFLINE"},
+		{2000, "ONLINE"},
+		{2200, "OFFLINE"},
+	}
+
+	for _, e := range events {
+		event := NewStatusChangeObservationEvent("observer-a", subject, e.state)
+		event.Timestamp = e.timestamp * 1e9 // Convert to nanoseconds
+		ledger.AddEvent(event)
+	}
+
+	projection.RunToEnd(context.Background())
+
+	opinion, usedCheckpoint := projection.DeriveOpinionFromCheckpoint(subject)
+	if !usedCheckpoint {
+		t.Error("Expected checkpoint to be used")
+	}
+
+	// Restarts should be unchanged (no new restart events)
+	if opinion.Restarts != 5 {
+		t.Errorf("Expected Restarts=5 (no new restarts), got %d", opinion.Restarts)
+	}
+
+	// TotalUptime should be: 1000 (checkpoint) + 800 (new periods) = 1800
+	expectedUptime := int64(1000 + 300 + 300 + 200) // 1800
+	if opinion.TotalUptime != expectedUptime {
+		t.Errorf("Expected TotalUptime=%d (1000 checkpoint + 800 new), got %d", expectedUptime, opinion.TotalUptime)
+	}
+
+	// Also verify observation-based method matches (they should derive same uptime)
+	obsOpinion := projection.DeriveOpinion(subject)
+	if obsOpinion.TotalUptime != expectedUptime {
+		t.Errorf("Observation-based TotalUptime=%d should match checkpoint-based=%d", obsOpinion.TotalUptime, expectedUptime)
+	}
+}

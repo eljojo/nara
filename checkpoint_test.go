@@ -419,6 +419,59 @@ func TestCheckpoint_DeriveTotalUptime(t *testing.T) {
 	}
 }
 
+// Test deriving total uptime from backfill (no checkpoint)
+// For backfill events, we assume the nara has been online since StartTime
+func TestCheckpoint_DeriveTotalUptime_Backfill(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+	subject := "lisa"
+
+	// Backfill: lisa has been around since startTime
+	startTime := time.Now().Unix() - 7200 // 2 hours ago
+	backfillEvent := NewBackfillObservationEvent("observer", subject, startTime, 10, time.Now().Unix())
+	ledger.AddEvent(backfillEvent)
+
+	// With no status-change events, uptime should be time since startTime
+	total := ledger.DeriveTotalUptime(subject)
+	expectedUptime := time.Now().Unix() - startTime
+
+	// Allow 2 second tolerance for timing
+	if total < expectedUptime-2 || total > expectedUptime+2 {
+		t.Errorf("Expected uptime ~%d (since startTime), got %d", expectedUptime, total)
+	}
+}
+
+// Test deriving total uptime from backfill with status-change events
+func TestCheckpoint_DeriveTotalUptime_BackfillWithOffline(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+	subject := "lisa"
+
+	// Backfill: lisa has been around since time 1000
+	backfillEvent := NewBackfillObservationEvent("observer", subject, 1000, 10, 2000)
+	ledger.AddEvent(backfillEvent)
+
+	// Status events: OFFLINE at 1500, back ONLINE at 1700, OFFLINE at 1900
+	// Timeline: online 1000-1500 (500s), offline 1500-1700 (200s), online 1700-1900 (200s)
+	// Total uptime: 500 + 200 = 700s
+
+	offline1 := NewStatusChangeObservationEvent("observer", subject, "OFFLINE")
+	offline1.Timestamp = 1500 * 1e9
+	ledger.AddEvent(offline1)
+
+	online1 := NewStatusChangeObservationEvent("observer", subject, "ONLINE")
+	online1.Timestamp = 1700 * 1e9
+	ledger.AddEvent(online1)
+
+	offline2 := NewStatusChangeObservationEvent("observer", subject, "OFFLINE")
+	offline2.Timestamp = 1900 * 1e9
+	ledger.AddEvent(offline2)
+
+	total := ledger.DeriveTotalUptime(subject)
+	expectedUptime := int64(500 + 200) // 700
+	if total != expectedUptime {
+		t.Errorf("Expected uptime=%d (500+200 from backfill timeline), got %d", expectedUptime, total)
+	}
+}
+
 // Test that restart events are NOT pruned when no checkpoint exists
 // This ensures we don't lose historical restart data before it's checkpointed
 func TestCheckpoint_RestartEventsPreservedWithoutCheckpoint(t *testing.T) {

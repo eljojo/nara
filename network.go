@@ -4240,7 +4240,7 @@ func (network *Network) recoverSelfStartTimeFromMesh() {
 		updated := network.local.getMeObservation()
 		before := updated.StartTime
 		network.local.Projections.Opinion().RunOnce()
-		opinion := network.local.Projections.Opinion().DeriveOpinion(network.meName())
+		opinion := network.local.Projections.Opinion().DeriveOpinionWithValidation(network.meName())
 		if updated.StartTime == 0 && opinion.StartTime > 0 {
 			updated.StartTime = opinion.StartTime
 		}

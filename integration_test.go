@@ -737,10 +737,10 @@ func TestIntegration_CheckpointSync(t *testing.T) {
 
 	// Create multiple test naras with checkpoints
 	testNaras := []struct {
-		name      string
-		hasData   bool // whether this nara returns checkpoints
-		ln        *LocalNara
-		server    *httptest.Server
+		name    string
+		hasData bool // whether this nara returns checkpoints
+		ln      *LocalNara
+		server  *httptest.Server
 	}{
 		{name: "nara-fail-1", hasData: false}, // Will return empty
 		{name: "nara-fail-2", hasData: false}, // Will return empty

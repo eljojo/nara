@@ -110,10 +110,14 @@ func (p *OpinionConsensusProjection) DeriveOpinion(subject string) OpinionData {
 	// Derive LastRestart (most recent)
 	lastRestart := deriveProjectionLastRestartConsensus(obsCopy)
 
+	// Derive TotalUptime from ledger (uses status-change events)
+	totalUptime := p.ledger.DeriveTotalUptime(subject)
+
 	return OpinionData{
 		StartTime:   startTime,
 		Restarts:    restarts,
 		LastRestart: lastRestart,
+		TotalUptime: totalUptime,
 	}
 }
 
@@ -255,4 +259,127 @@ func (p *OpinionConsensusProjection) Reset() {
 	defer p.mu.Unlock()
 	p.observationsBySubject = make(map[string][]ObservationRecord)
 	p.projection.Reset()
+}
+
+// DeriveOpinionFromCheckpoint derives opinion using checkpoints as baseline.
+// This is the "new way" that uses checkpoint.Restarts + new observations after checkpoint.
+// Returns the opinion and whether a checkpoint was used.
+func (p *OpinionConsensusProjection) DeriveOpinionFromCheckpoint(subject string) (OpinionData, bool) {
+	// Get checkpoint from ledger (if any)
+	checkpoint := p.ledger.GetCheckpoint(subject)
+	if checkpoint == nil {
+		// No checkpoint - fall back to observation-only method
+		return p.DeriveOpinion(subject), false
+	}
+
+	p.mu.RLock()
+	observations := p.observationsBySubject[subject]
+	obsCopy := make([]ObservationRecord, len(observations))
+	copy(obsCopy, observations)
+	p.mu.RUnlock()
+
+	// Filter to only observations AFTER the checkpoint
+	var postCheckpointObs []ObservationRecord
+	for _, obs := range obsCopy {
+		// For restart events, check if StartTime is after checkpoint
+		if obs.Type == "restart" && obs.StartTime > checkpoint.AsOfTime {
+			postCheckpointObs = append(postCheckpointObs, obs)
+		}
+		// For first-seen, we use the checkpoint's StartTime as baseline
+	}
+
+	// Use checkpoint as baseline for restarts
+	restarts := checkpoint.Observation.Restarts
+
+	// Add new restarts observed after checkpoint (count unique StartTimes)
+	if len(postCheckpointObs) > 0 {
+		uniqueStartTimes := make(map[int64]bool)
+		for _, obs := range postCheckpointObs {
+			if obs.StartTime > 0 {
+				uniqueStartTimes[obs.StartTime] = true
+			}
+		}
+		restarts += int64(len(uniqueStartTimes))
+	}
+
+	// StartTime: use checkpoint's value (it's the consensus at checkpoint time)
+	startTime := checkpoint.Observation.StartTime
+
+	// LastRestart: check if we have newer observations, otherwise use checkpoint-derived value
+	lastRestart := int64(0)
+	for _, obs := range postCheckpointObs {
+		if obs.LastRestart > lastRestart {
+			lastRestart = obs.LastRestart
+		}
+	}
+	// If no post-checkpoint observations with LastRestart, we can't know from checkpoint alone
+	// (checkpoint doesn't store LastRestart directly, but we could derive it from the most recent StartTime)
+	if lastRestart == 0 && len(postCheckpointObs) > 0 {
+		// Use latest StartTime from post-checkpoint observations as LastRestart
+		for _, obs := range postCheckpointObs {
+			if obs.StartTime > lastRestart {
+				lastRestart = obs.StartTime
+			}
+		}
+	}
+
+	// TotalUptime: checkpoint baseline + uptime from status-change events after checkpoint
+	totalUptime := checkpoint.Observation.TotalUptime
+	totalUptime += p.ledger.DeriveUptimeAfter(subject, checkpoint.AsOfTime)
+
+	return OpinionData{
+		StartTime:   startTime,
+		Restarts:    restarts,
+		LastRestart: lastRestart,
+		TotalUptime: totalUptime,
+	}, true
+}
+
+// DeriveOpinionWithValidation derives opinion and compares observation-based vs checkpoint-based.
+// Logs a warning if the two methods produce significantly different results.
+// Returns the observation-based opinion (current source of truth).
+func (p *OpinionConsensusProjection) DeriveOpinionWithValidation(subject string) OpinionData {
+	// Current method: observation-based (source of truth)
+	obsOpinion := p.DeriveOpinion(subject)
+
+	// New method: checkpoint-based
+	checkpointOpinion, usedCheckpoint := p.DeriveOpinionFromCheckpoint(subject)
+
+	if !usedCheckpoint {
+		// No checkpoint exists, nothing to compare
+		return obsOpinion
+	}
+
+	// Compare the two methods
+	const restartTolerance int64 = 5      // Allow 5 restart difference
+	const startTimeTolerance int64 = 3600 // Allow 1 hour difference
+	const uptimeTolerance int64 = 300     // Allow 5 minutes uptime difference
+
+	restartDiff := obsOpinion.Restarts - checkpointOpinion.Restarts
+	if restartDiff < 0 {
+		restartDiff = -restartDiff
+	}
+
+	startTimeDiff := obsOpinion.StartTime - checkpointOpinion.StartTime
+	if startTimeDiff < 0 {
+		startTimeDiff = -startTimeDiff
+	}
+
+	uptimeDiff := obsOpinion.TotalUptime - checkpointOpinion.TotalUptime
+	if uptimeDiff < 0 {
+		uptimeDiff = -uptimeDiff
+	}
+
+	if restartDiff > restartTolerance || startTimeDiff > startTimeTolerance || uptimeDiff > uptimeTolerance {
+		logrus.Warnf("⚠️ Opinion method divergence for %s: "+
+			"obs={restarts:%d, start:%d, uptime:%d} vs checkpoint={restarts:%d, start:%d, uptime:%d} "+
+			"(restart_diff=%d, start_diff=%ds, uptime_diff=%ds)",
+			subject,
+			obsOpinion.Restarts, obsOpinion.StartTime, obsOpinion.TotalUptime,
+			checkpointOpinion.Restarts, checkpointOpinion.StartTime, checkpointOpinion.TotalUptime,
+			restartDiff, startTimeDiff, uptimeDiff)
+	}
+
+	// Return observation-based opinion (current source of truth)
+	return obsOpinion
 }

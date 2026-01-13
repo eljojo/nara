@@ -1557,6 +1557,7 @@ type OpinionData struct {
 	StartTime   int64
 	Restarts    int64
 	LastRestart int64
+	TotalUptime int64
 }
 
 // --- Sync/Gossip Support ---
