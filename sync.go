@@ -85,6 +85,11 @@ func (s *SeenEvent) GetActor() string { return s.Observer }
 // GetTarget implements Payload (Subject is the target)
 func (s *SeenEvent) GetTarget() string { return s.Subject }
 
+// VerifySignature implements Payload using default verification
+func (s *SeenEvent) VerifySignature(event *SyncEvent, lookup PublicKeyLookup) bool {
+	return DefaultVerifySignature(event, lookup)
+}
+
 // UIFormat returns UI-friendly representation
 func (s *SeenEvent) UIFormat() map[string]string {
 	viaText := map[string]string{
@@ -125,6 +130,9 @@ func (s *SeenEvent) ToLogEvent() *LogEvent {
 	}
 }
 
+// PublicKeyLookup is a function that resolves a public key by nara ID or name
+type PublicKeyLookup func(id, name string) ed25519.PublicKey
+
 // Payload is the interface for service-specific event data
 type Payload interface {
 	ContentString() string
@@ -133,6 +141,11 @@ type Payload interface {
 	GetTarget() string
 	LogFormat() string     // Returns technical log-friendly description
 	ToLogEvent() *LogEvent // Returns structured log event (nil to skip logging)
+
+	// VerifySignature verifies this event's signature. Each payload type handles
+	// its own verification logic (embedded keys, multi-sig, etc).
+	// The lookup function resolves public keys by nara ID or name.
+	VerifySignature(event *SyncEvent, lookup PublicKeyLookup) bool
 }
 
 // SocialEventPayload is the social event data within a SyncEvent
@@ -163,6 +176,11 @@ func (p *SocialEventPayload) GetActor() string { return p.Actor }
 
 // GetTarget implements Payload
 func (p *SocialEventPayload) GetTarget() string { return p.Target }
+
+// VerifySignature implements Payload using default verification
+func (p *SocialEventPayload) VerifySignature(event *SyncEvent, lookup PublicKeyLookup) bool {
+	return DefaultVerifySignature(event, lookup)
+}
 
 // UIFormat returns UI-friendly representation
 func (p *SocialEventPayload) UIFormat() map[string]string {
@@ -261,6 +279,11 @@ func (p *PingObservation) GetActor() string { return p.Observer }
 
 // GetTarget implements Payload
 func (p *PingObservation) GetTarget() string { return p.Target }
+
+// VerifySignature implements Payload using default verification
+func (p *PingObservation) VerifySignature(event *SyncEvent, lookup PublicKeyLookup) bool {
+	return DefaultVerifySignature(event, lookup)
+}
 
 // UIFormat returns UI-friendly representation
 func (p *PingObservation) UIFormat() map[string]string {
@@ -416,6 +439,11 @@ func (p *ObservationEventPayload) GetActor() string { return p.Observer }
 // GetTarget implements Payload (Subject is the target being observed)
 func (p *ObservationEventPayload) GetTarget() string { return p.Subject }
 
+// VerifySignature implements Payload using default verification
+func (p *ObservationEventPayload) VerifySignature(event *SyncEvent, lookup PublicKeyLookup) bool {
+	return DefaultVerifySignature(event, lookup)
+}
+
 // UIFormat returns UI-friendly representation
 func (p *ObservationEventPayload) UIFormat() map[string]string {
 	var text, detail string
@@ -562,11 +590,24 @@ func (e *SyncEvent) Sign(emitter string, keypair NaraKeypair) {
 	e.Signature = keypair.SignBase64(e.signableData())
 }
 
-// Verify checks the signature against the given public key
-// Returns true if signature is valid, false otherwise
-// Note: Returns false for unsigned events (use IsSigned() to check first)
-func (e *SyncEvent) Verify(publicKey ed25519.PublicKey) bool {
+// Verify verifies this event's signature by delegating to the payload.
+// The lookup function resolves public keys by nara ID or name.
+// Returns true if signature is valid, false otherwise.
+func (e *SyncEvent) Verify(lookup PublicKeyLookup) bool {
 	if !e.IsSigned() {
+		return false
+	}
+	if p := e.Payload(); p != nil {
+		return p.VerifySignature(e, lookup)
+	}
+	return false
+}
+
+// VerifyWithKey checks the signature against the given public key.
+// Use this when you already have the public key. For automatic key resolution,
+// use Verify(lookup) instead.
+func (e *SyncEvent) VerifyWithKey(publicKey ed25519.PublicKey) bool {
+	if !e.IsSigned() || publicKey == nil {
 		return false
 	}
 
@@ -577,6 +618,17 @@ func (e *SyncEvent) Verify(publicKey ed25519.PublicKey) bool {
 
 	data := e.signableData()
 	return VerifySignature(publicKey, data, sig)
+}
+
+// DefaultVerifySignature is the default verification logic for payloads without
+// embedded keys. It looks up the public key by EmitterID (or Emitter name as fallback)
+// and verifies the SyncEvent signature.
+func DefaultVerifySignature(event *SyncEvent, lookup PublicKeyLookup) bool {
+	if lookup == nil {
+		return false
+	}
+	pubKey := lookup(event.EmitterID, event.Emitter)
+	return event.VerifyWithKey(pubKey)
 }
 
 // GetActor returns the primary actor of this event (for filtering)

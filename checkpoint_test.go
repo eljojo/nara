@@ -666,11 +666,11 @@ func TestCheckpoint_Round2SignatureVerification(t *testing.T) {
 	service := NewCheckpointService(network, ledger, local)
 
 	// Verify signatures - should succeed with attestation format
-	validCount := service.verifyCheckpointSignatures(checkpoint)
+	result := service.verifyCheckpointSignatures(checkpoint)
 
-	// All 3 signatures should be valid
-	if validCount != 3 {
-		t.Errorf("Expected 3 valid signatures for round 2 checkpoint, got %d", validCount)
+	// All 3 signatures should be valid, verification should pass
+	if !result.Valid || result.ValidCount != 3 {
+		t.Errorf("Expected 3 valid signatures, got %d", result.ValidCount)
 	}
 }
 
@@ -772,11 +772,18 @@ func TestCheckpoint_PartialSignatureVerification(t *testing.T) {
 
 	service := NewCheckpointService(network, ledger, local)
 
-	// Should return 1 (only voter1 is verifiable)
-	validCount := service.verifyCheckpointSignatures(checkpoint)
+	// Only voter1 is known, so only 1 signature is verifiable
+	// Since we need 2+ valid signatures, verification should fail
+	result := service.verifyCheckpointSignatures(checkpoint)
 
-	if validCount != 1 {
-		t.Errorf("Expected 1 valid signature (only voter1 known), got %d", validCount)
+	if result.Valid {
+		t.Error("Expected verification to fail with only 1 known voter")
+	}
+	if result.ValidCount != 1 {
+		t.Errorf("Expected 1 valid signature (only voter1 known), got %d", result.ValidCount)
+	}
+	if result.KnownCount != 1 {
+		t.Errorf("Expected 1 known voter, got %d", result.KnownCount)
 	}
 }
 

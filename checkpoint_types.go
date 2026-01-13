@@ -9,6 +9,10 @@ import (
 	"time"
 )
 
+// MinCheckpointSignatures is the minimum number of valid signatures required
+// for a checkpoint to be considered verified.
+const MinCheckpointSignatures = 2
+
 // CheckpointEventPayload records a historical state snapshot for a nara
 // Used to preserve historical data (restart counts, uptime) that predates
 // the event-based tracking system. Multiple high-uptime naras can attest
@@ -87,6 +91,62 @@ func (p *CheckpointEventPayload) GetActor() string {
 
 // GetTarget implements Payload (Subject is the target)
 func (p *CheckpointEventPayload) GetTarget() string { return p.Subject }
+
+// CheckpointVerificationResult contains detailed verification information
+type CheckpointVerificationResult struct {
+	Valid      bool // Whether verification passed (validCount >= MinCheckpointSignatures)
+	ValidCount int  // Number of signatures that verified successfully
+	KnownCount int  // Number of voters whose public keys we could look up
+	TotalCount int  // Total number of voters/signatures
+}
+
+// VerifySignatureWithCounts verifies checkpoint signatures and returns detailed counts.
+// This is useful for debugging and inspector UIs.
+func (p *CheckpointEventPayload) VerifySignatureWithCounts(lookup PublicKeyLookup) CheckpointVerificationResult {
+	result := CheckpointVerificationResult{
+		TotalCount: len(p.VoterIDs),
+	}
+
+	if lookup == nil || len(p.VoterIDs) != len(p.Signatures) {
+		return result
+	}
+
+	for i, voterID := range p.VoterIDs {
+		pubKey := lookup(voterID, "")
+		if pubKey == nil {
+			continue
+		}
+		result.KnownCount++
+
+		// Build attestation for verification - signatures use attestation format
+		version := p.Version
+		if version == 0 {
+			version = 1
+		}
+		attestation := Attestation{
+			Version:     version,
+			Subject:     p.Subject,
+			SubjectID:   p.SubjectID,
+			Observation: p.Observation,
+			AttesterID:  voterID,
+			AsOfTime:    p.AsOfTime,
+		}
+
+		signableContent := attestation.SignableContent()
+		if VerifySignatureBase64(pubKey, []byte(signableContent), p.Signatures[i]) {
+			result.ValidCount++
+		}
+	}
+
+	result.Valid = result.ValidCount >= MinCheckpointSignatures
+	return result
+}
+
+// VerifySignature implements Payload for checkpoint multi-sig verification.
+// Requires at least MinCheckpointSignatures valid voter signatures.
+func (p *CheckpointEventPayload) VerifySignature(event *SyncEvent, lookup PublicKeyLookup) bool {
+	return p.VerifySignatureWithCounts(lookup).Valid
+}
 
 // LogFormat returns technical log description
 func (p *CheckpointEventPayload) LogFormat() string {

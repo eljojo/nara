@@ -1,6 +1,7 @@
 package nara
 
 import (
+	"crypto/ed25519"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -198,7 +199,8 @@ func (ln *LocalNara) inspectorCheckpointsHandler(w http.ResponseWriter, r *http.
 		StartTime     int64  `json:"start_time"`
 		VoterCount    int    `json:"voter_count"`
 		VerifiedCount int    `json:"verified_count"`
-		AllVerified   bool   `json:"all_verified"`
+		KnownCount    int    `json:"known_count"`
+		Verified      bool   `json:"verified"`
 	}
 
 	checkpoints := make([]CheckpointSummary, 0)
@@ -220,9 +222,9 @@ func (ln *LocalNara) inspectorCheckpointsHandler(w http.ResponseWriter, r *http.
 		checkpoint := event.Checkpoint
 
 		// Verify signatures
-		verifiedCount := 0
+		var result CheckpointVerificationResult
 		if ln.Network.checkpointService != nil {
-			verifiedCount = ln.Network.checkpointService.verifyCheckpointSignatures(checkpoint)
+			result = ln.Network.checkpointService.verifyCheckpointSignatures(checkpoint)
 		}
 
 		checkpoints = append(checkpoints, CheckpointSummary{
@@ -234,8 +236,9 @@ func (ln *LocalNara) inspectorCheckpointsHandler(w http.ResponseWriter, r *http.
 			TotalUptime:   checkpoint.Observation.TotalUptime,
 			StartTime:     checkpoint.Observation.StartTime,
 			VoterCount:    len(checkpoint.VoterIDs),
-			VerifiedCount: verifiedCount,
-			AllVerified:   verifiedCount == len(checkpoint.VoterIDs) && verifiedCount > 0,
+			VerifiedCount: result.ValidCount,
+			KnownCount:    result.KnownCount,
+			Verified:      result.Valid,
 		})
 	}
 
@@ -650,41 +653,62 @@ func (ln *LocalNara) inspectorEventDetailHandler(w http.ResponseWriter, r *http.
 	var verificationError *string
 
 	if isSigned {
-		pubKey := ln.Network.getPublicKeyForNaraID(foundEvent.EmitterID)
-		if pubKey != nil {
-			publicKeyKnown = true
-
-			// Get signable content based on event type
-			if foundEvent.Service == ServiceCheckpoint && foundEvent.Checkpoint != nil {
-				// For checkpoint events, verify using attestation format
-				// The checkpoint was signed by the proposer
-				version := foundEvent.Checkpoint.Version
-				if version == 0 {
-					version = 1
+		// Create a lookup function that resolves public keys
+		lookup := func(id, name string) ed25519.PublicKey {
+			if id != "" {
+				if key := ln.Network.getPublicKeyForNaraID(id); key != nil {
+					return key
 				}
-				attestation := Attestation{
-					Version:     version,
-					Subject:     foundEvent.Checkpoint.Subject,
-					SubjectID:   foundEvent.Checkpoint.SubjectID,
-					Observation: foundEvent.Checkpoint.Observation,
-					Attester:    foundEvent.Checkpoint.Subject,
-					AttesterID:  foundEvent.Checkpoint.SubjectID,
-					AsOfTime:    foundEvent.Checkpoint.AsOfTime,
-				}
-				signableContent = attestation.SignableContent()
-			} else {
-				// For other events, show a descriptive string
-				signableContent = "event_data"
 			}
+			if name != "" {
+				return ln.Network.resolvePublicKeyForNara(name)
+			}
+			return nil
+		}
 
-			signatureValid = foundEvent.Verify(pubKey)
-			if !signatureValid {
+		// Determine if public key is known based on payload type
+		payload := foundEvent.Payload()
+		switch p := payload.(type) {
+		case *HeyThereEvent:
+			// Embedded key - known if it parses
+			if p != nil && p.PublicKey != "" {
+				if _, err := ParsePublicKey(p.PublicKey); err == nil {
+					publicKeyKnown = true
+				}
+			}
+		case *ChauEvent:
+			// Embedded key - known if it parses
+			if p != nil && p.PublicKey != "" {
+				if _, err := ParsePublicKey(p.PublicKey); err == nil {
+					publicKeyKnown = true
+				}
+			}
+		case *CheckpointEventPayload:
+			// Multi-sig - check if we know at least one voter's key
+			if p != nil {
+				for _, voterID := range p.VoterIDs {
+					if lookup(voterID, "") != nil {
+						publicKeyKnown = true
+						break
+					}
+				}
+			}
+		default:
+			// Standard payloads - check if we can look up the emitter
+			publicKeyKnown = lookup(foundEvent.EmitterID, foundEvent.Emitter) != nil
+		}
+
+		// Verify using the payload's verification logic
+		signatureValid = foundEvent.Verify(lookup)
+
+		if !signatureValid {
+			if !publicKeyKnown {
+				errMsg := "public key not found for emitter"
+				verificationError = &errMsg
+			} else {
 				errMsg := "signature verification failed"
 				verificationError = &errMsg
 			}
-		} else {
-			errMsg := "public key not found for emitter"
-			verificationError = &errMsg
 		}
 	}
 

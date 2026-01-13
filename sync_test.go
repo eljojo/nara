@@ -664,13 +664,13 @@ func TestSyncEvent_SignAndVerify(t *testing.T) {
 	}
 
 	// Verify with correct key
-	if !event.Verify(pub) {
+	if !event.VerifyWithKey(pub) {
 		t.Error("expected signature to verify with correct key")
 	}
 
 	// Verify with wrong key
 	pub2, _, _ := ed25519.GenerateKey(nil)
-	if event.Verify(pub2) {
+	if event.VerifyWithKey(pub2) {
 		t.Error("expected signature to fail with wrong key")
 	}
 }
@@ -687,7 +687,7 @@ func TestSyncEvent_SignedConstructors(t *testing.T) {
 	if social.Emitter != "alice" {
 		t.Errorf("expected emitter alice, got %s", social.Emitter)
 	}
-	if !social.Verify(pub) {
+	if !social.VerifyWithKey(pub) {
 		t.Error("signed social event should verify")
 	}
 
@@ -699,7 +699,7 @@ func TestSyncEvent_SignedConstructors(t *testing.T) {
 	if ping.Emitter != "alice" {
 		t.Errorf("expected emitter alice, got %s", ping.Emitter)
 	}
-	if !ping.Verify(pub) {
+	if !ping.VerifyWithKey(pub) {
 		t.Error("signed ping event should verify")
 	}
 }
@@ -712,7 +712,7 @@ func TestSyncEvent_VerifyUnsigned(t *testing.T) {
 	if event.IsSigned() {
 		t.Error("unsigned event should report IsSigned() = false")
 	}
-	if event.Verify(pub) {
+	if event.VerifyWithKey(pub) {
 		t.Error("unsigned event should return false for Verify")
 	}
 }
@@ -728,7 +728,7 @@ func TestSyncEvent_TamperedSignature(t *testing.T) {
 	event.Social.Reason = "tampered"
 
 	// Signature should no longer verify
-	if event.Verify(pub) {
+	if event.VerifyWithKey(pub) {
 		t.Error("tampered event should fail verification")
 	}
 }
@@ -753,7 +753,7 @@ func TestSyncLedger_AddSignedPingObservation(t *testing.T) {
 	if !events[0].IsSigned() {
 		t.Error("added event should be signed")
 	}
-	if !events[0].Verify(pub) {
+	if !events[0].VerifyWithKey(pub) {
 		t.Error("added event should verify")
 	}
 }
@@ -783,7 +783,7 @@ func TestSyncLedger_AddSignedPingObservationWithReplace(t *testing.T) {
 		if !e.IsSigned() {
 			t.Error("all ping events should be signed")
 		}
-		if !e.Verify(pub) {
+		if !e.VerifyWithKey(pub) {
 			t.Error("all ping events should verify")
 		}
 	}

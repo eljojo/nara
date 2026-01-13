@@ -2,6 +2,7 @@ package nara
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"math/rand"
 	"sort"
@@ -666,16 +667,17 @@ func (s *CheckpointService) storeCheckpoint(checkpoint *CheckpointEventPayload) 
 	event.Checkpoint.SubjectID = checkpoint.SubjectID
 	event.Checkpoint.Round = checkpoint.Round
 
-	// Verify at least 2 signatures before accepting
-	validCount := s.verifyCheckpointSignatures(event.Checkpoint)
-	if validCount < 2 {
-		logrus.Warnf("checkpoint: rejecting checkpoint for %s - only %d valid signatures (need 2+)", checkpoint.Subject, validCount)
+	// Verify at least MinCheckpointSignatures signatures before accepting
+	result := s.verifyCheckpointSignatures(event.Checkpoint)
+	if !result.Valid {
+		logrus.Warnf("checkpoint: rejecting checkpoint for %s - %d/%d verified, %d/%d keys known (need %d+)",
+			checkpoint.Subject, result.ValidCount, result.TotalCount, result.KnownCount, result.TotalCount, MinCheckpointSignatures)
 		return
 	}
 
 	if s.ledger.AddEvent(event) {
-		logrus.Infof("📝 stored checkpoint for %s (verified %d/%d signatures)",
-			checkpoint.Subject, validCount, len(checkpoint.Signatures))
+		logrus.Infof("📝 stored checkpoint for %s (%d/%d signatures verified)",
+			checkpoint.Subject, result.ValidCount, result.TotalCount)
 	}
 
 	// Broadcast finalized checkpoint so everyone stores it
@@ -718,77 +720,27 @@ func (s *CheckpointService) HandleFinalCheckpoint(event *SyncEvent) {
 		return
 	}
 
-	// Verify at least 2 signatures from known naras
+	// Verify at least MinCheckpointSignatures signatures from known naras
 	// We may not know all voters, but we require at least 2 verifiable signatures for trust
-	validSignatures := s.verifyCheckpointSignatures(event.Checkpoint)
-	if validSignatures < 2 {
-		logrus.Warnf("checkpoint: rejected checkpoint for %s - insufficient verifiable signatures (%d < 2)",
-			event.Checkpoint.Subject, validSignatures)
+	result := s.verifyCheckpointSignatures(event.Checkpoint)
+	if !result.Valid {
+		logrus.Warnf("checkpoint: rejected checkpoint for %s - %d/%d verified, %d/%d keys known (need %d+)",
+			event.Checkpoint.Subject, result.ValidCount, result.TotalCount, result.KnownCount, result.TotalCount, MinCheckpointSignatures)
 		return
 	}
 
 	if s.ledger.AddEvent(*event) {
-		logrus.Printf("checkpoint: stored final checkpoint for %s from network (%d valid signatures)",
-			event.Checkpoint.Subject, validSignatures)
+		logrus.Printf("checkpoint: stored final checkpoint for %s from network (%d/%d verified)",
+			event.Checkpoint.Subject, result.ValidCount, result.TotalCount)
 	}
 }
 
-// verifyCheckpointSignatures verifies all signatures in a checkpoint and returns count of valid ones
-// Note: signatures from unknown naras (no public key available) are skipped, not counted as invalid
-func (s *CheckpointService) verifyCheckpointSignatures(checkpoint *CheckpointEventPayload) int {
-	if len(checkpoint.VoterIDs) != len(checkpoint.Signatures) {
-		logrus.Warnf("checkpoint: voter/signature count mismatch for %s", checkpoint.Subject)
-		return 0
-	}
-
-	validCount := 0
-	for i, voterID := range checkpoint.VoterIDs {
-		signature := checkpoint.Signatures[i]
-
-		// Get voter's public key by ID
-		pubKey := s.network.getPublicKeyForNaraID(voterID)
-		if pubKey == nil {
-			// Skip unknown naras - we can't verify their signatures but that's OK
-			// As long as we can verify at least one signature from a known nara
-			logrus.Debugf("checkpoint: skipping signature from voter %s - unknown public key", voterID)
-			continue
-		}
-
-		// Build attestation for verification - all signatures use attestation format
-		// The attestation contains the checkpoint's agreed-upon values
-		version := checkpoint.Version
-		if version == 0 {
-			version = 1 // Default to v1 for backwards compatibility
-		}
-		attestation := Attestation{
-			Version:     version,
-			Subject:     checkpoint.Subject,
-			SubjectID:   checkpoint.SubjectID,
-			Observation: checkpoint.Observation,
-			Attester:    "", // Will be set below
-			AttesterID:  voterID,
-			AsOfTime:    checkpoint.AsOfTime,
-		}
-
-		// Determine attester name (for completeness, though not used in signing)
-		if voterID == checkpoint.SubjectID {
-			attestation.Attester = checkpoint.Subject // Self-attestation (proposer)
-		} else {
-			// Third-party attestation (voter) - we don't have voter name, but not needed for verification
-			attestation.Attester = ""
-		}
-
-		// Get canonical signable content
-		signableContent := attestation.SignableContent()
-
-		if VerifySignatureBase64(pubKey, []byte(signableContent), signature) {
-			validCount++
-		} else {
-			logrus.Debugf("checkpoint: invalid signature from voter %s for %s", voterID, checkpoint.Subject)
-		}
-	}
-
-	return validCount
+// verifyCheckpointSignatures verifies checkpoint signatures and returns detailed result
+func (s *CheckpointService) verifyCheckpointSignatures(checkpoint *CheckpointEventPayload) CheckpointVerificationResult {
+	lookup := PublicKeyLookup(func(id, name string) ed25519.PublicKey {
+		return s.network.getPublicKeyForNaraID(id)
+	})
+	return checkpoint.VerifySignatureWithCounts(lookup)
 }
 
 // valuesMatch checks if two values are within tolerance

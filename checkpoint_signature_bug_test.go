@@ -104,14 +104,15 @@ func TestCheckpoint_VoteAsOfTimeMismatch(t *testing.T) {
 	service := NewCheckpointService(network, ledger, local)
 
 	// Try to verify signatures
-	validCount := service.verifyCheckpointSignatures(checkpoint)
+	result := service.verifyCheckpointSignatures(checkpoint)
 
 	// EXPECTATION: With the bug, voter signature fails because:
 	// - Vote was signed with voteAsOfTime
 	// - But verification uses proposalAsOfTime
 	// - The signable content doesn't match!
+	// Since only 1 of 2 signatures is valid, verification should fail (need 2+)
 
-	t.Logf("Valid signatures: %d / 2", validCount)
+	t.Logf("Valid signatures: %d/%d (known: %d)", result.ValidCount, result.TotalCount, result.KnownCount)
 	t.Logf("Proposer AsOfTime: %d", proposalAsOfTime)
 	t.Logf("Vote AsOfTime: %d (signed)", voteAsOfTime)
 	t.Logf("Checkpoint AsOfTime: %d (verified against)", checkpoint.AsOfTime)
@@ -119,14 +120,13 @@ func TestCheckpoint_VoteAsOfTimeMismatch(t *testing.T) {
 	// With Issue #2 fixed but this test using wrong AsOfTime:
 	// - Proposer signature should be valid (same AsOfTime)
 	// - Voter signature should fail (different AsOfTime)
-	if validCount == 1 {
-		t.Log("✓ Issue #2 is fixed: Proposer signature valid using attestation format")
-		t.Log("✓ Issue #1 would fail: Voter signature invalid because test used wrong AsOfTime")
-		t.Log("  In real code, voters now sign proposal.AsOfTime (fix applied)")
-	} else if validCount == 2 {
-		t.Error("Expected voter signature to fail due to AsOfTime mismatch, but both passed!")
+	// - Overall verification fails because we need 2+ valid signatures
+	if !result.Valid {
+		t.Log("✓ Verification correctly failed: only 1 of 2 signatures valid (need 2+)")
+		t.Log("  Proposer signature valid (same AsOfTime)")
+		t.Log("  Voter signature invalid (test used wrong AsOfTime)")
 	} else {
-		t.Errorf("Unexpected result: %d valid signatures (expected 1)", validCount)
+		t.Error("Expected verification to fail due to AsOfTime mismatch, but it passed!")
 	}
 }
 
@@ -239,19 +239,16 @@ func TestCheckpoint_SignatureFormatMismatch(t *testing.T) {
 	t.Logf("  Voter:    %s", voteVerifyContent)
 
 	// Try to verify
-	validCount := service.verifyCheckpointSignatures(checkpoint)
+	result := service.verifyCheckpointSignatures(checkpoint)
 
-	t.Logf("")
-	t.Logf("Valid signatures: %d / 2", validCount)
+	t.Logf("Valid signatures: %d/%d (known: %d)", result.ValidCount, result.TotalCount, result.KnownCount)
 
 	// With Issue #2 fixed, both signatures should be valid
-	if validCount == 2 {
+	if result.Valid && result.ValidCount == 2 {
 		t.Log("✓ Issue #2 is fixed: Both signatures valid using attestation format")
 		t.Log("  Signing uses: attestation:...")
 		t.Log("  Verification uses: attestation:...")
-	} else if validCount == 0 {
-		t.Error("Both signatures failed - Issue #2 not fixed!")
 	} else {
-		t.Errorf("Unexpected result: %d valid signatures (expected 2)", validCount)
+		t.Errorf("Verification failed - expected 2 valid signatures, got %d!", result.ValidCount)
 	}
 }

@@ -1039,7 +1039,7 @@ func (network *Network) httpDMHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unknown emitter", http.StatusForbidden)
 		return
 	}
-	if !event.Verify(pubKey) {
+	if !event.VerifyWithKey(pubKey) {
 		logrus.Warnf("📬 Invalid DM signature from %s, rejecting", event.Emitter)
 		http.Error(w, "Invalid signature", http.StatusForbidden)
 		return

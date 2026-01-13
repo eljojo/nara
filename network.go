@@ -254,6 +254,18 @@ func (h *HeyThereEvent) GetActor() string { return h.From }
 // GetTarget implements Payload interface for HeyThereEvent
 func (h *HeyThereEvent) GetTarget() string { return h.From }
 
+// VerifySignature implements Payload using the embedded public key
+func (h *HeyThereEvent) VerifySignature(event *SyncEvent, lookup PublicKeyLookup) bool {
+	if h.PublicKey == "" {
+		return false
+	}
+	pubKey, err := ParsePublicKey(h.PublicKey)
+	if err != nil {
+		return false
+	}
+	return event.VerifyWithKey(pubKey)
+}
+
 // UIFormat returns UI-friendly representation
 func (h *HeyThereEvent) UIFormat() map[string]string {
 	detail := "hey there!"
@@ -350,6 +362,18 @@ func (c *ChauEvent) GetActor() string { return c.From }
 
 // GetTarget implements Payload interface for ChauEvent
 func (c *ChauEvent) GetTarget() string { return c.From }
+
+// VerifySignature implements Payload using the embedded public key
+func (c *ChauEvent) VerifySignature(event *SyncEvent, lookup PublicKeyLookup) bool {
+	if c.PublicKey == "" {
+		return false
+	}
+	pubKey, err := ParsePublicKey(c.PublicKey)
+	if err != nil {
+		return false
+	}
+	return event.VerifyWithKey(pubKey)
+}
 
 // UIFormat returns UI-friendly representation
 func (c *ChauEvent) UIFormat() map[string]string {
@@ -706,7 +730,7 @@ func (network *Network) VerifySyncEvent(e *SyncEvent) bool {
 		return false // Signed but can't verify - suspicious
 	}
 
-	if !e.Verify(pubKey) {
+	if !e.VerifyWithKey(pubKey) {
 		logrus.Warnf("Invalid signature on event %s from %s", e.ID[:8], e.Emitter)
 		return false // Bad signature - suspicious
 	}
@@ -858,7 +882,7 @@ func (network *Network) processHeyThereSyncEvents(events []SyncEvent) {
 				logrus.Warnf("📡 Invalid public key in hey_there from %s: %v", h.From, err)
 				continue
 			}
-			if !e.Verify(pubKey) {
+			if !e.VerifyWithKey(pubKey) {
 				logrus.Warnf("📡 Invalid hey_there SyncEvent signature from %s", h.From)
 				continue
 			}
@@ -1885,7 +1909,7 @@ func (network *Network) handleHeyThereEvent(event SyncEvent) {
 			logrus.Warnf("🚨 Invalid public key in hey_there from %s: %v", heyThere.From, err)
 			return
 		}
-		if !event.Verify(pubKey) {
+		if !event.VerifyWithKey(pubKey) {
 			logrus.Warnf("🚨 Invalid signature on hey_there from %s", heyThere.From)
 			return
 		}
@@ -2200,7 +2224,7 @@ func (network *Network) handleChauEvent(syncEvent SyncEvent) {
 		} else {
 			pubKey = network.resolvePublicKeyForNara(chau.From)
 		}
-		if pubKey != nil && !syncEvent.Verify(pubKey) {
+		if pubKey != nil && !syncEvent.VerifyWithKey(pubKey) {
 			logrus.Warnf("⚠️  chau from %s has invalid signature, ignoring", chau.From)
 			return
 		}
@@ -2487,7 +2511,7 @@ func (network *Network) handleSocialEvent(event SyncEvent) {
 	// Verify SyncEvent signature if present
 	if event.IsSigned() {
 		pubKey := network.resolvePublicKeyForNara(event.Emitter)
-		if pubKey != nil && !event.Verify(pubKey) {
+		if pubKey != nil && !event.VerifyWithKey(pubKey) {
 			logrus.Warnf("🚨 Invalid signature on social event from %s", event.Emitter)
 			return
 		}
