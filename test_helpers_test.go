@@ -185,6 +185,10 @@ func createTestNaraForMQTT(t *testing.T, name string, port int) *LocalNara {
 		t.Fatalf("Failed to create LocalNara: %v", err)
 	}
 
+	// Use standard test configuration from testLocalNara
+	delay := time.Duration(0)
+	ln.Network.testObservationDelay = &delay
+
 	// Skip jitter delays for faster, more predictable test execution
 	ln.Network.testSkipJitter = true
 	// Skip boot recovery - tests will manually add observation data

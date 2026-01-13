@@ -7,9 +7,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 func TestMeshAuthRequest_SignsCorrectly(t *testing.T) {
@@ -224,6 +227,7 @@ func TestVerifyMeshResponse_TamperedBody(t *testing.T) {
 func TestMeshAuthMiddleware_SkipsPing(t *testing.T) {
 	ln := testLocalNara("test")
 	network := ln.Network
+	defer network.Shutdown()
 
 	called := false
 	handler := func(w http.ResponseWriter, r *http.Request) {
@@ -244,10 +248,13 @@ func TestMeshAuthMiddleware_SkipsPing(t *testing.T) {
 	}
 }
 
-// TODO(flakey)
 func TestMeshAuthMiddleware_RejectsUnauthenticated(t *testing.T) {
+	// Ensure logrus is properly initialized to avoid nil pointer panics
+	logrus.SetOutput(os.Stderr)
+
 	ln := testLocalNara("test")
 	network := ln.Network
+	defer network.Shutdown()
 
 	called := false
 	handler := func(w http.ResponseWriter, r *http.Request) {
@@ -283,7 +290,9 @@ func TestMeshAuthMiddleware_AcceptsValidAuth(t *testing.T) {
 	bobSoul := testMeshSoul("bob")
 
 	ln1 := testLocalNaraWithSoul("alice", aliceSoul)
+	defer ln1.Network.Shutdown()
 	ln2 := testLocalNaraWithSoul("bob", bobSoul)
+	defer ln2.Network.Shutdown()
 
 	// Bob imports Alice so he knows her public key
 	alice := NewNara("alice")

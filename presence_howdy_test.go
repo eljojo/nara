@@ -312,6 +312,10 @@ func createTestNara(t *testing.T, name string, port int) (*LocalNara, error) {
 		return nil, err
 	}
 
+	// Use standard test configuration from testLocalNara
+	delay := time.Duration(0)
+	ln.Network.testObservationDelay = &delay
+
 	// Skip the 1s sleep in handleHeyThereEvent for faster tests
 	ln.Network.testSkipHeyThereSleep = true
 	// Skip jitter delays for faster discovery in tests
