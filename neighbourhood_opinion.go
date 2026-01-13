@@ -7,6 +7,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// neighbourhood_opinion.go
+// Extracted from projection_opinion.go
+// Contains opinion consensus projection and derivation logic
+
 // ObservationRecord stores observation event data for consensus calculation.
 type ObservationRecord struct {
 	Observer       string // Who made the observation
