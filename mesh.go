@@ -85,8 +85,8 @@ func (t *HTTPMeshTransport) Send(target string, msg *WorldMessage) error {
 		return fmt.Errorf("failed to marshal world message: %w", err)
 	}
 
-	// Build request
-	url := fmt.Sprintf("http://%s:%d/world/relay", target, t.port)
+	// Build request (target is a mesh IP)
+	url := t.network.buildMeshURLFromIP(target, "/world/relay")
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 

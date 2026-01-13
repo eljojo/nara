@@ -38,6 +38,13 @@ func TestMain(m *testing.M) {
 	// Individual tests can override this with logrus.SetLevel(logrus.DebugLevel)
 	logrus.SetLevel(logrus.WarnLevel)
 
+	// Explicitly initialize logrus to prevent nil pointer panics in parallel tests
+	// This ensures the logger is fully set up before any parallel tests start
+	logrus.SetOutput(os.Stderr)
+	logrus.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp: true,
+	})
+
 	// Run tests
 	exitCode := m.Run()
 
