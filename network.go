@@ -948,7 +948,21 @@ func (network *Network) InitGossipIdentity() {
 
 // processChauSyncEvents processes chau (graceful shutdown) events from the sync ledger.
 // This allows gossip-only naras to distinguish OFFLINE (graceful) from MISSING (timeout).
+//
+// IMPORTANT: This function directly updates observations, which can race with live events
+// during boot. The long-term direction is to remove this direct observation update and let
+// the OnlineStatus projection be the single source of truth. The observationMaintenanceOnce
+// function already syncs from projections, so removing this would unify the status logic.
+// For now, we skip processing during boot to avoid the race condition.
 func (network *Network) processChauSyncEvents(events []SyncEvent) {
+	// Skip during boot to avoid race condition where backfilled chau events
+	// can clobber ONLINE status set by live hey_there events.
+	// The projection will handle chau events correctly, and observationMaintenanceOnce
+	// will sync from projections after boot completes.
+	if network.local.isBooting() {
+		return
+	}
+
 	for i := range events {
 		e := &events[i]
 		if e.Service != ServiceChau || e.Chau == nil {

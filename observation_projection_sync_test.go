@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 // TestPingVerificationUpdatesProjectionImmediately reproduces the production bug where:
@@ -122,5 +124,88 @@ func TestMarkOnlineFromPingUpdatesProjectionSynchronously(t *testing.T) {
 	if statusAfter != "ONLINE" {
 		t.Errorf("Expected ONLINE immediately after markOnlineFromPing, got %s", statusAfter)
 		t.Errorf("This is the production bug: projection didn't process new ping event due to broken position tracking")
+	}
+}
+
+// TestBootTimeChauDoesNotClobberOnlineStatus reproduces the boot-time race condition where:
+// 1. Nara is booting (uptime < 120s)
+// 2. Live hey_there marks a neighbor as ONLINE (observation state)
+// 3. Backfill brings in an old chau event for that neighbor
+// 4. processChauSyncEvents checks hasMoreRecentHeyThere, but the hey_there may not be in ledger yet
+// 5. BUG: Neighbor gets marked OFFLINE despite being actually online
+// 6. User sees naras flip from ONLINE to OFFLINE during backfill, then back to ONLINE after boot
+//
+// Long-term direction: processChauSyncEvents should NOT directly update observations.
+// Instead, projections should be the source of truth for online status, and
+// observationMaintenanceOnce should sync from projections.
+// For now, we fix by skipping processChauSyncEvents during boot.
+func TestBootTimeChauDoesNotClobberOnlineStatus(t *testing.T) {
+	logrus.SetLevel(logrus.DebugLevel)
+	defer logrus.SetLevel(logrus.WarnLevel)
+
+	// Create a LocalNara that is booting (default state after creation)
+	observer := testLocalNara("observer")
+	network := observer.Network
+	network.local.Projections = NewProjectionStore(network.local.SyncLedger)
+
+	// Create a neighbor nara with valid keypair for signing
+	neighbor := testLocalNara("raccoon")
+
+	// Observer knows about neighbor (has their public key)
+	neighborNara := NewNara("raccoon")
+	neighborNara.Status.PublicKey = FormatPublicKey(neighbor.Keypair.PublicKey)
+	network.importNara(neighborNara)
+
+	// Simulate: neighbor's hey_there arrived via live MQTT and marked them ONLINE
+	// This happens before their hey_there SyncEvent is in our ledger
+	observation := observer.getObservation("raccoon")
+	observation.Online = "ONLINE"
+	observation.LastSeen = time.Now().Unix()
+	observer.setObservation("raccoon", observation)
+
+	// Verify neighbor is ONLINE before chau processing
+	obsBefore := observer.getObservation("raccoon")
+	if obsBefore.Online != "ONLINE" {
+		t.Fatalf("Expected neighbor to be ONLINE before chau, got %s", obsBefore.Online)
+	}
+
+	// Simulate: backfill brings in an OLD chau event from the neighbor
+	// This chau is from before the neighbor came back online
+	oldChauTime := time.Now().Add(-5 * time.Minute).UnixNano()
+
+	// Create a signed chau event with the old timestamp
+	// (processChauSyncEvents verifies signatures, so we must sign after setting timestamp)
+	chauEvent := SyncEvent{
+		Timestamp: oldChauTime,
+		Service:   ServiceChau,
+		Chau: &ChauEvent{
+			From:      "raccoon",
+			PublicKey: FormatPublicKey(neighbor.Keypair.PublicKey),
+			ID:        neighbor.ID,
+		},
+	}
+	chauEvent.ComputeID()
+	chauEvent.Sign("raccoon", neighbor.Keypair)
+
+	// Add to ledger (simulating backfill)
+	observer.SyncLedger.MergeEvents([]SyncEvent{chauEvent})
+
+	// NOTE: No hey_there in ledger yet (the live one updated observation directly
+	// but the SyncEvent hasn't been added/synced yet - this is the race condition)
+
+	// Process chau events from ledger
+	events := observer.SyncLedger.GetAllEvents()
+	network.processChauSyncEvents(events)
+
+	// BUG: The neighbor should still be ONLINE, but processChauSyncEvents marked them OFFLINE
+	// because hasMoreRecentHeyThere found no hey_there in the ledger
+	obsAfter := observer.getObservation("raccoon")
+
+	// This is the failing assertion that demonstrates the bug:
+	// During boot, processChauSyncEvents should NOT clobber ONLINE status
+	if obsAfter.Online != "ONLINE" {
+		t.Errorf("BUG REPRODUCED: Neighbor was ONLINE but got marked %s during boot chau processing", obsAfter.Online)
+		t.Errorf("This causes the boot-time status flapping: naras appear offline during backfill")
+		t.Errorf("Fix: Skip processChauSyncEvents during boot (isBooting == true)")
 	}
 }
