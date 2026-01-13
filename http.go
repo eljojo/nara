@@ -59,7 +59,7 @@ func (rl *responseLogger) Flush() {
 	}
 }
 
-//go:embed nara-web/public/*
+//go:embed nara-web/public/* nara-web/public/docs/**
 var staticContent embed.FS
 
 func (network *Network) startHttpServer(httpAddr string) error {
@@ -197,6 +197,13 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 		// Static file server with SPA fallback for root
 		// First try to serve static files, then fall back to SPA
 		staticHandler := http.FileServer(http.FS(publicFS))
+		if docsFS, err := fs.Sub(publicFS, "docs"); err == nil {
+			docsHandler := http.StripPrefix("/docs/", http.FileServer(http.FS(docsFS)))
+			mux.Handle("/docs/", docsHandler)
+			mux.HandleFunc("/docs", func(w http.ResponseWriter, r *http.Request) {
+				http.Redirect(w, r, "/docs/", http.StatusMovedPermanently)
+			})
+		}
 		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			// If path is exactly "/" or doesn't match a static file, serve SPA
 			if r.URL.Path == "/" || r.URL.Path == "/home" {

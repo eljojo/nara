@@ -139,10 +139,9 @@ Individual tests can override with `logrus.SetLevel(logrus.DebugLevel)`.
 
 ## Documentation
 
-- `EVENTS.md` - Event types and structure
-- `OBSERVATIONS.md` - Event-driven consensus system
-- `SYNC.md` - Unified sync backbone and gossip protocol
-- `STASH.md` - Distributed encrypted storage system
-- `WORLD.md` - "Around the world" journey feature
-- `COORDINATES.md` - Vivaldi network coordinate system
-
+- `docs/src/content/docs/EVENTS.md` - Event types and structure
+- `docs/src/content/docs/OBSERVATIONS.md` - Event-driven consensus system
+- `docs/src/content/docs/SYNC.md` - Unified sync backbone and gossip protocol
+- `docs/src/content/docs/STASH.md` - Distributed encrypted storage system
+- `docs/src/content/docs/WORLD.md` - "Around the world" journey feature
+- `docs/src/content/docs/COORDINATES.md` - Vivaldi network coordinate system

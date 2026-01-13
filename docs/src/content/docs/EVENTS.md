@@ -1,3 +1,8 @@
+---
+title: Events
+slug: concepts/events
+---
+
 # Event-Sourced Nara
 
 Naras are deterministic machines driven by event streams. Every observation that shapes a nara's opinion is recorded as an event, shared with peers, and can be replayed.

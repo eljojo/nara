@@ -1,3 +1,8 @@
+---
+title: Sync
+slug: concepts/sync
+---
+
 # Unified Sync Backbone
 
 Nara uses a unified event store and gossip protocol to share information across the network. This document explains how naras discover what's happening, form opinions, and stay in sync.

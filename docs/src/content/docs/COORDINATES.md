@@ -1,3 +1,8 @@
+---
+title: Coordinates
+slug: concepts/coordinates
+---
+
 # Network Coordinate System
 
 Naras estimate their relative positions in "network space" using latency measurements. This enables visualization, proximity-based social behavior, and optimized journey routing.

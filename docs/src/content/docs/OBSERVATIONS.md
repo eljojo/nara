@@ -1,3 +1,8 @@
+---
+title: Observations
+slug: concepts/observations
+---
+
 # Event-Driven Observation System
 
 Naras form consensus about network state through distributed observation events rather than centralized broadcast.

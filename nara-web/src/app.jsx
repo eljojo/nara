@@ -104,8 +104,9 @@ function App() {
           </Link>
         </div>
         <div className="nav-links">
-          <a href="/resources.html">Resources</a>
+          <a href="/docs">Documentation</a>
           <a href="/stash.html">Stash</a>
+          <a href="/resources.html">Monitor</a>
         </div>
       </nav>
 

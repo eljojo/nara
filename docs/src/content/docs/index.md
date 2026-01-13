@@ -1,4 +1,7 @@
-# nara
+---
+title: Nara
+---
+
 
 nara is a distributed myth about machines that gossip, remember, and build opinions.
 it's a network of tiny agents with personality, carrying a **collective hazy memory** where no one has the whole story, but the story still survives.
@@ -166,12 +169,12 @@ the web ui is the observatory for the network:
 
 ## deeper lore
 
-- `docs/src/content/docs/EVENTS.md` for the event universe
-- `docs/src/content/docs/SYNC.md` for the sync backbone and zines
-- `docs/src/content/docs/OBSERVATIONS.md` for consensus and anti-abuse
-- `docs/src/content/docs/STASH.md` for encrypted confidants
-- `docs/src/content/docs/WORLD.md` for journeys
-- `docs/src/content/docs/COORDINATES.md` for the network map
+- `docs/EVENTS.md` for the event universe
+- `docs/SYNC.md` for the sync backbone and zines
+- `docs/OBSERVATIONS.md` for consensus and anti-abuse
+- `docs/STASH.md` for encrypted confidants
+- `docs/WORLD.md` for journeys
+- `docs/COORDINATES.md` for the network map
 
 ---
 

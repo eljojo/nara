@@ -1,3 +1,8 @@
+---
+title: World Journeys
+slug: concepts/world
+---
+
 # Going Around the World
 
 A message that travels from nara to nara, collecting signatures and stamps along the way, until it returns home.
@@ -61,7 +66,7 @@ If verification fails, the message is rejected.
 When the message returns to the originator:
 1. The originator verifies the complete chain
 2. Broadcasts a lightweight completion signal via MQTT (`nara/plaza/journey_complete`)
-3. Records a `journey-complete` observation event (see [EVENTS.md](EVENTS.md))
+3. Records a `journey-complete` observation event (see [/concepts/events/](/concepts/events/))
 4. Clout rewards are distributed
 
 Each nara that participated:
@@ -124,7 +129,7 @@ World messages travel over the **mesh network** (tsnet/Headscale), not MQTT:
 - More reliable for chain-of-custody
 - MQTT only used for lightweight coordination signals
 
-See [EVENTS.md](EVENTS.md) for details on the MQTT + Mesh architecture.
+See [/concepts/events/](/concepts/events/) for details on the MQTT + Mesh architecture.
 
 ## Example Journey
 

@@ -8,7 +8,11 @@ all: build test
 build-web:
 	@echo "Building web assets..."
 	@npm run build
-	@echo "✓ Built nara-web/public/app.js, app.css, vendor.css"
+	@./node_modules/.bin/astro build --root docs --config astro.config.mjs
+	@rm -rf nara-web/public/docs
+	@mkdir -p nara-web/public/docs
+	@cp -R docs/dist/. nara-web/public/docs
+	@echo "✓ Built nara-web/public/app.js, app.css, vendor.css, docs/"
 
 # Watch web assets for changes (dev mode)
 watch-web:
@@ -56,13 +60,14 @@ clean:
 	@echo "Cleaning build artifacts..."
 	@rm -rf bin/
 	@rm -f nara-web/public/app.js nara-web/public/app.js.map nara-web/public/app.css nara-web/public/vendor.css
+	@rm -rf nara-web/public/docs
 	@rm -f nara-web/src/generated/iconoir.css
 	@echo "✓ Cleaned"
 
 # Build using Nix
 build-nix:
 	@echo "Building nara using Nix..."
-	@nix build .#nara
+	@nix build .#nara --option substituters https://cache.nixos.org
 	@echo "✓ Built nara using Nix"
 
 lint-report:

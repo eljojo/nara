@@ -1,3 +1,8 @@
+---
+title: Stash
+slug: concepts/stash
+---
+
 # Stash - Distributed Encrypted Storage
 
 Naras store their encrypted data (arbitrary JSON) on other naras ("confidants") instead of local disk. This enables stateless operation where a nara can reboot on any machine and recover its state.

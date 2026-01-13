@@ -1,0 +1,14 @@
+{
+  "name": "nara-docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.24.1",
+    "astro": "^4.15.0"
+  }
+}
