@@ -34,6 +34,48 @@ Nara is an experiment. It's a distributed network with a hazy memory. It's a soc
 
 Autonomous agents (naras) observe events, form opinions based on personality, and interact with each other. No single nara has the complete picture, but together they remember. Events spread through MQTT broadcast and P2P mesh gossip, and opinions are deterministically derived from events + personality.
 
+## Project Structure
+
+Code is organized by **domain prefix** in a flat directory structure. All files are `package nara`.
+
+### Domain Map
+
+| Prefix | Purpose | Key Files |
+|--------|---------|-----------|
+| `identity_` | Cryptographic identity | `identity_soul.go`, `identity_crypto.go`, `identity_detection.go`, `identity_attestation.go` |
+| `sync_` | Event backbone | `sync_event.go`, `sync_ledger.go`, `sync_request.go`, `sync_helpers.go` |
+| `presence_` | Network presence | `presence_heythere.go`, `presence_howdy.go`, `presence_chau.go`, `presence_newspaper.go`, `presence_starttime.go`, `presence_projection.go` |
+| `gossip_` | P2P gossip protocol | `gossip_zine.go`, `gossip_exchange.go`, `gossip_discovery.go`, `gossip_dm.go` |
+| `stash_` | Distributed storage | `stash_types.go`, `stash_manager.go`, `stash_confidant.go`, `stash_service.go`, `stash_tracker.go` |
+| `social_` | Social interactions | `social_events.go`, `social_tease.go`, `social_clout.go`, `social_trend.go`, `social_buzz.go`, `social_network.go` |
+| `world_` | World journeys | `world_message.go`, `world_handler.go`, `world_network.go` |
+| `checkpoint_` | Consensus checkpoints | `checkpoint_types.go`, `checkpoint_service.go` |
+| `neighbourhood_` | Peer tracking | `neighbourhood_tracking.go`, `neighbourhood_queries.go`, `neighbourhood_pruning.go`, `neighbourhood_observations.go`, `neighbourhood_opinion.go` |
+| `transport_` | Network transport | `transport_mqtt.go`, `transport_mesh.go`, `transport_mesh_auth.go`, `transport_http_client.go`, `transport_peer_resolution.go` |
+| `http_` | HTTP endpoints | `http_server.go`, `http_api.go`, `http_mesh.go`, `http_ui.go`, `http_inspector.go` |
+| `boot_` | Boot & recovery | `boot_recovery.go`, `boot_sync.go`, `boot_ledger.go`, `boot_checkpoint.go`, `boot_backfill.go` |
+| `network` | Core coordination | `network.go`, `network_lifecycle.go`, `network_events.go`, `network_context.go` |
+
+### Where to Add Code
+
+When adding new features, follow these guidelines:
+
+- **New presence mechanism?** → Add to `presence_*.go` (e.g., new announcement type)
+- **New event type?** → Update `sync_event.go` and add processing to appropriate domain
+- **New gossip feature?** → Add to `gossip_*.go` (e.g., new zine validation)
+- **New HTTP endpoint?** → Add to appropriate `http_*.go` based on purpose (API vs UI vs Mesh)
+- **New stash feature?** → Update `stash_service.go` or appropriate stash file
+- **New social feature?** → Add to `social_*.go` (e.g., new tease reason)
+- **Neighbourhood query?** → Add to `neighbourhood_queries.go`
+- **Boot recovery change?** → Update appropriate `boot_*.go` file
+
+### File Naming Conventions
+
+- Use `{domain}_{function}.go` pattern (e.g., `gossip_zine.go`, `presence_heythere.go`)
+- Keep files focused on a single responsibility
+- Target <500 lines per file, max 800 lines
+- Test files match source: `{domain}_{function}_test.go`
+
 ## Build & Development Commands
 
 **IMPORTANT:** Always use `/usr/bin/make` instead of `make` to avoid shell issues:
@@ -72,24 +114,32 @@ Same events + same personality = same opinions (deterministic).
 
 ### Core Components
 
-1. **SyncLedger** (`sync.go`) - Unified event store holding all syncable events
+1. **SyncLedger** (`sync_*.go`) - Unified event store holding all syncable events
+   - `sync_event.go` - Event types and payloads
+   - `sync_ledger.go` - Ledger implementation
+   - `sync_request.go` - Request/response protocol
 2. **Projections** - Derived views computed from events:
-   - `projection_clout.go` - Social reputation scoring
-   - `projection_online_status.go` - Online/offline state tracking
-   - `projection_opinion.go` - Opinion consensus derivation
-3. **Identity** (`soul.go`, `identity.go`, `crypto.go`) - Cryptographic portable identity using Ed25519
+   - `social_clout.go` - Social reputation scoring
+   - `presence_projection.go` - Online/offline state tracking
+   - `neighbourhood_opinion.go` - Opinion consensus derivation
+3. **Identity** (`identity_*.go`) - Cryptographic portable identity using Ed25519
+   - `identity_soul.go` - Soul generation and validation
+   - `identity_crypto.go` - Ed25519 keypair operations
+   - `identity_detection.go` - Identity discovery
+   - `identity_attestation.go` - Identity attestation protocol
 4. **Transport** - Hybrid MQTT + mesh architecture:
-   - `mqtt.go` - MQTT broker connectivity (Plaza broadcasts)
-   - `mesh.go` - Tailscale/Headscale P2P networking (Zine gossip)
+   - `transport_mqtt.go` - MQTT broker connectivity (Plaza broadcasts)
+   - `transport_mesh.go` - Tailscale/Headscale P2P networking (Zine gossip)
+   - `transport_mesh_auth.go` - Mesh authentication middleware
    - `network.go` - Core network coordination
-5. **Stash** (`stash.go`, `stash_sync_tracker.go`) - Distributed encrypted storage:
+5. **Stash** (`stash_*.go`) - Distributed encrypted storage:
    - HTTP-based bidirectional exchange (piggybacks on gossip)
    - Memory-only storage (no disk persistence)
    - Memory-aware limits (5/20/50 based on memory mode)
    - Smart confidant selection (prefer high memory + uptime)
    - XChaCha20-Poly1305 encryption (owner-only decryption)
-6. **Social** (`social.go`, `teasing_test.go`) - Teasing, trends, clout
-7. **Observations** (`observations.go`) - Distributed consensus on network state
+6. **Social** (`social_*.go`) - Teasing, trends, clout
+7. **Neighbourhood** (`neighbourhood_*.go`) - Distributed consensus on network state and peer tracking
 
 ### Event Types (service field)
 

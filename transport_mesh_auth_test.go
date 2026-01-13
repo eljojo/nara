@@ -244,6 +244,7 @@ func TestMeshAuthMiddleware_SkipsPing(t *testing.T) {
 	}
 }
 
+// TODO(flakey)
 func TestMeshAuthMiddleware_RejectsUnauthenticated(t *testing.T) {
 	ln := testLocalNara("test")
 	network := ln.Network
