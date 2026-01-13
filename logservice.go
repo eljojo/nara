@@ -307,7 +307,7 @@ func (ls *LogService) formatBatchedEvents(batch map[string][]LogEvent) []string 
 		case "mesh-sync":
 			sections = append(sections, ls.formatMeshSyncs(events))
 		case "http":
-			sections = append(sections, ls.formatHTTP(events))
+			// HTTP requests now logged at debug level, not batched
 		case "howdy-for-me":
 			sections = append(sections, ls.formatHowdysForMe(events))
 		case "dm-received":
@@ -327,6 +327,8 @@ func (ls *LogService) formatBatchedEvents(batch map[string][]LogEvent) []string 
 			sections = append(sections, ls.formatObserved(events))
 		case "social-gossip":
 			sections = append(sections, ls.formatSocialGossip(events))
+		case "tease":
+			sections = append(sections, ls.formatTeases(events))
 		case "consensus":
 			sections = append(sections, ls.formatConsensus(events))
 		case "newspaper":
@@ -335,6 +337,8 @@ func (ls *LogService) formatBatchedEvents(batch map[string][]LogEvent) []string 
 			sections = append(sections, ls.formatPingsReceived(events))
 		case "boot-info":
 			sections = append(sections, ls.formatBootInfo(events)...)
+		case "barrio-movement":
+			sections = append(sections, ls.formatBarrioMovements(events))
 		default:
 			// Generic formatting for unknown types
 			if len(events) == 1 {
@@ -540,18 +544,53 @@ func (ls *LogService) formatConsensus(events []LogEvent) string {
 	return fmt.Sprintf("🧠 formed consensus for %d naras", len(subjects))
 }
 
-// formatNewspapers formats newspaper events
+// formatNewspapers formats newspaper events with summary of changes
 func (ls *LogService) formatNewspapers(events []LogEvent) string {
-	senders := make(map[string]bool)
+	// Group by sender and collect changes
+	bySender := make(map[string][]string)
 	for _, e := range events {
-		senders[e.Actor] = true
-	}
-	if len(senders) == 1 {
-		for s := range senders {
-			return fmt.Sprintf("📰 got newspaper from %s", s)
+		if e.Detail != "" {
+			bySender[e.Actor] = append(bySender[e.Actor], e.Detail)
+		} else {
+			bySender[e.Actor] = append(bySender[e.Actor], "")
 		}
 	}
-	return fmt.Sprintf("📰 got newspapers from %d neighbors", len(senders))
+
+	// If single sender with changes, show details
+	if len(bySender) == 1 {
+		for s, changes := range bySender {
+			if len(changes) == 1 && changes[0] != "" {
+				return fmt.Sprintf("📰 got newspaper from %s (%s)", s, changes[0])
+			} else if len(changes) == 1 {
+				return fmt.Sprintf("📰 got newspaper from %s", s)
+			}
+			// Multiple newspapers from same sender
+			nonEmpty := 0
+			for _, c := range changes {
+				if c != "" {
+					nonEmpty++
+				}
+			}
+			if nonEmpty > 0 {
+				return fmt.Sprintf("📰 got %d newspapers from %s (%d with changes)", len(changes), s, nonEmpty)
+			}
+			return fmt.Sprintf("📰 got %d newspapers from %s", len(changes), s)
+		}
+	}
+
+	// Multiple senders - show summary
+	totalWithChanges := 0
+	for _, changes := range bySender {
+		for _, c := range changes {
+			if c != "" {
+				totalWithChanges++
+			}
+		}
+	}
+	if totalWithChanges > 0 {
+		return fmt.Sprintf("📰 got %d newspapers from %d neighbors (%d with changes)", len(events), len(bySender), totalWithChanges)
+	}
+	return fmt.Sprintf("📰 got %d newspapers from %d neighbors", len(events), len(bySender))
 }
 
 // formatPingsReceived formats ping-received events
@@ -598,6 +637,35 @@ func (ls *LogService) formatSocialGossip(events []LogEvent) string {
 		return events[0].Detail
 	}
 	return fmt.Sprintf("🗣️ %d gossip exchanges", len(events))
+}
+
+// formatTeases formats tease events: "5 teases ([a,b,c]->r2d2, c->d)"
+func (ls *LogService) formatTeases(events []LogEvent) string {
+	// Group actors by target
+	byTarget := make(map[string][]string)
+	for _, e := range events {
+		byTarget[e.Target] = append(byTarget[e.Target], e.Actor)
+	}
+
+	// Build formatted pairs
+	var pairs []string
+	for target, actors := range byTarget {
+		unique := uniqueStrings(actors)
+		if len(unique) == 1 {
+			pairs = append(pairs, fmt.Sprintf("%s→%s", unique[0], target))
+		} else if len(unique) <= 3 {
+			pairs = append(pairs, fmt.Sprintf("[%s]→%s", strings.Join(unique, ","), target))
+		} else {
+			pairs = append(pairs, fmt.Sprintf("[%d naras]→%s", len(unique), target))
+		}
+	}
+	sort.Strings(pairs)
+
+	count := len(events)
+	if count == 1 {
+		return fmt.Sprintf("😈 1 tease (%s)", strings.Join(pairs, ", "))
+	}
+	return fmt.Sprintf("😈 %d teases (%s)", count, strings.Join(pairs, ", "))
 }
 
 // transformEvent converts a SyncEvent to a LogEvent using the Payload interface
@@ -667,13 +735,10 @@ func (ls *LogService) Error(category LogCategory, format string, args ...interfa
 
 // --- Batch helper methods for non-ledger events ---
 
-// BatchHTTP records an HTTP request for batched output
+// BatchHTTP records an HTTP request at debug level (not batched, moved to debug)
 func (ls *LogService) BatchHTTP(method, path string, status int) {
-	ls.Push(LogEvent{
-		Category: CategoryHTTP,
-		Type:     "http",
-		Detail:   fmt.Sprintf("%s %s", method, path),
-	})
+	// Log HTTP requests at debug level only
+	logrus.Debugf("🌐 %s %s (%d)", method, path, status)
 }
 
 // BatchGossipMerge records a gossip merge for batched output
@@ -799,6 +864,34 @@ func (ls *LogService) BatchBootInfo(key, value string) {
 		Actor:    key,
 		Detail:   value,
 	})
+}
+
+// BatchBarrioMovement records a barrio movement for batched output
+func (ls *LogService) BatchBarrioMovement(name, oldCluster, newCluster, emoji, method string, gridSize float64) {
+	ls.Push(LogEvent{
+		Category: CategorySystem,
+		Type:     "barrio-movement",
+		Actor:    name,
+		Target:   oldCluster,
+		Detail:   fmt.Sprintf("%s→%s %s (via %s, grid=%.0f)", oldCluster, newCluster, emoji, method, gridSize),
+	})
+}
+
+// formatBarrioMovements formats barrio movement events
+func (ls *LogService) formatBarrioMovements(events []LogEvent) string {
+	if len(events) == 1 {
+		e := events[0]
+		return fmt.Sprintf("🏘️  %s moved barrio: %s", e.Actor, e.Detail)
+	}
+	// Multiple movements - show summary
+	names := make([]string, 0, len(events))
+	for _, e := range events {
+		names = append(names, e.Actor)
+	}
+	if len(names) <= 3 {
+		return fmt.Sprintf("🏘️  %d barrio movements (%s)", len(events), strings.Join(names, ", "))
+	}
+	return fmt.Sprintf("🏘️  %d barrio movements", len(events))
 }
 
 // uniqueStrings returns unique strings from a slice, preserving order

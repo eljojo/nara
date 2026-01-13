@@ -218,10 +218,21 @@ func (network *Network) runOpinionPass(pass int, total int, fetchBlueJay bool, f
 	network.applyStartTimeConsensus()
 	network.startTimeVotesMu.Unlock()
 
+	// Count online naras for summary
+	onlineCount := 0
+	if network.local.Projections != nil {
+		for name := range network.Neighbourhood {
+			status := network.local.Projections.OnlineStatus().GetStatus(name)
+			if status == "ONLINE" {
+				onlineCount++
+			}
+		}
+	}
+
 	if total > 1 {
-		logrus.Printf("👀 opinions formed (%d/%d)", pass, total)
+		logrus.Infof("👀 opinions formed (%d/%d) - %d naras online", pass, total, onlineCount)
 	} else {
-		logrus.Printf("👀 opinions formed")
+		logrus.Infof("👀 opinions formed - %d naras online", onlineCount)
 	}
 
 	// Stash recovery check on second-to-last pass

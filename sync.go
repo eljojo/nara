@@ -198,8 +198,8 @@ func (p *SocialEventPayload) ToLogEvent() *LogEvent {
 			Type:     "tease",
 			Actor:    p.Actor,
 			Target:   p.Target,
-			Detail:   fmt.Sprintf("%s teased %s: \"%s\"", p.Actor, p.Target, msg),
-			Instant:  true,
+			Detail:   msg,   // Store the message in Detail for batch formatting
+			Instant:  false, // Batch teases together
 		}
 	case "observed":
 		return &LogEvent{
@@ -1474,18 +1474,32 @@ func (l *SyncLedger) AddEventWithDedup(e SyncEvent) bool {
 func (l *SyncLedger) addObservationWithCompaction(e SyncEvent, withDedup bool) bool {
 	l.mu.Lock()
 
-	// Content-based deduplication for restart events (only if requested)
-	// Check if we already have this exact restart (by subject, restart_num, start_time)
+	// Content-based deduplication for observation events (only if requested)
 	// This is checked FIRST to avoid even counting duplicates in per-pair limits
-	if withDedup && e.Observation != nil && e.Observation.Type == "restart" {
+	if withDedup && e.Observation != nil {
 		for _, existing := range l.Events {
-			if existing.Service == ServiceObservation && existing.Observation != nil &&
-				existing.Observation.Type == "restart" &&
-				existing.Observation.Subject == e.Observation.Subject &&
-				existing.Observation.RestartNum == e.Observation.RestartNum &&
-				existing.Observation.StartTime == e.Observation.StartTime {
-				l.mu.Unlock()
-				return false // Duplicate restart event
+			if existing.Service == ServiceObservation && existing.Observation != nil {
+
+				// Deduplicate restart events by subject + restart_num + start_time
+				// Multiple observers can report the same restart, but we only keep one
+				if e.Observation.Type == "restart" && existing.Observation.Type == "restart" {
+					if existing.Observation.Subject == e.Observation.Subject &&
+						existing.Observation.RestartNum == e.Observation.RestartNum &&
+						existing.Observation.StartTime == e.Observation.StartTime {
+						l.mu.Unlock()
+						return false // Duplicate restart event
+					}
+				}
+
+				// Deduplicate first-seen events per observer->subject pair
+				// Only log first-seen once per observer seeing a subject
+				if e.Observation.Type == "first-seen" && existing.Observation.Type == "first-seen" {
+					if existing.Observation.Observer == e.Observation.Observer &&
+						existing.Observation.Subject == e.Observation.Subject {
+						l.mu.Unlock()
+						return false // Duplicate first-seen event
+					}
+				}
 			}
 		}
 	}

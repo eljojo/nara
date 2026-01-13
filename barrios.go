@@ -6,8 +6,6 @@ import (
 	"math"
 	"sort"
 	"time"
-
-	"github.com/sirupsen/logrus"
 )
 
 var clusterNames = []string{"martini", "sand", "ocean", "basil", "watermelon", "sorbet", "wizard", "bohemian", "pizza", "moai", "ufo", "gem", "fish", "surf", "peach", "sandwich"}
@@ -54,13 +52,12 @@ func (network *Network) neighbourhoodMaintenance() {
 		network.local.setObservation(name, observation)
 
 		// Log barrio changes
-		if oldCluster != "" && oldCluster != newCluster {
+		if oldCluster != "" && oldCluster != newCluster && network.logService != nil {
 			method := "vibe"
 			if usedGrid {
 				method = "grid"
 			}
-			logrus.Infof("🏘️  %s moved barrio: %s → %s %s (via %s, grid=%.0f)",
-				name, oldCluster, newCluster, BarrioEmoji[clusterIndex], method, gridSize)
+			network.logService.BatchBarrioMovement(name, oldCluster, newCluster, BarrioEmoji[clusterIndex], method, gridSize)
 		}
 	}
 }

@@ -258,7 +258,7 @@ func (s *CheckpointService) proposeCheckpointRound(round int, consensusValues *r
 		return
 	}
 
-	logrus.Printf("checkpoint: proposed round %d for %s (restarts=%d, uptime=%d)",
+	logrus.Infof("📢 proposed checkpoint round %d for %s (restarts=%d, uptime=%ds)",
 		round, myName, restarts, totalUptime)
 
 	// Schedule finalization after vote window
@@ -483,7 +483,8 @@ func (s *CheckpointService) finalizeProposal() {
 	copy(votes, pending.votes)
 	pending.votesMu.Unlock()
 
-	logrus.Printf("checkpoint: finalizing round %d with %d votes", pending.round, len(votes))
+	logrus.Infof("🗳️  finalizing checkpoint round %d for %s with %d votes",
+		pending.round, pending.proposal.Subject, len(votes))
 
 	// Try to find consensus
 	checkpoint, success := s.tryFindConsensus(pending.proposal, votes)
@@ -494,15 +495,17 @@ func (s *CheckpointService) finalizeProposal() {
 		s.lastCheckpointTimeMu.Lock()
 		s.lastCheckpointTime = time.Now()
 		s.lastCheckpointTimeMu.Unlock()
-		logrus.Printf("checkpoint: successfully created checkpoint for %s with %d voters",
-			pending.proposal.Subject, len(checkpoint.VoterIDs))
+		logrus.Infof("✅ checkpoint consensus for %s (round %d, %d voters agreed)",
+			pending.proposal.Subject, pending.round, len(checkpoint.VoterIDs))
 	} else if pending.round == 1 {
 		// Round 1 failed, try round 2 with computed values
-		logrus.Printf("checkpoint: round 1 failed, attempting round 2")
+		logrus.Infof("🔄 checkpoint round 1 failed for %s, attempting round 2 with computed values",
+			pending.proposal.Subject)
 		s.proposeRound2(votes)
 	} else {
 		// Round 2 failed, give up
-		logrus.Printf("checkpoint: round 2 failed, giving up until next 24h cycle")
+		logrus.Warnf("❌ checkpoint round 2 failed for %s, will retry in next 24h cycle",
+			pending.proposal.Subject)
 	}
 }
 
@@ -671,7 +674,8 @@ func (s *CheckpointService) storeCheckpoint(checkpoint *CheckpointEventPayload) 
 	}
 
 	if s.ledger.AddEvent(event) {
-		logrus.Printf("checkpoint: stored checkpoint for %s (verified %d signatures)", checkpoint.Subject, validCount)
+		logrus.Infof("📝 stored checkpoint for %s (verified %d/%d signatures)",
+			checkpoint.Subject, validCount, len(checkpoint.Signatures))
 	}
 
 	// Broadcast finalized checkpoint so everyone stores it
