@@ -273,3 +273,69 @@ func waitForFullDiscovery(t *testing.T, naras []*LocalNara, timeout time.Duratio
 	}
 	t.Fatalf("Timed out waiting for full discovery (expected %d neighbors with keys)", expectedNeighbors)
 }
+
+// testCheckpointEvent creates a fully signed checkpoint event for testing.
+// subject: the nara this checkpoint is about
+// attester: the nara creating/signing this checkpoint
+// attesterKeypair: the keypair to sign with
+// observation: the checkpoint data (restarts, uptime, start_time)
+func testCheckpointEvent(subject string, attester string, attesterKeypair NaraKeypair, observation NaraObservation) SyncEvent {
+	now := time.Now()
+
+	checkpoint := &CheckpointEventPayload{
+		Version:     1,
+		Subject:     subject,
+		SubjectID:   "test-id-" + subject,
+		Observation: observation,
+		AsOfTime:    now.Unix(),
+		Round:       1,
+		VoterIDs:    []string{"test-id-" + attester},
+	}
+
+	// Create and sign attestation
+	attestation := Attestation{
+		Version:     checkpoint.Version,
+		Subject:     checkpoint.Subject,
+		SubjectID:   checkpoint.SubjectID,
+		Observation: checkpoint.Observation,
+		Attester:    attester,
+		AttesterID:  "test-id-" + attester,
+		AsOfTime:    checkpoint.AsOfTime,
+	}
+	attestation.Signature = SignContent(&attestation, attesterKeypair)
+	checkpoint.Signatures = []string{attestation.Signature}
+
+	// Create sync event
+	event := SyncEvent{
+		Timestamp:  now.UnixNano(),
+		Service:    ServiceCheckpoint,
+		Emitter:    attester,
+		EmitterID:  "test-id-" + attester,
+		Checkpoint: checkpoint,
+	}
+	event.ComputeID()
+	event.Sign(attester, attesterKeypair)
+
+	return event
+}
+
+// testCheckpointEventSimple creates a checkpoint event with default observation values
+func testCheckpointEventSimple(subject string, attester string, attesterKeypair NaraKeypair) SyncEvent {
+	observation := NaraObservation{
+		Restarts:    5,
+		TotalUptime: 3600,
+		StartTime:   time.Now().Unix() - 86400,
+	}
+	return testCheckpointEvent(subject, attester, attesterKeypair, observation)
+}
+
+// testAddCheckpointToLedger creates and adds a checkpoint event to a ledger
+func testAddCheckpointToLedger(ledger *SyncLedger, subject string, attester string, attesterKeypair NaraKeypair, observation NaraObservation) SyncEvent {
+	event := testCheckpointEvent(subject, attester, attesterKeypair, observation)
+	// Manually add to ledger to avoid deduplication issues in tests
+	ledger.mu.Lock()
+	ledger.Events = append(ledger.Events, event)
+	ledger.eventIDs[event.ID] = true
+	ledger.mu.Unlock()
+	return event
+}

@@ -673,86 +673,21 @@ func TestPruneInactiveNaras_PrunesCheckpointEventsAboutSubject(t *testing.T) {
 	})
 
 	// Add checkpoint ABOUT the ghost (should be pruned)
-	checkpointAboutGhost := &CheckpointEventPayload{
-		Version:     1,
-		Subject:     ghostName,
-		SubjectID:   ghostNara.Status.ID,
-		Observation: NaraObservation{
-			Restarts:    5,
-			TotalUptime: 3600,
-			StartTime:   now - (10 * 86400),
-		},
-		AsOfTime: now - (5 * 86400),
-		Round:    1,
-		VoterIDs: []string{ln.Me.Status.ID, activeNara.Status.ID},
+	obs1 := NaraObservation{
+		Restarts:    5,
+		TotalUptime: 3600,
+		StartTime:   now - (10 * 86400),
 	}
-	attestation1 := Attestation{
-		Version:     checkpointAboutGhost.Version,
-		Subject:     checkpointAboutGhost.Subject,
-		SubjectID:   checkpointAboutGhost.SubjectID,
-		Observation: checkpointAboutGhost.Observation,
-		Attester:    ln.Me.Name,
-		AttesterID:  ln.Me.Status.ID,
-		AsOfTime:    checkpointAboutGhost.AsOfTime,
-	}
-	attestation1.Signature = SignContent(&attestation1, ln.Keypair)
-	checkpointAboutGhost.Signatures = []string{attestation1.Signature}
-
-	event1 := SyncEvent{
-		Timestamp:  time.Now().UnixNano(),
-		Service:    ServiceCheckpoint,
-		Emitter:    ln.Me.Name,
-		EmitterID:  ln.Me.Status.ID,
-		Checkpoint: checkpointAboutGhost,
-	}
-	event1.ComputeID()
-	event1.Sign(ln.Me.Name, ln.Keypair)
-	// Manually add to ledger for testing
-	ln.SyncLedger.mu.Lock()
-	ln.SyncLedger.Events = append(ln.SyncLedger.Events, event1)
-	ln.SyncLedger.eventIDs[event1.ID] = true
-	ln.SyncLedger.mu.Unlock()
+	event1 := testAddCheckpointToLedger(ln.SyncLedger, ghostName, ln.Me.Name, ln.Keypair, obs1)
 
 	// Add checkpoint ABOUT the active nara (should NOT be pruned)
-	checkpointAboutActive := &CheckpointEventPayload{
-		Version:     1,
-		Subject:     activeName,
-		SubjectID:   activeNara.Status.ID,
-		Observation: NaraObservation{
-			Restarts:    3,
-			TotalUptime: 7200,
-			StartTime:   now - (10 * 86400),
-		},
-		AsOfTime: now - (5 * 86400),
-		Round:    1,
-		VoterIDs: []string{ln.Me.Status.ID, ghostNara.Status.ID}, // Ghost was a voter but not subject
+	// Note: Ghost was a voter, but that doesn't matter - only subject matters for pruning
+	obs2 := NaraObservation{
+		Restarts:    3,
+		TotalUptime: 7200,
+		StartTime:   now - (10 * 86400),
 	}
-	attestation2 := Attestation{
-		Version:     checkpointAboutActive.Version,
-		Subject:     checkpointAboutActive.Subject,
-		SubjectID:   checkpointAboutActive.SubjectID,
-		Observation: checkpointAboutActive.Observation,
-		Attester:    ln.Me.Name,
-		AttesterID:  ln.Me.Status.ID,
-		AsOfTime:    checkpointAboutActive.AsOfTime,
-	}
-	attestation2.Signature = SignContent(&attestation2, ln.Keypair)
-	checkpointAboutActive.Signatures = []string{attestation2.Signature}
-
-	event2 := SyncEvent{
-		Timestamp:  time.Now().UnixNano(),
-		Service:    ServiceCheckpoint,
-		Emitter:    ln.Me.Name,
-		EmitterID:  ln.Me.Status.ID,
-		Checkpoint: checkpointAboutActive,
-	}
-	event2.ComputeID()
-	event2.Sign(ln.Me.Name, ln.Keypair)
-	// Manually add to ledger for testing
-	ln.SyncLedger.mu.Lock()
-	ln.SyncLedger.Events = append(ln.SyncLedger.Events, event2)
-	ln.SyncLedger.eventIDs[event2.ID] = true
-	ln.SyncLedger.mu.Unlock()
+	event2 := testAddCheckpointToLedger(ln.SyncLedger, activeName, ln.Me.Name, ln.Keypair, obs2)
 
 	// Verify both checkpoints exist before pruning
 	if !ln.SyncLedger.HasEvent(event1.ID) {

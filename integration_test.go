@@ -462,43 +462,18 @@ func TestIntegration_CheckpointSync(t *testing.T) {
 	// Manually create 5 checkpoint events in Alice's ledger
 	// This simulates Alice having participated in checkpoint consensus
 	for i := 0; i < 5; i++ {
-		checkpoint := &CheckpointEventPayload{
-			Version:     1,
-			Subject:     fmt.Sprintf("nara-%d", i),
-			SubjectID:   fmt.Sprintf("id-%d", i),
-			Observation: NaraObservation{
-				Restarts:    int64(10 + i),
-				TotalUptime: int64(3600 * (i + 1)),
-				StartTime:   time.Now().Unix() - int64(86400*(i+1)),
-			},
-			AsOfTime: time.Now().Unix(),
-			Round:    1,
-			VoterIDs: []string{alice.Me.Status.ID},
+		obs := NaraObservation{
+			Restarts:    int64(10 + i),
+			TotalUptime: int64(3600 * (i + 1)),
+			StartTime:   time.Now().Unix() - int64(86400*(i+1)),
 		}
-
-		// Sign the checkpoint
-		attestation := Attestation{
-			Version:     checkpoint.Version,
-			Subject:     checkpoint.Subject,
-			SubjectID:   checkpoint.SubjectID,
-			Observation: checkpoint.Observation,
-			Attester:    alice.Me.Name,
-			AttesterID:  alice.Me.Status.ID,
-			AsOfTime:    checkpoint.AsOfTime,
-		}
-		attestation.Signature = SignContent(&attestation, alice.Keypair)
-		checkpoint.Signatures = []string{attestation.Signature}
-
-		// Add checkpoint to Alice's ledger
-		checkpointEvent := SyncEvent{
-			Timestamp:  time.Now().UnixNano(),
-			Service:    ServiceCheckpoint,
-			EmitterID:  alice.Me.Status.ID,
-			Checkpoint: checkpoint,
-		}
-		checkpointEvent.ComputeID()
-		checkpointEvent.Sign(alice.Me.Name, alice.Keypair)
-		alice.SyncLedger.AddEvent(checkpointEvent)
+		testAddCheckpointToLedger(
+			alice.SyncLedger,
+			fmt.Sprintf("nara-%d", i),
+			alice.Me.Name,
+			alice.Keypair,
+			obs,
+		)
 	}
 
 	t.Log("✅ Alice has 5 checkpoints in ledger")
@@ -781,41 +756,13 @@ func TestIntegration_CheckpointSync(t *testing.T) {
 
 		// Add checkpoints only if this nara should have data
 		if testNaras[i].hasData {
-			checkpoint := &CheckpointEventPayload{
-				Version:   1,
-				Subject:   fmt.Sprintf("subject-%s", testNaras[i].name),
-				SubjectID: fmt.Sprintf("id-%s", testNaras[i].name),
-				Observation: NaraObservation{
-					Restarts:    42,
-					TotalUptime: 3600,
-					StartTime:   time.Now().Unix() - 86400,
-				},
-				AsOfTime: time.Now().Unix(),
-				Round:    1,
-				VoterIDs: []string{testNaras[i].ln.Me.Status.ID},
+			obs := NaraObservation{
+				Restarts:    42,
+				TotalUptime: 3600,
+				StartTime:   time.Now().Unix() - 86400,
 			}
-
-			attestation := Attestation{
-				Version:     checkpoint.Version,
-				Subject:     checkpoint.Subject,
-				SubjectID:   checkpoint.SubjectID,
-				Observation: checkpoint.Observation,
-				Attester:    testNaras[i].ln.Me.Name,
-				AttesterID:  testNaras[i].ln.Me.Status.ID,
-				AsOfTime:    checkpoint.AsOfTime,
-			}
-			attestation.Signature = SignContent(&attestation, testNaras[i].ln.Keypair)
-			checkpoint.Signatures = []string{attestation.Signature}
-
-			checkpointEvent := SyncEvent{
-				Timestamp:  time.Now().UnixNano(),
-				Service:    ServiceCheckpoint,
-				EmitterID:  testNaras[i].ln.Me.Status.ID,
-				Checkpoint: checkpoint,
-			}
-			checkpointEvent.ComputeID()
-			checkpointEvent.Sign(testNaras[i].ln.Me.Name, testNaras[i].ln.Keypair)
-			testNaras[i].ln.SyncLedger.AddEvent(checkpointEvent)
+			subject := fmt.Sprintf("subject-%s", testNaras[i].name)
+			testAddCheckpointToLedger(testNaras[i].ln.SyncLedger, subject, testNaras[i].ln.Me.Name, testNaras[i].ln.Keypair, obs)
 		}
 
 		// Set up HTTP server

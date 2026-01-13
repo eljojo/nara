@@ -317,7 +317,6 @@ func (p *PingObservation) ToLogEvent() *LogEvent {
 //  5. Update event creation to use new type
 //  6. Keep reading old format for backward compatibility
 //
-// See: /Users/jojo/.claude/plans/observation-unification-refactor.md
 // =============================================================================
 type ObservationEventPayload struct {
 	Observer   string `json:"observer"`              // who made the observation
