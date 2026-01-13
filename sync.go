@@ -192,7 +192,7 @@ func (p *SocialEventPayload) ToLogEvent() *LogEvent {
 			Type:     "tease",
 			Actor:    p.Actor,
 			Target:   p.Target,
-			Detail:   fmt.Sprintf("😈 %s teased %s: \"%s\"", p.Actor, p.Target, msg),
+			Detail:   fmt.Sprintf("%s teased %s: \"%s\"", p.Actor, p.Target, msg),
 			Instant:  true,
 		}
 	case "observed":
@@ -201,7 +201,7 @@ func (p *SocialEventPayload) ToLogEvent() *LogEvent {
 			Type:     "observed",
 			Actor:    p.Actor,
 			Target:   p.Target,
-			Detail:   fmt.Sprintf("👁️ %s observed %s: %s", p.Actor, p.Target, p.Reason),
+			Detail:   fmt.Sprintf("%s observed %s: %s", p.Actor, p.Target, p.Reason),
 		}
 	case "gossip":
 		return &LogEvent{
@@ -209,7 +209,7 @@ func (p *SocialEventPayload) ToLogEvent() *LogEvent {
 			Type:     "social-gossip",
 			Actor:    p.Actor,
 			Target:   p.Target,
-			Detail:   fmt.Sprintf("🗣️ %s gossiped about %s", p.Actor, p.Target),
+			Detail:   fmt.Sprintf("%s gossiped about %s", p.Actor, p.Target),
 		}
 	}
 	return nil

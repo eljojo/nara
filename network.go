@@ -2117,17 +2117,6 @@ func (network *Network) heyThere() {
 
 	// Publish to MQTT
 	topic := "nara/plaza/hey_there"
-
-	// TODO(rollout): Remove old-style emission after all naras are updated
-	// Emit old-style event first for backwards compatibility with old naras
-	legacyEvent := HeyThereEvent{
-		From:      network.meName(),
-		PublicKey: network.local.Me.Status.PublicKey,
-		MeshIP:    network.local.Me.Status.MeshIP,
-	}
-	network.postEvent(topic, legacyEvent)
-
-	// Emit new SyncEvent format for new naras
 	network.postEvent(topic, event)
 	logrus.Printf("%s: 👋 (MQTT)", network.meName())
 
@@ -2252,15 +2241,6 @@ func (network *Network) Chau() {
 
 	// Publish to MQTT
 	topic := "nara/plaza/chau"
-
-	// TODO(rollout): Remove old-style emission after all naras are updated
-	// Emit old-style event first for backwards compatibility with old naras
-	legacyEvent := ChauEvent{
-		From: network.meName(),
-	}
-	network.postEvent(topic, legacyEvent)
-
-	// Emit new SyncEvent format for new naras
 	network.postEvent(topic, event)
 	// LogService handles logging via ledger watching
 

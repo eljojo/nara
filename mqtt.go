@@ -61,44 +61,22 @@ func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 		return
 	}
 
-	var fromName string
+	if event.Service != ServiceHeyThere || event.HeyThere == nil {
+		return
+	}
 
-	// Try new SyncEvent format first
-	if event.Service == ServiceHeyThere && event.HeyThere != nil {
-		if event.HeyThere.From == network.meName() || event.HeyThere.From == "" {
-			logrus.Debugf("📦 hey-there: ignoring own message from %s", event.HeyThere.From)
-			return
-		}
-		fromName = event.HeyThere.From
-		logrus.Debugf("📦 hey-there: received from %s (I am %s)", fromName, network.meName())
-		select {
-		case network.heyThereInbox <- event:
-		default:
-			// Don't block if inbox is full or not being processed (e.g., in tests)
-			logrus.Debugf("hey-there inbox full, skipping event processing")
-		}
-	} else {
-		// Fallback: try legacy HeyThereEvent format (for old nodes during rollout)
-		legacy := HeyThereEvent{}
-		if err := json.Unmarshal(msg.Payload(), &legacy); err != nil {
-			return
-		}
-		if legacy.From == "" || legacy.From == network.meName() {
-			return
-		}
-		fromName = legacy.From
-		// Convert legacy to SyncEvent
-		event = SyncEvent{
-			Timestamp: time.Now().UnixNano(),
-			Service:   ServiceHeyThere,
-			HeyThere:  &legacy,
-		}
-		event.ComputeID()
-		select {
-		case network.heyThereInbox <- event:
-		default:
-			logrus.Debugf("hey-there inbox full, skipping event processing")
-		}
+	if event.HeyThere.From == network.meName() || event.HeyThere.From == "" {
+		logrus.Debugf("📦 hey-there: ignoring own message from %s", event.HeyThere.From)
+		return
+	}
+
+	fromName := event.HeyThere.From
+	logrus.Debugf("📦 hey-there: received from %s (I am %s)", fromName, network.meName())
+	select {
+	case network.heyThereInbox <- event:
+	default:
+		// Don't block if inbox is full or not being processed (e.g., in tests)
+		logrus.Debugf("hey-there inbox full, skipping event processing")
 	}
 
 	// Stash Recovery Trigger: If we have this nara's stash, push it back via HTTP
@@ -159,66 +137,34 @@ func (network *Network) chauHandler(client mqtt.Client, msg mqtt.Message) {
 		return
 	}
 
-	// Try new SyncEvent format first
-	if event.Service == ServiceChau && event.Chau != nil {
-		if event.Chau.From == network.meName() || event.Chau.From == "" {
-			return
-		}
-		network.chauInbox <- event
+	if event.Service != ServiceChau || event.Chau == nil {
 		return
 	}
 
-	// Fallback: try legacy ChauEvent format (for old nodes during rollout)
-	legacy := ChauEvent{}
-	if err := json.Unmarshal(msg.Payload(), &legacy); err != nil {
+	if event.Chau.From == network.meName() || event.Chau.From == "" {
 		return
 	}
-	if legacy.From == "" || legacy.From == network.meName() {
-		return
-	}
-	// Convert legacy to SyncEvent
-	event = SyncEvent{
-		Timestamp: time.Now().UnixNano(),
-		Service:   ServiceChau,
-		Chau:      &legacy,
-	}
-	event.ComputeID()
+
 	network.chauInbox <- event
 }
 
 func (network *Network) socialHandler(client mqtt.Client, msg mqtt.Message) {
-	// Try parsing as SyncEvent first (new format)
 	syncEvent := SyncEvent{}
-	if err := json.Unmarshal(msg.Payload(), &syncEvent); err == nil {
-		if syncEvent.Service == ServiceSocial && syncEvent.Social != nil {
-			// Ignore our own events
-			if syncEvent.Social.Actor == network.meName() {
-				return
-			}
-			network.socialInbox <- syncEvent
-			return
-		}
+	if err := json.Unmarshal(msg.Payload(), &syncEvent); err != nil {
+		logrus.Debugf("socialHandler: invalid JSON: %v", err)
+		return
 	}
 
-	// Fallback: try legacy SocialEvent format (for old nodes during rollout)
-	legacy := SocialEvent{}
-	if err := json.Unmarshal(msg.Payload(), &legacy); err != nil {
-		logrus.Infof("socialHandler: invalid JSON: %v", err)
+	if syncEvent.Service != ServiceSocial || syncEvent.Social == nil {
 		return
 	}
 
 	// Ignore our own events
-	if legacy.Actor == network.meName() {
+	if syncEvent.Social.Actor == network.meName() {
 		return
 	}
 
-	// Validate event
-	if !legacy.IsValid() || legacy.Actor == "" || legacy.Target == "" {
-		return
-	}
-
-	// Convert to SyncEvent and send
-	network.socialInbox <- SyncEventFromSocialEvent(legacy)
+	network.socialInbox <- syncEvent
 }
 
 func (network *Network) ledgerRequestHandler(client mqtt.Client, msg mqtt.Message) {
