@@ -2,6 +2,7 @@ package nara
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"testing"
 
@@ -10,6 +11,12 @@ import (
 
 func TestHeyThereEvent_SignAndVerify(t *testing.T) {
 	t.Parallel()
+
+	// Suppress logrus output to prevent race conditions from warning logs
+	// This test intentionally triggers warnings (invalid signature verification)
+	logrus.SetOutput(io.Discard)
+	t.Cleanup(func() { logrus.SetOutput(os.Stderr) })
+
 	// Create a keypair from a test soul
 	soul := NativeSoulCustom([]byte("test-hw-heythere-1"), "alice")
 	keypair := DeriveKeypair(soul)
@@ -172,9 +179,14 @@ func TestNewspaperEvent_VerifyWithRawStatusJSON(t *testing.T) {
 	}
 }
 
-// TODO(flakey)
 func TestChauEvent_SignAndVerify(t *testing.T) {
 	t.Parallel()
+
+	// Suppress logrus output to prevent race conditions from warning logs
+	// This test intentionally triggers warnings (invalid signature verification)
+	logrus.SetOutput(io.Discard)
+	t.Cleanup(func() { logrus.SetOutput(os.Stderr) })
+
 	// Create a keypair from a test soul
 	soul := NativeSoulCustom([]byte("test-hw-chau-1"), "alice")
 	keypair := DeriveKeypair(soul)

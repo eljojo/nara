@@ -273,36 +273,18 @@ func TestIntegration_CheckpointSignatureVerification(t *testing.T) {
 
 	t.Log("🧪 Testing checkpoint signature verification")
 
-	// Create 2 naras
-	createNara := func(name string) *LocalNara {
-		hwFingerprint := []byte(fmt.Sprintf("sig-test-hw-%s", name))
-		identity := DetermineIdentity("", "", name, hwFingerprint)
-
-		profile := DefaultMemoryProfile()
-		profile.Mode = MemoryModeCustom
-		profile.MaxEvents = 1000
-		ln, err := NewLocalNara(
-			identity,
-			"tcp://127.0.0.1:11883",
-			"", "",
-			-1,
-			profile,
-		)
-		if err != nil {
-			t.Fatalf("Failed to create LocalNara: %v", err)
+	// Create 2 naras using the standard test helper
+	names := []string{"alice-sig", "bob-sig"}
+	naras := startTestNaras(t, 11883, names, true)
+	defer func() {
+		for _, ln := range naras {
+			ln.Network.Shutdown()
+			ln.Network.disconnectMQTT()
 		}
-		ln.Network.testSkipJitter = true
-		return ln
-	}
+	}()
 
-	alice := createNara("alice-sig")
-	bob := createNara("bob-sig")
-
-	// Start both
-	go alice.Start(false, false, "", nil, TransportMQTT)
-	time.Sleep(300 * time.Millisecond)
-	go bob.Start(false, false, "", nil, TransportMQTT)
-	time.Sleep(300 * time.Millisecond)
+	alice := naras[0]
+	bob := naras[1]
 
 	// Configure short vote window
 	if alice.Network.checkpointService != nil {
@@ -311,11 +293,6 @@ func TestIntegration_CheckpointSignatureVerification(t *testing.T) {
 	if bob.Network.checkpointService != nil {
 		bob.Network.checkpointService.voteWindow = 2 * time.Second
 	}
-
-	// Wait for discovery
-	naras := []*LocalNara{alice, bob}
-	waitForAllMQTTConnected(t, naras, 10*time.Second)
-	waitForFullDiscovery(t, naras, 10*time.Second)
 
 	// Test 1: Valid signature should be accepted
 	// Add observation data
@@ -338,11 +315,6 @@ func TestIntegration_CheckpointSignatureVerification(t *testing.T) {
 
 	// Check if Bob voted (if he knows Alice's public key)
 	checkpoint := alice.SyncLedger.GetCheckpoint(alice.Me.Name)
-
-	// Cleanup
-	alice.Network.disconnectMQTT()
-	bob.Network.disconnectMQTT()
-	time.Sleep(300 * time.Millisecond)
 
 	t.Log("")
 	t.Log("═══════════════════════════════════════")
