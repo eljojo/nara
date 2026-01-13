@@ -72,23 +72,23 @@ var OpinionIntervalOverride time.Duration = 0
 // Identity (who this is about) is external - stored as map key or in containing struct
 type NaraObservation struct {
 	// The Trinity - core checkpoint data
-	Restarts    int64 // Total restart count
-	TotalUptime int64 // Total seconds online
-	StartTime   int64 // Unix timestamp when first observed (FirstSeen)
+	Restarts    int64 `json:"restarts,omitempty"`     // Total restart count
+	TotalUptime int64 `json:"total_uptime,omitempty"` // Total seconds online
+	StartTime   int64 `json:"start_time,omitempty"`   // Unix timestamp when first observed (FirstSeen)
 
 	// Current state
-	Online      string // "ONLINE", "OFFLINE", "MISSING"
-	LastSeen    int64  // Unix timestamp last seen
-	LastRestart int64  // Unix timestamp of last restart
+	Online      string `json:"online,omitempty"`       // "ONLINE", "OFFLINE", "MISSING"
+	LastSeen    int64  `json:"last_seen,omitempty"`    // Unix timestamp last seen
+	LastRestart int64  `json:"last_restart,omitempty"` // Unix timestamp of last restart
 
 	// Cluster info
-	ClusterName  string
-	ClusterEmoji string
+	ClusterName  string `json:"cluster_name,omitempty"`
+	ClusterEmoji string `json:"cluster_emoji,omitempty"`
 
 	// Latency measurement fields (for local tracking only, not synced)
-	LastPingRTT  float64 // Last measured RTT in milliseconds
-	AvgPingRTT   float64 // Exponential moving average of RTT
-	LastPingTime int64   // Unix timestamp of last ping
+	LastPingRTT  float64 `json:"last_ping_rtt,omitempty"`  // Last measured RTT in milliseconds
+	AvgPingRTT   float64 `json:"avg_ping_rtt,omitempty"`   // Exponential moving average of RTT
+	LastPingTime int64   `json:"last_ping_time,omitempty"` // Unix timestamp of last ping
 }
 
 func (localNara *LocalNara) getMeObservation() NaraObservation {
