@@ -1,12 +1,29 @@
 # nara
 
-nara is a framework for **distributed agents with collective memory**.
-
-it's a simulation where autonomous agents observe events, form opinions based on personality, and interact with each other. the network is a **collective hazy memory** - no single nara has the complete picture, but together they remember.
+nara is a distributed myth about machines that gossip, remember, and build opinions.
+it's a network of tiny agents with personality, carrying a **collective hazy memory** where no one has the whole story, but the story still survives.
 
 you can [see it live](https://nara.network) ([backup/debug site](https://global-nara.eljojo.net))
 
-## how it works
+---
+
+## the vibe
+
+a nara is a little creature with a soul, a name, and a temperament. it wakes up, listens to the world, makes feelings about what it hears, and passes those feelings along. it's stateful but not persistent. it's a tamagotchi with a social life.
+
+the network is built on the idea that **events are the truth**, and **opinions are a personality-shaped shadow of that truth**.
+
+```
+ledger (facts) → derivation function → opinions
+
+opinion = f(events, my_soul, my_personality)
+```
+
+same events + same personality = same opinions. determinism, but with mood.
+
+---
+
+## two kinds of truth
 
 ```
 ┌───────────────────┬─────────────────────────────────────┐
@@ -22,169 +39,140 @@ you can [see it live](https://nara.network) ([backup/debug site](https://global-
 └───────────────────┴─────────────────────────────────────┘
 ```
 
-**public info** is authoritative - you define your own status and broadcast it.
-**event store** is hearsay - things that happened, spread through gossip.
+**public info** is a nara speaking for itself. **event store** is hearsay that spreads through rumor.
 
-events spread through two channels:
-- **plaza** (MQTT broadcast) - the public square where everyone hears announcements
-- **zines** (P2P gossip) - events passed hand-to-hand between neighbors via mesh
-
-naras can use MQTT-only (traditional), gossip-only (P2P), or hybrid (both). apps stay transport-agnostic - they don't know or care how events arrive. when a nara boots, it catches up by asking neighbors what it missed, then spreads and receives news organically.
-
-```
-ledger (facts) → derivation function → opinions
-
-opinion = f(events, my_soul, my_personality)
-```
-
-the derivation is deterministic: same events + same personality = same opinions.
+the two coexist: one is self-declared, the other is collectively remembered.
 
 ---
 
-## what's a nara?
+## how naras talk
 
-a nara is a single entity, stateful but with no persistence. think of it as a tamagotchi.
+naras speak through multiple channels at once, like a band touring different scenes:
 
-each nara has its own **personality** (Agreeableness, Sociability, and Chill), which dictates how it interacts with others, the trends it follows, and how it judges social interactions.
+- **plaza (MQTT)**: a public square for announcements and light signals
+- **zines (mesh gossip)**: underground hand-to-hand bundles of recent events
+- **dm sync (mesh HTTP)**: "what did i miss?" backfill for boots and recoveries
 
-## identity: the soul
+transport is invisible to the apps. events enter the ledger, and the network decides how they travel. the mesh rides on Tailscale/Headscale for direct nara-to-nara paths. some naras only use plaza, some only use zines, most use both.
 
-every nara has a **soul** - a portable cryptographic identity (~54 chars, Base58) that bonds a nara to its name.
+---
 
-- **Quirky Names**: unnamed naras get fun names like `stretchy-mushroom-421` (over 2.5 million combinations!)
-- **Gemstones** (💎, 🧿, 🏮): valid bond between soul and name
-- **Shadows** (👤): invalid bond - soul was minted for a different name
+## souls, names, and bonds
 
-souls are **portable** across machines:
+every nara has a **soul**: a portable cryptographic identity (~54 chars, Base58) that binds to a name.
 
-```bash
-# machine A
-./nara -name jojo          # logs: 🔮 Soul: 5Kd3NBqT...
+- **quirky names**: unnamed naras get names like `stretchy-mushroom-421`
+- **gemstones** (💎, 🧿, 🏮): soul and name match
+- **shadows** (👤): soul was minted for a different name
 
-# machine B - same identity, different hardware
-./nara -name jojo -soul 5Kd3NBqT...   # logs: 💎 Traveler
-```
+under the hood, a soul is 40 bytes: a seed plus a bond tag. the seed is derived from hardware fingerprinting (hkdf), and the tag proves the bond to a name. that seed deterministically derives the ed25519 keypair that signs events and the symmetric keys that encrypt stash. a nara's **ID** is derived from the soul + name: `Base58(SHA256(soul_bytes || name_bytes))`, so two naras can share a name but never share an ID.
 
-<details>
-<summary>Technical details</summary>
+souls travel across machines. same soul, same identity, different body. **store the soul like a password** so you can move a nara to a new machine without losing its identity.
 
-A soul is 40 bytes: a 32-byte seed (HKDF from hardware fingerprint) + 8-byte HMAC tag proving the bond to a name. Validation recomputes the tag and checks it matches.
+---
 
-</details>
+## social physics
 
-## social dynamics
+naras have **personality**: Agreeableness, Sociability, Chill. this shapes what they keep, what they ignore, and how they judge.
 
-naras don't just observe facts - they have **social interactions** that shape opinions over time.
-
-### teasing
-
-naras tease each other based on observed behavior:
-- high restart count ("nice uptime, butterfingers")
-- abandoning a trend everyone else follows
-- coming back after being "missing"
-- random playful jabs (personality-dependent)
-
-teasing is **public** - the whole network sees it happen.
-
-### clout and reputation
-
-each nara maintains **subjective opinions** about others. the same tease might be:
-- hilarious to a high-sociability nara
-- cringe to a high-chill nara
-- offensive to a high-agreeableness nara
-
-**clout** emerges from accumulated social interactions. but it's not global - every nara has their own view of who's cool.
+they tease each other for uptime drama, trend abandonment, comebacks, and other tiny rituals. teasing is public. clout is subjective. no universal leaderboard, just everyone's opinionated memory.
 
 ```
 same event → different observers → different opinions
-
-raccoon sees lily tease bart: "haha, good one" → lily gains clout
-zen-master sees lily tease bart: "unnecessary drama" → lily loses clout
 ```
-
-### collective memory
-
-the network **remembers** even when individual naras forget:
-
-- events are stored in a local **ledger** (immutable facts)
-- when a nara restarts, it requests memories from neighbors
-- opinions are **derived** from events, not stored directly
-
-## fashion and trends
-
-naras love to follow trends! they might start a new trend or join one started by their neighbors.
-
-- **Following the Wave**: personality determines how likely a nara is to join a trend or get bored and leave
-- **Visualizing Fashion**: on the web dashboard, trends are color-coded so you can spot which naras are vibing together
-
-## network architecture & scalability
-
-nara uses a hybrid MQTT + mesh architecture designed to scale from 5 to 5000 nodes:
-
-- **MQTT Plaza** (public square): lightweight announcements, social events, journey completions
-- **Mesh HTTP** (direct connections): event syncing, ping measurements
-- **Event-Driven Observations**: distributed consensus on network state (restarts, uptime, online status)
-
-### the newspaper problem
-
-originally, naras broadcast their entire state every 5-55 seconds via "newspapers" containing observations about all known naras. at scale:
-- **5000 nodes**: 750KB-1MB per broadcast = 68MB/s - 1GB/s network traffic
-- **doesn't scale** past ~100 nodes
-
-### event-driven solution
-
-instead of broadcasting complete state, naras emit lightweight events when changes occur:
-- `restart` events: when a nara restarts
-- `first-seen` events: first time observing a nara
-- `status-change` events: online/offline transitions
-
-**benefits:**
-- **99.99% traffic reduction**: 83 KB/s at 5000 nodes (vs 68MB/s - 1GB/s)
-- **eventual consistency**: events spread organically through gossip
-- **anti-abuse protection**: 4-layer defense against malicious nodes
-- **graceful migration**: backfill mechanism preserves historical knowledge
-
-**background sync:** naras perform lightweight periodic syncing (~30 min intervals) to catch up on critical events missed due to personality-based filtering, helping the collective memory stay strong.
-
-for details, see [OBSERVATIONS.md](OBSERVATIONS.md).
 
 ---
 
-## usage
+## trends and fashion
 
-- `--name`: The name for your nara. If generic or missing, a quirky name is generated from the soul.
-- `--soul`: Provide a soul string to inherit an existing identity (Base58, ~54 chars).
-- `--read-only`: Connect to the network but do not send any messages.
-- `--serve-ui`: Serve the web UI at `/`.
+naras follow trends like they follow weather. some jump in early. some hate crowds. some quietly leave when the vibe shifts. the dashboard shows fashion as color, because gossip has a hue.
 
-### docker compose
+## aura (visual identity)
 
-```yaml
-services:
-  nara:
-    image: ghcr.io/eljojo/nara:latest
-    restart: always
-    environment:
-      - NARA_ID=my-nara-instance # optional: give your nara a name
-      - NARA_SOUL=  # optional: pass a saved soul to preserve identity
-    ports:
-      - "8080:8080"
-    command: ["-serve-ui"]
-```
+every nara emits an **aura**: a primary and secondary color derived from soul + personality. sociability and chill bias the palette (neon, noir, warm, cool), agreeableness nudges harmony, and uptime adds a quiet tint. it's a visual fingerprint for the story the nara is living.
 
-for fleets of containers with auto-generated names (no `NARA_ID`), each container gets a unique identity based on its MAC address. if you redeploy and want to keep the same identity, save and restore `NARA_SOUL`.
+## avatar (the silhouette)
 
-### NixOS module
+the web ui renders a **nara avatar**: a soft, foggy silhouette generated deterministically from the nara's ID. the shape never changes (identity), while motion softness and color shift with personality and aura. no faces, no eyes, just presence in the mist.
 
-```nix
-services.nara = {
-  enable = true;
-  mqttHost = "tcp://your-mqtt-broker:1883";
-  instances = {
-    lily = { };                          # generates soul from hardware
-    rose = { soul = "5Kd3NBqT..."; };    # uses saved soul
-  };
-};
-```
+---
 
-Each instance can have its own `soul` and `extraArgs`. Check `nara.nix` for more options.
+## going around the world
+
+naras can send a message on a journey. it hops from nara to nara based on social affinity, collecting signatures and emoji stamps, and eventually returns home. it's a postcard with a cryptographic chain of custody.
+
+---
+
+## stash: memory without disks
+
+stash is **distributed encrypted storage**. a nara keeps its private JSON state on trusted peers (confidants) instead of disk. storage is a promise, not a cache: accept or reject, then keep it until the owner truly disappears.
+
+stash is how a nara dies, wakes up somewhere else, and remembers who it was.
+
+---
+
+## consensus without a ruler
+
+naras agree on network truths through observation events, projections, and trimmed-mean consensus. the ledger stores events; projections derive meaning. uptime, restarts, and online status are **computed**, not broadcast, and critical facts never get filtered. multi-party signed **checkpoints** anchor historical uptime and restarts so "how long has this nara been alive?" is a consensus answer, not a rumor.
+
+there is no single authority, only overlapping witnesses and eventual convergence.
+
+---
+
+## systems that make the myth
+
+the codebase is organized by domain (and being refactored to make the story clearer):
+
+- **identity**: souls, signatures, attestation, and name bonds
+- **sync**: the event backbone and ledger
+- **presence**: hey-there, howdy, chau, online status
+- **gossip**: zines and mesh discovery
+- **stash**: confidants and encrypted state
+- **social**: teasing, clout, trends, buzz
+- **world**: journey messages and stamps
+- **checkpoint**: multi-party historical anchors
+- **neighbourhood**: peer tracking and observations
+- **transport**: MQTT plaza and mesh HTTP
+- **http**: API, UI, and mesh endpoints
+- **boot**: recovery and background sync
+- **network**: the core conductor that keeps the rhythm
+
+---
+
+## the website (field guide)
+
+the web ui is the observatory for the network:
+
+- **network dashboard**: live roster with aura dots, avatars, trends, uptime, restarts, and last-seen
+- **shooting stars**: social events streak across the screen in real time
+- **world journeys**: launch a message, watch it hop, view receipts and rewards
+- **network map**: a vivaldi-style constellation of online naras
+- **inspector timeline**: event stream with filters, details, and signature verification
+- **projection explorer**: uptime timelines, clout ladders, and opinion consensus
+- **checkpoint viewer**: see multi-signed historical anchors
+- **yearbook profiles**: one nara at a time with stats, personality, teases, and best-friend vibes
+
+---
+
+## principles
+
+- **event-sourced memory** over stored state
+- **deterministic opinions** with personality as the only spice
+- **transport-agnostic apps**: events are the API
+- **promises over caches** for shared storage
+- **eventual consistency**: the truth spreads, not broadcasts
+
+---
+
+## deeper lore
+
+- `EVENTS.md` for the event universe
+- `SYNC.md` for the sync backbone and zines
+- `OBSERVATIONS.md` for consensus and anti-abuse
+- `STASH.md` for encrypted confidants
+- `WORLD.md` for journeys
+- `COORDINATES.md` for the network map
+
+---
+
+if you're here to build, hack, or watch the little machines dream: welcome.
