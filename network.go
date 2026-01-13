@@ -939,8 +939,9 @@ func (network *Network) emitHeyThereSyncEvent() {
 // InitGossipIdentity initializes gossip-mode identity emission.
 // Called by Start() and can be called by tests to simulate startup.
 // This emits the hey_there sync event that allows our identity to propagate through gossip.
+// Note: Only needed in gossip-only mode. In hybrid mode, heyThere() already adds the event to the ledger.
 func (network *Network) InitGossipIdentity() {
-	if network.TransportMode != TransportMQTT {
+	if network.TransportMode == TransportGossip {
 		network.emitHeyThereSyncEvent()
 	}
 }
