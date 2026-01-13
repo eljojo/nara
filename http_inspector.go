@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -84,6 +85,11 @@ func (ln *LocalNara) inspectorEventsHandler(w http.ResponseWriter, r *http.Reque
 
 		filteredEvents = append(filteredEvents, event)
 	}
+
+	// Sort by timestamp, newest first
+	sort.Slice(filteredEvents, func(i, j int) bool {
+		return filteredEvents[i].Timestamp > filteredEvents[j].Timestamp
+	})
 
 	// Apply pagination
 	total := len(filteredEvents)
@@ -259,12 +265,13 @@ func (ln *LocalNara) inspectorCheckpointDetailHandler(w http.ResponseWriter, r *
 		return
 	}
 
-	// Get latest checkpoint for subject
-	checkpoint := ln.SyncLedger.GetCheckpoint(subject)
-	if checkpoint == nil {
+	// Get latest checkpoint event for subject
+	checkpointEvent := ln.SyncLedger.GetCheckpointEvent(subject)
+	if checkpointEvent == nil {
 		http.Error(w, "checkpoint not found", http.StatusNotFound)
 		return
 	}
+	checkpoint := checkpointEvent.Checkpoint
 
 	// Verify each voter signature
 	type VoterInfo struct {
@@ -357,8 +364,8 @@ func (ln *LocalNara) inspectorCheckpointDetailHandler(w http.ResponseWriter, r *
 	}
 
 	response := map[string]interface{}{
-		"checkpoint": checkpoint,
-		"voters":     voters,
+		"event":  checkpointEvent,
+		"voters": voters,
 		"summary": map[string]interface{}{
 			"total_voters":        len(checkpoint.VoterIDs),
 			"verified_voters":     verifiedCount,
@@ -384,11 +391,13 @@ func (ln *LocalNara) inspectorProjectionsHandler(w http.ResponseWriter, r *http.
 		statuses := ln.Projections.OnlineStatus().GetAllStatuses()
 		for name, status := range statuses {
 			state := ln.Projections.OnlineStatus().GetState(name)
+			totalUptime := ln.SyncLedger.DeriveTotalUptime(name)
 			onlineStatusMap[name] = map[string]interface{}{
 				"status":          status,
 				"last_event_time": state.LastEventTime,
 				"last_event_type": state.LastEventType,
 				"observer":        state.Observer,
+				"total_uptime":    totalUptime,
 			}
 		}
 	}
@@ -729,6 +738,220 @@ func (ln *LocalNara) inspectorEventDetailHandler(w http.ResponseWriter, r *http.
 			"total_events": totalEvents,
 			"age_seconds":  ageSeconds,
 		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// UptimePeriod represents a period of time when a nara was online or offline
+type UptimePeriod struct {
+	Type      string `json:"type"`       // "online" or "offline"
+	StartTime int64  `json:"start_time"` // Unix timestamp (seconds)
+	EndTime   int64  `json:"end_time"`   // Unix timestamp (seconds), 0 if ongoing
+	Duration  int64  `json:"duration"`   // Duration in seconds
+	Ongoing   bool   `json:"ongoing"`    // True if this period is still active
+}
+
+// inspectorUptimeHandler - GET /api/inspector/uptime/{subject}
+// Returns timeline of online/offline periods for a nara.
+// Uses checkpoint data when available, falls back to backfill, then real-time events.
+func (ln *LocalNara) inspectorUptimeHandler(w http.ResponseWriter, r *http.Request) {
+	subject := strings.TrimPrefix(r.URL.Path, "/api/inspector/uptime/")
+	if subject == "" {
+		http.Error(w, "subject required", http.StatusBadRequest)
+		return
+	}
+
+	// Collect all status-relevant events for this subject
+	type statusEvent struct {
+		timestamp int64
+		status    string // "online" or "offline"
+		source    string // event type that caused this
+	}
+
+	var events []statusEvent
+	var checkpoint *CheckpointEventPayload
+	var backfill *ObservationEventPayload
+
+	ln.SyncLedger.mu.RLock()
+
+	// Find checkpoint and backfill first
+	for _, event := range ln.SyncLedger.Events {
+		if event.Service == ServiceCheckpoint && event.Checkpoint != nil && event.Checkpoint.Subject == subject {
+			if checkpoint == nil || event.Checkpoint.AsOfTime > checkpoint.AsOfTime {
+				checkpoint = event.Checkpoint
+			}
+		}
+		if event.Service == ServiceObservation && event.Observation != nil &&
+			event.Observation.Subject == subject && event.Observation.IsBackfill {
+			backfill = event.Observation
+		}
+	}
+
+	// Collect status events
+	for _, event := range ln.SyncLedger.Events {
+		switch event.Service {
+		case ServiceHeyThere:
+			if event.HeyThere != nil && event.HeyThere.From == subject {
+				events = append(events, statusEvent{
+					timestamp: event.Timestamp,
+					status:    "online",
+					source:    "hey_there",
+				})
+			}
+		case ServiceChau:
+			if event.Chau != nil && event.Chau.From == subject {
+				events = append(events, statusEvent{
+					timestamp: event.Timestamp,
+					status:    "offline",
+					source:    "chau",
+				})
+			}
+		case ServiceObservation:
+			if event.Observation != nil && event.Observation.Subject == subject {
+				switch event.Observation.Type {
+				case "status-change":
+					status := "offline"
+					if event.Observation.OnlineState == "ONLINE" {
+						status = "online"
+					}
+					events = append(events, statusEvent{
+						timestamp: event.Timestamp,
+						status:    status,
+						source:    "observation:" + event.Observation.Type,
+					})
+				case "restart", "first-seen":
+					events = append(events, statusEvent{
+						timestamp: event.Timestamp,
+						status:    "online",
+						source:    "observation:" + event.Observation.Type,
+					})
+				}
+			}
+		}
+	}
+	ln.SyncLedger.mu.RUnlock()
+
+	// Sort events by timestamp
+	sort.Slice(events, func(i, j int) bool {
+		return events[i].timestamp < events[j].timestamp
+	})
+
+	// Build timeline of periods
+	var periods []UptimePeriod
+	now := time.Now().Unix()
+
+	// Use DeriveTotalUptime for accurate total (includes checkpoint/backfill)
+	totalUptime := ln.SyncLedger.DeriveTotalUptime(subject)
+
+	// Determine baseline from checkpoint or backfill
+	var baselineSource string
+	var historicalUptime int64
+	var baselineTime int64 // Time from which we have detailed events
+
+	if checkpoint != nil {
+		baselineSource = "checkpoint"
+		historicalUptime = checkpoint.Observation.TotalUptime
+		baselineTime = checkpoint.AsOfTime
+	} else if backfill != nil {
+		baselineSource = "backfill"
+		baselineTime = backfill.StartTime
+		// For backfill, historical uptime is calculated from StartTime
+	}
+
+	// If we have historical data, add a "historical" period representing it
+	if checkpoint != nil && historicalUptime > 0 {
+		// Add historical period - we know the total uptime but not the exact on/off transitions
+		periods = append(periods, UptimePeriod{
+			Type:      "historical",
+			StartTime: checkpoint.Observation.StartTime,
+			EndTime:   checkpoint.AsOfTime,
+			Duration:  historicalUptime,
+			Ongoing:   false,
+		})
+	}
+
+	// Filter events to only those after the baseline time (if we have a checkpoint)
+	var filteredEvents []statusEvent
+	if checkpoint != nil {
+		for _, e := range events {
+			eventTimeSec := e.timestamp / 1e9
+			if eventTimeSec > baselineTime {
+				filteredEvents = append(filteredEvents, e)
+			}
+		}
+	} else {
+		filteredEvents = events
+	}
+
+	// Process events to build periods
+	var currentStatus string
+	var periodStart int64
+
+	// If we have a checkpoint, assume online from AsOfTime
+	// (checkpoints are created while the nara is running)
+	if checkpoint != nil {
+		currentStatus = "online"
+		periodStart = checkpoint.AsOfTime
+	}
+
+	// If we have a backfill but no checkpoint, assume online from StartTime
+	if checkpoint == nil && backfill != nil {
+		currentStatus = "online"
+		periodStart = backfill.StartTime
+	}
+
+	for _, event := range filteredEvents {
+		eventTimeSec := event.timestamp / 1e9 // Convert nanoseconds to seconds
+
+		// If we haven't established a start yet, use first event
+		if periodStart == 0 {
+			currentStatus = event.status
+			periodStart = eventTimeSec
+			continue
+		}
+
+		// Status changed
+		if event.status != currentStatus {
+			// Close previous period
+			duration := eventTimeSec - periodStart
+			periods = append(periods, UptimePeriod{
+				Type:      currentStatus,
+				StartTime: periodStart,
+				EndTime:   eventTimeSec,
+				Duration:  duration,
+				Ongoing:   false,
+			})
+
+			// Start new period
+			currentStatus = event.status
+			periodStart = eventTimeSec
+		}
+	}
+
+	// Add final ongoing period if we have a start time
+	if periodStart > 0 {
+		duration := now - periodStart
+		periods = append(periods, UptimePeriod{
+			Type:      currentStatus,
+			StartTime: periodStart,
+			EndTime:   0,
+			Duration:  duration,
+			Ongoing:   true,
+		})
+	}
+
+	// Reverse periods so newest is first
+	for i, j := 0, len(periods)-1; i < j; i, j = i+1, j-1 {
+		periods[i], periods[j] = periods[j], periods[i]
+	}
+
+	response := map[string]interface{}{
+		"subject":         subject,
+		"periods":         periods,
+		"total_uptime":    totalUptime,
+		"baseline_source": baselineSource,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -162,6 +162,7 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 		mux.HandleFunc("/api/inspector/projections", network.local.inspectorProjectionsHandler)
 		mux.HandleFunc("/api/inspector/projection/", network.local.inspectorProjectionDetailHandler)
 		mux.HandleFunc("/api/inspector/event/", network.local.inspectorEventDetailHandler)
+		mux.HandleFunc("/api/inspector/uptime/", network.local.inspectorUptimeHandler)
 
 		// pprof endpoints
 		if network.local != nil && (network.local.Me.Name == "grumpy-comet" || network.local.Me.Name == "r2d2") {

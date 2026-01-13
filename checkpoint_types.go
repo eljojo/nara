@@ -288,16 +288,26 @@ func (e *SyncEvent) VerifyCheckpointSignatures(publicKeys map[string]string) int
 
 // GetCheckpoint returns the most recent checkpoint event for a subject, or nil if none exists
 func (l *SyncLedger) GetCheckpoint(subject string) *CheckpointEventPayload {
+	event := l.GetCheckpointEvent(subject)
+	if event != nil {
+		return event.Checkpoint
+	}
+	return nil
+}
+
+// GetCheckpointEvent returns the full SyncEvent for the most recent checkpoint, or nil if none exists
+func (l *SyncLedger) GetCheckpointEvent(subject string) *SyncEvent {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
-	var latest *CheckpointEventPayload
+	var latest *SyncEvent
 	var latestAsOfTime int64 = 0
 
-	for _, e := range l.Events {
+	for i := range l.Events {
+		e := &l.Events[i]
 		if e.Service == ServiceCheckpoint && e.Checkpoint != nil && e.Checkpoint.Subject == subject {
 			if e.Checkpoint.AsOfTime > latestAsOfTime {
-				latest = e.Checkpoint
+				latest = e
 				latestAsOfTime = e.Checkpoint.AsOfTime
 			}
 		}

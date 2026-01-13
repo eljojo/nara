@@ -65,7 +65,7 @@ function EventDetailModal({ event, onClose }) {
           <div style={{ marginBottom: '20px' }}>
             <div style={{ fontSize: '12px', color: '#999', marginBottom: '4px' }}>TIMESTAMP</div>
             <div style={{ fontSize: '14px' }}>
-              {formatTimestamp(event.event && event.event.timestamp)} ({timeAgo(event.event && event.event.timestamp)})
+              {formatTimestamp(event.event && event.event.ts)} ({timeAgo(event.event && event.event.ts)})
             </div>
           </div>
 
@@ -451,11 +451,23 @@ function CheckpointInspector() {
                 </div>
               </div>
 
-              {/* Full Checkpoint JSON */}
+              {/* Full Checkpoint Payload */}
               <div>
-                <div style={{ fontSize: '12px', color: '#999', marginBottom: '8px' }}>FULL CHECKPOINT DATA</div>
+                <div style={{ fontSize: '12px', color: '#999', marginBottom: '8px' }}>CHECKPOINT PAYLOAD</div>
                 <div className="json-viewer">
-                  {JSON.stringify(selectedCheckpoint.checkpoint, null, 2)}
+                  {JSON.stringify(selectedCheckpoint.event && selectedCheckpoint.event.checkpoint, null, 2)}
+                </div>
+              </div>
+
+              {/* Sync Event Metadata */}
+              <div style={{ marginTop: '16px' }}>
+                <div style={{ fontSize: '12px', color: '#999', marginBottom: '8px' }}>SYNC EVENT METADATA</div>
+                <div className="json-viewer">
+                  {JSON.stringify(selectedCheckpoint.event && {
+                    id: selectedCheckpoint.event.id,
+                    service: selectedCheckpoint.event.svc,
+                    timestamp: selectedCheckpoint.event.ts
+                  }, null, 2)}
                 </div>
               </div>
             </div>
@@ -470,9 +482,159 @@ function CheckpointInspector() {
 // Projection Explorer
 // ============================================================================
 
+// ============================================================================
+// Uptime Timeline Component
+// ============================================================================
+
+function formatDuration(seconds) {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+  if (seconds < 86400) {
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.round((seconds % 3600) / 60);
+    return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+  }
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.round((seconds % 86400) / 3600);
+  return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+}
+
+function formatDateRange(startTime, endTime, ongoing) {
+  const start = dayjs.unix(startTime);
+  const end = ongoing ? dayjs() : dayjs.unix(endTime);
+
+  const startStr = start.format('MMM D, YYYY HH:mm');
+  const endStr = ongoing ? 'now' : end.format('MMM D, YYYY HH:mm');
+
+  return `${startStr} → ${endStr}`;
+}
+
+function UptimeTimeline({ subject, onClose }) {
+  const { useState, useEffect } = React;
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    fetchUptime();
+  }, [subject]);
+
+  const fetchUptime = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/inspector/uptime/${encodeURIComponent(subject)}`);
+      if (!response.ok) throw new Error('Failed to fetch uptime data');
+      const result = await response.json();
+      setData(result);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="uptime-container">
+        <div className="loading-spinner">💫</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="uptime-container">
+        <div className="empty-state">
+          <div className="empty-state-icon">❌</div>
+          <div className="empty-state-text">{error}</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!data || !data.periods || data.periods.length === 0) {
+    return (
+      <div className="uptime-container">
+        <div className="empty-state">
+          <div className="empty-state-icon">📭</div>
+          <div className="empty-state-text">No uptime data available</div>
+          <div className="empty-state-hint">Status events will appear as they occur</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="uptime-container">
+      {/* Summary Header */}
+      <div className="uptime-header">
+        <div className="uptime-subject">
+          {data.baseline_source && (
+            <span className="uptime-baseline-badge">
+              {data.baseline_source === 'checkpoint' ? '📸 checkpoint' : '📋 backfill'}
+            </span>
+          )}
+          <span className="uptime-avatar">⏱️</span>
+          <span className="uptime-name">{data.subject}</span>
+        </div>
+        <div className="uptime-total">
+          <span className="uptime-total-label">Total Uptime</span>
+          <span className="uptime-total-value">{formatDuration(data.total_uptime)}</span>
+        </div>
+      </div>
+
+      {/* Timeline */}
+      <div className="uptime-timeline">
+        {data.periods.map((period, index) => (
+          <div
+            key={index}
+            className={`uptime-period ${period.type} ${period.ongoing ? 'ongoing' : ''}`}
+          >
+            <div className="uptime-period-icon">
+              {period.type === 'historical' ? '📸' : period.type === 'online' ? (period.ongoing ? '🟢' : '✅') : '🔴'}
+            </div>
+            <div className="uptime-period-content">
+              <div className="uptime-period-title">
+                {period.type === 'historical'
+                  ? 'Historical uptime'
+                  : period.type === 'online'
+                    ? (period.ongoing ? 'Running since' : 'Ran for')
+                    : 'Offline for'
+                }
+                <span className="uptime-period-duration">
+                  {formatDuration(period.duration)}
+                </span>
+              </div>
+              <div className="uptime-period-dates">
+                {period.type === 'historical'
+                  ? `First seen: ${dayjs.unix(period.start_time).format('MMM D, YYYY')} → Checkpoint: ${dayjs.unix(period.end_time).format('MMM D, YYYY')}`
+                  : formatDateRange(period.start_time, period.end_time, period.ongoing)
+                }
+              </div>
+            </div>
+            {period.ongoing && (
+              <div className="uptime-period-badge">LIVE</div>
+            )}
+            {period.type === 'historical' && (
+              <div className="uptime-period-badge historical">CHECKPOINT</div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {onClose && (
+        <button className="uptime-close" onClick={onClose}>
+          Close
+        </button>
+      )}
+    </div>
+  );
+}
+
 function ProjectionExplorer() {
   const { useState, useEffect } = React;
-  const [activeTab, setActiveTab] = useState('online_status');
+  const [activeTab, setActiveTab] = useState('uptime');
   const [projections, setProjections] = useState({
     online_status: {},
     clout: {},
@@ -480,6 +642,7 @@ function ProjectionExplorer() {
   });
   const [loading, setLoading] = useState(true);
   const [selectedProjection, setSelectedProjection] = useState(null);
+  const [selectedUptimeSubject, setSelectedUptimeSubject] = useState(null);
 
   useEffect(() => {
     fetchProjections();
@@ -522,10 +685,10 @@ function ProjectionExplorer() {
       {/* Projection Type Tabs */}
       <div className="projection-tabs">
         <button
-          className={`projection-tab ${activeTab === 'online_status' ? 'active' : ''}`}
-          onClick={() => setActiveTab('online_status')}
+          className={`projection-tab ${activeTab === 'uptime' ? 'active' : ''}`}
+          onClick={() => setActiveTab('uptime')}
         >
-          🟢 Online Status
+          ⏱️ Uptime Timeline
         </button>
         <button
           className={`projection-tab ${activeTab === 'clout' ? 'active' : ''}`}
@@ -541,30 +704,64 @@ function ProjectionExplorer() {
         </button>
       </div>
 
-      {/* Online Status View */}
-      {activeTab === 'online_status' && (
+      {/* Uptime Timeline View */}
+      {activeTab === 'uptime' && (
         <div className="projection-card">
           {Object.keys(projections.online_status).length === 0 ? (
             <div className="empty-state">
-              <div className="empty-state-icon">🤷</div>
-              <div className="empty-state-text">No online status data</div>
+              <div className="empty-state-icon">⏱️</div>
+              <div className="empty-state-text">No naras to show</div>
+              <div className="empty-state-hint">Uptime data will appear as naras come online</div>
+            </div>
+          ) : selectedUptimeSubject ? (
+            <div>
+              <button
+                className="uptime-back-button"
+                onClick={() => setSelectedUptimeSubject(null)}
+              >
+                ← Back to list
+              </button>
+              <UptimeTimeline
+                subject={selectedUptimeSubject}
+                onClose={() => setSelectedUptimeSubject(null)}
+              />
             </div>
           ) : (
-            Object.entries(projections.online_status).map(([name, status]) => (
-              <div
-                key={name}
-                className="projection-item"
-                onClick={() => openProjectionDetail('online_status', name)}
-              >
-                <div className="projection-item-left">
-                  <div className={`status-dot ${(status.status && status.status.toLowerCase()) || 'missing'}`}></div>
-                  <span style={{ fontWeight: '500' }}>{name}</span>
-                </div>
-                <div style={{ fontSize: '13px', color: '#666' }}>
-                  {status.status || 'MISSING'}
-                </div>
+            <div>
+              <div style={{ fontSize: '14px', color: '#666', marginBottom: '16px' }}>
+                Select a nara to view their uptime timeline:
               </div>
-            ))
+              {Object.entries(projections.online_status).map(([name, status]) => (
+                <div
+                  key={name}
+                  className="projection-item uptime-select-item"
+                  onClick={() => setSelectedUptimeSubject(name)}
+                >
+                  <div className="projection-item-left">
+                    <span className="uptime-select-icon">⏱️</span>
+                    <span style={{ fontWeight: '500' }}>{name}</span>
+                    {status.total_uptime > 0 && (
+                      <span className="uptime-total-badge">{formatDuration(status.total_uptime)}</span>
+                    )}
+                  </div>
+                  <div className="uptime-select-right">
+                    <div className="uptime-select-status">
+                      <div className={`status-dot ${(status.status && status.status.toLowerCase()) || 'missing'}`}></div>
+                      <span>{status.status || 'MISSING'}</span>
+                    </div>
+                    <button
+                      className="uptime-details-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openProjectionDetail('online_status', name);
+                      }}
+                    >
+                      Details
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       )}

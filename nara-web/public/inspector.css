@@ -747,6 +747,262 @@ body {
   }
 }
 
+/* Uptime Timeline Styles */
+.uptime-container {
+  animation: fadeIn 0.4s ease;
+}
+
+.uptime-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 16px;
+  margin-bottom: 20px;
+  color: white;
+}
+
+.uptime-subject {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.uptime-avatar {
+  font-size: 32px;
+}
+
+.uptime-name {
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.uptime-total {
+  text-align: right;
+}
+
+.uptime-total-label {
+  display: block;
+  font-size: 12px;
+  opacity: 0.8;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 4px;
+}
+
+.uptime-total-value {
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.uptime-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.uptime-period {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px 20px;
+  background: white;
+  border-radius: 12px;
+  border-left: 4px solid #e0e0e0;
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.uptime-period:hover {
+  transform: translateX(4px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.uptime-period.online {
+  border-left-color: var(--online);
+  background: linear-gradient(90deg, rgba(123, 237, 159, 0.08) 0%, white 100%);
+}
+
+.uptime-period.offline {
+  border-left-color: var(--offline);
+  background: linear-gradient(90deg, rgba(255, 107, 107, 0.08) 0%, white 100%);
+}
+
+.uptime-period.historical {
+  border-left-color: #667eea;
+  background: linear-gradient(90deg, rgba(102, 126, 234, 0.08) 0%, white 100%);
+}
+
+.uptime-period.ongoing {
+  border-left-width: 6px;
+  animation: subtlePulse 2s ease-in-out infinite;
+}
+
+@keyframes subtlePulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(123, 237, 159, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(123, 237, 159, 0);
+  }
+}
+
+.uptime-period-icon {
+  font-size: 24px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.uptime-period-content {
+  flex: 1;
+}
+
+.uptime-period-title {
+  font-size: 15px;
+  color: #333;
+  margin-bottom: 4px;
+}
+
+.uptime-period-duration {
+  font-weight: 700;
+  color: #667eea;
+  margin-left: 8px;
+}
+
+.uptime-period-dates {
+  font-size: 13px;
+  color: #888;
+  font-family: 'Monaco', 'Menlo', monospace;
+}
+
+.uptime-period-badge {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  padding: 4px 10px;
+  background: linear-gradient(135deg, var(--online) 0%, #5ac88b 100%);
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.uptime-period-badge.historical {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  animation: none;
+}
+
+.uptime-baseline-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 8px;
+  margin-right: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.uptime-close {
+  display: block;
+  width: 100%;
+  margin-top: 20px;
+  padding: 12px;
+  border: 2px solid #e0e0e0;
+  border-radius: 12px;
+  background: white;
+  color: #666;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.uptime-close:hover {
+  border-color: #667eea;
+  color: #667eea;
+}
+
+.uptime-back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  margin-bottom: 16px;
+  border: none;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.uptime-back-button:hover {
+  transform: translateX(-4px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.uptime-select-item {
+  border-left: 4px solid transparent;
+}
+
+.uptime-select-item:hover {
+  border-left-color: #667eea;
+}
+
+.uptime-select-icon {
+  font-size: 20px;
+}
+
+.uptime-total-badge {
+  padding: 2px 8px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 10px;
+  margin-left: 8px;
+}
+
+.uptime-select-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #666;
+}
+
+.uptime-select-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.uptime-details-btn {
+  padding: 4px 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: white;
+  color: #666;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.uptime-details-btn:hover {
+  background: #f5f5f5;
+  border-color: #667eea;
+  color: #667eea;
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
   .inspector-content {

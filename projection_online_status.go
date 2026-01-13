@@ -26,6 +26,10 @@ type MissingThresholdFunc func(name string) int64
 
 // OnlineStatusProjection maintains per-nara online status derived from events.
 // It implements "most recent event wins" semantics.
+//
+// For total uptime calculation, use GetTotalUptime() which incorporates checkpoint
+// data when available, falls back to backfill records, then calculates from
+// status-change events.
 type OnlineStatusProjection struct {
 	states     map[string]*OnlineState
 	ledger     *SyncLedger
@@ -187,6 +191,13 @@ func (p *OnlineStatusProjection) GetState(name string) *OnlineState {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.states[name]
+}
+
+// GetTotalUptime returns the total uptime in seconds for a nara.
+// Uses checkpoint data if available, falls back to backfill record,
+// then calculates from status-change events.
+func (p *OnlineStatusProjection) GetTotalUptime(name string) int64 {
+	return p.ledger.DeriveTotalUptime(name)
 }
 
 // GetAllStatuses returns all known nara statuses.
