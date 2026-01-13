@@ -1,7 +1,6 @@
 package nara
 
 import (
-	"github.com/sirupsen/logrus"
 	"sync"
 	"time"
 )
@@ -43,7 +42,6 @@ func (b *Buzz) increase(howMuch int) {
 	// logrus.Debugf("increasing buzz to %d", b.count)
 	if b.count > BuzzMax {
 		b.count = BuzzMax
-		logrus.Debugf("reached max buzz %d", b.count)
 	}
 }
 
