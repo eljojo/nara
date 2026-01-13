@@ -173,7 +173,7 @@ func (network *Network) tryDiscoverUnknownSender(name, remoteAddr string) bool {
 		return false
 	}
 
-	url := fmt.Sprintf("http://%s:%d/ping", ip, DefaultMeshPort)
+	url := network.buildMeshURLFromIP(ip, "/ping")
 	client := network.getMeshHTTPClient()
 	if client == nil {
 		logrus.Debugf("📡 Cannot discover %s: no mesh HTTP client available", name)

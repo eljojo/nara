@@ -1225,6 +1225,31 @@ func (network *Network) httpPeerResponseHandler(w http.ResponseWriter, r *http.R
 // Examples:
 //   - buildMeshURL("alice", "") -> "http://100.64.0.1:5683"
 //   - buildMeshURL("alice", "/stash/push") -> "http://100.64.0.1:5683/stash/push"
+// buildMeshURLFromIP builds a mesh URL from an IP address and optional path.
+// Handles both test URLs (with port already included) and production IPs (adds DefaultMeshPort).
+// Examples:
+//   - buildMeshURLFromIP("100.64.0.1", "/ping") -> "http://100.64.0.1:7433/ping"
+//   - buildMeshURLFromIP("127.0.0.1:12345", "/ping") -> "http://127.0.0.1:12345/ping" (test)
+func (network *Network) buildMeshURLFromIP(ip string, path string) string {
+	if ip == "" {
+		return ""
+	}
+
+	var baseURL string
+	if strings.Contains(ip, ":") {
+		// IP already contains port (e.g., from tests)
+		baseURL = "http://" + ip
+	} else {
+		// Production IP without port - add DefaultMeshPort
+		baseURL = fmt.Sprintf("http://%s:%d", ip, DefaultMeshPort)
+	}
+
+	if path != "" {
+		return baseURL + path
+	}
+	return baseURL
+}
+
 func (network *Network) buildMeshURL(name string, path string) string {
 	var baseURL string
 	if network.testMeshURLs != nil {
@@ -1237,7 +1262,7 @@ func (network *Network) buildMeshURL(name string, path string) string {
 		if meshIP == "" {
 			return ""
 		}
-		baseURL = fmt.Sprintf("http://%s:%d", meshIP, DefaultMeshPort)
+		baseURL = network.buildMeshURLFromIP(meshIP, "")
 	}
 
 	if path != "" {
@@ -3029,7 +3054,7 @@ func (network *Network) fetchSyncEventsFromMesh(client *http.Client, meshIP, nam
 	}
 
 	// Make HTTP request to neighbor's mesh endpoint
-	url := fmt.Sprintf("http://%s:%d/events/sync", meshIP, DefaultMeshPort)
+	url := network.buildMeshURLFromIP(meshIP, "/events/sync")
 	// Boot sync requests are batched via the summary log, not individual lines
 	req, err := http.NewRequest("POST", url, bytes.NewReader(jsonBody))
 	if err != nil {
@@ -3293,8 +3318,8 @@ func (network *Network) fetchAllCheckpointsFromNara(naraName, ip string) []SyncE
 	limit := 1000 // fetch in batches of 1000
 
 	for {
-		// Build URL with pagination parameters
-		url := fmt.Sprintf("http://%s/api/checkpoints/all?limit=%d&offset=%d", ip, limit, offset)
+		// Build URL with pagination parameters using mesh helper (handles test vs production IPs)
+		url := network.buildMeshURLFromIP(ip, fmt.Sprintf("/api/checkpoints/all?limit=%d&offset=%d", limit, offset))
 
 		// Create request with timeout
 		ctx, cancel := context.WithTimeout(network.ctx, 10*time.Second)
@@ -3738,7 +3763,7 @@ func (network *Network) fetchPublicKeysFromPeers(peers []DiscoveredPeer) []Disco
 			defer wg.Done()
 			defer func() { <-sem }() // Release semaphore
 
-			url := fmt.Sprintf("http://%s:%d/ping", peers[idx].MeshIP, DefaultMeshPort)
+			url := network.buildMeshURLFromIP(peers[idx].MeshIP, "/ping")
 			ctx, cancel := context.WithTimeout(network.ctx, 2*time.Second)
 			defer cancel()
 			req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
