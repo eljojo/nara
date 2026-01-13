@@ -819,3 +819,35 @@ func TestCheckpoint_StatusChangeEventsPrunedFirst(t *testing.T) {
 		t.Errorf("Expected status-change events to be pruned (got %d), restarts should be preserved", statusCount)
 	}
 }
+
+// Test backfill created even when restart observations exist
+// This reproduces the bug where backfill was skipped if ANY observation events existed
+func TestCheckpoint_BackfillCreatedWithExistingRestarts(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+	subject := "nelly"
+
+	// Add ONE recent restart observation (like a short-memory nara would have)
+	recentStartTime := time.Now().Unix() - 100
+	restartEvent := NewRestartObservationEvent("observer", subject, recentStartTime, 1026)
+	ledger.AddEvent(restartEvent)
+
+	// Now add a backfill event with the FULL restart history
+	// This simulates what should happen during backfillObservations()
+	backfillEvent := NewBackfillObservationEvent("observer", subject, 1639996062, 1025, time.Now().Unix())
+	added := ledger.AddEvent(backfillEvent)
+
+	if !added {
+		t.Error("Backfill event should be added even when restart observations exist")
+	}
+
+	// Now derive restart count - should use backfill baseline (1025) + new restart (1)
+	totalRestarts := ledger.DeriveRestartCount(subject)
+
+	// We expect: backfill baseline (1025) + 1 new restart event with different StartTime = 1026
+	// BUT the restart event has StartTime=recentStartTime which is different from backfills StartTime=1639996062
+	// So it should count as a NEW restart
+	expected := int64(1026) // 1025 from backfill + 1 new
+	if totalRestarts != expected {
+		t.Errorf("Expected totalRestarts=%d (1025 backfill + 1 new), got %d", expected, totalRestarts)
+	}
+}

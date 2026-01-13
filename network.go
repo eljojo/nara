@@ -3379,14 +3379,21 @@ func (network *Network) backfillObservations() {
 			continue // Skip self
 		}
 
-		// Check if we already have observation events for this nara
+		// Check if we already have a backfill event for this nara
 		existingEvents := network.local.SyncLedger.GetObservationEventsAbout(naraName)
-		if len(existingEvents) > 0 {
-			// Already have event-based data, skip backfill
+		hasBackfill := false
+		for _, e := range existingEvents {
+			if e.Observation != nil && e.Observation.IsBackfill {
+				hasBackfill = true
+				break
+			}
+		}
+		if hasBackfill {
+			// Already have backfill baseline, skip
 			continue
 		}
 
-		// No events exist, but we have newspaper-based knowledge
+		// No backfill exists yet, but we have newspaper-based knowledge
 		// Create backfill event if data is meaningful
 		if obs.StartTime > 0 && obs.Restarts >= 0 {
 			event := NewBackfillObservationEvent(
