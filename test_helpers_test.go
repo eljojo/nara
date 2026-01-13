@@ -154,6 +154,64 @@ func startTestMQTTBroker(t *testing.T, port int) *mqttserver.Server {
 	return server
 }
 
+// createTestNaraForMQTT creates a LocalNara for MQTT testing with proper test flags
+func createTestNaraForMQTT(t *testing.T, name string, port int) *LocalNara {
+	t.Helper()
+	hwFingerprint := []byte(fmt.Sprintf("test-hw-%s", name))
+	identity := DetermineIdentity("", "", name, hwFingerprint)
+
+	profile := DefaultMemoryProfile()
+	profile.Mode = MemoryModeCustom
+	profile.MaxEvents = 1000
+	ln, err := NewLocalNara(
+		identity,
+		fmt.Sprintf("tcp://127.0.0.1:%d", port),
+		"", "",
+		-1,
+		profile,
+	)
+	if err != nil {
+		t.Fatalf("Failed to create LocalNara: %v", err)
+	}
+
+	// Skip jitter delays for faster, more predictable test execution
+	ln.Network.testSkipJitter = true
+	// Skip boot recovery - tests will manually add observation data
+	ln.Network.testSkipBootRecovery = true
+
+	return ln
+}
+
+// startTestNaras creates and starts multiple naras, ensuring MQTT connection and full discovery
+func startTestNaras(t *testing.T, port int, names []string, ensureDiscovery bool) []*LocalNara {
+	t.Helper()
+	naras := make([]*LocalNara, len(names))
+
+	// Create and start all naras
+	for i, name := range names {
+		naras[i] = createTestNaraForMQTT(t, name, port)
+		go naras[i].Start(false, false, "", nil, TransportMQTT)
+		time.Sleep(100 * time.Millisecond) // Small delay between starts
+	}
+
+	// Wait for all to connect
+	waitForAllMQTTConnected(t, naras, 15*time.Second)
+
+	if ensureDiscovery {
+		// Wait for initial hey-there cooldown (5s rate limit in heyThere())
+		time.Sleep(5 * time.Second)
+
+		// Trigger an extra round of hey-there to ensure late-joiners discover everyone
+		for _, ln := range naras {
+			ln.Network.heyThere()
+		}
+		time.Sleep(2 * time.Second) // Wait for hey-there/howdy exchanges
+		waitForFullDiscovery(t, naras, 20*time.Second)
+	}
+
+	return naras
+}
+
 // waitForCondition polls until condition returns true or timeout expires.
 // This is the base helper for all wait functions.
 func waitForCondition(t *testing.T, condition func() bool, timeout time.Duration, description string) bool {

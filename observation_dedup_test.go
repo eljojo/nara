@@ -339,7 +339,7 @@ func TestObservationDedup_WithCompaction(t *testing.T) {
 	subject := "nara-target"
 
 	// First add a checkpoint so compaction works
-	checkpoint := NewCheckpointEvent(subject, time.Now().Unix()-3600, time.Now().Unix()-86400, 0, 0)
+	checkpoint := NewTestCheckpointEvent(subject, time.Now().Unix()-3600, time.Now().Unix()-86400, 0, 0)
 	ledger.AddEvent(checkpoint)
 
 	// Add 25 unique restarts with same parameters (compaction limit is 20 per pair)

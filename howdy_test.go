@@ -155,6 +155,10 @@ func TestHowdy_NeighborDiscovery(t *testing.T) {
 
 	waitForMQTTConnected(t, nara3, 5*time.Second)
 
+	// Give time for hey-there/howdy exchange to complete
+	// nara3 sends hey-there -> nara1/nara2 respond with howdy -> nara3 processes
+	time.Sleep(3 * time.Second)
+
 	// Wait for nara3 to discover both nara1 and nara2
 	if !waitForCondition(t, func() bool {
 		nara3.Network.local.mu.Lock()

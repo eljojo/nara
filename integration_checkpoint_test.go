@@ -36,62 +36,33 @@ func TestIntegration_CheckpointConsensus(t *testing.T) {
 	// Need MinVotersRequired + 1 naras (1 proposer + MinVotersRequired voters)
 	const numNaras = MinVotersRequired + 1
 
-	// Create naras with test configuration
-	naras := make([]*LocalNara, numNaras)
+	// Create nara names
+	names := make([]string, numNaras)
 	for i := 0; i < numNaras; i++ {
-		name := fmt.Sprintf("checkpoint-test-%d", i)
-		hwFingerprint := []byte(fmt.Sprintf("checkpoint-hw-%d", i))
-		identity := DetermineIdentity("", "", name, hwFingerprint)
-
-		profile := DefaultMemoryProfile()
-		profile.Mode = MemoryModeCustom
-		profile.MaxEvents = 1000
-		ln, err := NewLocalNara(
-			identity,
-			"tcp://127.0.0.1:11883",
-			"", "",
-			-1,
-			profile,
-		)
-		if err != nil {
-			t.Fatalf("Failed to create LocalNara: %v", err)
-		}
-
-		// Skip jitter delays for faster discovery
-		ln.Network.testSkipJitter = true
-		// Skip boot recovery - we'll manually add observation data
-		ln.Network.testSkipBootRecovery = true
-		naras[i] = ln
+		names[i] = fmt.Sprintf("checkpoint-test-%d", i)
 	}
 
-	// Start all naras
-	for i, ln := range naras {
-		go ln.Start(false, false, "", nil, TransportMQTT)
-		t.Logf("✅ Started %s", ln.Me.Name)
+	// Start all naras with full discovery
+	naras := startTestNaras(t, 11883, names, true)
+	defer func() {
+		for _, ln := range naras {
+			ln.Network.Shutdown()
+			ln.Network.disconnectMQTT()
+		}
+	}()
 
-		// Give each nara time to connect to MQTT
-		time.Sleep(300 * time.Millisecond)
-
-		// Configure checkpoint service with short vote window for testing
+	// Configure checkpoint services
+	for _, ln := range naras {
 		if ln.Network.checkpointService != nil {
 			ln.Network.checkpointService.voteWindow = 3 * time.Second
-			t.Logf("   Configured checkpoint service for nara %d", i)
+			// Ensure checkpoint service has MQTT client reference
+			if ln.Network.Mqtt != nil {
+				ln.Network.checkpointService.SetMQTTClient(ln.Network.Mqtt)
+			}
 		}
 	}
 
-	// Wait for naras to discover each other and exchange public keys
-	t.Log("🌐 Waiting for peer discovery and key exchange...")
-
-	waitForAllMQTTConnected(t, naras, 10*time.Second)
-	waitForFullDiscovery(t, naras, 10*time.Second)
-
-	// Ensure all naras' checkpoint services have MQTT clients set
-	// This is needed because Start() might not have completed fully
-	for _, ln := range naras {
-		if ln.Network.checkpointService != nil && ln.Network.Mqtt != nil {
-			ln.Network.checkpointService.SetMQTTClient(ln.Network.Mqtt)
-		}
-	}
+	t.Log("✅ All naras started and discovered")
 
 	// Add some observation events so naras have data about each other
 	// This ensures DeriveRestartCount and DeriveTotalUptime return meaningful values
@@ -176,12 +147,6 @@ func TestIntegration_CheckpointConsensus(t *testing.T) {
 		}
 	}
 	t.Logf("✅ Checkpoint propagated to %d/%d other naras", checkpointsPropagated, numNaras-1)
-
-	// Cleanup
-	t.Log("🛑 Stopping naras...")
-	for _, ln := range naras {
-		ln.Network.disconnectMQTT()
-	}
 
 	t.Log("🎉 CHECKPOINT CONSENSUS TEST PASSED")
 }
@@ -407,78 +372,81 @@ func TestIntegration_CheckpointTop10Voters(t *testing.T) {
 
 	t.Log("🧪 Testing checkpoint top 10 voters limit")
 
+	// Enable debug logging for checkpoint operations
+	logrus.SetLevel(logrus.DebugLevel)
+	defer logrus.SetLevel(logrus.WarnLevel)
+
 	// Create 15 naras (more than the 10 signature limit)
 	const numNaras = 15
-	naras := make([]*LocalNara, numNaras)
-
+	names := make([]string, numNaras)
 	for i := 0; i < numNaras; i++ {
-		name := fmt.Sprintf("top10-test-%d", i)
-		hwFingerprint := []byte(fmt.Sprintf("top10-hw-%d", i))
-		identity := DetermineIdentity("", "", name, hwFingerprint)
-
-		profile := DefaultMemoryProfile()
-		profile.Mode = MemoryModeCustom
-		profile.MaxEvents = 1000
-		ln, err := NewLocalNara(
-			identity,
-			"tcp://127.0.0.1:11883",
-			"", "",
-			-1,
-			profile,
-		)
-		if err != nil {
-			t.Fatalf("Failed to create LocalNara: %v", err)
-		}
-		ln.Network.testSkipJitter = true
-		naras[i] = ln
+		names[i] = fmt.Sprintf("top10-test-%d", i)
 	}
 
-	// Start all naras
-	for i, ln := range naras {
-		go ln.Start(false, false, "", nil, TransportMQTT)
-		time.Sleep(200 * time.Millisecond)
+	naras := startTestNaras(t, 11883, names, true)
+	defer func() {
+		for _, ln := range naras {
+			ln.Network.Shutdown()
+			ln.Network.disconnectMQTT()
+		}
+	}()
 
+	// Configure checkpoint vote windows and ensure MQTT clients are set
+	for _, ln := range naras {
 		if ln.Network.checkpointService != nil {
 			ln.Network.checkpointService.voteWindow = 3 * time.Second
-		}
-		if i%5 == 0 {
-			t.Logf("✅ Started naras %d-%d", i, min(i+4, numNaras-1))
+			// Ensure checkpoint service has MQTT client reference
+			if ln.Network.Mqtt != nil {
+				ln.Network.checkpointService.SetMQTTClient(ln.Network.Mqtt)
+			}
 		}
 	}
 
-	// Wait for discovery
-	t.Log("🌐 Waiting for peer discovery...")
-	waitForAllMQTTConnected(t, naras, 15*time.Second)
-	waitForFullDiscovery(t, naras, 15*time.Second)
+	t.Log("✅ All naras started and discovered")
 
-	// Add observation data with varying uptimes
+	// Add observation data - all naras observe the proposer with consistent values
 	proposer := naras[0]
-	t.Log("📝 Adding observation data with different uptimes...")
-	for i, observer := range naras {
+	t.Log("📝 Adding observation data...")
+
+	proposerStartTime := time.Now().Unix() - 86400 // Proposer started 1 day ago
+	proposerRestarts := int64(5)
+
+	// Every nara observes the proposer with the same values
+	for _, observer := range naras {
+		if observer.Me.Name == proposer.Me.Name {
+			continue // Skip self-observation
+		}
+
+		// Add restart observation
+		restartEvent := NewRestartObservationEvent(
+			observer.Me.Name,
+			proposer.Me.Name,
+			proposerStartTime,
+			proposerRestarts,
+		)
+		observer.SyncLedger.AddEvent(restartEvent)
+
+		// Add first-seen observation
+		firstSeenEvent := NewFirstSeenObservationEvent(
+			observer.Me.Name,
+			proposer.Me.Name,
+			proposerStartTime-86400, // First seen 2 days ago
+		)
+		observer.SyncLedger.AddEvent(firstSeenEvent)
+	}
+
+	// Give proposer uptime data about each voter (for sorting by uptime when selecting top 10)
+	for i, voter := range naras {
+		if voter.Me.Name == proposer.Me.Name {
+			continue
+		}
 		// Give each nara different uptime (higher index = more uptime)
 		uptimeSeconds := int64((i + 1) * 86400) // 1 day, 2 days, ... 15 days
 		startTime := time.Now().Unix() - uptimeSeconds
 
-		restartEvent := NewRestartObservationEvent(
-			observer.Me.Name,
-			proposer.Me.Name,
-			startTime,
-			5,
-		)
-		observer.SyncLedger.AddEvent(restartEvent)
-
-		firstSeenEvent := NewFirstSeenObservationEvent(
-			observer.Me.Name,
-			proposer.Me.Name,
-			startTime-86400,
-		)
-		observer.SyncLedger.AddEvent(firstSeenEvent)
-
-		// Also add uptime data for the voter themselves
-		// so the proposer can look up their uptime
 		statusEvent := NewStatusChangeObservationEvent(
 			proposer.Me.Name,
-			observer.Me.Name,
+			voter.Me.Name,
 			"ONLINE",
 		)
 		statusEvent.Timestamp = startTime * 1e9
@@ -491,34 +459,31 @@ func TestIntegration_CheckpointTop10Voters(t *testing.T) {
 	t.Logf("📤 %s proposing checkpoint...", proposer.Me.Name)
 	proposer.Network.checkpointService.ProposeCheckpoint()
 
-	// Wait for finalization
-	time.Sleep(5 * time.Second)
+	// Wait for checkpoint to be finalized
+	t.Log("⏳ Waiting for checkpoint finalization...")
+	checkpoint := waitForCheckpoint(t, proposer.SyncLedger, proposer.Me.Name, 10*time.Second)
 
-	checkpoint := proposer.SyncLedger.GetCheckpoint(proposer.Me.Name)
-
-	// Cleanup
-	for _, ln := range naras {
-		ln.Network.disconnectMQTT()
+	// Check if checkpoint was created - this MUST succeed
+	if checkpoint == nil {
+		t.Fatal("❌ No checkpoint found in proposer's ledger - consensus failed")
 	}
-	time.Sleep(500 * time.Millisecond)
 
-	t.Log("")
-	t.Log("═══════════════════════════════════════")
-	if checkpoint != nil {
-		voterCount := len(checkpoint.VoterIDs)
-		t.Logf("📊 Checkpoint has %d voters", voterCount)
+	t.Logf("✅ Checkpoint found in proposer's ledger")
+	t.Logf("   Subject: %s", checkpoint.Subject)
+	t.Logf("   Voters: %d", len(checkpoint.VoterIDs))
 
-		if voterCount <= MaxCheckpointSignatures {
-			t.Log("🎉 TOP 10 VOTERS TEST PASSED")
-			t.Logf("   • Voters limited to %d (max: %d)", voterCount, MaxCheckpointSignatures)
-			t.Logf("   • VoterIDs: %v", checkpoint.VoterIDs)
-		} else {
-			t.Errorf("❌ Too many voters: %d (max should be %d)", voterCount, MaxCheckpointSignatures)
-		}
-	} else {
-		t.Log("⚠️  No checkpoint created")
+	// Verify we got enough voters but not more than max
+	if len(checkpoint.VoterIDs) < MinVotersRequired {
+		t.Fatalf("❌ Insufficient voters: got %d, need %d", len(checkpoint.VoterIDs), MinVotersRequired)
 	}
-	t.Log("═══════════════════════════════════════")
+
+	if len(checkpoint.VoterIDs) > MaxCheckpointSignatures {
+		t.Fatalf("❌ Too many voters: got %d, max should be %d", len(checkpoint.VoterIDs), MaxCheckpointSignatures)
+	}
+
+	t.Log("🎉 TOP 10 VOTERS TEST PASSED")
+	t.Logf("   • Voters limited to %d (max: %d)", len(checkpoint.VoterIDs), MaxCheckpointSignatures)
+	t.Logf("   • VoterIDs: %v", checkpoint.VoterIDs)
 }
 
 func min(a, b int) int {

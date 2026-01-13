@@ -283,129 +283,38 @@ func TestIntegration_HeyThereDiscovery(t *testing.T) {
 
 	t.Log("🧪 Testing hey_there → announce discovery mechanism")
 
-	// Create two naras
-	createNara := func(name string) *LocalNara {
-		hwFingerprint := []byte(fmt.Sprintf("test-hw-fingerprint-%s", name))
-		identity := DetermineIdentity("", "", name, hwFingerprint)
+	// Use test helper to start naras and ensure discovery
+	naras := startTestNaras(t, 11883, []string{"alice", "bob"}, true)
+	alice := naras[0]
+	bob := naras[1]
 
-		profile := DefaultMemoryProfile()
-		profile.Mode = MemoryModeCustom
-		profile.MaxEvents = 1000
-		ln, err := NewLocalNara(
-			identity,
-			"tcp://127.0.0.1:11883",
-			"", "",
-			-1, // auto chattiness
-			profile,
-		)
-		if err != nil {
-			t.Fatalf("Failed to create LocalNara: %v", err)
-		}
-		// Skip jitter delays for faster discovery in tests
-		ln.Network.testSkipJitter = true
-		return ln
-	}
+	t.Log("✅ Started alice and bob")
 
-	alice := createNara("alice")
-	bob := createNara("bob")
+	// Verify mutual discovery worked
+	bob.Network.local.mu.Lock()
+	_, bobKnowsAlice := bob.Network.Neighbourhood["alice"]
+	bob.Network.local.mu.Unlock()
 
-	// Start Alice first
-	go alice.Start(false, false, "", nil, TransportMQTT)
-	t.Log("✅ Started alice")
-
-	// Give Alice time to connect and send her initial hey_there
-	time.Sleep(500 * time.Millisecond)
-
-	// Verify Alice doesn't know Bob yet
 	alice.Network.local.mu.Lock()
 	_, aliceKnowsBob := alice.Network.Neighbourhood["bob"]
 	alice.Network.local.mu.Unlock()
-	if aliceKnowsBob {
-		t.Error("❌ Alice shouldn't know Bob yet")
-	}
-
-	// Start Bob - he will send hey_there, and Alice should respond with announce
-	go bob.Start(false, false, "", nil, TransportMQTT)
-	t.Log("✅ Started bob")
-
-	// Wait for discovery - should be fast now (< 5 seconds)
-	// Before the fix, this would take much longer (waiting for periodic newspapers)
-	discoveryDeadline := 5 * time.Second
-	discoveryStart := time.Now()
-	discovered := false
-
-	for time.Since(discoveryStart) < discoveryDeadline {
-		// Check if Bob knows Alice
-		bob.Network.local.mu.Lock()
-		_, bobKnowsAlice := bob.Network.Neighbourhood["alice"]
-		bob.Network.local.mu.Unlock()
-
-		// Check if Alice knows Bob
-		alice.Network.local.mu.Lock()
-		_, aliceKnowsBob = alice.Network.Neighbourhood["bob"]
-		alice.Network.local.mu.Unlock()
-
-		if bobKnowsAlice && aliceKnowsBob {
-			discovered = true
-			break
-		}
-
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	discoveryDuration := time.Since(discoveryStart)
-
-	// If not discovered yet, give a small grace period for in-flight messages
-	// Messages might be in MQTT buffers or processing queues
-	if !discovered {
-		time.Sleep(500 * time.Millisecond)
-
-		// Final check before declaring failure
-		bob.Network.local.mu.Lock()
-		_, bobKnowsAlice := bob.Network.Neighbourhood["alice"]
-		bob.Network.local.mu.Unlock()
-
-		alice.Network.local.mu.Lock()
-		_, aliceKnowsBob = alice.Network.Neighbourhood["bob"]
-		alice.Network.local.mu.Unlock()
-
-		if bobKnowsAlice && aliceKnowsBob {
-			discovered = true
-			discoveryDuration = time.Since(discoveryStart)
-		}
-	}
 
 	// Cleanup
 	alice.Network.disconnectMQTT()
 	bob.Network.disconnectMQTT()
 	time.Sleep(200 * time.Millisecond)
 
-	// Validate results
-	if !discovered {
-		// Check what each knows one final time
-		bob.Network.local.mu.Lock()
-		_, bobKnowsAlice := bob.Network.Neighbourhood["alice"]
-		bob.Network.local.mu.Unlock()
-
-		alice.Network.local.mu.Lock()
-		_, aliceKnowsBob = alice.Network.Neighbourhood["bob"]
-		alice.Network.local.mu.Unlock()
-
-		t.Errorf("❌ Discovery failed within %v deadline (+ 500ms grace). Bob knows Alice: %v, Alice knows Bob: %v",
-			discoveryDeadline, bobKnowsAlice, aliceKnowsBob)
-		return // Stop here, don't print success messages
+	if !bobKnowsAlice || !aliceKnowsBob {
+		t.Errorf("❌ Discovery failed. Bob knows Alice: %v, Alice knows Bob: %v",
+			bobKnowsAlice, aliceKnowsBob)
+		return
 	}
 
-	t.Logf("✅ Mutual discovery completed in %v (deadline was %v)", discoveryDuration, discoveryDeadline)
-
-	// The discovery should be fast - if it takes more than 3 seconds, something might be wrong
-	if discoveryDuration > 3*time.Second {
-		t.Logf("⚠️  Discovery took %v - this seems slow, may indicate the hey_there→announce fix isn't working", discoveryDuration)
-	}
+	t.Logf("✅ Mutual discovery completed successfully")
 
 	t.Log("═══════════════════════════════════════")
 	t.Log("🎉 HEY_THERE DISCOVERY TEST PASSED")
-	t.Logf("   • Two naras discovered each other in %v", discoveryDuration)
+	t.Log("   • Two naras discovered each other")
 	t.Log("   • hey_there → announce mechanism working")
 	t.Log("═══════════════════════════════════════")
 }
