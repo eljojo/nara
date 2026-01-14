@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -42,6 +43,28 @@ func ConnectToMesh(ctx context.Context, config MeshConnectionConfig) (*tsnet.Ser
 	}
 
 	return server, server.HTTPClient(), nil
+}
+
+// NewMeshHTTPClient creates a properly configured HTTP client for mesh communication.
+// Uses aggressive timeouts for fast failure when peers are offline:
+// - 5s connection timeout (fails fast on down peers)
+// - 5s default request timeout (can be overridden per-request with context)
+// - Connection pooling for efficiency
+func NewMeshHTTPClient(server *tsnet.Server) *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				// 5s connection timeout for fast failure on down peers
+				dialCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				defer cancel()
+				return server.Dial(dialCtx, network, addr)
+			},
+			MaxIdleConns:        100, // used to be 200!
+			MaxIdleConnsPerHost: 20,
+			IdleConnTimeout:     90 * time.Second,
+		},
+		Timeout: 5 * time.Second, // Default request timeout (override per-request if needed)
+	}
 }
 
 // MeshClient handles authenticated HTTP communication over the Tailscale mesh.

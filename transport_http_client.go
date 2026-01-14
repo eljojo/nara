@@ -100,23 +100,19 @@ func (network *Network) getMeshHTTPClient() *http.Client {
 	return network.meshHTTPClient
 }
 
-// initMeshHTTPClients initializes shared mesh HTTP clients and transport.
+// initMeshHTTPClients initializes shared mesh HTTP clients using centralized config.
 func (network *Network) initMeshHTTPClients(tsnetServer *tsnet.Server) {
 	if tsnetServer == nil {
 		return
 	}
-	if network.meshHTTPTransport == nil {
-		network.meshHTTPTransport = &http.Transport{
-			DialContext:         tsnetServer.Dial,
-			MaxIdleConns:        200,
-			MaxIdleConnsPerHost: 20,
-			IdleConnTimeout:     30 * time.Second,
-		}
-	}
 	if network.meshHTTPClient == nil {
-		network.meshHTTPClient = &http.Client{
-			Transport: network.meshHTTPTransport,
-			Timeout:   5 * time.Second,
+		// Use centralized mesh HTTP client from mesh_client.go
+		// Provides consistent timeout behavior (5s connection, 5s request) across nara app and backup tool
+		network.meshHTTPClient = NewMeshHTTPClient(tsnetServer)
+
+		// Extract transport for reuse elsewhere if needed
+		if transport, ok := network.meshHTTPClient.Transport.(*http.Transport); ok {
+			network.meshHTTPTransport = transport
 		}
 	}
 }
