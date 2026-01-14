@@ -102,7 +102,9 @@ func (network *Network) httpCloutHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }
 
 // Recent social events
@@ -136,7 +138,9 @@ func (network *Network) httpRecentEventsHandler(w http.ResponseWriter, r *http.R
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }
 
 // Tease counts - objective count of teases per actor (no personality influence)
@@ -172,7 +176,9 @@ func (network *Network) httpTeaseCountsHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }
 
 // World Journey HTTP handlers
@@ -204,10 +210,12 @@ func (network *Network) httpWorldRelayHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"from":    network.meName(),
-	})
+	}); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }
 
 // POST /world/start - Start a new world journey
@@ -242,11 +250,13 @@ func (network *Network) httpWorldStartHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"id":      wm.ID,
 		"message": wm.OriginalMessage,
-	})
+	}); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }
 
 // GET /world/journeys - Get completed world journeys
@@ -292,10 +302,12 @@ func (network *Network) httpWorldJourneysHandler(w http.ResponseWriter, r *http.
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"journeys": response,
 		"server":   network.meName(),
-	})
+	}); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }
 
 // GET /api/stash/status - Get current stash status, confidants, and metrics
@@ -309,7 +321,9 @@ func (network *Network) httpStashStatusHandler(w http.ResponseWriter, r *http.Re
 
 	if network.stashService == nil {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		json.NewEncoder(w).Encode(response)
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			logrus.WithError(err).Warn("Failed to encode response")
+		}
 		return
 	}
 
@@ -317,7 +331,9 @@ func (network *Network) httpStashStatusHandler(w http.ResponseWriter, r *http.Re
 	currentStash := network.stashService.GetCurrentStash()
 	if currentStash != nil {
 		var dataMap map[string]interface{}
-		json.Unmarshal(currentStash.Data, &dataMap)
+		if err := json.Unmarshal(currentStash.Data, &dataMap); err != nil {
+			logrus.WithError(err).Warn("Failed to unmarshal stash data")
+		}
 		response["has_stash"] = true
 		response["my_stash"] = map[string]interface{}{
 			"timestamp": currentStash.Timestamp,
@@ -347,7 +363,9 @@ func (network *Network) httpStashStatusHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }
 
 // POST /api/stash/update - Update my stash with new JSON data
@@ -382,10 +400,12 @@ func (network *Network) httpStashUpdateHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"message": "Stash updated and distributing to confidants",
-	})
+	}); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }
 
 // POST /api/stash/recover - Trigger manual stash recovery
@@ -408,10 +428,12 @@ func (network *Network) httpStashRecoverHandler(w http.ResponseWriter, r *http.R
 	}()
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"message": "Stash recovery initiated from confidants",
-	})
+	}); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }
 
 // GET /api/stash/confidants - List all confidants with details
@@ -442,9 +464,11 @@ func (network *Network) httpStashConfidantsHandler(w http.ResponseWriter, r *htt
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"confidants": confidants,
-	})
+	}); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }
 
 // GET /network/map - All known nodes with coordinates for visualization
@@ -498,7 +522,9 @@ func (network *Network) httpNetworkMapHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }
 
 // httpProximityHandler returns this nara's barrio information
@@ -523,5 +549,7 @@ func (network *Network) httpProximityHandler(w http.ResponseWriter, r *http.Requ
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }

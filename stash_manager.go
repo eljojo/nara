@@ -17,7 +17,6 @@ type StashManager struct {
 	recoveredStash    *StashData
 	currentTimestamp  int64
 	hasRecoveredStash bool
-	shouldStartFresh  bool
 	mu                sync.RWMutex
 }
 

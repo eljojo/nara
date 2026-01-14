@@ -55,11 +55,11 @@ func (b *Buzz) decrease(howMuch int) {
 	}
 }
 
-func (b Buzz) getLocal() int {
+func (b *Buzz) getLocal() int {
 	return b.count
 }
 
-func (network Network) getNetworkAverageBuzz() int {
+func (network *Network) getNetworkAverageBuzz() int {
 	sum := 0
 	count := 0
 	network.local.mu.Lock()
@@ -76,7 +76,7 @@ func (network Network) getNetworkAverageBuzz() int {
 	return sum / count
 }
 
-func (network Network) getHighestBuzz() int {
+func (network *Network) getHighestBuzz() int {
 	highest := network.local.Me.Status.Buzz
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
@@ -91,7 +91,7 @@ func (network Network) getHighestBuzz() int {
 	return highest
 }
 
-func (n Network) weightedBuzz() int {
+func (n *Network) weightedBuzz() int {
 	sum := 0
 	sum = sum + int(float64(n.Buzz.getLocal())*0.5)
 	sum = sum + int(float64(n.getNetworkAverageBuzz())*0.2)

@@ -13,7 +13,6 @@ import (
 var (
 	stashHW1 = hashBytes([]byte("stash-test-hw-1"))
 	stashHW2 = hashBytes([]byte("stash-test-hw-2"))
-	stashHW3 = hashBytes([]byte("stash-test-hw-3"))
 )
 
 // Helper function to create StashData with test payload
@@ -218,7 +217,9 @@ func TestStashDataTimestampPreserved(t *testing.T) {
 	decrypted, _ := encKeypair.DecryptForSelf(nonce, ciphertext)
 
 	parsed := &StashData{}
-	parsed.Unmarshal(decrypted)
+	if err := parsed.Unmarshal(decrypted); err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
 
 	if parsed.Timestamp != originalTimestamp {
 		t.Errorf("Timestamp not preserved: expected %d, got %d", originalTimestamp, parsed.Timestamp)
@@ -707,7 +708,9 @@ func TestBootstrapMultipleResponses(t *testing.T) {
 	close(responses)
 
 	// Process - should pick newest
-	manager.ProcessResponses(responses)
+	if err := manager.ProcessResponses(responses); err != nil {
+		t.Fatalf("Failed to process responses: %v", err)
+	}
 
 	// The recovered data should be the newer one
 	recoveredTimestamp := manager.GetRecoveredTimestamp()
@@ -737,7 +740,9 @@ func TestBootstrapStaleStash(t *testing.T) {
 	close(responses)
 
 	// Process - should reject stale
-	manager.ProcessResponses(responses)
+	if err := manager.ProcessResponses(responses); err != nil {
+		t.Fatalf("Failed to process responses: %v", err)
+	}
 
 	// Should NOT have updated with stale data
 	if manager.GetRecoveredTimestamp() == now-3600 {
@@ -939,7 +944,9 @@ func TestCloutRewardForStoring(t *testing.T) {
 	}
 
 	// Process events before querying
-	cloutProjection.RunToEnd(context.Background())
+	if err := cloutProjection.RunToEnd(context.Background()); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	// Bob should gain clout
 	clout := cloutProjection.DeriveClout("observer-soul", personality)
@@ -1150,12 +1157,14 @@ func TestConcurrentStashRequests(t *testing.T) {
 
 	storeMsg := &StashStore{From: "alice", Payload: *payload}
 	storeMsg.Sign(aliceKeypair)
-	confidantStore.HandleStashStore(storeMsg, func(name string) []byte {
+	if err := confidantStore.HandleStashStore(storeMsg, func(name string) []byte {
 		if name == "alice" {
 			return aliceKeypair.PublicKey
 		}
 		return nil
-	})
+	}); err != nil {
+		t.Fatalf("Failed to handle stash store: %v", err)
+	}
 
 	// Simulate concurrent requests
 	results := make(chan *StashResponse, 10)
@@ -1226,7 +1235,9 @@ func TestStashTimestampConflictResolution(t *testing.T) {
 	close(responses)
 
 	manager := NewStashManager("alice", aliceKeypair, 2)
-	manager.ProcessResponses(responses)
+	if err := manager.ProcessResponses(responses); err != nil {
+		t.Fatalf("Failed to process responses: %v", err)
+	}
 
 	// Should have picked carol's (newest)
 	recoveredTimestamp := manager.GetRecoveredTimestamp()

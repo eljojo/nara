@@ -220,12 +220,12 @@ func (ln *LocalNara) isBooting() bool {
 	return ln.uptime() < 120
 }
 
-func (nara *Nara) setValuesFrom(other Nara) {
+func (nara *Nara) setValuesFrom(other *Nara) {
 	nara.mu.Lock() // this protects Status
 	defer nara.mu.Unlock()
 
 	if other.Name == "" || other.Name != nara.Name {
-		logrus.Printf("warning: fed incorrect Nara to setValuesFrom: %v", other)
+		logrus.Printf("warning: fed incorrect Nara to setValuesFrom: %s (expected %s)", other.Name, nara.Name)
 		return
 	}
 

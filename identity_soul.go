@@ -78,7 +78,9 @@ func NativeSoulCustom(hwFingerprint []byte, name string) SoulV1 {
 	hkdfReader := hkdf.New(sha256.New, hwFingerprint, []byte("nara:soul:v2"), []byte("seed:custom:"+name))
 
 	var seed [SeedLen]byte
-	io.ReadFull(hkdfReader, seed[:])
+	if _, err := io.ReadFull(hkdfReader, seed[:]); err != nil {
+		panic("Failed to derive seed from HKDF: " + err.Error())
+	}
 
 	tag := ComputeTag(seed, name)
 
@@ -91,7 +93,9 @@ func NativeSoulGenerated(hwFingerprint []byte) SoulV1 {
 	hkdfReader := hkdf.New(sha256.New, hwFingerprint, []byte("nara:soul:v2"), []byte("seed:generated"))
 
 	var seed [SeedLen]byte
-	io.ReadFull(hkdfReader, seed[:])
+	if _, err := io.ReadFull(hkdfReader, seed[:]); err != nil {
+		panic("Failed to derive seed from HKDF: " + err.Error())
+	}
 
 	// Compute the name this seed generates
 	name := GenerateName(hex.EncodeToString(seed[:]))

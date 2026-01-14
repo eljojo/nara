@@ -1,22 +1,13 @@
 package nara
 
 import (
-	"hash/fnv"
 	"math"
-	"math/rand"
 	"testing"
 )
 
-// hashString converts a string to an int64 for deterministic seeding
-func hashString(s string) int64 {
-	h := fnv.New64a()
-	h.Write([]byte(s))
-	return int64(h.Sum64())
-}
-
 func TestNetworkCoordinate_NewCoordinate(t *testing.T) {
 	t.Parallel()
-	rand.Seed(hashString(t.Name()))
+	// rand.Seed is no longer needed in Go 1.20+; global rand is automatically seeded
 	coord := NewNetworkCoordinate()
 
 	// Should start with small random position
@@ -178,7 +169,7 @@ func TestNetworkCoordinate_Clone(t *testing.T) {
 
 func TestVivaldi_Convergence(t *testing.T) {
 	t.Parallel()
-	rand.Seed(hashString(t.Name()))
+	// rand.Seed is no longer needed in Go 1.20+; global rand is automatically seeded
 	// Simulate a 4-node network with known latencies
 	// A -- 10ms -- B
 	// |           |
@@ -187,9 +178,6 @@ func TestVivaldi_Convergence(t *testing.T) {
 	// C -- 10ms -- D
 	//
 	// Diagonal A-D and B-C should be ~14ms (sqrt(2) * 10)
-
-	// Seed rand for deterministic test (safe for parallel execution)
-	rand.Seed(hashString(t.Name()))
 
 	config := DefaultVivaldiConfig()
 
@@ -237,7 +225,6 @@ func TestVivaldi_Convergence(t *testing.T) {
 
 func TestVivaldi_Stability(t *testing.T) {
 	t.Parallel()
-	rand.Seed(hashString(t.Name()))
 	// After convergence, coordinates should remain stable with consistent measurements
 	config := DefaultVivaldiConfig()
 
@@ -267,7 +254,6 @@ func TestVivaldi_Stability(t *testing.T) {
 
 func TestVivaldi_WeightsByError(t *testing.T) {
 	t.Parallel()
-	rand.Seed(hashString(t.Name()))
 	config := DefaultVivaldiConfig()
 
 	// Node with high error (uncertain)
@@ -294,7 +280,6 @@ func TestVivaldi_WeightsByError(t *testing.T) {
 
 func TestDefaultVivaldiConfig(t *testing.T) {
 	t.Parallel()
-	rand.Seed(hashString(t.Name()))
 	config := DefaultVivaldiConfig()
 
 	// Verify sensible defaults
@@ -433,7 +418,6 @@ func TestNetworkCoordinate_IsValid(t *testing.T) {
 
 func TestVivaldi_HighErrorNodeMovesMore(t *testing.T) {
 	t.Parallel()
-	rand.Seed(hashString(t.Name()))
 	config := DefaultVivaldiConfig()
 
 	// Two nodes at same position but different confidence

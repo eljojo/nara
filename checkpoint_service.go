@@ -68,8 +68,7 @@ type CheckpointService struct {
 	myPendingProposalMu sync.Mutex
 
 	// Pending proposals from others that we're voting on
-	pendingProposals   map[string]*pendingProposal // keyed by "subject:proposedAt"
-	pendingProposalsMu sync.RWMutex
+	pendingProposals map[string]*pendingProposal // keyed by "subject:proposedAt"
 
 	// Last successful checkpoint time for ourselves
 	lastCheckpointTime   time.Time

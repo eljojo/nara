@@ -457,10 +457,3 @@ func TestIntegration_CheckpointTop10Voters(t *testing.T) {
 	t.Logf("   • Voters limited to %d (max: %d)", len(checkpoint.VoterIDs), MaxCheckpointSignatures)
 	t.Logf("   • VoterIDs: %v", checkpoint.VoterIDs)
 }
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

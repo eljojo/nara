@@ -61,7 +61,6 @@ func TestTeaseTrigger_PersonalityGated(t *testing.T) {
 	lowSoc := NaraPersonality{Sociability: 10, Agreeableness: 80, Chill: 90}
 
 	highSocTease := ShouldTeaseForRestarts(obs, highSoc)
-	lowSocTease := ShouldTeaseForRestarts(obs, lowSoc)
 
 	// High sociability should tease at 3/day (threshold ~1.5)
 	if !highSocTease {
@@ -71,7 +70,7 @@ func TestTeaseTrigger_PersonalityGated(t *testing.T) {
 	// Low sociability, high chill should not tease (threshold ~3.0, rate = 3.0)
 	// This is borderline, so let's make the rate lower
 	obs.Restarts = 20 // now 2/day
-	lowSocTease = ShouldTeaseForRestarts(obs, lowSoc)
+	lowSocTease := ShouldTeaseForRestarts(obs, lowSoc)
 	if lowSocTease {
 		t.Error("Low sociability, high chill should not tease for 2 restarts/day")
 	}
@@ -312,11 +311,11 @@ func TestShouldTeaseForNiceNumber(t *testing.T) {
 
 	// Should trigger for nice numbers (high probability)
 	// 69 is definitely nice
-	triggered := ShouldTeaseForNiceNumber(69, personality)
+	_ = ShouldTeaseForNiceNumber(69, personality)
 	// Can't guarantee it triggers due to randomness, but let's check it works
 
 	// Should never trigger for non-nice numbers
-	triggered = ShouldTeaseForNiceNumber(47, personality)
+	triggered := ShouldTeaseForNiceNumber(47, personality)
 	if triggered {
 		t.Error("Should not tease for non-nice number 47")
 	}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 // Default thresholds (in nanoseconds)
@@ -251,7 +253,9 @@ func (p *OnlineStatusProjection) Trigger() {
 // Primary updates come via Trigger() when events arrive; the ticker is a safety net.
 func (p *OnlineStatusProjection) RunContinuous(ctx context.Context) {
 	// Initial catch-up
-	p.RunToEnd(ctx)
+	if err := p.RunToEnd(ctx); err != nil {
+		logrus.WithError(err).Warn("Failed initial catch-up for online status projection")
+	}
 
 	// Ticker is just a safety net - main updates come via triggerCh
 	// 30s is sufficient since event ingestion calls Trigger() immediately
@@ -263,9 +267,13 @@ func (p *OnlineStatusProjection) RunContinuous(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			p.RunOnce()
+			if _, err := p.RunOnce(); err != nil {
+				logrus.WithError(err).Warn("Failed to run online status projection (ticker)")
+			}
 		case <-p.triggerCh:
-			p.RunOnce()
+			if _, err := p.RunOnce(); err != nil {
+				logrus.WithError(err).Warn("Failed to run online status projection (trigger)")
+			}
 		}
 	}
 }

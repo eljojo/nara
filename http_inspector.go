@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 // Inspector API Endpoints
@@ -141,7 +143,9 @@ func (ln *LocalNara) inspectorEventsHandler(w http.ResponseWriter, r *http.Reque
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }
 
 // getEventUIFormat extracts UIFormat from event payload
@@ -253,7 +257,9 @@ func (ln *LocalNara) inspectorCheckpointsHandler(w http.ResponseWriter, r *http.
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }
 
 // inspectorCheckpointDetailHandler - GET /api/inspector/checkpoint/{subject}
@@ -374,7 +380,9 @@ func (ln *LocalNara) inspectorCheckpointDetailHandler(w http.ResponseWriter, r *
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }
 
 // inspectorProjectionsHandler - GET /api/inspector/projections
@@ -456,7 +464,9 @@ func (ln *LocalNara) inspectorProjectionsHandler(w http.ResponseWriter, r *http.
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }
 
 // inspectorProjectionDetailHandler - GET /api/inspector/projection/{type}/{subject}
@@ -622,7 +632,9 @@ func (ln *LocalNara) inspectorProjectionDetailHandler(w http.ResponseWriter, r *
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }
 
 // inspectorEventDetailHandler - GET /api/inspector/event/{id}
@@ -741,7 +753,9 @@ func (ln *LocalNara) inspectorEventDetailHandler(w http.ResponseWriter, r *http.
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }
 
 // UptimePeriod represents a period of time when a nara was online or offline
@@ -955,5 +969,7 @@ func (ln *LocalNara) inspectorUptimeHandler(w http.ResponseWriter, r *http.Reque
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }

@@ -3,13 +3,12 @@ package nara
 import (
 	"crypto/sha256"
 	"encoding/binary"
-	"io/ioutil"
 	"math/rand"
 	"os"
 	"strings"
 )
 
-func (ln LocalNara) Flair() string {
+func (ln *LocalNara) Flair() string {
 	awards := ln.Me.Flair(ln.Soul, ln.isRaspberryPi, ln.isNixOs, ln.isKubernetes)
 
 	// Network-dependent flair (only for local nara)
@@ -56,7 +55,7 @@ func (ln LocalNara) Flair() string {
 	return awards
 }
 
-func (nara Nara) Flair(soul string, isRaspberryPi bool, isNixOs bool, isKubernetes bool) string {
+func (nara *Nara) Flair(soul string, isRaspberryPi bool, isNixOs bool, isKubernetes bool) string {
 	awards := ""
 
 	if nara.IsInHarmony(soul) {
@@ -96,7 +95,7 @@ func (nara Nara) Flair(soul string, isRaspberryPi bool, isNixOs bool, isKubernet
 	return awards
 }
 
-func (nara Nara) IsInHarmony(soulStr string) bool {
+func (nara *Nara) IsInHarmony(soulStr string) bool {
 	if soulStr == "" {
 		return false
 	}
@@ -109,13 +108,13 @@ func (nara Nara) IsInHarmony(soulStr string) bool {
 	return ValidateBond(soul, nara.Name)
 }
 
-func (ln LocalNara) LicensePlate() string {
+func (ln *LocalNara) LicensePlate() string {
 	barrio := ln.getMeObservation().ClusterEmoji
 	return barrio
 }
 
 func isRaspberryPi() bool {
-	content, err := ioutil.ReadFile("/proc/cpuinfo")
+	content, err := os.ReadFile("/proc/cpuinfo")
 	if err != nil {
 		return false
 	}

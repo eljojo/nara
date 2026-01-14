@@ -54,7 +54,7 @@ func (localNara *LocalNara) getObservationLocked(name string) NaraObservation {
 	// this is called when localNara.mu is already held
 	// but we still need to lock localNara.Me.mu
 	localNara.Me.mu.Lock()
-	observation, _ := localNara.Me.Status.Observations[name]
+	observation := localNara.Me.Status.Observations[name]
 	localNara.Me.mu.Unlock()
 	return observation
 }
@@ -69,7 +69,7 @@ func (localNara *LocalNara) setObservation(name string, observation NaraObservat
 // getObservation returns the observation about the named nara.
 func (nara *Nara) getObservation(name string) NaraObservation {
 	nara.mu.Lock()
-	observation, _ := nara.Status.Observations[name]
+	observation := nara.Status.Observations[name]
 	nara.mu.Unlock()
 	return observation
 }

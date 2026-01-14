@@ -101,10 +101,8 @@ func (network *Network) pruneInactiveNaras() {
 				shouldPrune = true
 				prunedEstablished++
 			}
-		} else {
 			// Veteran (30d+): keep indefinitely, they're part of the community
 			// Even if they're offline for months, we remember them (bart, r2d2, lisa, etc.)
-			// (already counted in veterans counter above)
 		}
 
 		if shouldPrune {
@@ -157,16 +155,6 @@ func (network *Network) pruneInactiveNaras() {
 	} else {
 		network.local.mu.Unlock()
 	}
-}
-
-// contains checks if a string is in a slice
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
 }
 
 // socialMaintenance periodically cleans up social data and prunes inactive naras.

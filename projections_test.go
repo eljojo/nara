@@ -197,7 +197,9 @@ func TestOnlineStatusProjectionResetsOnPrune(t *testing.T) {
 	})
 
 	// Process events
-	projection.RunToEnd(ctx)
+	if err := projection.RunToEnd(ctx); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	// Verify initial state
 	if status := projection.GetStatus("alice"); status != "ONLINE" {
@@ -222,7 +224,9 @@ func TestOnlineStatusProjectionResetsOnPrune(t *testing.T) {
 	}
 
 	// Process after pruning - projection should reset and rebuild state
-	projection.RunToEnd(ctx)
+	if err := projection.RunToEnd(ctx); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	// State should still be correct after reset and reprocess
 	// (alice's hey-there should survive pruning as it's lower priority to prune)
@@ -255,7 +259,9 @@ func TestOnlineStatusHandlesOutOfOrderEvents(t *testing.T) {
 		},
 	})
 
-	projection.RunToEnd(ctx)
+	if err := projection.RunToEnd(ctx); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 	if status := projection.GetStatus("alice"); status != "ONLINE" {
 		t.Errorf("Expected alice ONLINE, got %s", status)
 	}
@@ -271,7 +277,9 @@ func TestOnlineStatusHandlesOutOfOrderEvents(t *testing.T) {
 		},
 	})
 
-	projection.RunToEnd(ctx)
+	if err := projection.RunToEnd(ctx); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	// Alice should STILL be ONLINE because hey-there (T+1000) is newer than chau (T+500)
 	// The projection uses timestamps for ordering, not arrival order
@@ -289,7 +297,9 @@ func TestOnlineStatusHandlesOutOfOrderEvents(t *testing.T) {
 		},
 	})
 
-	projection.RunToEnd(ctx)
+	if err := projection.RunToEnd(ctx); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	// NOW alice should be OFFLINE because this chau is the newest
 	if status := projection.GetStatus("alice"); status != "OFFLINE" {
@@ -333,7 +343,9 @@ func TestOnlineStatusChauThenOldHeyThereViaZine(t *testing.T) {
 		},
 	})
 
-	projection.RunToEnd(ctx)
+	if err := projection.RunToEnd(ctx); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	// nara1 should be OFFLINE
 	if status := projection.GetStatus("nara1"); status != "OFFLINE" {
@@ -353,7 +365,9 @@ func TestOnlineStatusChauThenOldHeyThereViaZine(t *testing.T) {
 		},
 	})
 
-	projection.RunToEnd(ctx)
+	if err := projection.RunToEnd(ctx); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	// nara1 should STILL be OFFLINE because the chau (T=3000) is newer than hey_there (T=1000)
 	if status := projection.GetStatus("nara1"); status != "OFFLINE" {
@@ -385,7 +399,9 @@ func TestOnlineStatusChauThenOldHeyThereViaZine(t *testing.T) {
 		},
 	})
 
-	projection.RunToEnd(ctx)
+	if err := projection.RunToEnd(ctx); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	// NOW nara1 should be ONLINE
 	if status := projection.GetStatus("nara1"); status != "ONLINE" {
@@ -457,7 +473,9 @@ func TestOnlineStatusOwnHeyThereInLedger(t *testing.T) {
 	projection := NewOnlineStatusProjection(ledger)
 
 	// Initial catchup
-	projection.RunToEnd(context.Background())
+	if err := projection.RunToEnd(context.Background()); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	// Simulate what HeyThere() does: create and "send" a hey_there event
 	myName := "test-nara"
@@ -475,7 +493,9 @@ func TestOnlineStatusOwnHeyThereInLedger(t *testing.T) {
 	ledger.AddEvent(heyThereEvent)
 
 	// The fix also triggers the projection immediately
-	projection.RunOnce()
+	if _, err := projection.RunOnce(); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	// Check our own status - should be ONLINE
 	status := projection.GetStatus(myName)
@@ -489,13 +509,17 @@ func TestOnlineStatusWithoutOwnHeyThere(t *testing.T) {
 	// This test documents what happens WITHOUT the fix (bug behavior)
 	ledger := NewSyncLedger(100)
 	projection := NewOnlineStatusProjection(ledger)
-	projection.RunToEnd(context.Background())
+	if err := projection.RunToEnd(context.Background()); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	myName := "test-nara"
 	// Simulate OLD bug: hey_there was sent to MQTT but NOT added to local ledger
 	// (no event added)
 
-	projection.RunOnce()
+	if _, err := projection.RunOnce(); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	// Without any events, projection returns "" (unknown)
 	status := projection.GetStatus(myName)
@@ -518,7 +542,9 @@ func TestOnlineStatusAfterResetWithMixedTimestamps(t *testing.T) {
 	// Use a larger ledger so events survive pruning
 	ledger := NewSyncLedger(20)
 	projection := NewOnlineStatusProjection(ledger)
-	projection.RunToEnd(context.Background())
+	if err := projection.RunToEnd(context.Background()); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	now := time.Now().UnixNano()
 	tenMinutesAgo := now - int64(10*time.Minute)
@@ -583,7 +609,9 @@ func TestOnlineStatusAfterResetWithMixedTimestamps(t *testing.T) {
 	}
 
 	// Process all events so far
-	projection.RunOnce()
+	if _, err := projection.RunOnce(); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	// Lisa should be ONLINE (the recent seen event should win over the old hey_there)
 	status := projection.GetStatus("lisa")
@@ -605,7 +633,9 @@ func TestOnlineStatusAfterResetWithMixedTimestamps(t *testing.T) {
 	}
 
 	// This should trigger a reset because version changed due to pruning
-	projection.RunOnce()
+	if _, err := projection.RunOnce(); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	// After reset, the projection reprocesses all remaining events.
 	// THE BUG: If events are processed in INSERTION order, the old hey_there
@@ -656,7 +686,9 @@ func TestOnlineStatusRaceConditionWithAsyncTrigger(t *testing.T) {
 	ledger.AddEvent(oldChauEvent)
 
 	// Process initial events
-	projection.RunOnce()
+	if _, err := projection.RunOnce(); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	// Verify bob is OFFLINE
 	status := projection.GetStatus("bob")
@@ -698,7 +730,9 @@ func TestOnlineStatusRaceConditionWithAsyncTrigger(t *testing.T) {
 
 	// FIX: Call RunOnce() synchronously before reading status
 	// This is what the observation maintenance loop should do.
-	projection.RunOnce()
+	if _, err := projection.RunOnce(); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	// Now status should be correct (ONLINE from the recent hey_there)
 	correctStatus := projection.GetStatus("bob")
@@ -748,7 +782,9 @@ func TestOnlineStatusRaceWithVersionChange(t *testing.T) {
 	ledger.AddEvent(charlieEvent)
 
 	// Process all events
-	projection.RunOnce()
+	if _, err := projection.RunOnce(); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	// Verify charlie is ONLINE
 	status := projection.GetStatus("charlie")
@@ -791,7 +827,9 @@ func TestOnlineStatusRaceWithVersionChange(t *testing.T) {
 	// The key issue is the projection doesn't know the ledger changed.
 
 	// FIX: Call RunOnce() which checks version and resets if needed
-	projection.RunOnce()
+	if _, err := projection.RunOnce(); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	// After RunOnce(), if charlie's event survived pruning, status is ONLINE
 	// If it was pruned, status would be "" (unknown)
@@ -833,7 +871,9 @@ func TestOnlineStatusSocialEventsMarkActorOnline(t *testing.T) {
 	})
 
 	// Process the social event
-	projection.RunOnce()
+	if _, err := projection.RunOnce(); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	// tame-sun should be ONLINE because they just teased someone
 	status := projection.GetStatus("tame-sun")
@@ -873,7 +913,9 @@ func TestOnlineStatusPingEventsMarkBothOnline(t *testing.T) {
 	})
 
 	// Process the ping event
-	projection.RunOnce()
+	if _, err := projection.RunOnce(); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	// alice (Observer) should be ONLINE
 	aliceStatus := projection.GetStatus("alice")

@@ -223,7 +223,9 @@ func (network *Network) httpPeerQueryHandler(w http.ResponseWriter, r *http.Requ
 			nara.mu.Unlock()
 
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(response)
+			if err := json.NewEncoder(w).Encode(response); err != nil {
+				logrus.WithError(err).Warn("Failed to encode response")
+			}
 			return
 		}
 	}
@@ -240,11 +242,5 @@ func (network *Network) httpPeerQueryHandler(w http.ResponseWriter, r *http.Requ
 	}
 
 	// No one else to ask
-	http.NotFound(w, r)
-}
-
-// httpPeerResponseHandler is no longer needed with the redirect-based approach
-func (network *Network) httpPeerResponseHandler(w http.ResponseWriter, r *http.Request) {
-	// Kept for backwards compatibility, but not used
 	http.NotFound(w, r)
 }

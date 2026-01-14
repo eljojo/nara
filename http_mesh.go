@@ -64,7 +64,9 @@ func (network *Network) httpEventsSyncHandler(w http.ResponseWriter, r *http.Req
 	response := NewSignedSyncResponse(network.meName(), events, network.local.Keypair)
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }
 
 // POST /gossip/zine - Bidirectional zine exchange for P2P event gossip
@@ -133,7 +135,9 @@ func (network *Network) httpGossipZineHandler(w http.ResponseWriter, r *http.Req
 
 	// Return our zine
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(myZine)
+	if err := json.NewEncoder(w).Encode(myZine); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }
 
 // POST /dm - Receive a direct message (arbitrary SyncEvent)
@@ -199,10 +203,12 @@ func (network *Network) httpDMHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": added,
 		"from":    network.meName(),
-	})
+	}); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }
 
 // Network Coordinate HTTP handlers
@@ -222,12 +228,14 @@ func (network *Network) httpPingHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"t":          time.Now().UnixNano(),
 		"from":       network.meName(),
 		"public_key": network.local.Me.Status.PublicKey,
 		"mesh_ip":    network.local.Me.Status.MeshIP,
-	})
+	}); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }
 
 // GET /coordinates - This nara's Vivaldi coordinates
@@ -242,7 +250,9 @@ func (network *Network) httpCoordinatesHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }
 
 // Mesh Authentication for HTTP Handlers
@@ -295,7 +305,9 @@ func (network *Network) httpStashStoreHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }
 
 func (network *Network) httpStashDeleteHandler(w http.ResponseWriter, r *http.Request) {
@@ -306,7 +318,9 @@ func (network *Network) httpStashDeleteHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }
 
 func (network *Network) httpStashRetrieveHandler(w http.ResponseWriter, r *http.Request) {
@@ -324,7 +338,9 @@ func (network *Network) httpStashRetrieveHandler(w http.ResponseWriter, r *http.
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }
 
 func (network *Network) httpStashPushHandler(w http.ResponseWriter, r *http.Request) {
@@ -359,5 +375,7 @@ func (network *Network) httpStashPushHandler(w http.ResponseWriter, r *http.Requ
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }

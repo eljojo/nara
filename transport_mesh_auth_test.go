@@ -231,7 +231,9 @@ func TestMeshAuthMiddleware_SkipsPing(t *testing.T) {
 	called := false
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		called = true
-		w.Write([]byte("pong"))
+		if _, err := w.Write([]byte("pong")); err != nil {
+			t.Errorf("Failed to write response: %v", err)
+		}
 	}
 
 	wrapped := network.meshAuthMiddleware("/ping", handler)
@@ -301,7 +303,9 @@ func TestMeshAuthMiddleware_AcceptsValidAuth(t *testing.T) {
 		called = true
 		verifiedSender = r.Header.Get("X-Nara-Verified")
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"ok": true}`))
+		if _, err := w.Write([]byte(`{"ok": true}`)); err != nil {
+			t.Errorf("Failed to write response: %v", err)
+		}
 	}
 
 	wrapped := ln2.Network.meshAuthMiddleware("/events/sync", handler)

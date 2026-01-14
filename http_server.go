@@ -70,7 +70,11 @@ func (network *Network) startHttpServer(httpAddr string) error {
 		Handler: mux,
 	}
 
-	go network.httpServer.Serve(listener)
+	go func() {
+		if err := network.httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
+			logrus.WithError(err).Error("HTTP server error")
+		}
+	}()
 	return nil
 }
 
@@ -232,6 +236,10 @@ func (network *Network) startMeshHttpServer(tsnetServer interface {
 		Handler: mux,
 	}
 
-	go network.meshHttpServer.Serve(listener)
+	go func() {
+		if err := network.meshHttpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
+			logrus.WithError(err).Error("Mesh HTTP server error")
+		}
+	}()
 	return nil
 }

@@ -3,12 +3,10 @@ package main
 import (
 	"flag"
 	"fmt"
-	"math/rand"
 	_ "net/http/pprof"
 	"os"
 	"runtime/debug"
 	"strings"
-	"time"
 
 	"github.com/eljojo/nara"
 	"github.com/shirou/gopsutil/v3/host"
@@ -47,7 +45,7 @@ func deobfuscate(enc []byte) string {
 }
 
 func main() {
-	rand.Seed(time.Now().UnixNano())
+	// rand.Seed is no longer needed in Go 1.20+; random values are automatically seeded
 
 	// Check for -show-default-credentials before setting up flags
 	showCreds := hasArg("-show-default-credentials") || hasArg("--show-default-credentials")
@@ -217,10 +215,8 @@ func main() {
 	defer localNara.Network.Chau()
 
 	// sleep until shutdown
-	select {
-	case <-localNara.Network.Context().Done():
-		logrus.Info("Main loop: shutting down")
-	}
+	<-localNara.Network.Context().Done()
+	logrus.Info("Main loop: shutting down")
 }
 
 func getEnv(key, fallback string) string {

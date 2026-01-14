@@ -455,16 +455,6 @@ func testCheckpointEvent(subject string, attester string, attesterKeypair NaraKe
 	return event
 }
 
-// testCheckpointEventSimple creates a checkpoint event with default observation values
-func testCheckpointEventSimple(subject string, attester string, attesterKeypair NaraKeypair) SyncEvent {
-	observation := NaraObservation{
-		Restarts:    5,
-		TotalUptime: 3600,
-		StartTime:   time.Now().Unix() - 86400,
-	}
-	return testCheckpointEvent(subject, attester, attesterKeypair, observation)
-}
-
 // testAddCheckpointToLedger creates and adds a checkpoint event to a ledger
 func testAddCheckpointToLedger(ledger *SyncLedger, subject string, attester string, attesterKeypair NaraKeypair, observation NaraObservation) SyncEvent {
 	event := testCheckpointEvent(subject, attester, attesterKeypair, observation)

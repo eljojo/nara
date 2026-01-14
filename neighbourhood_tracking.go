@@ -5,14 +5,14 @@ package nara
 // Contains neighbourhood map access and tracking methods
 
 // getNara returns a copy of the nara with the given name, or an empty Nara if not found.
-func (network *Network) getNara(name string) Nara {
+func (network *Network) getNara(name string) *Nara {
 	network.local.mu.Lock()
 	nara, present := network.Neighbourhood[name]
 	network.local.mu.Unlock()
 	if present {
-		return *nara
+		return nara
 	}
-	return Nara{}
+	return nil
 }
 
 // importNara imports a nara into the neighbourhood.
@@ -27,7 +27,7 @@ func (network *Network) importNara(nara *Nara) {
 
 	n, present := network.Neighbourhood[nara.Name]
 	if present {
-		n.setValuesFrom(*nara)
+		n.setValuesFrom(nara)
 	} else {
 		network.Neighbourhood[nara.Name] = nara
 	}

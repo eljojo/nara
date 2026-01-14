@@ -584,35 +584,6 @@ func (ls *LogService) formatMeshSyncs(events []LogEvent) string {
 	return fmt.Sprintf("📦 caught up on %d events from %d peers", totalEvents, len(peers))
 }
 
-// formatHTTP formats HTTP request events
-func (ls *LogService) formatHTTP(events []LogEvent) string {
-	// Group by endpoint (Detail contains "METHOD /path")
-	byEndpoint := make(map[string]int)
-	for _, e := range events {
-		key := e.Detail
-		if key == "" {
-			key = "unknown"
-		}
-		byEndpoint[key]++
-	}
-
-	total := 0
-	var parts []string
-	endpoints := make([]string, 0, len(byEndpoint))
-	for endpoint := range byEndpoint {
-		endpoints = append(endpoints, endpoint)
-	}
-	sort.Strings(endpoints)
-
-	for _, endpoint := range endpoints {
-		count := byEndpoint[endpoint]
-		total += count
-		parts = append(parts, fmt.Sprintf("%d×%s", count, endpoint))
-	}
-
-	return fmt.Sprintf("🌐 handled %d requests (%s)", total, strings.Join(parts, ", "))
-}
-
 // formatHowdysForMe formats howdy-for-me events
 func (ls *LogService) formatHowdysForMe(events []LogEvent) string {
 	senders := make(map[string]bool)

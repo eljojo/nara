@@ -177,7 +177,7 @@ func TestAuraInSetValuesFrom(t *testing.T) {
 	}
 
 	// Copy values from nara1 to the representation in nara2's neighbourhood
-	nara1InNara2Ref.setValuesFrom(*ln1.Me)
+	nara1InNara2Ref.setValuesFrom(ln1.Me)
 
 	// Now it should have the aura
 	if nara1InNara2Ref.Status.Aura.Primary == "" {

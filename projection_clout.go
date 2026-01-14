@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 // SocialEventRecord stores social event data needed for clout calculation.
@@ -229,7 +231,9 @@ func (p *CloutProjection) RunOnce() (bool, error) {
 // Trigger processes new events immediately.
 // Use this when events have been added and you need updated state.
 func (p *CloutProjection) Trigger() {
-	p.projection.RunOnce()
+	if _, err := p.projection.RunOnce(); err != nil {
+		logrus.WithError(err).Warn("Failed to run clout projection")
+	}
 }
 
 // EventCount returns the number of social events stored.

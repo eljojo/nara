@@ -106,7 +106,9 @@ func (c *networkContext) IsBooting() bool {
 
 func (c *networkContext) EnsureProjectionsUpdated() {
 	if c.network.local.Projections != nil && !c.network.local.isBooting() {
-		c.network.local.Projections.OnlineStatus().RunOnce()
+		if _, err := c.network.local.Projections.OnlineStatus().RunOnce(); err != nil {
+			logrus.WithError(err).Warn("Failed to update online status projection")
+		}
 	}
 }
 

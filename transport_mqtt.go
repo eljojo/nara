@@ -218,7 +218,7 @@ func (network *Network) journeyCompleteHandler(client mqtt.Client, msg mqtt.Mess
 }
 
 func (network *Network) newspaperHandler(client mqtt.Client, msg mqtt.Message) {
-	if network.skippingEvents == true && rand.Intn(2) == 0 {
+	if network.skippingEvents && rand.Intn(2) == 0 {
 		return
 	}
 	if !strings.Contains(msg.Topic(), "nara/newspaper/") {
@@ -336,10 +336,14 @@ func (network *Network) Shutdown() {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if network.httpServer != nil {
-		network.httpServer.Shutdown(ctx)
+		if err := network.httpServer.Shutdown(ctx); err != nil {
+			logrus.WithError(err).Warn("Failed to shutdown HTTP server")
+		}
 	}
 	if network.meshHttpServer != nil {
-		network.meshHttpServer.Shutdown(ctx)
+		if err := network.meshHttpServer.Shutdown(ctx); err != nil {
+			logrus.WithError(err).Warn("Failed to shutdown mesh HTTP server")
+		}
 	}
 
 	// Give goroutines a final moment to finish their current work

@@ -239,7 +239,10 @@ func (t *MockMeshTransport) Close() error {
 func cloneWorldMessage(msg *WorldMessage) *WorldMessage {
 	data, _ := json.Marshal(msg)
 	var copy WorldMessage
-	json.Unmarshal(data, &copy)
+	if err := json.Unmarshal(data, &copy); err != nil {
+		logrus.WithError(err).Warn("Failed to clone world message")
+		return nil
+	}
 	return &copy
 }
 
@@ -488,7 +491,9 @@ func (t *TsnetMesh) Ping(targetIP string, from string, timeout time.Duration) (t
 		return 0, fmt.Errorf("ping failed: %w", err)
 	}
 	rtt := time.Since(start)
-	io.Copy(io.Discard, resp.Body)
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		logrus.WithError(err).Warn("Failed to discard response body")
+	}
 	resp.Body.Close()
 
 	if resp.StatusCode != 200 {

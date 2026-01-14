@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/sirupsen/logrus"
 )
 
 func (network *Network) httpApiJsonHandler(w http.ResponseWriter, r *http.Request) {
@@ -20,7 +22,9 @@ func (network *Network) httpApiJsonHandler(w http.ResponseWriter, r *http.Reques
 		nara.mu.Lock()
 		statusMap := make(map[string]interface{})
 		jsonStatus, _ := json.Marshal(nara.Status)
-		json.Unmarshal(jsonStatus, &statusMap)
+		if err := json.Unmarshal(jsonStatus, &statusMap); err != nil {
+			logrus.WithError(err).Warn("Failed to unmarshal status to map")
+		}
 		nara.mu.Unlock()
 		statusMap["Name"] = nara.Name
 		// Enrich with observation snapshot for convenience
@@ -39,7 +43,9 @@ func (network *Network) httpApiJsonHandler(w http.ResponseWriter, r *http.Reques
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }
 
 // httpProfileJsonHandler returns a rich profile payload for a single nara.
@@ -169,7 +175,9 @@ func (network *Network) httpProfileJsonHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(payload)
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		logrus.WithError(err).Warn("Failed to encode payload")
+	}
 }
 
 func (network *Network) httpNaraeJsonHandler(w http.ResponseWriter, r *http.Request) {
@@ -232,7 +240,9 @@ func (network *Network) httpNaraeJsonHandler(w http.ResponseWriter, r *http.Requ
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }
 
 func (network *Network) httpStatusJsonHandler(w http.ResponseWriter, r *http.Request) {
@@ -247,7 +257,9 @@ func (network *Network) httpStatusJsonHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(nara.Status)
+	if err := json.NewEncoder(w).Encode(nara.Status); err != nil {
+		logrus.WithError(err).Warn("Failed to encode nara status")
+	}
 }
 
 func (network *Network) getNarae() []*Nara {
@@ -477,5 +489,7 @@ func (network *Network) httpCheckpointsAllHandler(w http.ResponseWriter, r *http
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logrus.WithError(err).Warn("Failed to encode response")
+	}
 }

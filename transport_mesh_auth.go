@@ -283,7 +283,6 @@ type signedResponseWriter struct {
 	buf        *bytes.Buffer
 	network    *Network
 	statusCode int
-	headers    http.Header
 }
 
 func (sw *signedResponseWriter) Write(b []byte) (int, error) {
@@ -309,7 +308,9 @@ func (sw *signedResponseWriter) finalize() {
 	}
 
 	// Write body
-	sw.ResponseWriter.Write(body)
+	if _, err := sw.ResponseWriter.Write(body); err != nil {
+		logrus.WithError(err).Warn("Failed to write response body")
+	}
 }
 
 // AddMeshAuthHeaders adds authentication headers to an outgoing HTTP request

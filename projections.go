@@ -153,7 +153,6 @@ type ProjectionStore struct {
 
 	ctx    context.Context
 	cancel context.CancelFunc
-	mu     sync.RWMutex
 }
 
 // NewProjectionStore creates a new projection store for the given ledger.

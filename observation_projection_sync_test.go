@@ -32,7 +32,9 @@ func TestPingVerificationUpdatesProjectionImmediately(t *testing.T) {
 	ledger.AddEvent(oldEvent)
 
 	// Process the old event
-	projection.RunOnce()
+	if _, err := projection.RunOnce(); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	// GetStatus should return MISSING because event is >5min old
 	status := projection.GetStatus("raccoon")
@@ -63,7 +65,9 @@ func TestPingVerificationUpdatesProjectionImmediately(t *testing.T) {
 	}
 
 	// Process the new event
-	projection.RunOnce()
+	if _, err := projection.RunOnce(); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	// NOW GetStatus should return ONLINE
 	statusAfterProcessing := projection.GetStatus("raccoon")
@@ -107,7 +111,9 @@ func TestMarkOnlineFromPingUpdatesProjectionSynchronously(t *testing.T) {
 		}
 		network.local.SyncLedger.AddEvent(oldEvent)
 	}
-	network.local.Projections.OnlineStatus().RunOnce()
+	if _, err := network.local.Projections.OnlineStatus().RunOnce(); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	// Verify GetStatus returns MISSING due to old events
 	statusBefore := network.local.Projections.OnlineStatus().GetStatus("raccoon")

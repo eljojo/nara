@@ -20,7 +20,7 @@ type neighbour struct {
 	Chattiness int64  `header:"chat"`
 }
 
-func (ln LocalNara) PrintNeigbourhoodForever(refreshRate int) {
+func (ln *LocalNara) PrintNeigbourhoodForever(refreshRate int) {
 	ticker := time.NewTicker(time.Duration(refreshRate) * time.Second)
 	defer ticker.Stop()
 
@@ -36,7 +36,7 @@ func (ln LocalNara) PrintNeigbourhoodForever(refreshRate int) {
 	}
 }
 
-func (ln LocalNara) printNeigbourhood() {
+func (ln *LocalNara) printNeigbourhood() {
 	if len(ln.Network.Neighbourhood) == 0 {
 		return
 	}
@@ -44,11 +44,11 @@ func (ln LocalNara) printNeigbourhood() {
 	printer := tableprinter.New(os.Stdout)
 	naras := make([]neighbour, 0, len(ln.Network.Neighbourhood)+1)
 
-	nei := ln.generateScreenRow(*ln.Me)
+	nei := ln.generateScreenRow(ln.Me)
 	naras = append(naras, nei)
 
 	for _, nara := range ln.Network.Neighbourhood {
-		nei := ln.generateScreenRow(*nara)
+		nei := ln.generateScreenRow(nara)
 		naras = append(naras, nei)
 	}
 
@@ -70,7 +70,7 @@ func (ln LocalNara) printNeigbourhood() {
 	printer.Print(naras)
 }
 
-func (ln LocalNara) generateScreenRow(nara Nara) neighbour {
+func (ln *LocalNara) generateScreenRow(nara *Nara) neighbour {
 	now := time.Now().Unix()
 	observation := ln.getObservation(nara.Name)
 

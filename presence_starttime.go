@@ -140,7 +140,9 @@ func (network *Network) recoverSelfStartTimeFromMesh() {
 	if network.local.Projections != nil {
 		updated := network.local.getMeObservation()
 		before := updated.StartTime
-		network.local.Projections.Opinion().RunOnce()
+		if _, err := network.local.Projections.Opinion().RunOnce(); err != nil {
+			logrus.WithError(err).Warn("Failed to run opinion projection")
+		}
 		opinion := network.local.Projections.Opinion().DeriveOpinionWithValidation(network.meName())
 		if updated.StartTime == 0 && opinion.StartTime > 0 {
 			updated.StartTime = opinion.StartTime

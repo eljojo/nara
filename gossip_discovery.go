@@ -258,33 +258,6 @@ func (network *Network) fetchPublicKeysFromPeers(peers []DiscoveredPeer) []Disco
 	return peers
 }
 
-// bootstrapFromDiscoveredPeers fetches initial state from newly discovered peers
-// This is the gossip-only equivalent of boot recovery
-func (network *Network) bootstrapFromDiscoveredPeers(peers []DiscoveredPeer) {
-	if len(peers) == 0 {
-		return
-	}
-
-	// Check if we have a working mesh client before attempting bootstrap
-	// (prevents crashes in tests with mock meshes)
-	if network.tsnetMesh == nil || network.tsnetMesh.Server() == nil {
-		logrus.Debug("📦 Skipping bootstrap: no mesh client available")
-		return
-	}
-
-	// Convert peers to online names for boot recovery
-	peerNames := make([]string, len(peers))
-	for i, peer := range peers {
-		peerNames[i] = peer.Name
-	}
-
-	logrus.Printf("📦 Bootstrapping from %d discovered peers...", len(peers))
-
-	// Use existing boot recovery mechanism via mesh
-	// This will fetch events, sync ledgers, and seed ping RTTs
-	network.bootRecoveryViaMesh(peerNames)
-}
-
 // meshDiscoveryForever periodically scans for new mesh peers
 // Runs in gossip-only or hybrid mode to discover peers without MQTT
 func (network *Network) meshDiscoveryForever() {

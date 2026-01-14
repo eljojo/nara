@@ -4,7 +4,6 @@ import (
 	"context"
 	"math/rand"
 	"net/http"
-	"sort"
 	"sync"
 	"time"
 
@@ -808,54 +807,6 @@ func (network *Network) isShortMemoryMode() bool {
 // (Extracted to world_network.go)
 
 // --- Event-Sourced Online Status ---
-
-// getRecentEventsFor returns all recent events relevant to a nara's online status,
-// sorted by timestamp descending (most recent first).
-// This includes:
-// - Events FROM the nara (hey_there, chau, seen)
-// - Events ABOUT the nara (status-change observations)
-func (network *Network) getRecentEventsFor(name string) []SyncEvent {
-	if network.local.SyncLedger == nil {
-		return nil
-	}
-
-	var relevant []SyncEvent
-
-	// Get all events involving this nara
-	allEvents := network.local.SyncLedger.GetAllEvents()
-
-	for _, e := range allEvents {
-		switch e.Service {
-		case ServiceHeyThere:
-			if e.HeyThere != nil && e.HeyThere.From == name {
-				relevant = append(relevant, e)
-			}
-		case ServiceChau:
-			if e.Chau != nil && e.Chau.From == name {
-				relevant = append(relevant, e)
-			}
-		case ServiceSeen:
-			if e.Seen != nil && e.Seen.Subject == name {
-				relevant = append(relevant, e)
-			}
-		case ServiceObservation:
-			if e.Observation != nil && e.Observation.Subject == name {
-				// Only include status-relevant observation types
-				switch e.Observation.Type {
-				case "status-change", "restart", "first-seen":
-					relevant = append(relevant, e)
-				}
-			}
-		}
-	}
-
-	// Sort by timestamp descending (most recent first)
-	sort.Slice(relevant, func(i, j int) bool {
-		return relevant[i].Timestamp > relevant[j].Timestamp
-	})
-
-	return relevant
-}
 
 // emitSeenEvent emits a "seen" event to vouch for a quiet nara.
 // Only emits if the subject hasn't emitted any events themselves in the last 5 minutes.

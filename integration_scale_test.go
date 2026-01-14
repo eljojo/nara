@@ -256,7 +256,9 @@ func TestIntegration_ScaleWith5000Nodes(t *testing.T) {
 	consensusSuccess := 0
 
 	// Process all events before deriving opinions
-	opinionProjection.RunToEnd(context.Background())
+	if err := opinionProjection.RunToEnd(context.Background()); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	for _, subject := range testSubjects {
 		opinion := opinionProjection.DeriveOpinion(subject)

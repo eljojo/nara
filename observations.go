@@ -123,7 +123,9 @@ func (network *Network) runOpinionPass(pass int, total int, fetchBlueJay bool, f
 		// Use event-based consensus for observation data
 		observation := network.local.getObservation(name)
 		if network.local.Projections != nil {
-			network.local.Projections.Opinion().RunOnce()
+			if _, err := network.local.Projections.Opinion().RunOnce(); err != nil {
+				logrus.WithError(err).Warn("Failed to run opinion projection")
+			}
 			opinion := network.local.Projections.Opinion().DeriveOpinionWithValidation(name)
 			if opinion.StartTime > 0 {
 				observation.StartTime = opinion.StartTime
@@ -404,7 +406,7 @@ func (network *Network) recordObservationOnlineNara(name string, timestamp int64
 	// Track previous state for teasing triggers
 	previousState := observation.Online
 	previousTrend := ""
-	if nara := network.getNara(name); nara.Name != "" {
+	if nara := network.getNara(name); nara != nil && nara.Name != "" {
 		previousTrend = nara.Status.Trend
 	}
 
@@ -425,7 +427,9 @@ func (network *Network) recordObservationOnlineNara(name string, timestamp int64
 	// Use event-based consensus for observation data
 	if observation.StartTime == 0 || name == network.meName() {
 		if network.local.Projections != nil {
-			network.local.Projections.Opinion().RunOnce()
+			if _, err := network.local.Projections.Opinion().RunOnce(); err != nil {
+				logrus.WithError(err).Warn("Failed to run opinion projection")
+			}
 			opinion := network.local.Projections.Opinion().DeriveOpinionWithValidation(name)
 			if observation.StartTime == 0 && opinion.StartTime > 0 {
 				observation.StartTime = opinion.StartTime
@@ -512,7 +516,9 @@ func (network *Network) observationMaintenanceOnce() {
 	// This synchronously processes any pending events, avoiding race
 	// conditions where we read stale data during/after a zine merge.
 	if network.local.Projections != nil && !network.local.isBooting() {
-		network.local.Projections.OnlineStatus().RunOnce()
+		if _, err := network.local.Projections.OnlineStatus().RunOnce(); err != nil {
+			logrus.WithError(err).Warn("Failed to update online status projection")
+		}
 	}
 
 	for name, observation := range observations {
@@ -829,7 +835,9 @@ func (network *Network) markOnlineFromPing(name string, rttMs float64) {
 		if network.local.Projections != nil {
 			// Process the new event SYNCHRONOUSLY to update projection state immediately
 			// This prevents the next maintenance cycle from seeing stale MISSING status
-			network.local.Projections.OnlineStatus().RunOnce()
+			if _, err := network.local.Projections.OnlineStatus().RunOnce(); err != nil {
+				logrus.WithError(err).Warn("Failed to update online status projection")
+			}
 		}
 	}
 }

@@ -683,7 +683,9 @@ func TestIntegration_WorldJourneyTriggersResolution(t *testing.T) {
 
 	// Carol starts a journey
 	wm := NewWorldMessage("hello from carol", "carol")
-	wm.AddHop("carol", carol.Keypair, "🌸")
+	if err := wm.AddHop("carol", carol.Keypair, "🌸"); err != nil {
+		t.Fatalf("Failed to add hop: %v", err)
+	}
 
 	// Carol sends it to Alice (directly via relay handler for simplicity)
 	wmBytes, _ := json.Marshal(wm)

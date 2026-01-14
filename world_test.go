@@ -141,7 +141,9 @@ func TestWorldMessage_HasVisited(t *testing.T) {
 	// Add Bob's hop
 	bobSoul := NativeSoulCustom(worldHW2, "bob")
 	bobKeypair := DeriveKeypair(bobSoul)
-	wm.AddHop("bob", bobKeypair, "🌟")
+	if err := wm.AddHop("bob", bobKeypair, "🌟"); err != nil {
+		t.Fatalf("Failed to add hop: %v", err)
+	}
 
 	// Now Bob has visited
 	if !wm.HasVisited("bob") {
@@ -162,8 +164,12 @@ func TestWorldMessage_VerifyChain(t *testing.T) {
 	carolKeypair := DeriveKeypair(carolSoul)
 
 	// Build the chain
-	wm.AddHop("bob", bobKeypair, "🌟")
-	wm.AddHop("carol", carolKeypair, "🎉")
+	if err := wm.AddHop("bob", bobKeypair, "🌟"); err != nil {
+		t.Fatalf("Failed to add bob's hop: %v", err)
+	}
+	if err := wm.AddHop("carol", carolKeypair, "🎉"); err != nil {
+		t.Fatalf("Failed to add carol's hop: %v", err)
+	}
 
 	// Create a public key lookup function
 	getPublicKey := func(name string) []byte {
@@ -189,7 +195,9 @@ func TestWorldMessage_VerifyChain_TamperedMessage(t *testing.T) {
 
 	bobSoul := NativeSoulCustom(worldHW2, "bob")
 	bobKeypair := DeriveKeypair(bobSoul)
-	wm.AddHop("bob", bobKeypair, "🌟")
+	if err := wm.AddHop("bob", bobKeypair, "🌟"); err != nil {
+		t.Fatalf("Failed to add hop: %v", err)
+	}
 
 	// Tamper with the message
 	wm.OriginalMessage = "Tampered!"
@@ -219,7 +227,9 @@ func TestWorldMessage_IsComplete(t *testing.T) {
 	// Add some hops
 	bobSoul := NativeSoulCustom(worldHW2, "bob")
 	bobKeypair := DeriveKeypair(bobSoul)
-	wm.AddHop("bob", bobKeypair, "🌟")
+	if err := wm.AddHop("bob", bobKeypair, "🌟"); err != nil {
+		t.Fatalf("Failed to add hop: %v", err)
+	}
 
 	// Still not complete (hasn't returned to alice)
 	if wm.IsComplete() {
@@ -229,7 +239,9 @@ func TestWorldMessage_IsComplete(t *testing.T) {
 	// Add alice's final hop
 	aliceSoul := NativeSoulCustom(worldHW1, "alice")
 	aliceKeypair := DeriveKeypair(aliceSoul)
-	wm.AddHop("alice", aliceKeypair, "🏠")
+	if err := wm.AddHop("alice", aliceKeypair, "🏠"); err != nil {
+		t.Fatalf("Failed to add hop: %v", err)
+	}
 
 	// Now complete
 	if !wm.IsComplete() {
@@ -259,7 +271,9 @@ func TestWorldJourney_CloutRouting(t *testing.T) {
 
 	// Add Bob's hop
 	bobSoul := NativeSoulCustom(worldHW2, "bob")
-	wm.AddHop("bob", DeriveKeypair(bobSoul), "🌟")
+	if err := wm.AddHop("bob", DeriveKeypair(bobSoul), "🌟"); err != nil {
+		t.Fatalf("Failed to add Bob's hop: %v", err)
+	}
 
 	// Bob chooses next (should be Carol - highest unvisited)
 	next = ChooseNextNara("bob", wm, clout["bob"], []string{"alice", "bob", "carol", "dave"})
@@ -269,7 +283,9 @@ func TestWorldJourney_CloutRouting(t *testing.T) {
 
 	// Add Carol's hop
 	carolSoul := NativeSoulCustom(worldHW3, "carol")
-	wm.AddHop("carol", DeriveKeypair(carolSoul), "🎉")
+	if err := wm.AddHop("carol", DeriveKeypair(carolSoul), "🎉"); err != nil {
+		t.Fatalf("Failed to add Carol's hop: %v", err)
+	}
 
 	// Carol chooses next (should be Dave - only unvisited non-originator)
 	next = ChooseNextNara("carol", wm, clout["carol"], []string{"alice", "bob", "carol", "dave"})
@@ -279,7 +295,9 @@ func TestWorldJourney_CloutRouting(t *testing.T) {
 
 	// Add Dave's hop
 	daveSoul := NativeSoulCustom(worldHW4, "dave")
-	wm.AddHop("dave", DeriveKeypair(daveSoul), "🚀")
+	if err := wm.AddHop("dave", DeriveKeypair(daveSoul), "🚀"); err != nil {
+		t.Fatalf("Failed to add Dave's hop: %v", err)
+	}
 
 	// Dave chooses next (should be Alice - only option is to return home)
 	next = ChooseNextNara("dave", wm, clout["dave"], []string{"alice", "bob", "carol", "dave"})
@@ -384,9 +402,15 @@ func TestWorldJourney_CloutRewards(t *testing.T) {
 	carolKeypair := DeriveKeypair(NativeSoulCustom(worldHW3, "carol"))
 	aliceKeypair := DeriveKeypair(NativeSoulCustom(worldHW1, "alice"))
 
-	wm.AddHop("bob", bobKeypair, "🌟")
-	wm.AddHop("carol", carolKeypair, "🎉")
-	wm.AddHop("alice", aliceKeypair, "🏠")
+	if err := wm.AddHop("bob", bobKeypair, "🌟"); err != nil {
+		t.Fatalf("Failed to add bob's hop: %v", err)
+	}
+	if err := wm.AddHop("carol", carolKeypair, "🎉"); err != nil {
+		t.Fatalf("Failed to add carol's hop: %v", err)
+	}
+	if err := wm.AddHop("alice", aliceKeypair, "🏠"); err != nil {
+		t.Fatalf("Failed to add alice's hop: %v", err)
+	}
 
 	// Calculate rewards
 	rewards := CalculateWorldRewards(wm)

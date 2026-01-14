@@ -465,7 +465,9 @@ func TestHttpEventsSyncHandler_FilterByService(t *testing.T) {
 	handler.ServeHTTP(rr, req)
 
 	var response SyncResponse
-	json.Unmarshal(rr.Body.Bytes(), &response)
+	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
 
 	// Should only have ping event
 	if len(response.Events) != 1 {

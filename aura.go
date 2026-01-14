@@ -214,15 +214,6 @@ func oklchToSRGBGamutMappedIlluminated(L, C, Hdeg float64, ill Illuminant, stren
 	return linearToSRGB8(clamp01(r), clamp01(g), clamp01(bb))
 }
 
-func aFromCH(C, Hdeg float64) float64 {
-	hrad := Hdeg * (math.Pi / 180.0)
-	return C * math.Cos(hrad)
-}
-func bFromCH(C, Hdeg float64) float64 {
-	hrad := Hdeg * (math.Pi / 180.0)
-	return C * math.Sin(hrad)
-}
-
 func oklabToLinearSRGB(L, a, b float64) (r, g, bb float64) {
 	// Björn Ottosson OKLab -> linear sRGB
 	l_ := L + 0.3963377774*a + 0.2158037573*b

@@ -247,7 +247,9 @@ func (p *OpinionConsensusProjection) RunOnce() (bool, error) {
 // Trigger processes new events immediately.
 // Use this when events have been added and you need updated state.
 func (p *OpinionConsensusProjection) Trigger() {
-	p.projection.RunOnce()
+	if _, err := p.projection.RunOnce(); err != nil {
+		logrus.WithError(err).Warn("Failed to run opinion projection")
+	}
 }
 
 // SubjectCount returns the number of subjects with observations.

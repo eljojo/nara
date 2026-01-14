@@ -20,7 +20,9 @@ func TestConsensusEvents_SingleObserver(t *testing.T) {
 	ledger.AddEvent(event)
 
 	// Derive consensus from events
-	projection.RunToEnd(context.Background())
+	if err := projection.RunToEnd(context.Background()); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 	opinion := projection.DeriveOpinion(subject)
 
 	if opinion.StartTime != expectedStartTime {
@@ -48,7 +50,9 @@ func TestConsensusEvents_Agreement(t *testing.T) {
 	}
 
 	// Consensus should match agreed values
-	projection.RunToEnd(context.Background())
+	if err := projection.RunToEnd(context.Background()); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 	opinion := projection.DeriveOpinion(subject)
 
 	if opinion.StartTime != agreedStartTime {
@@ -85,7 +89,9 @@ func TestConsensusEvents_Disagreement(t *testing.T) {
 	// - Restarts: 10 (cluster with more observers: 3 vs 2)
 	// Note: With tolerance=1, values 10 and 11 are in the same cluster,
 	// so median of [10,10,10,11,11] = 10
-	projection.RunToEnd(context.Background())
+	if err := projection.RunToEnd(context.Background()); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 	opinion := projection.DeriveOpinion(subject)
 
 	if opinion.StartTime != 1000 {
@@ -123,7 +129,9 @@ func TestConsensusEvents_UptimeWeighting(t *testing.T) {
 	// Median: 1000
 	// All values within [500, 2000] (0.5x to 2x median)
 	// Average: (1000+1000+2000)/3 = 1333
-	projection.RunToEnd(context.Background())
+	if err := projection.RunToEnd(context.Background()); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 	opinion := projection.DeriveOpinion(subject)
 
 	expectedAvg := int64(1333) // trimmed mean
@@ -152,7 +160,9 @@ func TestConsensusEvents_UptimeWeighting_SingleObserverClusters(t *testing.T) {
 	// Median: 2000
 	// All values within [1000, 4000] (0.5x to 2x median)
 	// Average: (1000+2000+3000)/3 = 2000
-	projection.RunToEnd(context.Background())
+	if err := projection.RunToEnd(context.Background()); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 	opinion := projection.DeriveOpinion(subject)
 
 	expectedAvg := int64(2000) // trimmed mean
@@ -182,7 +192,9 @@ func TestConsensusEvents_ToleranceClustering(t *testing.T) {
 	ledger.AddEvent(outlierEvent)
 
 	// Consensus should cluster the three within-tolerance observations
-	projection.RunToEnd(context.Background())
+	if err := projection.RunToEnd(context.Background()); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 	opinion := projection.DeriveOpinion(subject)
 
 	// Should be close to baseTime (within the cluster)
@@ -206,7 +218,9 @@ func TestConsensusEvents_FirstSeen(t *testing.T) {
 	}
 
 	// Consensus should derive StartTime from first-seen events
-	projection.RunToEnd(context.Background())
+	if err := projection.RunToEnd(context.Background()); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 	opinion := projection.DeriveOpinion(subject)
 
 	if opinion.StartTime == 0 {
@@ -235,7 +249,9 @@ func TestConsensusEvents_Backfill(t *testing.T) {
 	}
 
 	// Consensus should treat backfill events like regular observations
-	projection.RunToEnd(context.Background())
+	if err := projection.RunToEnd(context.Background()); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 	opinion := projection.DeriveOpinion(subject)
 
 	if opinion.StartTime != backfillStartTime {
@@ -273,7 +289,9 @@ func TestConsensusEvents_MixedBackfillAndRealtime(t *testing.T) {
 	}
 
 	// Consensus should average: (1137+1137+1140+1140+1140)/5 = 1138.8 → 1138
-	projection.RunToEnd(context.Background())
+	if err := projection.RunToEnd(context.Background()); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 	opinion := projection.DeriveOpinion(subject)
 
 	expectedAvg := int64(1138) // trimmed mean of values
@@ -289,7 +307,9 @@ func TestConsensusEvents_NoEvents(t *testing.T) {
 	subject := "nara-unknown"
 
 	// No events about this subject
-	projection.RunToEnd(context.Background())
+	if err := projection.RunToEnd(context.Background()); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 	opinion := projection.DeriveOpinion(subject)
 
 	// Should return zero values or indicate no consensus
@@ -345,7 +365,9 @@ func TestConsensusEvents_RestartProgression(t *testing.T) {
 	}
 
 	// Consensus should pick highest restart count (most recent)
-	projection.RunToEnd(context.Background())
+	if err := projection.RunToEnd(context.Background()); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 	opinion := projection.DeriveOpinion(subject)
 
 	if opinion.Restarts != 10 {
@@ -412,7 +434,9 @@ func TestConsensusEvents_PersonalityFiltered(t *testing.T) {
 	ledger.AddEventFiltered(normalEvent, chillPersonality)
 
 	// Consensus should work even if some events were filtered
-	projection.RunToEnd(context.Background())
+	if err := projection.RunToEnd(context.Background()); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 	opinion := projection.DeriveOpinion(subject)
 
 	// Should have at least the critical event
@@ -437,7 +461,9 @@ func TestConsensusEvents_LastRestart(t *testing.T) {
 		ledger.AddEvent(event)
 	}
 
-	projection.RunToEnd(context.Background())
+	if err := projection.RunToEnd(context.Background()); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 	opinion := projection.DeriveOpinion(subject)
 
 	// Should derive LastRestart from events
@@ -486,7 +512,9 @@ func TestConsensusEvents_ChangeOfMind(t *testing.T) {
 
 	// With no other observers, both values form single-observer clusters.
 	// The algorithm picks the first cluster with equal weight (deterministic).
-	projection.RunToEnd(context.Background())
+	if err := projection.RunToEnd(context.Background()); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 	opinion := projection.DeriveOpinion(subject)
 
 	// Restarts uses "highest value wins" - so the newer observation wins
@@ -499,7 +527,9 @@ func TestConsensusEvents_ChangeOfMind(t *testing.T) {
 	event3 := NewRestartObservationEvent("observer-b", subject, 2000, 6)
 	ledger.AddEvent(event3)
 
-	projection.RunOnce()
+	if _, err := projection.RunOnce(); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 	opinion = projection.DeriveOpinion(subject)
 
 	// With trimmed mean:
@@ -529,7 +559,9 @@ func TestConsensusEvents_ChangeOfMind_two(t *testing.T) {
 
 	// With no other observers, both values form single-observer clusters.
 	// The algorithm picks the first cluster with equal weight (deterministic).
-	projection.RunToEnd(context.Background())
+	if err := projection.RunToEnd(context.Background()); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 	opinion := projection.DeriveOpinion(subject)
 
 	// Restarts uses "highest value wins" - so the newer observation wins
@@ -542,7 +574,9 @@ func TestConsensusEvents_ChangeOfMind_two(t *testing.T) {
 	event3 := NewRestartObservationEvent("observer-b", subject, 1000, 6)
 	ledger.AddEvent(event3)
 
-	projection.RunOnce()
+	if _, err := projection.RunOnce(); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 	opinion = projection.DeriveOpinion(subject)
 
 	// With trimmed mean:
@@ -565,7 +599,9 @@ func TestConsensusEvents_SparseObservations(t *testing.T) {
 	ledger.AddEvent(event)
 
 	// Consensus should work with minimal data
-	projection.RunToEnd(context.Background())
+	if err := projection.RunToEnd(context.Background()); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 	opinion := projection.DeriveOpinion(subject)
 
 	if opinion.StartTime != 1000 {
@@ -597,7 +633,9 @@ func TestDeriveOpinionWithValidation_CheckpointComparison(t *testing.T) {
 	ledger.AddEvent(checkpointEvent)
 
 	// Run projection
-	projection.RunToEnd(context.Background())
+	if err := projection.RunToEnd(context.Background()); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	// DeriveOpinionWithValidation should return observation-based opinion
 	// and not warn since checkpoint agrees
@@ -627,7 +665,9 @@ func TestDeriveOpinionFromCheckpoint_NoCheckpoint(t *testing.T) {
 	obs1 := NewRestartObservationEvent("observer-a", subject, 1000, 5)
 	ledger.AddEvent(obs1)
 
-	projection.RunToEnd(context.Background())
+	if err := projection.RunToEnd(context.Background()); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	// Should fall back to observation-based
 	opinion, usedCheckpoint := projection.DeriveOpinionFromCheckpoint(subject)
@@ -678,7 +718,9 @@ func TestDeriveOpinionFromCheckpoint_WithPostCheckpointEvents(t *testing.T) {
 	offlineEvent.Timestamp = (timeOffset + 1600) * 1e9
 	ledger.AddEvent(offlineEvent)
 
-	projection.RunToEnd(context.Background())
+	if err := projection.RunToEnd(context.Background()); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	// Checkpoint-based should be: 10 (baseline) + 3 (new unique StartTimes) = 13
 	opinion, usedCheckpoint := projection.DeriveOpinionFromCheckpoint(subject)
@@ -755,7 +797,9 @@ func TestDeriveOpinionFromCheckpoint_WithOfflinePeriods(t *testing.T) {
 		ledger.AddEvent(event)
 	}
 
-	projection.RunToEnd(context.Background())
+	if err := projection.RunToEnd(context.Background()); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	opinion, usedCheckpoint := projection.DeriveOpinionFromCheckpoint(subject)
 	if !usedCheckpoint {

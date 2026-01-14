@@ -992,7 +992,9 @@ func TestSyncLedger_DeriveClout(t *testing.T) {
 	soul2 := "soul-observer-2"
 
 	// Process events before querying
-	cloutProjection.RunToEnd(context.Background())
+	if err := cloutProjection.RunToEnd(context.Background()); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 
 	// Get clout from both perspectives
 	clout1 := cloutProjection.DeriveClout(soul1, socialPersonality)
@@ -1045,7 +1047,9 @@ func TestSyncLedger_DeriveClout_Observations(t *testing.T) {
 	}
 
 	personality := NaraPersonality{Chill: 50, Sociability: 50, Agreeableness: 50}
-	cloutProjection.RunToEnd(context.Background())
+	if err := cloutProjection.RunToEnd(context.Background()); err != nil {
+		t.Fatalf("Failed to run projection: %v", err)
+	}
 	clout := cloutProjection.DeriveClout("observer-soul", personality)
 
 	// reliable-nara should have positive clout (journey-complete + journey-pass)
