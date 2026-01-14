@@ -1,0 +1,100 @@
+---
+import { AvatarCanvas } from '../../../nara-web/src/nara-avatar.jsx';
+
+const avatars = [
+  {
+    name: 'stretchy-mushroom-421',
+    id: 'stretchy-mushroom-421',
+    primary: '#6dd6ff',
+    secondary: '#3c7bb5',
+    sociability: 72,
+    agreeableness: 58,
+    chill: 40,
+    buzz: 6,
+  },
+  {
+    name: 'mossy-harp-008',
+    id: 'mossy-harp-008',
+    primary: '#ffb85c',
+    secondary: '#a5572a',
+    sociability: 38,
+    agreeableness: 76,
+    chill: 72,
+    buzz: 2,
+  },
+  {
+    name: 'glassy-orchid-113',
+    id: 'glassy-orchid-113',
+    primary: '#8df0b1',
+    secondary: '#2c8c6f',
+    sociability: 64,
+    agreeableness: 44,
+    chill: 32,
+    buzz: 8,
+  },
+  {
+    name: 'amber-lantern-572',
+    id: 'amber-lantern-572',
+    primary: '#f18db3',
+    secondary: '#8d3d64',
+    sociability: 84,
+    agreeableness: 52,
+    chill: 46,
+    buzz: 9,
+  },
+];
+---
+
+<section class="avatar-showcase" aria-label="Nara avatar showcase">
+  <div class="avatar-grid">
+    {avatars.map((avatar) => (
+      <figure class="avatar-card">
+        <AvatarCanvas
+          client:only="preact"
+          id={avatar.id}
+          primary={avatar.primary}
+          secondary={avatar.secondary}
+          sociability={avatar.sociability}
+          agreeableness={avatar.agreeableness}
+          chill={avatar.chill}
+          buzz={avatar.buzz}
+          size={72}
+        />
+        <figcaption>{avatar.name}</figcaption>
+      </figure>
+    ))}
+  </div>
+</section>
+
+<style>
+  .avatar-showcase {
+    margin: 1.5rem 0 2rem;
+  }
+
+  .avatar-grid {
+    display: grid;
+    gap: 1.2rem;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+
+  .avatar-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.9rem 0.6rem;
+    border: 1px solid var(--sl-color-hairline, #e1e1e1);
+    border-radius: 12px;
+    background: var(--sl-color-bg, #ffffff);
+  }
+
+  .avatar-card canvas {
+    display: block;
+  }
+
+  .avatar-card figcaption {
+    font-size: 0.85rem;
+    text-align: center;
+    color: var(--sl-color-gray-2, #666666);
+  }
+</style>

@@ -150,7 +150,7 @@ function NaraCard({ nara, entryNumber }) {
               {nara.TrendEmoji} {nara.Trend}
             </span>
           ) : (
-            <span className="narae-type neutral">NO TYPE</span>
+            <span className="narae-type neutral">NO STYLE</span>
           )}
         </div>
       </div>
@@ -279,7 +279,7 @@ function NaraTable({ naras }) {
                       {nara.Trend}
                     </span>
                   ) : (
-                    <span className="trend-badge neutral">NO TYPE</span>
+                    <span className="trend-badge neutral">NO STYLE</span>
                   )}
                 </td>
                 <td className="narae-table-stat">{cloutDisplay}</td>
