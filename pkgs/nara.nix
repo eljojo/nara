@@ -10,8 +10,8 @@ let
     pname = "nara-web";
     version = "latest";
     src = lib.cleanSource ../.;
-    # npmDepsHash = lib.fakeHash;
-    npmDepsHash = "sha256-iID9AgWn1O4vhWnfNebUKhclvTq2u3Nx1aTSAxohxtI=";
+    #npmDepsHash = lib.fakeHash;
+    npmDepsHash = "sha256-V8fEeOH9N0uEMGC3rNVHMUEaN/Gm0w9PpuW9Bonqkwk=";
     nativeBuildInputs = [ esbuild ];
 
     dontNpmBuild = true;
