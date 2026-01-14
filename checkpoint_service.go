@@ -105,7 +105,38 @@ func (s *CheckpointService) SetMQTTClient(client mqtt.Client) {
 
 // Start begins the checkpoint service maintenance loop
 func (s *CheckpointService) Start() {
+	// Initialize lastCheckpointTime from ledger
+	// Boot recovery populates the ledger with checkpoints from neighbors,
+	// so we can query it instead of needing to persist to stash
+	s.initializeLastCheckpointTime()
+
 	go s.maintenanceLoop()
+}
+
+// initializeLastCheckpointTime queries the ledger for the most recent checkpoint
+// and sets lastCheckpointTime accordingly. This prevents checkpoint spam on boot.
+func (s *CheckpointService) initializeLastCheckpointTime() {
+	if s.ledger == nil {
+		logrus.Debug("checkpoint: ledger not initialized, cannot query for last checkpoint")
+		return
+	}
+
+	myName := s.local.Me.Name
+	event := s.ledger.GetCheckpointEvent(myName)
+
+	s.lastCheckpointTimeMu.Lock()
+	defer s.lastCheckpointTimeMu.Unlock()
+
+	if event != nil && event.Checkpoint != nil {
+		// Found a checkpoint - use its AsOfTime as our last checkpoint time
+		s.lastCheckpointTime = time.Unix(event.Checkpoint.AsOfTime, 0)
+		logrus.Infof("checkpoint: initialized from ledger - last checkpoint was at %s", s.lastCheckpointTime.Format(time.RFC3339))
+	} else {
+		// No checkpoint in ledger - this is our first boot or no checkpoint exists yet
+		// Set to now so we don't immediately propose (wait 24h from boot)
+		s.lastCheckpointTime = time.Now()
+		logrus.Debug("checkpoint: no previous checkpoint found in ledger, will wait 24h before proposing")
+	}
 }
 
 // Stop gracefully shuts down the checkpoint service
@@ -504,6 +535,10 @@ func (s *CheckpointService) finalizeProposal() {
 		s.proposeRound2(votes)
 	} else {
 		// Round 2 failed, give up
+		// Update lastCheckpointTime to prevent spam - wait another 24h before retrying
+		s.lastCheckpointTimeMu.Lock()
+		s.lastCheckpointTime = time.Now()
+		s.lastCheckpointTimeMu.Unlock()
 		logrus.Warnf("❌ checkpoint round 2 failed for %s, will retry in next 24h cycle",
 			pending.proposal.Subject)
 	}
