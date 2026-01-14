@@ -34,12 +34,16 @@ func NewBackupMesh(ctx context.Context, naraName string, naraSoul nara.SoulV1) (
 		Verbose:    false,
 	}
 
-	server, client, err := nara.ConnectToMesh(ctx, config)
+	server, _, err := nara.ConnectToMesh(ctx, config)
 	if err != nil {
 		return nil, err
 	}
 
 	logrus.Info("✅ Connected to mesh")
+
+	// Create mesh HTTP client with optimized timeouts (5s connection, 5s request)
+	// Centralized in mesh_client.go for consistency across nara app and backup tool
+	client := nara.NewMeshHTTPClient(server)
 
 	// Create mesh client with nara's identity (not ephemeral backup identity)
 	meshClient := nara.NewMeshClient(client, naraName, naraKeypair)
