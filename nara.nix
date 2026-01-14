@@ -26,6 +26,11 @@ in
             default = null;
             description = "The soul for this instance. Save this to preserve identity across hardware changes.";
           };
+          httpAddr = lib.mkOption {
+            type = lib.types.nullOr lib.types.str;
+            default = null;
+            description = "HTTP server address (e.g. :8080 or 127.0.0.1:8080).";
+          };
           extraArgs = lib.mkOption {
             type = lib.types.listOf lib.types.str;
             default = [ ];
@@ -37,7 +42,7 @@ in
       description = "Nara instances to run. Keys are instance names.";
       example = lib.literalExpression ''
         {
-          lily = { soul = "5Kd3NBqT..."; };
+          lily = { soul = "5Kd3NBqT..."; httpAddr = ":8080"; };
           rose = { };  # will generate new soul from hardware
         }
       '';
@@ -83,6 +88,7 @@ in
               ExecStart = "${cfg.package}/bin/nara -mqtt-host=${cfg.mqttHost}"
                 + " -nara-id=${name}"
                 + (lib.optionalString (instanceCfg.soul != null) " -soul=${instanceCfg.soul}")
+                + (lib.optionalString (instanceCfg.httpAddr != null) " -http-addr=${instanceCfg.httpAddr}")
                 + " " + (lib.concatStringsSep " " (cfg.extraArgs ++ instanceCfg.extraArgs));
               Restart = "always";
               RestartSec = 3;
