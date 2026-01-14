@@ -166,7 +166,8 @@ func (ln *LocalNara) Start(serveUI bool, readOnly bool, httpAddr string, meshCon
 		ln.Projections.OnlineStatus().SetMissingThresholdFunc(func(name string) int64 {
 			threshold := MissingThresholdSeconds
 			nara := ln.Network.getNara(name)
-			subjectIsGossip := nara.Name != "" && nara.Status.TransportMode == "gossip"
+			// Defensive: nara might not be found or might have been removed
+			subjectIsGossip := nara != nil && nara.Name != "" && nara.Status.TransportMode == "gossip"
 			observerIsGossip := ln.Network.TransportMode == TransportGossip
 			if subjectIsGossip || observerIsGossip {
 				threshold = MissingThresholdGossipSeconds

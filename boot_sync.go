@@ -91,7 +91,8 @@ func (network *Network) performBackgroundSync() {
 
 func (network *Network) neighborSupportsBackgroundSync(name string) bool {
 	nara := network.getNara(name)
-	if nara.Name == "" {
+	// Defensive: nara might not be found or might have been removed
+	if nara == nil || nara.Name == "" {
 		return true
 	}
 	if nara.Status.MemoryMode == string(MemoryModeShort) {

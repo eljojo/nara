@@ -172,7 +172,8 @@ func (network *Network) checkAndTease(name string, previousState string, previou
 	if previousTrend != "" {
 		trendPopularity := network.trendPopularity(previousTrend)
 		nara := network.getNara(name)
-		if ShouldTeaseForTrendAbandon(previousTrend, nara.Status.Trend, trendPopularity, personality) {
+		// Defensive: nara might have been removed since we observed the trend change
+		if nara != nil && ShouldTeaseForTrendAbandon(previousTrend, nara.Status.Trend, trendPopularity, personality) {
 			go network.TeaseWithDelay(name, ReasonTrendAbandon)
 			return
 		}
@@ -195,20 +196,20 @@ func (network *Network) trendPopularity(trend string) float64 {
 		return 0
 	}
 
-	online := network.NeighbourhoodOnlineNames()
-	if len(online) == 0 {
+	// Use snapshot to avoid race conditions
+	onlineNaras := network.getOnlineNarasSnapshot()
+	if len(onlineNaras) == 0 {
 		return 0
 	}
 
 	following := 0
-	for _, name := range online {
-		nara := network.getNara(name)
+	for _, nara := range onlineNaras {
 		if nara.Status.Trend == trend {
 			following++
 		}
 	}
 
-	return float64(following) / float64(len(online))
+	return float64(following) / float64(len(onlineNaras))
 }
 
 func (network *Network) waitWithJitter(maxDelay time.Duration, override *time.Duration) bool {

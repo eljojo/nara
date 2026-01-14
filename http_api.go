@@ -12,9 +12,7 @@ import (
 )
 
 func (network *Network) httpApiJsonHandler(w http.ResponseWriter, r *http.Request) {
-	network.local.mu.Lock()
-	defer network.local.mu.Unlock()
-
+	// No lock needed - getNarae() now handles locking internally via getAllNarasSnapshot()
 	allNarae := network.getNarae()
 
 	var naras []map[string]interface{}
@@ -181,9 +179,7 @@ func (network *Network) httpProfileJsonHandler(w http.ResponseWriter, r *http.Re
 }
 
 func (network *Network) httpNaraeJsonHandler(w http.ResponseWriter, r *http.Request) {
-	network.local.mu.Lock()
-	defer network.local.mu.Unlock()
-
+	// No lock needed - getNarae() now handles locking internally via getAllNarasSnapshot()
 	allNarae := network.getNarae()
 
 	// Get clout scores
@@ -263,10 +259,10 @@ func (network *Network) httpStatusJsonHandler(w http.ResponseWriter, r *http.Req
 }
 
 func (network *Network) getNarae() []*Nara {
-	var naras []*Nara
-	for _, nara := range network.Neighbourhood {
-		naras = append(naras, nara)
-	}
+	// Use snapshot helper to avoid race conditions
+	naras := network.getAllNarasSnapshot()
+
+	// Add ourselves if not read-only
 	if !network.ReadOnly {
 		naras = append(naras, network.local.Me)
 	}
@@ -274,9 +270,7 @@ func (network *Network) getNarae() []*Nara {
 }
 
 func (network *Network) httpMetricsHandler(w http.ResponseWriter, r *http.Request) {
-	network.local.mu.Lock()
-	defer network.local.mu.Unlock()
-
+	// No lock needed - getNarae() now handles locking internally via getAllNarasSnapshot()
 	var lines []string
 
 	// Per-nara metrics
