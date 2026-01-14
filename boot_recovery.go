@@ -101,10 +101,7 @@ func (network *Network) bootRecovery() {
 
 // bootRecoveryViaMesh uses direct HTTP to sync events from neighbors (parallelized)
 func (network *Network) bootRecoveryViaMesh(online []string) {
-	// Get all known subjects (naras)
-	subjects := append(online, network.meName())
-
-	// Collect ALL mesh-enabled neighbors (no limit)
+	// Collect ALL mesh-enabled neighbors
 	var meshNeighbors []struct {
 		name string
 		ip   string
@@ -132,6 +129,146 @@ func (network *Network) bootRecoveryViaMesh(online []string) {
 		network.bootRecoveryViaMQTT(online)
 		return
 	}
+
+	// Try new sample mode API first (capacity-based organic memory)
+	success := network.bootRecoveryViaMeshSampleMode(online, meshNeighbors)
+	if success {
+		return
+	}
+
+	// TODO: Remove this fallback after all naras have upgraded to support Mode: "sample"
+	// Fallback period: ~6 months from 2026-01
+	logrus.Warn("📦 Sample mode failed, falling back to legacy slicing API")
+	network.bootRecoveryViaMeshLegacy(online, meshNeighbors)
+}
+
+// bootRecoveryViaMeshSampleMode uses the new Mode: "sample" API for organic hazy memory reconstruction
+func (network *Network) bootRecoveryViaMeshSampleMode(online []string, meshNeighbors []struct{ name, ip string }) bool {
+	// Determine boot recovery target based on memory mode
+	// These targets represent the "capacity" we want to fill during boot recovery
+	var capacity, pageSize int
+	switch network.local.MemoryProfile.Mode {
+	case MemoryModeShort:
+		capacity = 5000   // ~5k events
+		pageSize = 1000   // 1k per call
+	case MemoryModeHog:
+		capacity = 80000  // ~80k events
+		pageSize = 5000   // 5k per call
+	default: // MemoryModeMedium
+		capacity = 50000  // ~50k events
+		pageSize = 5000   // 5k per call
+	}
+
+	// Calculate number of API calls needed
+	callsNeeded := capacity / pageSize
+
+	logrus.Printf("📦 boot recovery via mesh (sample mode): capacity=%d, page=%d, calls=%d across %d neighbors",
+		capacity, pageSize, callsNeeded, len(meshNeighbors))
+
+	// Distribute calls across ALL available neighbors (round-robin)
+	type callTask struct {
+		neighbor struct{ name, ip string }
+		callNum  int
+	}
+	var tasks []callTask
+	for i := 0; i < callsNeeded; i++ {
+		neighborIdx := i % len(meshNeighbors)
+		tasks = append(tasks, callTask{
+			neighbor: meshNeighbors[neighborIdx],
+			callNum:  i,
+		})
+	}
+
+	// Execute calls in parallel with concurrency limit
+	type syncResult struct {
+		neighbor string
+		callNum  int
+		events   []SyncEvent
+		success  bool
+		err      error
+	}
+	results := make(chan syncResult, len(tasks))
+	var wg sync.WaitGroup
+
+	maxConcurrent := 10
+	if network.isShortMemoryMode() {
+		maxConcurrent = 3
+	}
+	sem := make(chan struct{}, maxConcurrent)
+
+	for _, task := range tasks {
+		wg.Add(1)
+		sem <- struct{}{} // Acquire semaphore
+
+		go func(t callTask) {
+			defer wg.Done()
+			defer func() { <-sem }() // Release semaphore
+
+			events, err := network.meshClient.FetchSyncEvents(network.ctx, t.neighbor.ip, SyncRequest{
+				Mode:       "sample",
+				SampleSize: pageSize,
+			})
+
+			results <- syncResult{
+				neighbor: t.neighbor.name,
+				callNum:  t.callNum,
+				events:   events,
+				success:  err == nil,
+				err:      err,
+			}
+		}(task)
+	}
+
+	// Close results channel when all fetches complete
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Process results as they arrive
+	var totalMerged int
+	var failedCalls int
+	respondedNeighbors := make(map[string]bool)
+
+	for result := range results {
+		if !result.success {
+			failedCalls++
+			logrus.Warnf("📦 Sample call %d to %s failed: %v", result.callNum, result.neighbor, result.err)
+			continue
+		}
+
+		respondedNeighbors[result.neighbor] = true
+
+		// Merge events with verification
+		added, _ := network.MergeSyncEventsWithVerification(result.events)
+		totalMerged += added
+
+		logrus.Debugf("📦 Sample call %d from %s: received %d events, merged %d",
+			result.callNum, result.neighbor, len(result.events), added)
+	}
+
+	// If too many calls failed, consider it a failure (fallback to legacy)
+	if failedCalls > callsNeeded/2 {
+		logrus.Warnf("📦 Sample mode: %d/%d calls failed, falling back to legacy API", failedCalls, callsNeeded)
+		return false
+	}
+
+	logrus.Printf("📦 boot recovery (sample mode) complete: merged %d events from %d neighbors",
+		totalMerged, len(respondedNeighbors))
+
+	// Trigger projections
+	if network.local.Projections != nil {
+		network.local.Projections.Trigger()
+	}
+
+	return true
+}
+
+// bootRecoveryViaMeshLegacy uses the old slicing API for backward compatibility
+// TODO: Remove after ~6 months (2026-07) when all naras support Mode: "sample"
+func (network *Network) bootRecoveryViaMeshLegacy(online []string, meshNeighbors []struct{ name, ip string }) {
+	// Get all known subjects (naras)
+	subjects := append(online, network.meName())
 
 	totalSlices := len(meshNeighbors)
 	// Divide target across neighbors

@@ -2,6 +2,7 @@ package nara
 
 import (
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -871,6 +872,121 @@ func (l *SyncLedger) GetEventsForSync(services []string, subjects []string, sinc
 	if maxEvents > 0 && len(filtered) > maxEvents {
 		// Keep most recent (they're at the end since sorted ascending)
 		filtered = filtered[len(filtered)-maxEvents:]
+	}
+
+	return filtered
+}
+
+// GetEventsPage returns events for cursor-based pagination (mode: "page")
+// Returns events oldest-first with nextCursor for deterministic complete retrieval
+// This is used for backup and checkpoint sync where completeness is required
+func (l *SyncLedger) GetEventsPage(cursor string, pageSize int, services []string, subjects []string) (events []SyncEvent, nextCursor string) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	// Parse cursor (timestamp of last event returned)
+	var sinceTime int64
+	if cursor != "" {
+		parsed, err := strconv.ParseInt(cursor, 10, 64)
+		if err == nil {
+			sinceTime = parsed
+		}
+	}
+
+	// Build filter sets
+	serviceSet := make(map[string]bool)
+	filterByService := len(services) > 0
+	for _, s := range services {
+		serviceSet[s] = true
+	}
+
+	subjectSet := make(map[string]bool)
+	filterBySubject := len(subjects) > 0
+	for _, s := range subjects {
+		subjectSet[s] = true
+	}
+
+	// Filter events after cursor timestamp
+	var filtered []SyncEvent
+	for _, e := range l.Events {
+		// Filter by cursor (events strictly after cursor timestamp)
+		if e.Timestamp <= sinceTime {
+			continue
+		}
+		// Filter by service
+		if filterByService && !serviceSet[e.Service] {
+			continue
+		}
+		// Filter by subject
+		if filterBySubject && !subjectSet[e.GetActor()] && !subjectSet[e.GetTarget()] {
+			continue
+		}
+		filtered = append(filtered, e)
+	}
+
+	// Sort oldest first for deterministic pagination
+	sort.Slice(filtered, func(i, j int) bool {
+		return filtered[i].Timestamp < filtered[j].Timestamp
+	})
+
+	// Apply page size (OLDEST events, not newest!)
+	hasMore := false
+	if pageSize > 0 && len(filtered) > pageSize {
+		hasMore = true
+		filtered = filtered[:pageSize]
+	}
+
+	// Generate next cursor if we returned a full page (might be more events)
+	// If we returned fewer than pageSize, this is the last page (cursor stays empty)
+	// This prevents clients from making unnecessary extra calls
+	if hasMore || (pageSize > 0 && len(filtered) == pageSize) {
+		nextCursor = strconv.FormatInt(filtered[len(filtered)-1].Timestamp, 10)
+	}
+
+	return filtered, nextCursor
+}
+
+// GetRecentEvents returns the most recent N events (mode: "recent")
+// This is used for web UI event browsing where only recent activity is needed
+func (l *SyncLedger) GetRecentEvents(limit int, services []string, subjects []string) []SyncEvent {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	// Build filter sets
+	serviceSet := make(map[string]bool)
+	filterByService := len(services) > 0
+	for _, s := range services {
+		serviceSet[s] = true
+	}
+
+	subjectSet := make(map[string]bool)
+	filterBySubject := len(subjects) > 0
+	for _, s := range subjects {
+		subjectSet[s] = true
+	}
+
+	// Filter events
+	var filtered []SyncEvent
+	for _, e := range l.Events {
+		// Filter by service
+		if filterByService && !serviceSet[e.Service] {
+			continue
+		}
+		// Filter by subject
+		if filterBySubject && !subjectSet[e.GetActor()] && !subjectSet[e.GetTarget()] {
+			continue
+		}
+		filtered = append(filtered, e)
+	}
+
+	// Sort newest first
+	sort.Slice(filtered, func(i, j int) bool {
+		return filtered[i].Timestamp > filtered[j].Timestamp
+	})
+
+	// Apply limit
+	if limit > 0 && len(filtered) > limit {
+		filtered = filtered[:limit]
 	}
 
 	return filtered

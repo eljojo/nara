@@ -9,21 +9,31 @@ import (
 )
 
 type SyncRequest struct {
-	From       string   `json:"from"`        // who is asking
-	Services   []string `json:"services"`    // which services (empty = all)
-	Subjects   []string `json:"subjects"`    // which naras (empty = all)
-	SinceTime  int64    `json:"since_time"`  // events after this time
-	SliceIndex int      `json:"slice_index"` // for interleaved slicing
-	SliceTotal int      `json:"slice_total"` // total slices
-	MaxEvents  int      `json:"max_events"`  // limit
+	From     string   `json:"from"`     // who is asking
+	Services []string `json:"services"` // which services (empty = all)
+	Subjects []string `json:"subjects"` // which naras (empty = all)
+
+	// Mode-based API (recommended)
+	Mode       string `json:"mode,omitempty"`        // "sample", "page", or "recent"
+	SampleSize int    `json:"sample_size,omitempty"` // for "sample" mode
+	Cursor     string `json:"cursor,omitempty"`      // for "page" mode (timestamp of last event)
+	PageSize   int    `json:"page_size,omitempty"`   // for "page" mode
+	Limit      int    `json:"limit,omitempty"`       // for "recent" mode
+
+	// Legacy parameters (deprecated, kept for backward compatibility)
+	SinceTime  int64 `json:"since_time,omitempty"`  // events after this time
+	SliceIndex int   `json:"slice_index,omitempty"` // for interleaved slicing
+	SliceTotal int   `json:"slice_total,omitempty"` // total slices
+	MaxEvents  int   `json:"max_events,omitempty"`  // limit
 }
 
 // SyncResponse contains events from a neighbor with optional signature
 type SyncResponse struct {
-	From      string      `json:"from"`
-	Events    []SyncEvent `json:"events"`
-	Timestamp int64       `json:"ts,omitempty"`  // When response was generated (Unix SECONDS, not nanoseconds)
-	Signature string      `json:"sig,omitempty"` // Base64 Ed25519 signature
+	From       string      `json:"from"`
+	Events     []SyncEvent `json:"events"`
+	NextCursor string      `json:"next_cursor,omitempty"` // For "page" mode pagination (timestamp of last event)
+	Timestamp  int64       `json:"ts,omitempty"`          // When response was generated (Unix SECONDS, not nanoseconds)
+	Signature  string      `json:"sig,omitempty"`         // Base64 Ed25519 signature
 }
 
 // NewSignedSyncResponse creates a signed sync response

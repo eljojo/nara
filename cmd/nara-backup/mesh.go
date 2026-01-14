@@ -57,58 +57,35 @@ func (m *BackupMesh) DiscoverPeers(ctx context.Context) ([]nara.TsnetPeer, error
 }
 
 // FetchEvents fetches all events from a specific peer via /events/sync
-// Uses slicing strategy (like boot recovery) instead of time-based pagination
-// because maxEvents returns the NEWEST events, making sinceTime pagination impossible
+// Uses cursor-based pagination (mode: "page") for complete, deterministic retrieval
 func (m *BackupMesh) FetchEvents(ctx context.Context, peerIP string, peerName string) ([]nara.SyncEvent, error) {
-	// Strategy: Make one request with maxEvents=0 to get all events (capped at 2000 by server)
-	// If we get exactly 2000 events, there might be more, so we'll use slicing to get the rest
+	var allEvents []nara.SyncEvent
+	cursor := ""
+	pageSize := 5000 // Server supports up to 5000 events per page
 
-	// First request: try to get all events
-	events, err := m.meshClient.FetchSyncEvents(ctx, peerIP, nara.SyncRequest{
-		MaxEvents: 0, // No limit (server will cap at 2000)
-	})
-
-	if err != nil {
-		return nil, fmt.Errorf("fetch from %s: %w", peerName, err)
-	}
-
-	// If we got fewer than 2000 events, that's everything
-	if len(events) < 2000 {
-		return events, nil
-	}
-
-	// We got exactly 2000 events, which means there are likely more
-	// Use slicing strategy to fetch the rest
-	// We'll request multiple slices until we've covered the entire event space
-	seenIDs := make(map[string]bool)
-	for _, e := range events {
-		seenIDs[e.ID] = true
-	}
-
-	allEvents := events
-	sliceTotal := 10 // Start with 10 slices
-
-	// Fetch remaining slices (we already got slice 0 implicitly)
-	for sliceIndex := 1; sliceIndex < sliceTotal; sliceIndex++ {
-		sliceEvents, err := m.meshClient.FetchSyncEvents(ctx, peerIP, nara.SyncRequest{
-			SliceIndex: sliceIndex,
-			SliceTotal: sliceTotal,
-			MaxEvents:  0,
+	for {
+		// Fetch next page
+		resp, err := m.meshClient.FetchSyncEventsWithCursor(ctx, peerIP, nara.SyncRequest{
+			Mode:     "page",
+			PageSize: pageSize,
+			Cursor:   cursor,
 		})
 
 		if err != nil {
-			return nil, fmt.Errorf("fetch slice %d from %s: %w", sliceIndex, peerName, err)
+			return nil, fmt.Errorf("fetch page from %s (cursor: %s): %w", peerName, cursor, err)
 		}
 
-		// Add new events
-		for _, e := range sliceEvents {
-			if !seenIDs[e.ID] {
-				allEvents = append(allEvents, e)
-				seenIDs[e.ID] = true
-			}
+		allEvents = append(allEvents, resp.Events...)
+
+		// If no cursor returned, we've reached the end
+		if resp.NextCursor == "" {
+			break
 		}
+
+		cursor = resp.NextCursor
 	}
 
+	logrus.Debugf("📦 Fetched %d total events from %s via pagination", len(allEvents), peerName)
 	return allEvents, nil
 }
 

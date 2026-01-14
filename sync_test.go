@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -1282,5 +1283,499 @@ func TestSyncLedger_ChillMemoryDecay(t *testing.T) {
 	// Not-chill nara should remember the event longer (higher weight)
 	if notChillWeight <= chillWeight {
 		t.Errorf("expected not-chill personality to have higher weight for old events (%.3f vs %.3f)", notChillWeight, chillWeight)
+	}
+}
+
+// --- Mode-Based API Tests ---
+
+// TestSyncLedger_PageMode tests cursor-based pagination (mode: "page")
+func TestSyncLedger_PageMode(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+
+	// Add 15 events with different timestamps
+	baseTime := time.Now().UnixNano()
+	for i := 0; i < 15; i++ {
+		e := SyncEvent{
+			Timestamp: baseTime + int64(i*1000),
+			Service:   ServicePing,
+			Ping:      &PingObservation{Observer: "alice", Target: fmt.Sprintf("bob-%d", i), RTT: float64(i + 1)},
+		}
+		e.ComputeID()
+		ledger.AddEvent(e)
+	}
+
+	// First page: get 5 events with no cursor
+	page1, cursor1 := ledger.GetEventsPage("", 5, nil, nil)
+	if len(page1) != 5 {
+		t.Errorf("expected 5 events in page 1, got %d", len(page1))
+	}
+	if cursor1 == "" {
+		t.Error("expected cursor1 to be set")
+	}
+
+	// Verify oldest first
+	for i := 1; i < len(page1); i++ {
+		if page1[i].Timestamp <= page1[i-1].Timestamp {
+			t.Error("expected events sorted oldest first")
+		}
+	}
+
+	// Second page: use cursor from first page
+	page2, cursor2 := ledger.GetEventsPage(cursor1, 5, nil, nil)
+	if len(page2) != 5 {
+		t.Errorf("expected 5 events in page 2, got %d", len(page2))
+	}
+	if cursor2 == "" {
+		t.Error("expected cursor2 to be set")
+	}
+
+	// Verify no overlap
+	for _, e1 := range page1 {
+		for _, e2 := range page2 {
+			if e1.ID == e2.ID {
+				t.Error("found duplicate event across pages")
+			}
+		}
+	}
+
+	// Third page: should get remaining 5 events
+	page3, cursor3 := ledger.GetEventsPage(cursor2, 5, nil, nil)
+	if len(page3) != 5 {
+		t.Errorf("expected 5 events in page 3, got %d", len(page3))
+	}
+	if cursor3 == "" {
+		t.Error("expected cursor3 to be set (timestamp of last event)")
+	}
+
+	// Fourth page: should get nothing (no events after cursor3)
+	page4, cursor4 := ledger.GetEventsPage(cursor3, 5, nil, nil)
+	if len(page4) != 0 {
+		t.Errorf("expected 0 events in page 4, got %d", len(page4))
+	}
+	if cursor4 != "" {
+		t.Error("expected cursor4 to be empty (no events returned)")
+	}
+
+	// Verify all 15 events were returned across pages
+	totalEvents := len(page1) + len(page2) + len(page3)
+	if totalEvents != 15 {
+		t.Errorf("expected 15 total events across pages, got %d", totalEvents)
+	}
+}
+
+// TestSyncLedger_PageMode_WithFilters tests page mode with service/subject filters
+func TestSyncLedger_PageMode_WithFilters(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+
+	// Add mixed events
+	baseTime := time.Now().UnixNano()
+	for i := 0; i < 10; i++ {
+		// Ping events (use different targets to avoid MaxPingsPerTarget limit)
+		ping := SyncEvent{
+			Timestamp: baseTime + int64(i*1000),
+			Service:   ServicePing,
+			Ping:      &PingObservation{Observer: "alice", Target: fmt.Sprintf("target-%d", i), RTT: float64(i + 1)},
+		}
+		ping.ComputeID()
+		ledger.AddEvent(ping)
+
+		// Social events
+		social := NewSocialSyncEvent("tease", "alice", "bob", ReasonRandom, "")
+		social.Timestamp = baseTime + int64(i*1000) + 500
+		social.ComputeID()
+		ledger.AddEvent(social)
+	}
+
+	// Get only ping events
+	pingPage, cursor := ledger.GetEventsPage("", 100, []string{ServicePing}, nil)
+	if len(pingPage) != 10 {
+		t.Errorf("expected 10 ping events, got %d", len(pingPage))
+	}
+	for _, e := range pingPage {
+		if e.Service != ServicePing {
+			t.Errorf("expected only ping events, got %s", e.Service)
+		}
+	}
+	if cursor != "" {
+		t.Error("expected no cursor (all events fit in one page)")
+	}
+
+	// Get only social events
+	socialPage, _ := ledger.GetEventsPage("", 100, []string{ServiceSocial}, nil)
+	if len(socialPage) != 10 {
+		t.Errorf("expected 10 social events, got %d", len(socialPage))
+	}
+	for _, e := range socialPage {
+		if e.Service != ServiceSocial {
+			t.Errorf("expected only social events, got %s", e.Service)
+		}
+	}
+}
+
+// TestSyncLedger_RecentMode tests getting recent N events (mode: "recent")
+func TestSyncLedger_RecentMode(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+
+	// Add 20 events
+	baseTime := time.Now().UnixNano()
+	for i := 0; i < 20; i++ {
+		e := SyncEvent{
+			Timestamp: baseTime + int64(i*1000),
+			Service:   ServicePing,
+			Ping:      &PingObservation{Observer: "alice", Target: fmt.Sprintf("bob-%d", i), RTT: float64(i + 1)},
+		}
+		e.ComputeID()
+		ledger.AddEvent(e)
+	}
+
+	// Get 5 most recent
+	recent := ledger.GetRecentEvents(5, nil, nil)
+	if len(recent) != 5 {
+		t.Errorf("expected 5 recent events, got %d", len(recent))
+	}
+
+	// Should be newest first
+	for i := 1; i < len(recent); i++ {
+		if recent[i].Timestamp >= recent[i-1].Timestamp {
+			t.Error("expected events sorted newest first")
+		}
+	}
+
+	// First event should be the newest (timestamp 19)
+	if recent[0].Ping.Target != "bob-19" {
+		t.Errorf("expected newest event to be bob-19, got %s", recent[0].Ping.Target)
+	}
+
+	// Get more than available
+	all := ledger.GetRecentEvents(100, nil, nil)
+	if len(all) != 20 {
+		t.Errorf("expected 20 events (all available), got %d", len(all))
+	}
+}
+
+// TestSyncLedger_RecentMode_WithFilters tests recent mode with filters
+func TestSyncLedger_RecentMode_WithFilters(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+
+	// Add mixed events
+	baseTime := time.Now().UnixNano()
+	for i := 0; i < 10; i++ {
+		// Ping
+		ping := SyncEvent{
+			Timestamp: baseTime + int64(i*2000),
+			Service:   ServicePing,
+			Ping:      &PingObservation{Observer: "alice", Target: "bob", RTT: float64(i)},
+		}
+		ping.ComputeID()
+		ledger.AddEvent(ping)
+
+		// Social
+		social := NewSocialSyncEvent("tease", "alice", "bob", ReasonRandom, "")
+		social.Timestamp = baseTime + int64(i*2000) + 1000
+		social.ComputeID()
+		ledger.AddEvent(social)
+	}
+
+	// Get recent social events only
+	recentSocial := ledger.GetRecentEvents(5, []string{ServiceSocial}, nil)
+	if len(recentSocial) != 5 {
+		t.Errorf("expected 5 recent social events, got %d", len(recentSocial))
+	}
+	for _, e := range recentSocial {
+		if e.Service != ServiceSocial {
+			t.Errorf("expected only social events, got %s", e.Service)
+		}
+	}
+}
+
+// TestSyncLedger_SampleMode tests decay-weighted sampling (mode: "sample")
+func TestSyncLedger_SampleMode(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+
+	// Add 100 events spanning time
+	now := time.Now()
+
+	// 50 recent events (last hour)
+	for i := 0; i < 50; i++ {
+		e := SyncEvent{
+			Timestamp: now.Add(-time.Duration(i) * time.Minute).UnixNano(),
+			Service:   ServicePing,
+			Ping:      &PingObservation{Observer: "alice", Target: fmt.Sprintf("recent-%d", i), RTT: float64(i)},
+		}
+		e.ComputeID()
+		ledger.AddEvent(e)
+	}
+
+	// 50 old events (30 days ago)
+	for i := 0; i < 50; i++ {
+		e := SyncEvent{
+			Timestamp: now.Add(-30*24*time.Hour - time.Duration(i)*time.Minute).UnixNano(),
+			Service:   ServicePing,
+			Ping:      &PingObservation{Observer: "alice", Target: fmt.Sprintf("old-%d", i), RTT: float64(i)},
+		}
+		e.ComputeID()
+		ledger.AddEvent(e)
+	}
+
+	// Sample 20 events
+	sample := ledger.SampleEvents(20, "test-nara", nil, nil)
+	if len(sample) != 20 {
+		t.Errorf("expected 20 sampled events, got %d", len(sample))
+	}
+
+	// Count recent vs old events in sample
+	recentCount := 0
+	oldCount := 0
+	for _, e := range sample {
+		if strings.HasPrefix(e.Ping.Target, "recent-") {
+			recentCount++
+		} else if strings.HasPrefix(e.Ping.Target, "old-") {
+			oldCount++
+		}
+	}
+
+	// Recent events should be more likely to be sampled (due to decay)
+	// With 30-day half-life, recent events have ~1.0 weight, old events have ~0.5 weight
+	// So we expect roughly 2:1 ratio, but allow for randomness
+	if recentCount < oldCount {
+		t.Errorf("expected more recent events in sample, got recent=%d old=%d", recentCount, oldCount)
+	}
+
+	t.Logf("Sample distribution: %d recent, %d old (expected more recent due to decay)", recentCount, oldCount)
+}
+
+// TestSyncLedger_SampleMode_CriticalEvents tests that critical events are always included
+func TestSyncLedger_SampleMode_CriticalEvents(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+
+	// Add 3 critical events (checkpoint, hey_there, observation with critical importance)
+	baseTime := time.Now().UnixNano()
+
+	// Create a checkpoint event using NewTestCheckpointEvent
+	checkpoint := NewTestCheckpointEvent("alice", time.Now().Unix(), time.Now().Unix()-1000, 5, 1000)
+	checkpoint.Timestamp = baseTime
+	checkpoint.ComputeID()
+	ledger.AddEvent(checkpoint)
+
+	// Create a hey_there event
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	keypair := NaraKeypair{PrivateKey: priv, PublicKey: pub}
+	heyThere := NewHeyThereSyncEvent("bob", "bob-id", "100.64.0.1", "bob-id", keypair)
+	heyThere.Timestamp = baseTime + 1000
+	heyThere.ComputeID()
+	ledger.AddEvent(heyThere)
+
+	restart := NewRestartObservationEvent("observer", "charlie", time.Now().Unix(), 1)
+	restart.Timestamp = baseTime + 2000
+	restart.ComputeID()
+	ledger.AddEvent(restart)
+
+	// Add 97 non-critical events
+	for i := 0; i < 97; i++ {
+		e := SyncEvent{
+			Timestamp: baseTime + int64((i+3)*1000),
+			Service:   ServicePing,
+			Ping:      &PingObservation{Observer: "alice", Target: fmt.Sprintf("target-%d", i), RTT: float64(i)},
+		}
+		e.ComputeID()
+		ledger.AddEvent(e)
+	}
+
+	// Sample only 5 events - critical events should all be included
+	sample := ledger.SampleEvents(5, "test-nara", nil, nil)
+	if len(sample) != 5 {
+		t.Errorf("expected 5 sampled events, got %d", len(sample))
+	}
+
+	// Verify all 3 critical events are present
+	foundCheckpoint := false
+	foundHeyThere := false
+	foundRestart := false
+
+	for _, e := range sample {
+		if e.Service == ServiceCheckpoint {
+			foundCheckpoint = true
+		}
+		if e.Service == ServiceHeyThere {
+			foundHeyThere = true
+		}
+		if e.Service == ServiceObservation && e.Observation != nil && e.Observation.Type == "restart" {
+			foundRestart = true
+		}
+	}
+
+	if !foundCheckpoint {
+		t.Error("expected checkpoint event to be included in sample")
+	}
+	if !foundHeyThere {
+		t.Error("expected hey_there event to be included in sample")
+	}
+	if !foundRestart {
+		t.Error("expected restart observation to be included in sample")
+	}
+}
+
+// TestSyncLedger_SampleMode_SelfRelevance tests that events about/from myName are weighted higher
+func TestSyncLedger_SampleMode_SelfRelevance(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+
+	myName := "my-nara"
+	baseTime := time.Now().UnixNano()
+
+	// Add 50 events involving my-nara
+	for i := 0; i < 50; i++ {
+		e := SyncEvent{
+			Timestamp: baseTime + int64(i*1000),
+			Service:   ServicePing,
+			Ping:      &PingObservation{Observer: myName, Target: fmt.Sprintf("target-%d", i), RTT: float64(i)},
+		}
+		e.Emitter = myName
+		e.ComputeID()
+		ledger.AddEvent(e)
+	}
+
+	// Add 50 events NOT involving my-nara
+	for i := 0; i < 50; i++ {
+		e := SyncEvent{
+			Timestamp: baseTime + int64((i+50)*1000),
+			Service:   ServicePing,
+			Ping:      &PingObservation{Observer: "other", Target: "other-target", RTT: float64(i)},
+		}
+		e.Emitter = "other"
+		e.ComputeID()
+		ledger.AddEvent(e)
+	}
+
+	// Sample 20 events - should favor events involving myName (2x weight)
+	sample := ledger.SampleEvents(20, myName, nil, nil)
+	if len(sample) != 20 {
+		t.Errorf("expected 20 sampled events, got %d", len(sample))
+	}
+
+	// Count events involving myName
+	myCount := 0
+	otherCount := 0
+	for _, e := range sample {
+		if e.Emitter == myName || (e.Ping != nil && e.Ping.Observer == myName) {
+			myCount++
+		} else {
+			otherCount++
+		}
+	}
+
+	// With 2x self-relevance boost, we expect roughly 2:1 ratio
+	if myCount < otherCount {
+		t.Errorf("expected more events involving myName, got mine=%d other=%d", myCount, otherCount)
+	}
+
+	t.Logf("Sample distribution: %d involving myName, %d other (expected more mine due to self-relevance)", myCount, otherCount)
+}
+
+// TestSyncLedger_SampleMode_WithFilters tests sampling with service filters
+func TestSyncLedger_SampleMode_WithFilters(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+
+	// Add mixed events
+	baseTime := time.Now().UnixNano()
+	for i := 0; i < 50; i++ {
+		// Ping
+		ping := SyncEvent{
+			Timestamp: baseTime + int64(i*1000),
+			Service:   ServicePing,
+			Ping:      &PingObservation{Observer: "alice", Target: "bob", RTT: float64(i)},
+		}
+		ping.ComputeID()
+		ledger.AddEvent(ping)
+
+		// Social
+		social := NewSocialSyncEvent("tease", "alice", "bob", ReasonRandom, "")
+		social.Timestamp = baseTime + int64(i*1000) + 500
+		social.ComputeID()
+		ledger.AddEvent(social)
+	}
+
+	// Sample only ping events
+	pingSample := ledger.SampleEvents(20, "test-nara", []string{ServicePing}, nil)
+	if len(pingSample) > 20 {
+		t.Errorf("expected at most 20 sampled events, got %d", len(pingSample))
+	}
+	for _, e := range pingSample {
+		if e.Service != ServicePing {
+			t.Errorf("expected only ping events, got %s", e.Service)
+		}
+	}
+
+	// Sample only social events
+	socialSample := ledger.SampleEvents(20, "test-nara", []string{ServiceSocial}, nil)
+	if len(socialSample) > 20 {
+		t.Errorf("expected at most 20 sampled events, got %d", len(socialSample))
+	}
+	for _, e := range socialSample {
+		if e.Service != ServiceSocial {
+			t.Errorf("expected only social events, got %s", e.Service)
+		}
+	}
+}
+
+// TestSyncLedger_LegacyMode tests backward compatibility with old API
+func TestSyncLedger_LegacyMode(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+
+	// Add events
+	baseTime := time.Now().Unix()
+	for i := 0; i < 20; i++ {
+		e := SyncEvent{
+			Timestamp: baseTime + int64(i),
+			Service:   ServicePing,
+			Ping:      &PingObservation{Observer: "alice", Target: fmt.Sprintf("bob-%d", i), RTT: float64(i + 1)},
+		}
+		e.ComputeID()
+		ledger.AddEvent(e)
+	}
+
+	// Test legacy GetEventsForSync (should still work)
+	legacy := ledger.GetEventsForSync(nil, nil, 0, 0, 1, 10)
+	if len(legacy) != 10 {
+		t.Errorf("expected 10 events from legacy API, got %d", len(legacy))
+	}
+
+	// Legacy API returns newest events when maxEvents is applied
+	for _, e := range legacy {
+		if e.Timestamp < baseTime+10 {
+			t.Error("expected legacy API to return newest events")
+		}
+	}
+}
+
+// TestSyncLedger_PageMode_EmptyLedger tests pagination on empty ledger
+func TestSyncLedger_PageMode_EmptyLedger(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+
+	events, cursor := ledger.GetEventsPage("", 10, nil, nil)
+	if len(events) != 0 {
+		t.Errorf("expected 0 events from empty ledger, got %d", len(events))
+	}
+	if cursor != "" {
+		t.Error("expected empty cursor from empty ledger")
+	}
+}
+
+// TestSyncLedger_SampleMode_EmptyLedger tests sampling on empty ledger
+func TestSyncLedger_SampleMode_EmptyLedger(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+
+	sample := ledger.SampleEvents(10, "test-nara", nil, nil)
+	if len(sample) != 0 {
+		t.Errorf("expected 0 events from empty ledger, got %d", len(sample))
+	}
+}
+
+// TestSyncLedger_RecentMode_EmptyLedger tests recent mode on empty ledger
+func TestSyncLedger_RecentMode_EmptyLedger(t *testing.T) {
+	ledger := NewSyncLedger(1000)
+
+	recent := ledger.GetRecentEvents(10, nil, nil)
+	if len(recent) != 0 {
+		t.Errorf("expected 0 events from empty ledger, got %d", len(recent))
 	}
 }

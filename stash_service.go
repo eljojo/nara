@@ -307,6 +307,7 @@ func (s *StashService) ExchangeStashWithPeer(targetName string) {
 }
 
 // StoreStashWithPeer sends our stash to a peer for storage.
+// TODO: Migrate to MeshClient.StashStore() method to reduce code duplication and improve maintainability
 func (s *StashService) StoreStashWithPeer(targetName string) {
 	if s.manager == nil || s.deps == nil {
 		return
@@ -367,6 +368,7 @@ func (s *StashService) StoreStashWithPeer(targetName string) {
 }
 
 // RetrieveStashFromPeer requests our stash back from a peer.
+// TODO: Migrate to MeshClient.StashRetrieve() method to reduce code duplication and improve maintainability
 func (s *StashService) RetrieveStashFromPeer(targetName string) {
 	if s.manager == nil || s.deps == nil {
 		return
@@ -413,6 +415,7 @@ func (s *StashService) RetrieveStashFromPeer(targetName string) {
 // PushStashToOwner pushes a stash back to its owner via HTTP POST to /stash/push.
 // This is called during hey-there recovery or stash-refresh requests.
 // Runs the push in a background goroutine with optional delay.
+// TODO: Migrate to MeshClient.StashPush() method to reduce code duplication and improve maintainability
 func (s *StashService) PushStashToOwner(targetName string, delay time.Duration) {
 	go func() {
 		// Optional delay to let them finish booting or avoid thundering herd

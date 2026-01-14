@@ -43,7 +43,7 @@ type EventImportResponse struct {
 	Success    bool   `json:"success"`
 	Imported   int    `json:"imported"`
 	Duplicates int    `json:"duplicates"`
-	Warnings   int    `json:"warnings,omitempty"`   // Signature verification warnings
+	Warnings   int    `json:"warnings,omitempty"` // Signature verification warnings
 	Error      string `json:"error,omitempty"`
 }
 
@@ -121,7 +121,6 @@ func (network *Network) httpEventsImportHandler(w http.ResponseWriter, r *http.R
 		logrus.WithError(err).Warn("Failed to encode import response")
 	}
 }
-
 
 // sendJSONError sends a JSON error response
 func sendJSONError(w http.ResponseWriter, message string, statusCode int) {

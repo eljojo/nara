@@ -349,22 +349,140 @@ Compare to the old newspaper broadcast system: 68MB/s - 1GB/s at scale.
 | Real-time event propagation | Zine Gossip |
 | New nara joins network | Boot Recovery + Mesh Discovery |
 
+## Unified Event API
+
+The sync API supports three retrieval modes designed for different use cases. Each mode reflects a different relationship with the network's collective memory.
+
+### Mode: `sample` (Boot Recovery - Organic Memory)
+
+**Philosophy:** Each nara returns a **decay-weighted sample** of their memory, not everything they know. This creates a hazy collective memory where recent events are clearer and old events naturally fade.
+
+```json
+{
+  "from": "requester",
+  "mode": "sample",
+  "sample_size": 5000
+}
+```
+
+**How sampling works:**
+- Recent events more likely to be included (clearer memory)
+- Old events less likely but not zero (fading memory)
+- Critical events (checkpoints, hey_there) always included
+- Events the nara emitted or observed firsthand have higher weight
+
+**Decay function:** Exponential decay with ~30-day half-life
+- Events < 1 day old: ~100% inclusion probability
+- Events ~1 week old: ~80% inclusion probability
+- Events ~1 month old: ~50% inclusion probability
+- Events ~6 months old: ~10% inclusion probability
+
+**When to use:** Boot recovery, where incomplete but representative data is acceptable.
+
+### Mode: `page` (Complete Retrieval)
+
+**Philosophy:** Deterministic, cursor-based pagination for complete retrieval. Returns events **oldest first** so pagination works correctly.
+
+```json
+{
+  "from": "requester",
+  "mode": "page",
+  "page_size": 2000,
+  "cursor": "1704067200000000000"
+}
+```
+
+**Response includes:**
+```json
+{
+  "events": [...],
+  "next_cursor": "1704167200000000000",
+  "from": "responder",
+  "sig": "..."
+}
+```
+
+**Pagination flow:**
+1. First request: `cursor` omitted or empty
+2. Process events, save `next_cursor`
+3. Next request: use saved cursor
+4. Repeat until `next_cursor` is empty (no more events)
+
+**When to use:** Backup (need ALL events), checkpoint sync (need complete checkpoint history).
+
+### Mode: `recent` (Web UI)
+
+**Philosophy:** Simple retrieval of most recent N events. No pagination needed.
+
+```json
+{
+  "from": "requester",
+  "mode": "recent",
+  "limit": 100
+}
+```
+
+**When to use:** Web UI event browsing, recent activity feeds.
+
+### Use Case Matrix
+
+| Use Case | Mode | Who to Ask | Completeness |
+|----------|------|------------|--------------|
+| Boot Recovery | `sample` | All available neighbors | Intentionally lossy (hazy memory) |
+| Checkpoint Sync | `page` | 5 neighbors (redundancy) | Complete for checkpoints |
+| Backup | `page` | ALL naras | Complete union |
+| Web UI | `recent` | Self | Recent subset |
+
+### Legacy Compatibility
+
+For backward compatibility, requests without a `mode` field continue to work using the legacy parameters (`slice_index`, `slice_total`, `max_events`). These are deprecated and will be removed in a future version.
+
+---
+
 ## Sync Protocol
 
-### Boot Recovery (Getting Up to Speed)
+### Boot Recovery (Organic Hazy Memory)
 
-When a nara boots, it wants to catch up on what it missed. Target: **10,000 events**.
+When a nara boots, it reconstructs its memory by asking neighbors: *"What do you remember?"*
 
+The number of API calls is determined by the nara's **memory capacity**:
+
+| Memory Mode | Capacity | Page Size | API Calls |
+|-------------|----------|-----------|-----------|
+| Short       | ~5k      | 1k        | 5 calls   |
+| Normal      | ~50k     | 5k        | 10 calls  |
+| Hog         | ~80k     | 5k        | 16 calls  |
+
+**Algorithm:**
 ```
 1. Announce presence on plaza (hey_there)
-2. Discover mesh-enabled neighbors
-3. Divide 10k target across neighbors:
-   - 5 neighbors → each contributes ~2000 events
-   - 2 neighbors → each contributes ~5000 events
-4. Query each neighbor with interleaved slicing
-5. Verify signatures on responses
-6. Merge events into SyncLedger
+2. Discover available mesh neighbors
+3. Calculate: calls_needed = my_capacity / page_size
+4. Distribute calls across ALL available neighbors (round-robin)
+5. Each call: mode="sample", sample_size=page_size
+6. If a call fails, retry with a different neighbor
+7. Continue until calls_needed successful fetches
+8. Merge all events into SyncLedger
 ```
+
+**Examples:**
+- Hog mode (16 calls), 10 neighbors → each neighbor gets 1-2 calls
+- Hog mode (16 calls), 3 neighbors → each neighbor gets ~5 calls
+- Short mode (5 calls), 20 neighbors → 5 different neighbors each get 1 call
+
+Each neighbor returns their **perspective** - a decay-weighted sample that includes:
+- Events they emitted (strong memory)
+- Events they observed firsthand (strong memory)
+- Recent events (clear memory)
+- Old events (fading, probabilistic inclusion)
+- Critical events like checkpoints (always included)
+
+**The collective memory emerges:**
+- Events appearing in multiple samples = **strong consensus** (many naras remember)
+- Events appearing in one sample = **weak memory** (only one neighbor remembers)
+- Events in no samples = **forgotten** (and that's OK)
+
+This is intentional. The network doesn't maintain perfect state - it maintains **organic, living memory** that naturally fades and reconstructs based on who you talk to.
 
 ### After Boot: Background Sync (Organic Memory Strengthening)
 
@@ -400,9 +518,11 @@ This lightweight sync helps catch up on critical observation events (restarts, f
 3. **Personality compensation**: High-chill naras catch up on events they filtered
 4. **Network healing**: Partitioned nodes eventually converge
 
-### Interleaved Slicing
+### Interleaved Slicing (Deprecated)
 
-To avoid duplicate data when querying multiple neighbors, we use interleaved slicing:
+> **Note:** Interleaved slicing is deprecated in favor of the `mode`-based API. New code should use `mode: "sample"` for boot recovery. The slicing parameters (`slice_index`, `slice_total`) remain for backward compatibility but will be removed in a future version.
+
+Legacy slicing divided events across neighbors to avoid duplicates:
 
 ```
 Neighbor 0 (slice 0/3): events 0, 3, 6, 9, 12...
@@ -410,7 +530,7 @@ Neighbor 1 (slice 1/3): events 1, 4, 7, 10, 13...
 Neighbor 2 (slice 2/3): events 2, 5, 8, 11, 14...
 ```
 
-Each neighbor returns a different slice of their events. Combined, you get comprehensive coverage without redundancy.
+The new `sample` mode replaces this with probabilistic sampling that naturally handles deduplication through the merge process.
 
 ## Signed Blocks
 
@@ -572,18 +692,40 @@ The measurement spreads organically. Different naras may receive it at different
 
 ## API Reference
 
-### POST /sync
+### POST /sync (or /events/sync)
 
-Request events from a neighbor.
+Request events from a neighbor using the mode-based API.
 
-**Request:**
+**Request (mode-based - recommended):**
 ```json
 {
   "from": "requester-name",
-  "services": ["social", "ping"],  // optional filter
-  "subjects": ["nara-a", "nara-b"], // optional filter
-  "since_time": 1704067200,        // unix timestamp
-  "slice_index": 0,                // for interleaved slicing
+  "mode": "sample",              // "sample", "page", or "recent"
+
+  // For "sample" mode (boot recovery):
+  "sample_size": 5000,
+
+  // For "page" mode (backup, checkpoint sync):
+  "page_size": 2000,
+  "cursor": "1704067200000000000",  // omit for first request
+
+  // For "recent" mode (web UI):
+  "limit": 100,
+
+  // Optional filters (all modes):
+  "services": ["social", "ping"],
+  "subjects": ["nara-a", "nara-b"]
+}
+```
+
+**Request (legacy - deprecated):**
+```json
+{
+  "from": "requester-name",
+  "services": ["social", "ping"],
+  "subjects": ["nara-a", "nara-b"],
+  "since_time": 1704067200,
+  "slice_index": 0,
   "slice_total": 3,
   "max_events": 2000
 }
@@ -594,10 +736,16 @@ Request events from a neighbor.
 {
   "from": "responder-name",
   "events": [...],
+  "next_cursor": "1704167200000000000",  // only for "page" mode
   "ts": 1704067260,
   "sig": "base64-ed25519-signature"
 }
 ```
+
+**Mode-specific behavior:**
+- `sample`: Returns decay-weighted random sample, max `sample_size` events
+- `page`: Returns oldest events after cursor, max `page_size` events, includes `next_cursor`
+- `recent`: Returns newest events, max `limit` events
 
 ### GET /ping
 

@@ -418,7 +418,9 @@ func (network *Network) httpMetricsHandler(w http.ResponseWriter, r *http.Reques
 }
 
 // httpCheckpointsAllHandler serves all checkpoint events for boot recovery
-// This allows new naras to sync the entire checkpoint timeline from the network
+// DEPRECATED: Use /events/sync with Mode: "page" and Services: ["checkpoint"] instead
+// This endpoint is kept for backward compatibility with older naras during transition period
+// TODO: Remove after ~6 months (2026-07) when all naras use unified /events/sync API
 // Supports pagination via query parameters: limit and offset
 func (network *Network) httpCheckpointsAllHandler(w http.ResponseWriter, r *http.Request) {
 	if network.local == nil || network.local.SyncLedger == nil {

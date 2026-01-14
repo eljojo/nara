@@ -71,6 +71,7 @@ func NewHTTPMeshTransport(tsnetServer *tsnet.Server, network *Network, port int)
 }
 
 // Send sends a world message to another nara via HTTP POST
+// TODO: Migrate to MeshClient.RelayWorldMessage() method to reduce code duplication and improve maintainability
 func (t *HTTPMeshTransport) Send(target string, msg *WorldMessage) error {
 	t.mu.Lock()
 	if t.closed {

@@ -42,11 +42,13 @@ nara-backup dump-events -name alice -soul <your-soul> -verbose > backup.jsonl
 
 1. **Connects to mesh** - Uses your nara's soul to sign mesh requests (same identity as your running nara)
 2. **Discovers peers** - Uses tsnet Status API to find all naras on the network
-3. **Fetches events** - POSTs to `/events/sync` on each peer via mesh HTTP
-4. **Paginates automatically** - Loops to fetch all events from each peer (server limits to 2000 events per response)
+3. **Fetches events** - POSTs to `/events/sync` on each peer via mesh HTTP using `mode: "page"`
+4. **Paginates with cursor** - Uses cursor-based pagination to fetch ALL events from each peer (no arbitrary limits)
 5. **Deduplicates** - Events with the same ID are merged (only one copy kept)
 6. **Sorts** - Events are sorted by timestamp (oldest first)
 7. **Outputs JSONL** - One JSON object per line for easy appending
+
+The backup tool uses the unified event API with `mode: "page"`, which returns events **oldest first** with deterministic cursor-based pagination. This ensures complete retrieval of all events from each peer.
 
 ### Options
 
@@ -240,11 +242,11 @@ nara-backup restore-events \
 - The restore request must be made within 5 minutes of creation
 - If restoring from a script, generate the request just before sending
 
-### "Got 2000 events from peer, but expected more"
+### "Got 5000 events from peer, there might be more"
 
 This is normal behavior:
-- The server limits responses to 2000 events per request
-- The backup tool automatically paginates to fetch all events
+- The server returns up to 5000 events per request
+- The backup tool automatically paginates using cursor-based pagination
 - Check the logs - you should see multiple fetches from the same peer
 - If the peer times out, try increasing `-timeout` (e.g., `-timeout 5m`)
 
@@ -267,14 +269,16 @@ The backup tool connects to the mesh using **your nara's identity**:
 - Mesh authentication via Ed25519 signatures
 - This allows the backup tool to fetch events from peers who recognize your identity
 
-### Automatic Pagination
+### Cursor-Based Pagination
 
-The dump command automatically paginates to fetch all events from each peer:
-- Server limits responses to **2000 events max** per request
-- Backup tool loops, using `SinceTime` parameter to request the next batch
-- Continues until fewer than 2000 events are returned (indicating the end)
+The dump command uses **cursor-based pagination** to fetch all events from each peer:
+- Uses `mode: "page"` which returns events **oldest first**
+- Response includes `next_cursor` - the timestamp of the last event returned
+- Backup tool loops, passing the cursor to get the next batch
+- Continues until `next_cursor` is empty (indicating no more events)
+- Page size defaults to 5000 events per request
 - Each peer can make multiple round-trips within its timeout window
-- Example: A peer with 50,000 events requires 25 requests (2000 events each)
+- Example: A peer with 50,000 events requires 10 requests (5000 events each)
 
 ### Event Deduplication
 
@@ -315,5 +319,7 @@ Planned features for future versions:
 ## See Also
 
 - [Event System](/concepts/events) - Understanding event structure
-- [Sync Protocol](/concepts/sync) - How events propagate through the network
+- [Sync Protocol](/concepts/sync) - How events propagate through the network (includes unified event API documentation)
 - [Identity](/concepts/identity) - Soul-based cryptographic identity
+
+The backup tool uses the **unified event API** with `mode: "page"` for complete, deterministic retrieval. See the [Sync Protocol](/concepts/sync#unified-event-api) documentation for details on all three API modes (sample, page, recent).

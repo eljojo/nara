@@ -31,37 +31,75 @@ func (network *Network) httpEventsSyncHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Sanity check slice params
-	if req.SliceTotal < 1 {
-		req.SliceTotal = 1
-	}
-	if req.SliceIndex < 0 || req.SliceIndex >= req.SliceTotal {
-		req.SliceIndex = 0
-	}
-
-	// Default max events if not specified
-	maxEvents := req.MaxEvents
-	if maxEvents <= 0 || maxEvents > 2000 {
-		maxEvents = 2000
-	}
-
-	// Get events from unified sync ledger
+	// Route based on mode
 	var events []SyncEvent
-	if network.local.SyncLedger != nil {
-		events = network.local.SyncLedger.GetEventsForSync(
-			req.Services,
-			req.Subjects,
-			req.SinceTime,
-			req.SliceIndex,
-			req.SliceTotal,
-			maxEvents,
-		)
-	}
+	var nextCursor string
 
-	logrus.Printf("📤 mesh sync to %s: sent %d events (slice %d/%d)", req.From, len(events), req.SliceIndex+1, req.SliceTotal)
+	if network.local.SyncLedger == nil {
+		// No ledger, return empty
+		events = []SyncEvent{}
+	} else {
+		switch req.Mode {
+		case "sample":
+			// Decay-weighted sampling for boot recovery (organic hazy memory)
+			sampleSize := req.SampleSize
+			if sampleSize <= 0 || sampleSize > 5000 {
+				sampleSize = 5000
+			}
+			events = network.local.SyncLedger.SampleEvents(sampleSize, network.meName(), req.Services, req.Subjects)
+			logrus.Printf("📤 mesh sync to %s: sampled %d events (mode: sample)", req.From, len(events))
+
+		case "page":
+			// Cursor-based pagination for backup/checkpoint sync (complete retrieval)
+			pageSize := req.PageSize
+			if pageSize <= 0 || pageSize > 5000 {
+				pageSize = 5000
+			}
+			events, nextCursor = network.local.SyncLedger.GetEventsPage(req.Cursor, pageSize, req.Services, req.Subjects)
+			logrus.Printf("📤 mesh sync to %s: page %d events (mode: page, cursor: %s, next: %s)", req.From, len(events), req.Cursor, nextCursor)
+
+		case "recent":
+			// Most recent N events for web UI
+			limit := req.Limit
+			if limit <= 0 || limit > 5000 {
+				limit = 100
+			}
+			events = network.local.SyncLedger.GetRecentEvents(limit, req.Services, req.Subjects)
+			logrus.Printf("📤 mesh sync to %s: recent %d events (mode: recent)", req.From, len(events))
+
+		default:
+			// Legacy mode (backward compatibility)
+			// Sanity check slice params
+			sliceTotal := req.SliceTotal
+			if sliceTotal < 1 {
+				sliceTotal = 1
+			}
+			sliceIndex := req.SliceIndex
+			if sliceIndex < 0 || sliceIndex >= sliceTotal {
+				sliceIndex = 0
+			}
+
+			// Default max events
+			maxEvents := req.MaxEvents
+			if maxEvents <= 0 || maxEvents > 5000 {
+				maxEvents = 5000
+			}
+
+			events = network.local.SyncLedger.GetEventsForSync(
+				req.Services,
+				req.Subjects,
+				req.SinceTime,
+				sliceIndex,
+				sliceTotal,
+				maxEvents,
+			)
+			logrus.Printf("📤 mesh sync to %s: sent %d events (legacy mode, slice %d/%d)", req.From, len(events), sliceIndex+1, sliceTotal)
+		}
+	}
 
 	// Create signed response
 	response := NewSignedSyncResponse(network.meName(), events, network.local.Keypair)
+	response.NextCursor = nextCursor // Set cursor for page mode
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	if err := json.NewEncoder(w).Encode(response); err != nil {

@@ -40,7 +40,18 @@ func (m *MeshClient) signRequest(req *http.Request) {
 }
 
 // FetchSyncEvents fetches events from a peer via POST /events/sync
+// Returns just the events (for backward compatibility)
 func (m *MeshClient) FetchSyncEvents(ctx context.Context, peerIP string, req SyncRequest) ([]SyncEvent, error) {
+	resp, err := m.FetchSyncEventsWithCursor(ctx, peerIP, req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Events, nil
+}
+
+// FetchSyncEventsWithCursor fetches events from a peer via POST /events/sync
+// Returns the full response including NextCursor for pagination
+func (m *MeshClient) FetchSyncEventsWithCursor(ctx context.Context, peerIP string, req SyncRequest) (*SyncResponse, error) {
 	// Ensure From is set to our identity
 	req.From = m.name
 
@@ -72,7 +83,22 @@ func (m *MeshClient) FetchSyncEvents(ctx context.Context, peerIP string, req Syn
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 
-	return response.Events, nil
+	return &response, nil
+}
+
+// FetchCheckpoints fetches checkpoint events from a peer using the unified sync API
+// Returns checkpoints in oldest-first order with cursor-based pagination
+func (m *MeshClient) FetchCheckpoints(ctx context.Context, peerIP string, cursor string, pageSize int) (*SyncResponse, error) {
+	if pageSize <= 0 || pageSize > 5000 {
+		pageSize = 1000
+	}
+
+	return m.FetchSyncEventsWithCursor(ctx, peerIP, SyncRequest{
+		Mode:     "page",
+		Services: []string{ServiceCheckpoint},
+		Cursor:   cursor,
+		PageSize: pageSize,
+	})
 }
 
 // TODO: Add PostGossipZine when Zine type signature is confirmed
@@ -102,7 +128,6 @@ func (m *MeshClient) Ping(ctx context.Context, peerIP string) (time.Duration, er
 	return time.Since(start), nil
 }
 
-// TODO: Add FetchCheckpoints when needed
 // TODO: Add RelayWorldMessage when needed
 // TODO: Add FetchCoordinates when needed
 // TODO: Add StashStore when needed
@@ -110,5 +135,5 @@ func (m *MeshClient) Ping(ctx context.Context, peerIP string) (time.Duration, er
 // TODO: Add StashPush when needed
 
 // Note: Additional mesh client methods can be added as needed.
-// For now, we've implemented the core FetchSyncEvents and Ping methods
-// which are sufficient for boot recovery and the backup tool.
+// Currently implemented: FetchSyncEvents, FetchCheckpoints, Ping
+// Sufficient for boot recovery, checkpoint sync, and backup tool.

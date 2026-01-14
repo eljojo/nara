@@ -115,18 +115,14 @@ func (network *Network) neighborSupportsBackgroundSync(name string) bool {
 func (network *Network) performBackgroundSyncViaMesh(neighbor, ip string) {
 	logrus.Infof("🔄 background sync: requesting events from %s (%s)", neighbor, ip)
 
-	// Fetch events from this neighbor (all types, we filter below)
-	events, success := network.fetchSyncEventsFromMesh(
-		ip,
-		neighbor,
-		nil, // subjects: nil = all naras
-		0,   // sliceIndex: 0 for simple query
-		1,   // sliceTotal: 1 for simple query (no slicing)
-		100, // maxEvents: lightweight query
-	)
+	// Fetch recent events from this neighbor using the new "recent" mode
+	events, err := network.meshClient.FetchSyncEvents(network.ctx, ip, SyncRequest{
+		Mode:  "recent",
+		Limit: 100, // lightweight query
+	})
 
-	if !success {
-		logrus.Infof("🔄 Background sync with %s failed", neighbor)
+	if err != nil {
+		logrus.Infof("🔄 Background sync with %s failed: %v", neighbor, err)
 		return
 	}
 

@@ -14,6 +14,7 @@ import (
 // Returns true if the DM was successfully delivered.
 // If delivery fails, the event should already be in the sender's ledger and
 // will spread via gossip instead.
+// TODO: Migrate to MeshClient.SendDM() method to reduce code duplication and improve maintainability
 func (network *Network) SendDM(targetName string, event SyncEvent) bool {
 	// Determine URL - use test override if available
 	url := network.buildMeshURL(targetName, "/dm")

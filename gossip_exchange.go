@@ -92,6 +92,7 @@ func (network *Network) performGossipRound() {
 }
 
 // exchangeZine sends our zine to a neighbor and receives theirs back
+// TODO: Migrate to MeshClient.PostGossipZine() method to reduce code duplication and improve maintainability
 func (network *Network) exchangeZine(targetName string, myZine *Zine) {
 	// Determine URL
 	url := network.buildMeshURL(targetName, "/gossip/zine")
