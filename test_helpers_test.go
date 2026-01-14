@@ -53,13 +53,13 @@ func TestMain(m *testing.M) {
 
 // TestNaraOptions configures test nara creation
 type TestNaraOptions struct {
-	mqttHost       string
-	mqttPort       int
-	chattiness     int
-	ledgerCapacity int
-	soul           string
-	skipJitter     bool
-	skipBootRecovery bool
+	mqttHost              string
+	mqttPort              int
+	chattiness            int
+	ledgerCapacity        int
+	soul                  string
+	skipJitter            bool
+	skipBootRecovery      bool
 	skipHeyThereRateLimit bool
 }
 
@@ -147,6 +147,7 @@ func testNara(t *testing.T, name string, opts ...TestNaraOption) *LocalNara {
 	// Apply test configurations
 	delay := time.Duration(0)
 	ln.Network.testObservationDelay = &delay
+	ln.Network.testSkipCoordinateWait = true // Skip 30s wait in coordinateMaintenance for faster tests
 	if config.skipJitter {
 		ln.Network.testSkipJitter = true
 	}
@@ -248,21 +249,12 @@ func startTestNaras(t *testing.T, port int, names []string, ensureDiscovery bool
 	naras := make([]*LocalNara, len(names))
 
 	// Create and start all naras
+	// Note: cleanup is automatically registered by createTestNaraForMQTT() via testNara()
 	for i, name := range names {
 		naras[i] = createTestNaraForMQTT(t, name, port)
 		go naras[i].Start(false, false, "", nil, TransportMQTT)
 		time.Sleep(100 * time.Millisecond) // Small delay between starts
 	}
-
-	// Register cleanup for all naras
-	t.Cleanup(func() {
-		for _, ln := range naras {
-			if ln != nil && ln.Network != nil {
-				ln.Network.Shutdown()
-				ln.Network.disconnectMQTT()
-			}
-		}
-	})
 
 	// Wait for all to connect
 	waitForAllMQTTConnected(t, naras, 15*time.Second)

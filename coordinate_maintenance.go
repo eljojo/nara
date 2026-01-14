@@ -11,12 +11,14 @@ import (
 // coordinateMaintenance runs periodic pings and coordinate updates
 // Self-throttles to max 2 pings per minute regardless of network size
 func (network *Network) coordinateMaintenance() {
-	// Wait for mesh to be ready
-	select {
-	case <-time.After(30 * time.Second):
-		// continue
-	case <-network.ctx.Done():
-		return
+	// Wait for mesh to be ready (skip in tests for faster shutdown)
+	if !network.testSkipCoordinateWait {
+		select {
+		case <-time.After(30 * time.Second):
+			// continue
+		case <-network.ctx.Done():
+			return
+		}
 	}
 
 	config := DefaultVivaldiConfig()

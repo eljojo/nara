@@ -82,8 +82,8 @@ type Network struct {
 	// Startup sequencing: operations must complete in order
 	bootRecoveryDone chan struct{}
 	// Test hooks (only used in tests)
-	testHTTPClient        *http.Client                    // Override HTTP client for testing
-	testMeshURLs          map[string]string               // Override mesh URLs for testing (nara name -> URL)
+	testHTTPClient            *http.Client                    // Override HTTP client for testing
+	testMeshURLs              map[string]string               // Override mesh URLs for testing (nara name -> URL)
 	testTeaseDelay            *time.Duration                  // Override tease delay for testing (nil = use default 0-5s random)
 	testObservationDelay      *time.Duration                  // Override observation debounce delay for testing
 	testAnnounceCount         int                             // Counter for announce() calls (for testing)
@@ -91,6 +91,7 @@ type Network struct {
 	testSkipJitter            bool                            // Skip jitter delays in hey_there for faster tests
 	testSkipBootRecovery      bool                            // Skip boot recovery entirely (for checkpoint tests)
 	testSkipHeyThereRateLimit bool                            // Skip the 5s rate limit on hey_there (for testing)
+	testSkipCoordinateWait    bool                            // Skip the 30s initial wait in coordinateMaintenance (for testing)
 	testPingFunc              func(name string) (bool, error) // Override ping behavior for testing (returns success, error)
 	// HTTP servers for graceful shutdown
 	httpServer        *http.Server
@@ -220,7 +221,6 @@ func (network *Network) SetVerboseLogging(verbose bool) {
 		network.logService.SetVerbose(verbose)
 	}
 }
-
 
 // getMeshIPForNara returns the tailscale IP for a nara (for direct mesh communication)
 func (network *Network) getMeshIPForNara(name string) string {
@@ -549,7 +549,6 @@ func (network *Network) InitGossipIdentity() {
 	}
 }
 
-
 func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetConfig) {
 	if serveUI {
 		err := network.startHttpServer(httpAddr)
@@ -753,8 +752,6 @@ func (network *Network) mergeExternalObservation(name string, external NaraObser
 	network.local.setObservation(name, obs)
 }
 
-
-
 // SSE client management
 
 func (network *Network) subscribeSSE() chan SyncEvent {
@@ -792,7 +789,6 @@ func (network *Network) broadcastSSE(event SyncEvent) {
 
 // --- Social Network ---
 // (Extracted to social_network.go)
-
 
 func (network *Network) isShortMemoryMode() bool {
 	if network.local == nil {

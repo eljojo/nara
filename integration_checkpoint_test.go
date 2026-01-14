@@ -43,13 +43,8 @@ func TestIntegration_CheckpointConsensus(t *testing.T) {
 	}
 
 	// Start all naras with full discovery
+	// Note: cleanup is automatically registered by startTestNaras()
 	naras := startTestNaras(t, 11883, names, true)
-	defer func() {
-		for _, ln := range naras {
-			ln.Network.Shutdown()
-			ln.Network.disconnectMQTT()
-		}
-	}()
 
 	// Configure checkpoint services
 	for _, ln := range naras {
@@ -188,6 +183,17 @@ func TestIntegration_CheckpointRound2(t *testing.T) {
 		}
 
 		ln.Network.testSkipJitter = true
+		ln.Network.testSkipBootRecovery = true
+		ln.Network.testSkipCoordinateWait = true
+		delay := time.Duration(0)
+		ln.Network.testObservationDelay = &delay
+
+		// Register cleanup for this nara
+		t.Cleanup(func() {
+			ln.Network.Shutdown()
+			ln.Network.disconnectMQTT()
+		})
+
 		naras[i] = ln
 	}
 
@@ -239,12 +245,6 @@ func TestIntegration_CheckpointRound2(t *testing.T) {
 
 	// Check results
 	checkpoint := proposer.SyncLedger.GetCheckpoint(proposer.Me.Name)
-
-	// Cleanup
-	for _, ln := range naras {
-		ln.Network.disconnectMQTT()
-	}
-	time.Sleep(500 * time.Millisecond)
 
 	t.Log("")
 	t.Log("═══════════════════════════════════════")

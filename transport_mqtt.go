@@ -329,8 +329,11 @@ func (network *Network) Shutdown() {
 		network.cancelFunc()
 	}
 
+	// Give goroutines a brief moment to see ctx.Done() and exit (50ms is enough for most cases)
+	time.Sleep(50 * time.Millisecond)
+
 	// Shutdown HTTP servers
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if network.httpServer != nil {
 		network.httpServer.Shutdown(ctx)
@@ -339,8 +342,8 @@ func (network *Network) Shutdown() {
 		network.meshHttpServer.Shutdown(ctx)
 	}
 
-	// Give goroutines a moment to finish their current work
-	time.Sleep(100 * time.Millisecond)
+	// Give goroutines a final moment to finish their current work
+	time.Sleep(50 * time.Millisecond)
 
 	logrus.Printf("✅ Graceful shutdown complete")
 }
