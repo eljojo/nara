@@ -121,6 +121,8 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 			}
 			http.NotFound(w, r)
 		})
+		// Profile JSON data: /profile/{name}.json
+		mux.HandleFunc("/profile/", network.httpProfileJsonHandler)
 
 		// Web UI endpoints - only on local server
 		mux.HandleFunc("/api.json", network.httpApiJsonHandler)
