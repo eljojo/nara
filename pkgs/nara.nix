@@ -11,7 +11,7 @@ let
     version = "latest";
     src = lib.cleanSource ../.;
     #npmDepsHash = lib.fakeHash;
-    npmDepsHash = "sha256-3+l4TV3iNxaw1Hu0I3ogHcSuZv9ZRj/Zlla/YbFFYgQ=";
+    npmDepsHash = "sha256-WcpFv2gKA7cq7vlMW+1/2/SFvNjzYV+wERwOLiyuKPI=";
     nativeBuildInputs = [ esbuild ];
 
     dontNpmBuild = true;
