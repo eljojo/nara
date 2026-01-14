@@ -580,6 +580,33 @@ func (l *SyncLedger) GetBackfillEvent(subject string) *ObservationEventPayload {
 	return nil
 }
 
+// GetLatestCheckpointID returns the ID of the most recent checkpoint for a subject
+// Used for v2 checkpoint chaining - returns empty string if no checkpoint exists
+func (l *SyncLedger) GetLatestCheckpointID(subject string) string {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	var latestCheckpoint *SyncEvent
+	var latestTime int64
+
+	for i := range l.Events {
+		e := &l.Events[i]
+		if e.Service == ServiceCheckpoint &&
+			e.Checkpoint != nil &&
+			e.Checkpoint.Subject == subject {
+			if e.Checkpoint.AsOfTime > latestTime {
+				latestTime = e.Checkpoint.AsOfTime
+				latestCheckpoint = e
+			}
+		}
+	}
+
+	if latestCheckpoint != nil {
+		return latestCheckpoint.ID
+	}
+	return ""
+}
+
 // AddEventFiltered adds an event with personality-based filtering
 // Critical importance events (3) are NEVER filtered
 // Normal importance events (2) may be filtered by very chill naras (>85)

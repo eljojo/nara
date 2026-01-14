@@ -120,11 +120,18 @@ type SocialEventPayload struct {
 
 Checkpoints are multi-party attested snapshots of historical state. They anchor restart counts and uptime from before proper event tracking began. Checkpoints are created through MQTT-based consensus where naras propose and vote on values.
 
+**V2 Enhancement (Chain of Trust)**: Checkpoints now form a verifiable chain by linking to previous checkpoints. Voters must agree on their reference point (which checkpoint they've seen) for consensus to be reached.
+
 ```go
 type CheckpointEventPayload struct {
+    Version     int      // Format version: 1 (legacy) or 2 (with chain)
+
     // Identity (who this checkpoint is about)
     Subject     string   // Nara name
     SubjectID   string   // Nara ID (for indexing)
+
+    // Chain of trust (v2+)
+    PreviousCheckpointID string // ID of previous checkpoint for this subject (empty for first)
 
     // The agreed-upon state (embedded pure data)
     Observation NaraObservation // Contains: Restarts, TotalUptime, StartTime
@@ -153,6 +160,8 @@ type NaraObservation struct {
 - **Historical anchor**: Allows deriving restart count as `checkpoint.Observation.Restarts + count(new restarts)`
 - **MQTT consensus**: Created via proposal/vote flow over MQTT topics
 - **Attestation-based**: Uses Attestation type for signed claims during voting
+- **Chained (v2+)**: Each checkpoint links to the previous one, forming a verifiable chain of history
+- **Reference point consensus (v2+)**: Voters must agree on which checkpoint they're building upon
 
 ## Personality Filtering
 

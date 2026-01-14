@@ -240,9 +240,12 @@ func (s *CheckpointService) proposeCheckpointRound(round int, consensusValues *r
 
 	now := time.Now().Unix()
 
+	// v2: Get reference point - the last checkpoint we've seen for ourselves
+	lastSeenCheckpointID := s.ledger.GetLatestCheckpointID(myName)
+
 	// Create attestation (self-attestation: I claim this about myself)
 	attestation := Attestation{
-		Version:   1, // Attestation format version
+		Version:   2, // v2: includes reference point
 		Subject:   myName,
 		SubjectID: myID,
 		Observation: NaraObservation{
@@ -250,9 +253,10 @@ func (s *CheckpointService) proposeCheckpointRound(round int, consensusValues *r
 			TotalUptime: totalUptime,
 			StartTime:   firstSeen,
 		},
-		Attester:   myName, // Same as Subject for self-attestation
-		AttesterID: myID,   // Same as SubjectID for self-attestation
-		AsOfTime:   now,
+		Attester:             myName, // Same as Subject for self-attestation
+		AttesterID:           myID,   // Same as SubjectID for self-attestation
+		AsOfTime:             now,
+		LastSeenCheckpointID: lastSeenCheckpointID, // v2: reference point
 	}
 
 	// Sign the attestation
@@ -342,6 +346,9 @@ func (s *CheckpointService) HandleProposal(proposal *CheckpointProposal) {
 		s.valuesMatch(proposal.Observation.TotalUptime, ourUptime, 60) &&
 		s.valuesMatch(proposal.Observation.StartTime, ourFirstSeen, 60)
 
+	// v2: Get our reference point - the last checkpoint we've seen for the subject
+	lastSeenCheckpointID := s.ledger.GetLatestCheckpointID(proposal.Subject)
+
 	// Create attestation (third-party: I claim this about someone else)
 	var observation NaraObservation
 	if approved {
@@ -357,13 +364,14 @@ func (s *CheckpointService) HandleProposal(proposal *CheckpointProposal) {
 	}
 
 	attestation := Attestation{
-		Version:     1, // Attestation format version
-		Subject:     proposal.Subject,
-		SubjectID:   proposal.SubjectID,
-		Observation: observation,
-		Attester:    s.local.Me.Name,      // We are the attester (voter)
-		AttesterID:  s.local.Me.Status.ID, // Our ID
-		AsOfTime:    proposal.AsOfTime,    // Sign the SAME timestamp as proposal
+		Version:              2, // v2: includes reference point
+		Subject:              proposal.Subject,
+		SubjectID:            proposal.SubjectID,
+		Observation:          observation,
+		Attester:             s.local.Me.Name,      // We are the attester (voter)
+		AttesterID:           s.local.Me.Status.ID, // Our ID
+		AsOfTime:             proposal.AsOfTime,    // Sign the SAME timestamp as proposal
+		LastSeenCheckpointID: lastSeenCheckpointID, // v2: our reference point for this subject
 	}
 
 	// Sign the attestation
@@ -551,22 +559,33 @@ func (s *CheckpointService) tryFindConsensus(proposal *CheckpointProposal, votes
 		return nil, false
 	}
 
-	// Group votes by their signed values
+	// Group votes by their signed values (v2: includes reference point)
 	type valueKey struct {
-		Restarts    int64
-		TotalUptime int64
-		FirstSeen   int64
+		Restarts             int64
+		TotalUptime          int64
+		FirstSeen            int64
+		LastSeenCheckpointID string // v2: votes must agree on reference point
 	}
 
 	groups := make(map[valueKey][]*CheckpointVote)
 
 	for _, vote := range votes {
-		key := valueKey{vote.Observation.Restarts, vote.Observation.TotalUptime, vote.Observation.StartTime}
+		key := valueKey{
+			Restarts:             vote.Observation.Restarts,
+			TotalUptime:          vote.Observation.TotalUptime,
+			FirstSeen:            vote.Observation.StartTime,
+			LastSeenCheckpointID: vote.LastSeenCheckpointID,
+		}
 		groups[key] = append(groups[key], vote)
 	}
 
 	// Also add our own proposal values as a potential group
-	proposalKey := valueKey{proposal.Observation.Restarts, proposal.Observation.TotalUptime, proposal.Observation.StartTime}
+	proposalKey := valueKey{
+		Restarts:             proposal.Observation.Restarts,
+		TotalUptime:          proposal.Observation.TotalUptime,
+		FirstSeen:            proposal.Observation.StartTime,
+		LastSeenCheckpointID: proposal.LastSeenCheckpointID,
+	}
 
 	// Find the largest group that meets minimum threshold
 	var bestKey valueKey
@@ -611,9 +630,11 @@ func (s *CheckpointService) tryFindConsensus(proposal *CheckpointProposal, votes
 
 	// Build checkpoint with matching signatures
 	checkpoint := &CheckpointEventPayload{
-		Subject:   proposal.Subject,
-		SubjectID: proposal.SubjectID,
-		AsOfTime:  proposal.AsOfTime,
+		Version:              2, // v2: includes chain of trust
+		Subject:              proposal.Subject,
+		SubjectID:            proposal.SubjectID,
+		PreviousCheckpointID: bestKey.LastSeenCheckpointID, // v2: reference point from consensus
+		AsOfTime:             proposal.AsOfTime,
 		Observation: NaraObservation{
 			Restarts:    bestKey.Restarts,
 			TotalUptime: bestKey.TotalUptime,
@@ -628,7 +649,8 @@ func (s *CheckpointService) tryFindConsensus(proposal *CheckpointProposal, votes
 	proposerIncluded := false
 	if bestKey.Restarts == proposal.Observation.Restarts &&
 		bestKey.TotalUptime == proposal.Observation.TotalUptime &&
-		bestKey.FirstSeen == proposal.Observation.StartTime {
+		bestKey.FirstSeen == proposal.Observation.StartTime &&
+		bestKey.LastSeenCheckpointID == proposal.LastSeenCheckpointID {
 		checkpoint.VoterIDs = append(checkpoint.VoterIDs, proposal.SubjectID)
 		checkpoint.Signatures = append(checkpoint.Signatures, proposal.Signature)
 		proposerIncluded = true
@@ -695,11 +717,17 @@ func (s *CheckpointService) storeCheckpoint(checkpoint *CheckpointEventPayload) 
 	)
 
 	// Update with voter info and metadata
-	event.Checkpoint.Version = 1 // Checkpoint format version
+	event.Checkpoint.Version = 2 // v2: includes chain of trust
 	event.Checkpoint.VoterIDs = checkpoint.VoterIDs
 	event.Checkpoint.Signatures = checkpoint.Signatures
 	event.Checkpoint.SubjectID = checkpoint.SubjectID
 	event.Checkpoint.Round = checkpoint.Round
+
+	// v2: Set previous checkpoint ID for chain of trust
+	event.Checkpoint.PreviousCheckpointID = s.ledger.GetLatestCheckpointID(checkpoint.Subject)
+
+	// Recompute ID since PreviousCheckpointID affects ContentString
+	event.ComputeID()
 
 	// Verify at least MinCheckpointSignatures signatures before accepting
 	result := s.verifyCheckpointSignatures(event.Checkpoint)

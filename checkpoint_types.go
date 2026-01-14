@@ -28,6 +28,9 @@ type CheckpointEventPayload struct {
 	Subject   string `json:"subject"`    // Nara name
 	SubjectID string `json:"subject_id"` // Nara ID (for indexing)
 
+	// Chain of trust (v2+)
+	PreviousCheckpointID string `json:"previous_checkpoint_id,omitempty"` // ID of previous checkpoint for this subject (empty for first checkpoint or v1)
+
 	// The agreed-upon state (embedded, pure data)
 	Observation NaraObservation `json:"observation"`
 
@@ -44,14 +47,23 @@ type CheckpointEventPayload struct {
 
 // ContentString returns canonical string for hashing/signing
 // Checkpoints are unique per (subject_id, as_of_time) pair
+// Version-aware: v1 uses original format, v2 includes previous checkpoint ID
 func (p *CheckpointEventPayload) ContentString() string {
 	// Use SubjectID if available, fall back to Subject for backward compatibility
 	id := p.SubjectID
 	if id == "" {
 		id = p.Subject
 	}
-	return fmt.Sprintf("checkpoint:%s:%d:%d:%d:%d",
-		id, p.AsOfTime, p.Observation.StartTime, p.Observation.Restarts, p.Observation.TotalUptime)
+
+	// v1 format (unchanged for backwards compatibility)
+	if p.Version == 0 || p.Version == 1 {
+		return fmt.Sprintf("checkpoint:%s:%d:%d:%d:%d",
+			id, p.AsOfTime, p.Observation.StartTime, p.Observation.Restarts, p.Observation.TotalUptime)
+	}
+
+	// v2 format: includes previous checkpoint ID for chain of trust
+	return fmt.Sprintf("checkpoint:v2:%s:%d:%d:%d:%d:%s",
+		id, p.AsOfTime, p.Observation.StartTime, p.Observation.Restarts, p.Observation.TotalUptime, p.PreviousCheckpointID)
 }
 
 // SignableContent returns the canonical string for signature verification
@@ -130,6 +142,11 @@ func (p *CheckpointEventPayload) VerifySignatureWithCounts(lookup PublicKeyLooku
 			Observation: p.Observation,
 			AttesterID:  voterID,
 			AsOfTime:    p.AsOfTime,
+		}
+
+		// For v2, include the previous checkpoint ID as the reference point
+		if version >= 2 {
+			attestation.LastSeenCheckpointID = p.PreviousCheckpointID
 		}
 
 		signableContent := attestation.SignableContent()

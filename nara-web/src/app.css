@@ -427,6 +427,107 @@ body::before {
   box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
 }
 
+/* Checkpoint v2 chain visualization */
+.version-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 12px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.checkpoint-chain-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #667eea;
+  background: rgba(102, 126, 234, 0.08);
+  padding: 6px 10px;
+  border-radius: 8px;
+  margin-top: 8px;
+  font-weight: 500;
+}
+
+.checkpoint-chain-section {
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+  padding: 16px;
+  border-radius: 12px;
+  margin-top: 16px;
+}
+
+.checkpoint-chain-info {
+  margin-top: 12px;
+}
+
+.chain-item {
+  display: flex;
+  align-items: start;
+  gap: 12px;
+  padding: 12px;
+  background: white;
+  border-radius: 10px;
+  border: 2px solid rgba(102, 126, 234, 0.2);
+}
+
+.chain-item.current {
+  border-color: #667eea;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.15);
+}
+
+.chain-item.previous {
+  border-color: #e0e0e0;
+  opacity: 0.85;
+}
+
+.chain-icon {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.chain-details {
+  flex: 1;
+}
+
+.chain-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #999;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.chain-id {
+  font-family: 'Monaco', 'Courier New', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 2px;
+}
+
+.chain-time {
+  font-size: 11px;
+  color: #666;
+}
+
+.chain-note {
+  font-size: 11px;
+  color: #667eea;
+  font-weight: 500;
+}
+
+.chain-arrow {
+  text-align: center;
+  font-size: 20px;
+  color: #667eea;
+  padding: 8px 0;
+}
+
 .voter-list {
   display: flex;
   flex-wrap: wrap;
