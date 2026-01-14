@@ -21,7 +21,13 @@ export default defineConfig({
         {
           label: 'Overview',
           items: [
-            { label: 'Welcome', link: '/' }
+            { label: 'The Network', link: '/' }
+          ]
+        },
+        {
+          label: 'Running Nara',
+          items: [
+            { label: 'How to Deploy', link: '/running-nara/how-to-deploy/' },
           ]
         },
         {
@@ -40,7 +46,6 @@ export default defineConfig({
     mdx(),
     preact(),
     mermaid({
-      theme: 'forest',
       autoTheme: true
     })
 	],

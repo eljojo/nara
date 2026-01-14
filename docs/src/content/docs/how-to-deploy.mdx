@@ -1,0 +1,571 @@
+---
+title: How to Deploy Nara
+slug: running-nara/how-to-deploy
+---
+
+## docker (recommended)
+
+the easiest way to run nara is with docker:
+
+```bash
+docker pull ghcr.io/eljojo/nara:latest
+docker run -p 8080:8080 ghcr.io/eljojo/nara:latest
+```
+
+that's it! visit `http://localhost:8080` to see your nara's web UI, where you can inspect its status, see who it's talking to, and watch events flow through the network.
+
+the console will print useful info as your nara boots up, discovers peers, and starts gossiping. you'll see your nara's generated name, soul, and personality.
+
+### docker-compose
+
+for a more permanent setup:
+
+```yaml
+version: '3.8'
+services:
+  nara:
+    image: ghcr.io/eljojo/nara:latest
+    pull_policy: always
+    ports:
+      - "8080:8080"
+    environment:
+      # uncomment and set these to preserve identity across restarts:
+      # NARA_NAME: "my-nara"
+      # NARA_SOUL: "your-soul-string-here"
+    restart: unless-stopped
+```
+
+on first run, leave `NARA_NAME` and `NARA_SOUL` commented out. check the logs to see what soul was generated, then copy it to your config to preserve your nara's identity.
+
+### memory-aware auto-configuration
+
+nara automatically adjusts its memory usage based on what's available. a **256MB container is enough** to run a fully functional nara—it will just keep fewer events in memory and be more selective about what it gossips.
+
+you can run a free nara instance on [northflank.com](https://northflank.com) with their 256MB containers. the app detects available memory and configures itself accordingly:
+
+- **256MB**: minimal mode, keeps essential events only
+- **512MB**: normal mode, good balance
+- **1GB+**: hog mode, keeps everything
+
+---
+
+## nixos
+
+for nixos users, nara provides a flake with a ready-to-use module.
+
+### add the flake input
+
+```nix
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nara = {
+      url = "github:eljojo/nara";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
+
+  outputs = { nixpkgs, nara, ... }: {
+    nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
+      modules = [
+        nara.nixosModules.nara
+        # ... your other modules
+      ];
+    };
+  };
+}
+```
+
+### configure your nara
+
+```nix
+{
+  services.nara = {
+    enable = true;
+    instances = {
+      rupert = {
+        # soul = "abcdef...";
+        # ^ first deploy with this commented out to see what soul it generates
+        # ^ then run: journalctl -fu nara-rupert
+        # ^ copy the soul from the logs and paste it here to preserve identity
+      };
+    };
+  };
+
+  # optional: use the binary cache for faster builds
+  nix.settings.extra-substituters = [
+    "https://nara.cachix.org"
+  ];
+  nix.settings.extra-trusted-public-keys = [
+    "nara.cachix.org-1:6zWFUhphg54flJs6+htyYuhvdjkByWT2Hi6tZBpVNuE="
+  ];
+}
+```
+
+you can run multiple nara instances on the same machine by adding more entries to `instances`.
+
+### managing the service
+
+each nara instance runs as a systemd service named `nara-<instance-name>`:
+
+```bash
+# check status
+systemctl status nara-rupert
+
+# view logs
+journalctl -fu nara-rupert
+
+# restart
+systemctl restart nara-rupert
+
+# stop
+systemctl stop nara-rupert
+```
+
+### without flakes
+
+if you're not using flakes, you can use flake-compat:
+
+```nix
+# configuration.nix
+let
+  naraCommit = "main"; # or pin to a specific commit
+  naraSrc = builtins.fetchTarball {
+    url = "https://github.com/eljojo/nara/archive/${naraCommit}.tar.gz";
+    # sha256 = "..."; # add hash for reproducibility
+  };
+
+  flakeCompatSrc = builtins.fetchTarball {
+    url = "https://github.com/NixOS/flake-compat/archive/236f248441a986331cda53b039e7f9fd96e03635.tar.gz";
+    sha256 = "sha256-Eyg78VjLzKNG2XkqLqylSvHGAwsP8gsvmUHtZxQwPq4=";
+  };
+
+  nara = (import flakeCompatSrc { src = naraSrc; }).defaultNix;
+in {
+  imports = [
+    nara.nixosModules.nara
+  ];
+
+  services.nara = {
+    enable = true;
+    instances = {
+      rupert = {
+        # soul = "abcdef...";
+      };
+    };
+  };
+
+  # optional: binary cache
+  nix.settings.extra-substituters = [ "https://nara.cachix.org" ];
+  nix.settings.extra-trusted-public-keys = [
+    "nara.cachix.org-1:6zWFUhphg54flJs6+htyYuhvdjkByWT2Hi6tZBpVNuE="
+  ];
+}
+```
+
+---
+
+## what the logs look like
+
+this is what you'll see when nara boots up:
+
+```
+INFO[0000] 📟 Booting nara: jojo-m1 (QDepcJtiiLpL2QkpMpfoB3PiCHEvCXt49wXBnmGvUrE)
+INFO[0000] 🔑 Keypair derived from soul
+INFO[0000] 🎭 personality for jojo-m1: agreeableness=62, sociability=37, chill=63
+INFO[0000] 📦 Stash storage limit: 50 (memory mode: hog)
+INFO[0000] 🔮 Soul: AbcdefghijklmnolDja5AbGWVCcYba57XKbBfkLdBb4cARgdfbbbbbb
+INFO[0000] 🚀 Transport mode: hybrid
+INFO[0000] 🕸️  Mesh enabled
+INFO[0000] 🧠 Memory profile: hog (budget 2048 MB, max events 320000, source: system)
+INFO[0000] 💻 Serving UI
+INFO[0000] Listening for HTTP on port 8080
+DEBU[0000] 🌐 Tailscale hostname: jojo-m1-n7yg (base: jojo-m1)
+INFO[0000] Starting tsnet mesh for jojo-m1...
+INFO[0002] 🕸️  Mesh HTTP server listening on port 7433 (Tailscale interface)
+INFO[0002] World journey handler initialized
+INFO[0002] 🌍 World journey using HTTP over tsnet (IP: 100.64.0.221)
+INFO[0002] Connected to MQTT
+DEBU[0002] Subscribed to nara/plaza/hey_there
+DEBU[0002] Subscribed to nara/plaza/chau
+DEBU[0002] Subscribed to nara/plaza/howdy
+DEBU[0002] Subscribed to nara/plaza/social
+DEBU[0002] Subscribed to nara/plaza/journey_complete
+DEBU[0002] Subscribed to nara/plaza/stash_refresh
+DEBU[0002] Subscribed to nara/newspaper/#
+DEBU[0002] Subscribed to nara/ledger/jojo-m1/request
+DEBU[0002] Subscribed to nara/ledger/jojo-m1/response
+DEBU[0002] Subscribed to nara/checkpoint/propose
+DEBU[0002] Subscribed to nara/checkpoint/vote
+DEBU[0002] Subscribed to nara/checkpoint/final
+DEBU[0006] posting on nara/plaza/hey_there
+INFO[0006] jojo-m1: 👋 (MQTT)
+DEBU[0006] posting on nara/newspaper/jojo-m1
+DEBU[0006] 📦 hey-there: ignoring own message from jojo-m1
+DEBU[0008] 🌐 POST /dm (200)
+DEBU[0008] 🌐 POST /dm (200)
+INFO[0009] 👀 witnessed 10 howdy exchanges
+INFO[0009] 📬 got howdys from 10 naras
+INFO[0009] 📰 got newspaper from blue-jay (Flair:→⛵️🎸🍬🆒👶, Trend:→racoon-style, Chattiness:0→25)
+DEBU[0009] 🌐 POST /dm (200)
+DEBU[0010] 🌐 POST /dm (200)
+DEBU[0010] 🌐 POST /dm (200)
+DEBU[0010] 🌐 POST /dm (200)
+INFO[0012] 📰 got newspaper from bart (Chattiness:24→30)
+INFO[0018] 📰 got 2 newspapers from 2 neighbors (2 with changes)
+INFO[0037] 📦 boot recovery via mesh (sample mode): capacity=80000, page=5000, calls=16 across 11 neighbors
+DEBU[0038] 📦 Sample call 9 from nelly: received 4212 events, merged 4210
+DEBU[0038] 📦 Sample call 2 from racoon: received 4217 events, merged 19
+DEBU[0038] 📦 Sample call 1 from raccoon: received 4212 events, merged 3
+DEBU[0038] 📦 Sample call 12 from raccoon: received 4212 events, merged 0
+DEBU[0039] 📦 Sample call 7 from lisa: received 4210 events, merged 14
+DEBU[0039] 📦 Sample call 0 from r2d2: received 2000 events, merged 13
+DEBU[0039] 📦 Sample call 13 from racoon: received 4217 events, merged 0
+DEBU[0039] 📦 Sample call 15 from blue-jay: received 4221 events, merged 14
+DEBU[0039] 📦 Sample call 4 from blue-jay: received 4221 events, merged 0
+DEBU[0039] 📦 Sample call 11 from r2d2: received 2000 events, merged 0
+DEBU[0040] 📦 Sample call 3 from electric-pancake-213: received 3734 events, merged 6
+DEBU[0040] 📦 Sample call 8 from condorito: received 4219 events, merged 3
+DEBU[0040] 📦 Sample call 14 from electric-pancake-213: received 3734 events, merged 0
+DEBU[0040] 📦 Sample call 10 from bart: received 4221 events, merged 5
+DEBU[0040] 📦 Sample call 5 from fast-vampire: received 3451 events, merged 1
+DEBU[0041] 📦 Sample call 6 from grumpy-comet: received 3562 events, merged 1
+INFO[0041] 📦 boot recovery (sample mode) complete: merged 4289 events from 11 neighbors
+INFO[0042] 📸 condorito: fetched 42 checkpoints, merged 0 new ones
+INFO[0042] 📸 raccoon: fetched 42 checkpoints, merged 0 new ones
+INFO[0042] 📸 electric-pancake-213: fetched 42 checkpoints, merged 0 new ones
+INFO[0042] 📸 racoon: fetched 42 checkpoints, merged 0 new ones
+INFO[0043] 📸 fast-vampire: fetched 42 checkpoints, merged 0 new ones
+DEBU[0043] 📸 Checkpoint sync complete: no new checkpoints (attempted 5 naras: [condorito raccoon electric-pancake-213 racoon fast-vampire])
+DEBU[0043] 📦 boot recovery complete, signaling formOpinion to proceed
+INFO[0043] 📋 fetched 18 opinions from blue-jay
+WARN[0043] ⚠️ Opinion method divergence for r2d2: obs={restarts:243, start:1767593020, uptime:0} vs checkpoint={restarts:1, start:1767593020, uptime:0} (restart_diff=242, start_diff=0s, uptime_diff=0s)
+INFO[0043] 👀 opinions formed (1/6) - 12 naras online
+DEBU[0043] checkpoint: no previous checkpoint found in ledger, will wait 24h before proposing
+│─────────────────────────│─────────────────────│──────────────│──────────│───────────────│──────│──────│
+│ NAME (18)               │ FLAIR               │ LAST SEEN    │ UPTIME   │ FIRST SEEN    │ BUZZ │ CHAT │
+│─────────────────────────│─────────────────────│──────────────│──────────│───────────────│──────│──────│
+│  cyber-ninja-573        │                     │ 15 hours ago │ ?        │ 22 hours ago  │    0 │    0 │
+│  emerald-ninja-121      │                     │ 12 hours ago │ ?        │ 15 hours ago  │    0 │    0 │
+│  frozen-cat-767         │                     │ 5 hours ago  │ ?        │ 12 hours ago  │    0 │    0 │
+│  lily                   │                     │ 74s ago      │ 109 mins │ 1683 days ago │    0 │    0 │
+│  quirky-otter-677       │                     │ 22 hours ago │ ?        │ 27 hours ago  │    0 │    0 │
+│  tame-nara-183          │                     │ 98 mins ago  │ ?        │ 5 hours ago   │    0 │    0 │
+│ 🍑 electric-pancake-213 │ 🐚🎸🍳🧂🍭🍬🐤🐦🆒  │ 33s ago      │ ?        │ 98 mins ago   │    5 │   25 │
+│ 🍑 fast-vampire         │ 🧊🐳🎬🍬🧈🧇👑🆒👶  │ 36s ago      │ 98 mins  │ 2 days ago    │    5 │   25 │
+│ 🍑 grumpy-comet         │ 🪙🐳🎬🧇🥞🍿👑🆒👶  │ 35s ago      │ 5 hours  │ 2 days ago    │    5 │   25 │
+│ 🏄 condorito            │ 🧊🧑‍🚀❄️🍀👑🐦🆒👶     │ 35s ago      │ 74 mins  │ 28 hours ago  │    5 │   24 │
+│ 🗿 bart                 │ 🧿🧑‍🚀❄️🍀🆒👶         │ 34s ago      │ 110 mins │ 271 days ago  │    1 │   30 │
+│ 🗿 jojo-m1              │ 🧊🧁🍕🐦💬👶📡      │ 36s ago      │ 1s       │ 3 days ago    │    0 │  100 │
+│ 🗿 nelly                │ 🧧🧑‍🚀❄️🎬🍿🍦🧁🆒     │ 33s ago      │ 111 mins │ 1485 days ago │    5 │   23 │
+│ 🗿 raccoon              │ 💎🧑‍🚀❄️🎬🍿🧇🆒👶     │ 26s ago      │ 112 mins │ 792 days ago  │    1 │   29 │
+│ 🗿 racoon               │ 🧿❄️🎸🍳🍭🆒👶       │ 27s ago      │ 112 mins │ 1650 days ago │    1 │   18 │
+│ 🛸 blue-jay             │ ⛵️🎸🍬🆒👶          │ 36s ago      │ 110 mins │ 9 days ago    │    5 │   25 │
+│ 🛸 lisa                 │ 🧧🧑‍🚀❄️🎭🍫🧂🍿👑🔁🆒 │ 36s ago      │ 110 mins │ 1670 days ago │    5 │   24 │
+│ 🛸 r2d2                 │ 🔮🎭🧂🐦🆒          │ 33s ago      │ 12 hours │ 9 days ago    │    5 │   24 │
+│─────────────────────────│─────────────────────│──────────────│──────────│───────────────│──────│──────│
+INFO[0073] 💅 jojo-m1 is now following trend: racoon-style
+DEBU[0073] starttime consensus for jojo-m1: max=1768101542, trimmed=1768095341 (diff=6201s)
+WARN[0073] ⚠️ Opinion method divergence for r2d2: obs={restarts:243, start:1767593020, uptime:0} vs checkpoint={restarts:1, start:1767593020, uptime:0} (restart_diff=242, start_diff=0s, uptime_diff=0s)
+DEBU[0073] starttime consensus for jojo-m1: max=1768101542, trimmed=1768095341 (diff=6201s)
+DEBU[0073] posting on nara/newspaper/jojo-m1
+INFO[0073] 👀 opinions formed (2/6) - 12 naras online
+DEBU[0075] 🌐 POST /dm (200)
+DEBU[0075] 🌐 POST /dm (200)
+DEBU[0076] 🌐 POST /dm (200)
+DEBU[0077] 😈 fast-vampire, lily, and lisa teased jojo-m1 (high-restarts)
+DEBU[0080] 📰 electric-pancake-213 posted newspapers (Chattiness:25→39)
+INFO[0103] 📰 Gossiping with 4 neighbors [lily, condorito, nelly, blue-jay] (zine has 127 events: map[chau:2 hey-there:1 observation:8 ping:61 social:55])
+DEBU[0103] starttime consensus for jojo-m1: max=1768101542, trimmed=1768095341 (diff=6201s)
+WARN[0103] ⚠️ Opinion method divergence for r2d2: obs={restarts:243, start:1767593020, uptime:0} vs checkpoint={restarts:1, start:1767593020, uptime:0} (restart_diff=242, start_diff=0s, uptime_diff=0s)
+DEBU[0103] starttime consensus for jojo-m1: max=1768101542, trimmed=1768095341 (diff=6201s)
+DEBU[0103] posting on nara/newspaper/jojo-m1
+INFO[0103] 👀 opinions formed (3/6) - 12 naras online
+DEBU[0103] 📍 Ping to nelly: 47.00ms
+DEBU[0105] 😈 raccoon teased condorito (high-restarts)
+DEBU[0105] 📰 merged events from nelly, lily, blue-jay, and condorito
+DEBU[0120] 📰 fast-vampire posted newspapers (Flair:🧊🐳🎬🍬🧈🧇👑🆒👶→🧊🐳🎬🍬🧈🧇🆒👶, Chattiness:25→21)
+DEBU[0131] 📰 condorito posted newspapers (Chattiness:24→19)
+DEBU[0132] 🌐 GET /ping (200)
+DEBU[0133] starttime consensus for jojo-m1: max=1768101542, trimmed=1768095341 (diff=6201s)
+DEBU[0133] starttime consensus for jojo-m1: max=1768101542, trimmed=1768095341 (diff=6201s)
+DEBU[0133] posting on nara/newspaper/jojo-m1
+WARN[0133] ⚠️ Opinion method divergence for r2d2: obs={restarts:243, start:1767593020, uptime:0} vs checkpoint={restarts:1, start:1767593020, uptime:0} (restart_diff=242, start_diff=0s, uptime_diff=0s)
+INFO[0133] 👀 opinions formed (4/6) - 12 naras online
+DEBU[0133] 📍 Ping to grumpy-comet: 192.00ms
+DEBU[0133] 🏓 got ping from r2d2
+INFO[0134] 📰 Gossiping with 5 neighbors [bart, condorito, lisa, blue-jay, racoon] (zine has 128 events: map[chau:2 hey-there:1 observation:8 ping:62 social:55])
+DEBU[0135] 😈 racoon teased r2d2 (high-restarts)
+DEBU[0135] 🏘️  jojo-m1 moved barrio: moai→ufo 🛸 (via grid, grid=181)
+DEBU[0135] 🌐 POST /dm (200)
+DEBU[0136] 😈 lisa and electric-pancake-213 teased condorito (high-restarts)
+DEBU[0136] 📰 merged events from bart, lisa, blue-jay, and 2 others
+DEBU[0136] 😈 blue-jay teased jojo-m1 (high-restarts)
+DEBU[0137] 📬 DM'd tease to blue-jay
+INFO[0137] 😈 teasing blue-jay: blue-jay keeping things exciting with all those restarts
+DEBU[0138] 😈 jojo-m1 teased blue-jay (high-restarts)
+DEBU[0158] 🌐 GET /ping (200)
+DEBU[0159] 🏓 got ping from lisa
+DEBU[0163] starttime consensus for jojo-m1: max=1768101542, trimmed=1768095341 (diff=6201s)
+DEBU[0163] starttime consensus for jojo-m1: max=1768101542, trimmed=1768095341 (diff=6201s)
+DEBU[0163] posting on nara/newspaper/jojo-m1
+WARN[0163] ⚠️ Opinion method divergence for r2d2: obs={restarts:243, start:1767593020, uptime:0} vs checkpoint={restarts:1, start:1767593020, uptime:0} (restart_diff=242, start_diff=0s, uptime_diff=0s)
+DEBU[0163] 📍 Ping to lily: 10.00ms
+INFO[0163] 👀 opinions formed (5/6) - 12 naras online
+DEBU[0163] 📦 Second-to-last opinion pass: no stash recovered yet, broadcasting stash-refresh
+DEBU[0163] posting on nara/plaza/stash_refresh
+INFO[0163] 📦 Broadcast stash-refresh request
+INFO[0165] 📰 Gossiping with 4 neighbors [racoon, fast-vampire, nelly, r2d2] (zine has 133 events: map[chau:2 hey-there:1 observation:8 ping:63 social:59])
+DEBU[0166] 😈 nelly teased fast-vampire (high-restarts)
+DEBU[0166] 😈 fast-vampire teased condorito (high-restarts)
+DEBU[0167] 📰 merged events from nelly, racoon, r2d2, and fast-vampire
+DEBU[0169] 📬 DM'd tease to r2d2
+INFO[0169] 😈 teasing r2d2: r2d2 discovering the restart button
+DEBU[0170] 😈 jojo-m1 teased r2d2 (high-restarts)
+DEBU[0180] 📰 nelly posted newspapers (Chattiness:23→20)
+DEBU[0181] 📰 lisa posted newspapers (Chattiness:24→20)
+DEBU[0182] 📰 grumpy-comet posted newspapers (Flair:🪙🐳🎬🧇🥞🍿👑🆒👶→🪙🐳🎬🧇🥞🍿🐦🆒👶, Chattiness:25→21)
+DEBU[0183] 🏘️  grumpy-comet moved barrio: peach→ufo 🛸 (via grid, grid=179)
+DEBU[0193] 📍 Ping to lisa: 6.00ms
+WARN[0193] ⚠️ Opinion method divergence for r2d2: obs={restarts:243, start:1767593020, uptime:0} vs checkpoint={restarts:1, start:1767593020, uptime:0} (restart_diff=242, start_diff=0s, uptime_diff=0s)
+INFO[0193] 👀 opinions formed (6/6) - 12 naras online
+INFO[0193] 📦 Checking if backfill needed for 18 observations...
+INFO[0193] 📦 No backfill needed (events already present or no meaningful data)
+WARN[0193] 📦 Could not retrieve stash from confidants (maybe never had one?)
+DEBU[0201] 🌐 GET /ping (200)
+DEBU[0202] 🏓 got ping from electric-pancake-213
+DEBU[0205] 📰 lily posted newspapers (Flair:→🔮❄️🎭🥞🧓👑🆒👶, Trend:→bart-style, Chattiness:0→19)
+DEBU[0214] 🌐 POST /gossip/zine (200)
+DEBU[0215] 😈 nelly and lisa teased grumpy-comet (high-restarts)
+DEBU[0215] 😈 grumpy-comet teased lily (random)
+DEBU[0215] 😈 bart teased grumpy-comet (random)
+DEBU[0215] 📰 merged events from grumpy-comet
+DEBU[0216] 🌐 POST /dm (200)
+DEBU[0217] 😈 grumpy-comet teased jojo-m1 (high-restarts)
+DEBU[0223] 📍 Ping to condorito: 140.00ms
+DEBU[0224] 🏘️  jojo-m1 moved barrio: ufo→moai 🗿 (via grid, grid=179)
+DEBU[0229] 📰 bart posted newspapers (Flair:🧿🧑‍🚀❄️🍀🆒👶→🧿🧑‍🚀❄️🎸🍀🐦🆒👶, Trend:→racoon-style, Chattiness:30→21)
+DEBU[0235] 🌐 GET /ping (200)
+DEBU[0236] 🏓 got ping from raccoon
+DEBU[0239] 🌐 GET /ping (200)
+DEBU[0239] 📰 raccoon posted newspapers (Flair:💎🧑‍🚀❄️🎬🍿🧇🆒👶→💎🧑‍🚀❄️🎬🍿🧇👶, Chattiness:29→16)
+DEBU[0240] 📰 blue-jay posted newspapers (Flair:⛵️🎸🍬🆒👶→⛵️🎬🍬🆒👶, Trend:racoon-style→lisa-style, Chattiness:25→21)
+DEBU[0240] 🏘️  raccoon moved barrio: moai→ufo 🛸 (via grid, grid=179)
+DEBU[0240] 🏓 got ping from bart
+DEBU[0242] 🌐 POST /gossip/zine (200)
+DEBU[0243] 📰 merged events from lily
+DEBU[0246] 📰 r2d2 posted newspapers (Flair:🔮🎭🧂🐦🆒→🔮🎭🧂, Chattiness:24→19)
+DEBU[0250] 🌐 GET /ping (200)
+DEBU[0251] 🏓 got ping from fast-vampire
+DEBU[0253] 📍 Ping to fast-vampire: 97.00ms
+DEBU[0254] 🏘️  jojo-m1 moved barrio: moai→ufo 🛸 (via grid, grid=179)
+DEBU[0260] 🌐 GET /ping (200)
+DEBU[0261] 🏓 got ping from blue-jay
+DEBU[0265] 🌐 GET /ping (200)
+DEBU[0266] 🏓 got ping from nelly
+DEBU[0268] 📰 racoon posted newspapers (Flair:🧿❄️🎸🍳🍭🆒👶→🧿❄️🍳🍭👑👶, Chattiness:18→15)
+DEBU[0274] 📰 electric-pancake-213 posted newspapers (Flair:🐚🎸🍳🧂🍭🍬🐤🐦🆒→🐚🍳🧂🍭🍬🐤🐦🆒, Chattiness:39→21)
+DEBU[0279] 🌐 GET /ping (200)
+DEBU[0280] 🏓 got ping from grumpy-comet
+DEBU[0283] 📍 Ping to electric-pancake-213: 192.00ms
+DEBU[0298] 🌐 GET /ping (200)
+DEBU[0299] 🏓 got ping from condorito
+DEBU[0300] 🌐 GET /ping (200)
+DEBU[0301] 🏓 got ping from racoon
+DEBU[0307] 🌐 GET /ping (200)
+DEBU[0308] 🏓 got ping from lily
+DEBU[0310] 🌐 POST /gossip/zine (200)
+DEBU[0311] 😈 lily and lisa teased raccoon (random)
+DEBU[0311] 📰 merged events from raccoon
+DEBU[0312] 🌐 POST /gossip/zine (200)
+DEBU[0312] 🌐 POST /dm (200)
+DEBU[0313] 😈 lisa and nelly teased blue-jay (high-restarts)
+DEBU[0313] 📰 merged events from lisa
+DEBU[0313] 📍 Ping to raccoon: 29.00ms
+DEBU[0313] 😈 raccoon teased jojo-m1 (high-restarts)
+INFO[0343] 📦 Stash metrics: stored=0 (0.0MB), my_confidants=0/3, my_size=0.0KB
+INFO[0343] 📊 event store: 4286 events (ping=75, hey-there=36, social=3774, checkpoint=42, observation=291, chau=68, critical=281) | mem: 15MB alloc, 83MB sys (heap:74MB stack:1MB other:8MB) | goroutines:153
+DEBU[0343] 📍 Ping to blue-jay: 28.00ms
+DEBU[0363] 📰 fast-vampire posted newspapers (Flair:🧊🐳🎬🍬🧈🧇🆒👶→🧊🐳🎭🍬🧈🧇👑🆒👶, Trend:lisa-style→bart-style, Chattiness:21→20)
+DEBU[0373] 📍 Ping to bart: 14.00ms
+DEBU[0379] 📰 condorito posted newspapers (Chattiness:19→20)
+DEBU[0403] 📍 Ping to racoon: 31.00ms
+DEBU[0423] 🌐 POST /gossip/zine (200)
+DEBU[0424] 😈 racoon teased fast-vampire (high-restarts)
+DEBU[0424] 😈 racoon, electric-pancake-213, raccoon, and condorito teased blue-jay (high-restarts)
+DEBU[0424] 😈 blue-jay teased condorito (high-restarts)
+DEBU[0424] 📰 merged events from blue-jay
+DEBU[0424] 🏘️  grumpy-comet moved barrio: ufo→peach 🍑 (via grid, grid=140)
+DEBU[0425] starttime consensus for jojo-m1: max=1768101542, trimmed=1768095341 (diff=6201s)
+DEBU[0425] starttime consensus for jojo-m1: max=1768101542, trimmed=1768095341 (diff=6201s)
+DEBU[0425] posting on nara/newspaper/jojo-m1
+DEBU[0425] 🌐 POST /dm (200)
+DEBU[0425] 📰 grumpy-comet posted newspapers (Flair:🪙🐳🎬🧇🥞🍿🐦🆒👶→🪙🐳🎬🧇🥞🍿👑🆒👶, Chattiness:21→19)
+DEBU[0426] 🌐 POST /dm (200)
+DEBU[0426] 🌐 POST /dm (200)
+DEBU[0426] 🌐 POST /dm (200)
+DEBU[0426] 📰 nelly posted newspapers (Flair:🧧🧑‍🚀❄️🎬🍿🍦🧁🆒→🧧🧑‍🚀❄️🎸🍿🍦🧁🆒, Trend:lisa-style→racoon-style, Chattiness:20→19)
+DEBU[0426] 🌐 POST /dm (200)
+DEBU[0427] 📰 lisa posted newspapers (Flair:🧧🧑‍🚀❄️🎭🍫🧂🍿👑🔁🆒→🧧🧑‍🚀❄️🎬🍫🧂🍿👑🔁🆒, Trend:bart-style→lisa-style, Chattiness:20→19)
+DEBU[0427] 🏘️  lisa moved barrio: ufo→moai 🗿 (via grid, grid=140)
+DEBU[0427] 😈 bart, r2d2, electric-pancake-213, and 2 others teased jojo-m1 (high-restarts)
+INFO[0430] 📰 Gossiping with 3 neighbors [lisa, r2d2, electric-pancake-213] (zine has 86 events: map[ping:57 social:29])
+DEBU[0430] 📬 DM'd tease to condorito
+INFO[0430] 😈 teasing condorito: sup
+DEBU[0430] 🌐 POST /dm (200)
+DEBU[0430] 😈 condorito teased jojo-m1 (high-restarts)
+DEBU[0430] 😈 jojo-m1 teased condorito (random)
+DEBU[0431] 😈 bart teased blue-jay (high-restarts)
+DEBU[0431] 😈 lisa teased nelly (random)
+DEBU[0431] 😈 bart, racoon, lily, and 3 others teased condorito (high-restarts)
+DEBU[0431] 😈 raccoon and condorito teased r2d2 (high-restarts)
+DEBU[0431] 😈 lisa, bart, and electric-pancake-213 teased fast-vampire (high-restarts)
+DEBU[0431] 😈 electric-pancake-213 teased grumpy-comet (random)
+DEBU[0431] 📰 merged events from lisa, r2d2, and electric-pancake-213
+DEBU[0433] 📍 Ping to r2d2: 44.00ms
+DEBU[0453] 📰 lily posted newspapers (Flair:🔮❄️🎭🥞🧓👑🆒👶→🔮❄️🎸🥞🧓👑🆒👶, Trend:bart-style→racoon-style)
+DEBU[0454] 🏘️  lily moved barrio: ufo→moai 🗿 (via grid, grid=181)
+INFO[0463] 🏃 jojo-m1 is over this trend: racoon-style
+DEBU[0463] 📍 Ping to nelly: 9.00ms
+DEBU[0472] 📰 bart posted newspapers (Flair:🧿🧑‍🚀❄️🎸🍀🐦🆒👶→🧿🧑‍🚀❄️🍀🐦🆒👶, Chattiness:21→20)
+DEBU[0482] 🌐 POST /gossip/zine (200)
+DEBU[0482] 📬 DM'd tease to blue-jay
+INFO[0482] 😈 teasing blue-jay: blue-jay keeping things exciting with all those restarts
+DEBU[0483] 📰 blue-jay posted newspapers (Flair:⛵️🎬🍬🆒👶→⛵️🎭🍬🆒👶, Trend:lisa-style→bart-style, Chattiness:21→20)
+DEBU[0483] 📰 merged events from nelly
+DEBU[0483] 😈 grumpy-comet, fast-vampire, and jojo-m1 teased blue-jay (high-restarts)
+DEBU[0487] 🌐 POST /dm (200)
+DEBU[0488] 😈 blue-jay teased jojo-m1 (high-restarts)
+DEBU[0492] 🌐 GET /ping (200)
+DEBU[0493] 📍 Ping to grumpy-comet: 297.00ms
+DEBU[0493] 🏓 got ping from r2d2
+DEBU[0494] 📰 r2d2 posted newspapers (Flair:🔮🎭🧂→🔮🎭🧂🆒)
+DEBU[0494] 🏘️  jojo-m1 moved barrio: ufo→moai 🗿 (via grid, grid=182)
+DEBU[0495] 📬 DM'd tease to r2d2
+INFO[0495] 😈 teasing r2d2: r2d2 discovering the restart button
+DEBU[0495] 📰 raccoon posted newspapers (Chattiness:16→9)
+DEBU[0495] 🏘️  raccoon moved barrio: ufo→moai 🗿 (via grid, grid=182)
+DEBU[0496] 😈 jojo-m1 teased r2d2 (high-restarts)
+DEBU[0517] 📰 electric-pancake-213 posted newspapers (Flair:🐚🍳🧂🍭🍬🐤🐦🆒→🐚🎬🍳🧂🍭🍬🐤🐦🆒, Trend:→lisa-style, Chattiness:21→19)
+DEBU[0518] 🌐 GET /ping (200)
+DEBU[0519] 🏓 got ping from lisa
+INFO[0520] [warning] busy cpu, newspaper events may be dropped
+INFO[0523] 💅 jojo-m1 is now following trend: lisa-style
+DEBU[0523] 📍 Ping to lily: 9.00ms
+DEBU[0527] 📰 racoon posted newspapers (Flair:🧿❄️🍳🍭👑👶→🧿❄️🎬🍳🍭👑👶, Trend:→lisa-style, Chattiness:15→13)
+DEBU[0528] 🏘️  racoon moved barrio: moai→ufo 🛸 (via grid, grid=182)
+DEBU[0531] 🌐 POST /gossip/zine (200)
+DEBU[0532] 😈 racoon teased grumpy-comet (high-restarts)
+DEBU[0532] 😈 r2d2 and lily teased blue-jay (high-restarts)
+DEBU[0532] 😈 blue-jay, racoon, electric-pancake-213, and 5 others teased r2d2 (high-restarts)
+DEBU[0532] 😈 electric-pancake-213 teased bart (random)
+DEBU[0532] 😈 nelly teased fast-vampire (high-restarts)
+DEBU[0532] 😈 grumpy-comet teased electric-pancake-213 (random)
+DEBU[0532] 📰 merged events from r2d2
+DEBU[0553] 📍 Ping to lisa: 6.00ms
+DEBU[0561] 🌐 GET /ping (200)
+DEBU[0562] 🏓 got ping from electric-pancake-213
+INFO[0570] [recovered] cpu is healthy again, not dropping events anymore
+DEBU[0583] 📍 Ping to condorito: 275.00ms
+DEBU[0595] 🌐 GET /ping (200)
+DEBU[0596] 🏓 got ping from raccoon
+DEBU[0599] 🌐 GET /ping (200)
+DEBU[0600] 🏓 got ping from bart
+DEBU[0609] 📰 fast-vampire posted newspapers (Flair:🧊🐳🎭🍬🧈🧇👑🆒👶→🧊🐳🎬🍬🧈🧇🆒👶, Trend:bart-style→lisa-style)
+DEBU[0610] 🌐 GET /ping (200)
+DEBU[0611] 🏓 got ping from fast-vampire
+DEBU[0613] 📍 Ping to fast-vampire: 196.00ms
+DEBU[0620] 🌐 GET /ping (200)
+DEBU[0621] 🏓 got ping from blue-jay
+DEBU[0625] 📰 condorito posted newspapers (Flair:🧊🧑‍🚀❄️🍀👑🐦🆒👶→🧊🧑‍🚀❄️🎬🍀👑🐦🆒👶, Trend:→lisa-style)
+DEBU[0625] 🌐 GET /ping (200)
+DEBU[0626] 🏓 got ping from nelly
+DEBU[0639] 🌐 GET /ping (200)
+DEBU[0640] 🏓 got ping from grumpy-comet
+│INFO[0643] 📊 event store: 4332 events (hey-there=36, social=3820, checkpoint=42, observation=291, chau=68, ping=75, critical=281) | mem: 8MB alloc, 83MB sys (heap:73MB stack:2MB other:8MB) | goroutines:156
+─────────────────────────│─────────────────────│──────────────│──────────│───────────────│──────│──────│
+│ NAME (18)               │ FLAIR               │ LAST SEEN    │ UPTIME   │ FIRST SEEN    │ BUZZ │ CHAT │
+│─────────────────────────│─────────────────────│──────────────│──────────│───────────────│──────│──────│
+│  cyber-ninja-573        │INFO[0643] 📦 Stash metrics: stored=0 (0.0MB), my_confidants=0/3, my_size=0.0KB
+                     │ 15 hours ago │ ?        │ 22 hours ago  │    0 │    0 │
+│  emerald-ninja-121      │                     │ 12 hours ago │ ?        │ 15 hours ago  │    0 │    0 │
+│  frozen-cat-767         │                     │ 5 hours ago  │ ?        │ 12 hours ago  │    0 │    0 │
+│  quirky-otter-677       │                     │ 22 hours ago │ ?        │ 27 hours ago  │    0 │    0 │
+│  tame-nara-183          │                     │ 108 mins ago │ ?        │ 5 hours ago   │    0 │    0 │
+│ 🍑 electric-pancake-213 │ 🐚🎬🍳🧂🍭🍬🐤🐦🆒  │ 2 mins ago   │ ?        │ 108 mins ago  │    0 │   19 │
+│ 🍑 fast-vampire         │ 🧊🐳🎬🍬🧈🧇🆒👶    │ 35s ago      │ 108 mins │ 2 days ago    │    0 │   20 │
+│ 🍑 grumpy-comet         │ 🪙🐳🎬🧇🥞🍿👑🆒👶  │ 3 mins ago   │ 5 hours  │ 2 days ago    │    0 │   19 │
+│ 🏄 condorito            │ 🧊🧑‍🚀❄️🎬🍀👑🐦🆒👶   │ 20s ago      │ 85 mins  │ 29 hours ago  │    0 │   20 │
+│ 🗿 bart                 │ 🧿🧑‍🚀❄️🍀🐦🆒👶       │ 2 mins ago   │ 118 mins │ 271 days ago  │    0 │   20 │
+│ 🗿 jojo-m1              │ 🧊🎬🧁🍕🐦👶        │ 3 mins ago   │ 6 mins   │ 3 days ago    │    0 │   12 │
+│ 🗿 lily                 │ 🔮❄️🎸🥞🧓👑🆒👶     │ 3 mins ago   │ 117 mins │ 1683 days ago │    0 │   19 │
+│ 🗿 lisa                 │ 🧧🧑‍🚀❄️🎬🍫🧂🍿👑🔁🆒 │ 3 mins ago   │ 117 mins │ 1670 days ago │    0 │   19 │
+│ 🗿 nelly                │ 🧧🧑‍🚀❄️🎸🍿🍦🧁🆒     │ 2 mins ago   │ 119 mins │ 1485 days ago │    0 │   19 │
+│ 🗿 raccoon              │ 💎🧑‍🚀❄️🎬🍿🧇👶       │ 2 mins ago   │ 2 hours  │ 792 days ago  │    0 │    9 │
+│ 🛸 blue-jay             │ ⛵️🎭🍬🆒👶          │ 2 mins ago   │ 118 mins │ 9 days ago    │    0 │   20 │
+│ 🛸 r2d2                 │ 🔮🎭🧂🆒            │ 112s ago     │ 12 hours │ 9 days ago    │    0 │   19 │
+│ 🛸 racoon               │ 🧿❄️🎬🍳🍭👑👶       │ 117s ago     │ 2 hours  │ 1650 days ago │    0 │   13 │
+│─────────────────────────│─────────────────────│──────────────│──────────│───────────────│──────│──────│
+DEBU[0643] 📍 Ping to electric-pancake-213: 197.00ms
+DEBU[0645] 🏘️  jojo-m1 moved barrio: moai→ufo 🛸 (via grid, grid=182)
+DEBU[0658] 🌐 GET /ping (200)
+DEBU[0659] 🏓 got ping from condorito
+DEBU[0667] 🌐 GET /ping (200)
+DEBU[0668] 🏓 got ping from lily
+INFO[0673] 🏃 jojo-m1 is over this trend: lisa-style
+DEBU[0673] 📍 Ping to raccoon: 28.00ms
+DEBU[0673] 📰 grumpy-comet posted newspapers (Chattiness:19→20)
+DEBU[0675] 📰 lisa posted newspapers (Flair:🧧🧑‍🚀❄️🎬🍫🧂🍿👑🔁🆒→🧧🧑‍🚀❄️🎸🍫🧂🍿👑🔁🆒, Trend:lisa-style→racoon-style, Chattiness:19→21)
+DEBU[0676] 🏘️  lisa moved barrio: moai→ufo 🛸 (via grid, grid=181)
+DEBU[0684] starttime consensus for jojo-m1: max=1768101542, trimmed=1768095341 (diff=6201s)
+DEBU[0684] starttime consensus for jojo-m1: max=1768101542, trimmed=1768095341 (diff=6201s)
+DEBU[0684] posting on nara/newspaper/jojo-m1
+DEBU[0685] 🌐 POST /dm (200)
+DEBU[0686] 🌐 POST /dm (200)
+DEBU[0686] 🌐 POST /dm (200)
+INFO[0686] 📰 Gossiping with 5 neighbors [raccoon, electric-pancake-213, lily, racoon, bart] (zine has 70 events: map[ping:37 social:33])
+DEBU[0687] 😈 fast-vampire, lisa, and raccoon teased jojo-m1 (high-restarts)
+DEBU[0687] 😈 lisa teased lily (random)
+DEBU[0687] 😈 electric-pancake-213, fast-vampire, and lisa teased condorito (high-restarts)
+DEBU[0687] 😈 raccoon teased electric-pancake-213 (random)
+DEBU[0687] 😈 raccoon teased fast-vampire (random)
+DEBU[0687] 😈 condorito teased bart (random)
+DEBU[0687] 😈 bart teased fast-vampire (high-restarts)
+DEBU[0687] 😈 lisa, racoon, and raccoon teased blue-jay (high-restarts)
+DEBU[0687] 📰 merged events from lily, bart, raccoon, and 2 others
+DEBU[0689] 🌐 POST /dm (200)
+DEBU[0690] 😈 grumpy-comet teased jojo-m1 (high-restarts)
+DEBU[0690] 🌐 GET /ping (200)
+DEBU[0691] 🏓 got ping from racoon
+DEBU[0701] 📰 lily posted newspapers (Flair:🔮❄️🎸🥞🧓👑🆒👶→🔮❄️🎬🥞🧓👑🆒👶, Trend:racoon-style→lisa-style)
+INFO[0703] 💅 jojo-m1 is now following trend: bart-style
+DEBU[0703] 📍 Ping to blue-jay: 30.00ms
+DEBU[0718] 📰 bart posted newspapers (Flair:🧿🧑‍🚀❄️🍀🐦🆒👶→🧿🧑‍🚀❄️🎭🍀🐦🆒👶, Trend:→bart-style, Chattiness:20→19)
+DEBU[0729] 📰 blue-jay posted newspapers (Flair:⛵️🎭🍬🆒👶→⛵️🎬🍬🆒👶, Trend:bart-style→lisa-style)
+DEBU[0733] 📍 Ping to bart: 14.00ms
+DEBU[0735] 🏘️  jojo-m1 moved barrio: ufo→moai 🗿 (via grid, grid=183)
+DEBU[0742] 📰 r2d2 posted newspapers (Chattiness:19→18)
+DEBU[0763] 📍 Ping to racoon: 104.00ms
+DEBU[0765] 📰 electric-pancake-213 posted newspapers (Chattiness:19→20)
+^Cbabaayyy
+DEBU[0768] posting on nara/plaza/chau
+INFO[0768] 🛑 Initiating graceful shutdown...
+INFO[0768] 📰 Sending final zine with chau event...
+INFO[0768] 📰 Gossiping with 3 neighbors [grumpy-comet, raccoon, r2d2] (zine has 91 events: map[chau:1 ping:59 social:31])
+^[[ADEBU[0769] 💨 jojo-m1 bounced
+DEBU[0769] 😈 nelly and lisa teased grumpy-comet (high-restarts)
+DEBU[0769] processNewspaperEvents: shutting down
+DEBU[0769] announceForever: shutting down gracefully
+DEBU[0769] backgroundSync: shutting down gracefully
+DEBU[0769] processChauEvents: shutting down
+DEBU[0769] processHeyThereEvents: shutting down
+DEBU[0769] updateHostStatsForever: shutting down gracefully
+INFO[0769] Main loop: shutting down
+DEBU[0769] processLedgerRequests: shutting down
+DEBU[0769] processJourneyCompleteEvents: shutting down
+DEBU[0769] observationMaintenance: shutting down gracefully
+DEBU[0769] processHowdyEvents: shutting down
+DEBU[0769] processLedgerResponses: shutting down
+DEBU[0769] posting on nara/plaza/chau
+DEBU[0769] processSocialEvents: shutting down
+```
