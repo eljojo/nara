@@ -6,6 +6,8 @@ This file provides guidance for AI agents when working with code in this reposit
 
 When the user reports something is broken: **STOP. Do not immediately edit code.**
 
+**TRUST THE USER:** When the user says they've done something ("I already rebuilt", "I'm running the new version", "the file is there"), believe them immediately. Do not verify their claims. If they say it, it's true. Move on to investigating other causes.
+
 1. **Run tests first** - Use `make test` or `go test` to see actual failures. Integration tests run real production code - trust them over assumptions.
 2. **Gather evidence** - If tests pass, get actual error output: curl endpoints, check API responses, read logs. Run the real code, don't guess.
 3. **Confirm the root cause** - Verify with concrete evidence before proposing fixes
@@ -19,6 +21,7 @@ When the user reports something is broken: **STOP. Do not immediately edit code.
 - If a test doesn't exist for the bug, consider writing one first
 
 **DO NOT:**
+- Doubt or verify what the user tells you - if they say they did something, they did it
 - Change multiple things at once hoping one fixes it
 - Assume naming conventions, field formats, or data shapes without checking
 - Replicate production logic in tests - run the real code instead

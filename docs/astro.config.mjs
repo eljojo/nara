@@ -1,17 +1,20 @@
+// @ts-check
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
+// https://astro.build/config
 export default defineConfig({
   base: '/docs',
   output: 'static',
-  integrations: [
-    starlight({
-      title: 'Nara Docs',
+	integrations: [
+		starlight({
+      title: 'nara',
       description: 'Field guide and reference for the Nara network.',
-      social: {
-        github: 'https://github.com/eljojo/nara'
-      },
-      sidebar: [
+			social: [
+        { icon: 'external', label: 'Network', href: 'https://nara.network' },
+        { icon: 'github', label: 'GitHub', href: 'https://github.com/eljojo/nara' }
+      ],
+			sidebar: [
         {
           label: 'Overview',
           items: [
@@ -29,7 +32,7 @@ export default defineConfig({
             { label: 'Coordinates', link: '/concepts/coordinates/' }
           ]
         }
-      ]
-    })
-  ]
+			],
+		}),
+	],
 });

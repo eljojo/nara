@@ -14,7 +14,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-//go:embed nara-web/public/*
+//go:embed all:nara-web/public
 var staticContent embed.FS
 
 // responseLogger wraps ResponseWriter to capture status code

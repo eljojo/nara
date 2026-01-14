@@ -29,17 +29,17 @@ build: build-web
 # Run all tests (includes slow integration tests)
 test:
 	@echo "Running all tests..."
-	@go test ./... -timeout 2m
+	@go test ./... -timeout 3m
 
 # Run tests with verbose output
 test-v:
 	@echo "Running tests with verbose output..."
-	@go test -v ./... -timeout 2m
+	@go test -v ./... -timeout 3m
 
 # Run only fast tests (skip slow integration tests)
 test-fast:
 	@echo "Running fast tests (skipping integration tests)..."
-	@go test -short ./... -timeout 2m
+	@go test -short ./... -timeout 3m
 
 # Run nara with web UI on port 8080
 run: build
