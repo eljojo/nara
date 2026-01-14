@@ -149,14 +149,14 @@ func (network *Network) bootRecoveryViaMeshSampleMode(online []string, meshNeigh
 	var capacity, pageSize int
 	switch network.local.MemoryProfile.Mode {
 	case MemoryModeShort:
-		capacity = 5000   // ~5k events
-		pageSize = 1000   // 1k per call
+		capacity = 5000 // ~5k events
+		pageSize = 1000 // 1k per call
 	case MemoryModeHog:
-		capacity = 80000  // ~80k events
-		pageSize = 5000   // 5k per call
+		capacity = 80000 // ~80k events
+		pageSize = 5000  // 5k per call
 	default: // MemoryModeMedium
-		capacity = 50000  // ~50k events
-		pageSize = 5000   // 5k per call
+		capacity = 50000 // ~50k events
+		pageSize = 5000  // 5k per call
 	}
 
 	// Calculate number of API calls needed
