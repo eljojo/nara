@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/eljojo/nara"
@@ -19,6 +20,7 @@ func dumpEventsCmd(args []string) {
 	soulStr := fs.String("soul", "", "soul string (required)")
 	verbose := fs.Bool("verbose", false, "show progress on stderr")
 	timeout := fs.Duration("timeout", 3*time.Minute, "timeout per peer (not total)")
+	workers := fs.Int("workers", 5, "number of parallel workers for fetching")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `Usage: nara-backup dump-events -name <name> -soul <soul> [options]
 
@@ -26,6 +28,7 @@ Connects to the Tailscale mesh as your nara, discovers all peers, and fetches ev
 Uses mesh authentication (signing with your keypair) to fetch from each peer.
 Outputs events in JSON Lines format (one JSON object per line) to stdout.
 
+Uses a worker pool (-workers flag) to query multiple peers in parallel for faster backup.
 Each peer gets its own timeout window (-timeout flag). Slow/offline peers won't starve later peers.
 
 Options:
@@ -41,6 +44,9 @@ Examples:
 
   # Increase per-peer timeout for slow connections
   nara-backup dump-events -name alice -soul <your-soul> -timeout 5m > backup.jsonl
+
+  # Use more workers for faster parallel fetching
+  nara-backup dump-events -name alice -soul <your-soul> -workers 10 > backup.jsonl
 
   # Append more events later
   nara-backup dump-events -name alice -soul <your-soul> >> backup.jsonl
@@ -95,26 +101,76 @@ Examples:
 		return
 	}
 
-	logrus.Infof("📡 Discovered %d peers", len(peers))
+	logrus.Infof("📡 Discovered %d peers (using %d workers)", len(peers), *workers)
 
-	// Fetch events from each peer
-	allEvents := make(map[string]nara.SyncEvent) // deduplicate by ID
+	// Worker pool setup
+	type fetchJob struct {
+		peer nara.TsnetPeer
+		idx  int
+	}
 
-	for i, peer := range peers {
-		logrus.Infof("📥 [%d/%d] Fetching events from %s (%s)...", i+1, len(peers), peer.Name, peer.IP)
+	type fetchResult struct {
+		peer   nara.TsnetPeer
+		events []nara.SyncEvent
+		err    error
+		idx    int
+	}
 
-		// Create per-peer timeout context
-		peerCtx, peerCancel := context.WithTimeout(ctx, *timeout)
-		events, err := mesh.FetchEvents(peerCtx, peer.IP, peer.Name)
-		peerCancel() // Clean up context resources immediately
+	jobs := make(chan fetchJob, len(peers))
+	results := make(chan fetchResult, len(peers))
 
-		if err != nil {
-			logrus.Warnf("⚠️  Failed to fetch from %s: %v", peer.Name, err)
+	// Start workers
+	var wg sync.WaitGroup
+	for w := 0; w < *workers; w++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			for job := range jobs {
+				logrus.Infof("📥 [%d/%d] Worker %d fetching from %s (%s)...",
+					job.idx+1, len(peers), workerID, job.peer.Name, job.peer.IP)
+
+				// Create per-peer timeout context
+				peerCtx, peerCancel := context.WithTimeout(ctx, *timeout)
+				events, err := mesh.FetchEvents(peerCtx, job.peer.IP, job.peer.Name)
+				peerCancel()
+
+				results <- fetchResult{
+					peer:   job.peer,
+					events: events,
+					err:    err,
+					idx:    job.idx,
+				}
+			}
+		}(w)
+	}
+
+	// Send jobs to workers
+	go func() {
+		for i, peer := range peers {
+			jobs <- fetchJob{peer: peer, idx: i}
+		}
+		close(jobs)
+	}()
+
+	// Wait for workers to finish and close results channel
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect results and deduplicate
+	allEvents := make(map[string]nara.SyncEvent)
+	completed := 0
+
+	for result := range results {
+		completed++
+		if result.err != nil {
+			logrus.Warnf("⚠️  Failed to fetch from %s: %v", result.peer.Name, result.err)
 			continue
 		}
 
 		before := len(allEvents)
-		for _, event := range events {
+		for _, event := range result.events {
 			if event.ID != "" {
 				allEvents[event.ID] = event
 			}
@@ -122,7 +178,8 @@ Examples:
 		after := len(allEvents)
 		newEvents := after - before
 
-		logrus.Infof("✅ Got %d events from %s (%d new, %d total unique)", len(events), peer.Name, newEvents, after)
+		logrus.Infof("✅ [%d/%d] Got %d events from %s (%d new, %d total unique)",
+			completed, len(peers), len(result.events), result.peer.Name, newEvents, after)
 	}
 
 	if len(allEvents) == 0 {
