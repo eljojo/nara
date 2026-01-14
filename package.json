@@ -28,7 +28,7 @@
     "docs"
   ],
   "dependencies": {
-    "astro-mermaid": "^1.2.0",
+    "astro-mermaid": "github:joesaby/astro-mermaid",
     "d3": "^7.9.0",
     "dayjs": "^1.11.19",
     "iconoir": "^7.11.0",
