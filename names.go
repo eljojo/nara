@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -96,12 +97,19 @@ func hashBytes(data []byte) []byte {
 	return hasher.Sum(nil)
 }
 
+// containerIDPattern matches hostnames that look like container IDs (12+ hex chars)
+var containerIDPattern = regexp.MustCompile(`^[0-9a-f]{12,}$`)
+
 func IsGenericHostname(hostname string) bool {
 	genericNames := []string{"localhost", "raspberrypi", "raspberry", "debian", "ubuntu", "nixos", "nara", "Mac"}
 	for _, name := range genericNames {
 		if strings.Contains(strings.ToLower(hostname), name) {
 			return true
 		}
+	}
+	// Container IDs look like "3068841f6679" - 12+ hex characters
+	if containerIDPattern.MatchString(strings.ToLower(hostname)) {
+		return true
 	}
 	return false
 }
