@@ -388,37 +388,9 @@ func (t *TsnetMesh) Peers(ctx context.Context) ([]TsnetPeer, error) {
 		return nil, errors.New("tsnet server not initialized")
 	}
 
-	lc, err := t.server.LocalClient()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get local client: %w", err)
-	}
-
-	status, err := lc.Status(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get status: %w", err)
-	}
-
-	var peers []TsnetPeer
-	for _, peer := range status.Peer {
-		// Skip peers without IPs
-		if len(peer.TailscaleIPs) == 0 {
-			continue
-		}
-		// Use hostname as initial name - will be replaced with real name from /ping
-		// The Tailscale hostname may have a random suffix, but that's fine since
-		// fetchPublicKeysFromPeers will get the real name when it pings
-		name := peer.HostName
-		if name == "" {
-			continue
-		}
-		peers = append(peers, TsnetPeer{
-			Name: name,
-			IP:   peer.TailscaleIPs[0].String(),
-		})
-	}
-
-	logrus.Debugf("📡 Got %d peers from tsnet Status API", len(peers))
-	return peers, nil
+	// Use the centralized DiscoverMeshPeers helper (defined in mesh_client.go)
+	// This ensures consistent peer filtering across the codebase
+	return DiscoverMeshPeers(ctx, t.server)
 }
 
 // Send is deprecated - world messages now use HTTP via HTTPMeshTransport
