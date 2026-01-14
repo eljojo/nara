@@ -334,6 +334,16 @@ func (s *CheckpointService) HandleProposal(proposal *CheckpointProposal) {
 		return
 	}
 
+	// v2 nodes don't vote on v1 proposals (incompatible protocol versions)
+	proposalVersion := proposal.Version
+	if proposalVersion == 0 {
+		proposalVersion = 1
+	}
+	if proposalVersion < 2 {
+		logrus.Debugf("checkpoint: v2 node ignoring v1 proposal from %s (protocol version mismatch)", proposal.Subject)
+		return
+	}
+
 	logrus.Debugf("checkpoint: received proposal from %s round %d", proposal.Subject, proposal.Round)
 
 	// Get our view of this nara's state
@@ -426,6 +436,16 @@ func (s *CheckpointService) HandleVote(vote *CheckpointVote) {
 	// Verify the vote signature before accepting
 	if !s.verifyVoteSignature(vote) {
 		logrus.Warnf("checkpoint: rejected vote from %s - invalid signature", vote.Attester)
+		return
+	}
+
+	// v2 nodes don't accept votes from v1 nodes (incompatible protocol versions)
+	voteVersion := vote.Version
+	if voteVersion == 0 {
+		voteVersion = 1
+	}
+	if voteVersion < 2 {
+		logrus.Debugf("checkpoint: v2 node ignoring v1 vote from %s (protocol version mismatch)", vote.Attester)
 		return
 	}
 
@@ -723,8 +743,9 @@ func (s *CheckpointService) storeCheckpoint(checkpoint *CheckpointEventPayload) 
 	event.Checkpoint.SubjectID = checkpoint.SubjectID
 	event.Checkpoint.Round = checkpoint.Round
 
-	// v2: Set previous checkpoint ID for chain of trust
-	event.Checkpoint.PreviousCheckpointID = s.ledger.GetLatestCheckpointID(checkpoint.Subject)
+	// v2: Use the PreviousCheckpointID from consensus (already set in tryFindConsensus)
+	// DO NOT overwrite it - signatures were created with this specific value
+	event.Checkpoint.PreviousCheckpointID = checkpoint.PreviousCheckpointID
 
 	// Recompute ID since PreviousCheckpointID affects ContentString
 	event.ComputeID()
