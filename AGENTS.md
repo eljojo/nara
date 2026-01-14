@@ -37,6 +37,8 @@ Nara is an experiment. It's a distributed network with a hazy memory. It's a soc
 
 Autonomous agents (naras) observe events, form opinions based on personality, and interact with each other. No single nara has the complete picture, but together they remember. Events spread through MQTT broadcast and P2P mesh gossip, and opinions are deterministically derived from events + personality.
 
+**To read more about NARA read this file: @docs/src/content/docs/index.md **
+
 ## Project Structure
 
 Code is organized by **domain prefix** in a flat directory structure. All files are `package nara`.
@@ -259,3 +261,4 @@ Individual tests can override with `logrus.SetLevel(logrus.DebugLevel)`.
 - `docs/src/content/docs/STASH.md` - Distributed encrypted storage system
 - `docs/src/content/docs/WORLD.md` - "Around the world" journey feature
 - `docs/src/content/docs/COORDINATES.md` - Vivaldi network coordinate system
+
