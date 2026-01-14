@@ -1,7 +1,7 @@
-.PHONY: all build test run run2 clean build-nix test-v test-fast lint-report build-web watch-web build-backup
+.PHONY: all build test run run2 clean build-nix test-v test-fast lint-report build-web watch-web build-backup format
 
 # Default target: build and test
-all: build test
+all: format build test lint-report
 
 # Build web assets (JS + CSS bundles)
 # Bundles Preact, D3, dayjs - no CDN dependencies
@@ -79,3 +79,7 @@ build-nix:
 
 lint-report:
 	@golangci-lint run
+
+format:
+	@gofmt -s -w .
+	@echo "✓ Formatted Go code"

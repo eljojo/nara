@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	_ "net/http/pprof"
 	"os"
 	"runtime/debug"
 	"strings"

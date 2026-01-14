@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
-	"net/http/pprof"
 	"strings"
 	"time"
 
@@ -122,8 +121,6 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 			}
 			http.NotFound(w, r)
 		})
-		// Profile JSON data: /profile/{name}.json
-		mux.HandleFunc("/profile/", network.httpProfileJsonHandler)
 
 		// Web UI endpoints - only on local server
 		mux.HandleFunc("/api.json", network.httpApiJsonHandler)
@@ -151,15 +148,6 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 		mux.HandleFunc("/api/inspector/projection/", network.local.inspectorProjectionDetailHandler)
 		mux.HandleFunc("/api/inspector/event/", network.local.inspectorEventDetailHandler)
 		mux.HandleFunc("/api/inspector/uptime/", network.local.inspectorUptimeHandler)
-
-		// pprof endpoints
-		if network.local != nil && (network.local.Me.Name == "grumpy-comet" || network.local.Me.Name == "r2d2") {
-			mux.HandleFunc("/debug/pprof/", pprof.Index)
-			mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-			mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
-			mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-			mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
-		}
 
 		// SPA handler - serves inspector.html for all app routes
 		// This is the main page at / with all tabs (Home, World, Timeline, etc.)
