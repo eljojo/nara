@@ -70,7 +70,7 @@ func TestAura(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Use testSoul to generate valid Base58 soul for ID computation
-			ln := testLocalNaraWithSoul(t,tc.name, testSoul(tc.soul))
+			ln := testLocalNaraWithSoul(t, tc.name, testSoul(tc.soul))
 			ln.Me.Status.Personality.Sociability = tc.sociability
 			ln.Me.Status.Personality.Agreeableness = tc.agreeableness
 			ln.Me.Status.Personality.Chill = tc.chill
@@ -101,7 +101,7 @@ func TestAura(t *testing.T) {
 
 func TestAuraDeterminism(t *testing.T) {
 	// Same soul should always produce same color
-	ln := testLocalNaraWithParams(t,"test", 50, 1000)
+	ln := testLocalNaraWithParams(t, "test", 50, 1000)
 	ln.Me.Status.Personality.Sociability = 60
 	ln.Me.Status.Personality.Agreeableness = 60
 	ln.Me.Status.Personality.Chill = 60
@@ -118,7 +118,7 @@ func TestAuraDeterminism(t *testing.T) {
 	}
 
 	// Different soul should produce different color (usually)
-	ln2 := testLocalNaraWithParams(t,"test2", 50, 1000)
+	ln2 := testLocalNaraWithParams(t, "test2", 50, 1000)
 	ln2.Me.Status.Personality.Sociability = 60
 	ln2.Me.Status.Personality.Agreeableness = 60
 	ln2.Me.Status.Personality.Chill = 60
@@ -132,7 +132,7 @@ func TestAuraDeterminism(t *testing.T) {
 
 func TestAuraInStatus(t *testing.T) {
 	// Test that aura is set during nara initialization
-	ln := testLocalNaraWithParams(t,"test-aura", 50, 1000)
+	ln := testLocalNaraWithParams(t, "test-aura", 50, 1000)
 	// Check that aura is set immediately after initialization
 	if ln.Me.Status.Aura.Primary == "" {
 		t.Error("Aura.Primary should be set during nara initialization, but it's empty")
@@ -154,8 +154,8 @@ func TestAuraInStatus(t *testing.T) {
 
 func TestAuraInSetValuesFrom(t *testing.T) {
 	// Test that aura is copied when receiving status from other naras
-	ln1 := testLocalNaraWithParams(t,"nara1", 50, 1000)
-	ln2 := testLocalNaraWithParams(t,"nara2", 50, 1000)
+	ln1 := testLocalNaraWithParams(t, "nara1", 50, 1000)
+	ln2 := testLocalNaraWithParams(t, "nara2", 50, 1000)
 	// nara1 should have an aura
 	if ln1.Me.Status.Aura.Primary == "" {
 		t.Fatal("nara1 should have an aura primary")
@@ -202,7 +202,7 @@ func TestAuraInSetValuesFrom(t *testing.T) {
 
 func TestAuraInMaintenance(t *testing.T) {
 	// Test that observationMaintenanceOnce updates the aura
-	ln := testLocalNaraWithParams(t,"test-maintenance", 50, 1000)
+	ln := testLocalNaraWithParams(t, "test-maintenance", 50, 1000)
 	// Set initial personality to get a specific palette (neon lovers)
 	ln.Me.Status.Personality.Sociability = 80
 	ln.Me.Status.Personality.Agreeableness = 50
@@ -254,7 +254,7 @@ func TestAuraInMaintenance(t *testing.T) {
 
 func TestAuraInHTTPApi(t *testing.T) {
 	// Test that aura appears in HTTP API responses
-	ln := testLocalNaraWithParams(t,"test-http", 50, 1000)
+	ln := testLocalNaraWithParams(t, "test-http", 50, 1000)
 	// Set a specific personality to get a predictable aura
 	ln.Me.Status.Personality.Sociability = 75
 	ln.Me.Status.Personality.Agreeableness = 55

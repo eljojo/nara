@@ -8,7 +8,7 @@ import (
 )
 
 func TestPruneInactiveNaras_Zombies(t *testing.T) {
-	ln := testLocalNaraWithParams(t,"test-nara", 50, 1000)
+	ln := testLocalNaraWithParams(t, "test-nara", 50, 1000)
 	now := time.Now().Unix()
 
 	// Add a zombie nara (never seen, no activity, malformed entry)
@@ -32,7 +32,7 @@ func TestPruneInactiveNaras_Zombies(t *testing.T) {
 }
 
 func TestPruneInactiveNaras_Newcomers(t *testing.T) {
-	ln := testLocalNaraWithParams(t,"test-nara", 50, 1000)
+	ln := testLocalNaraWithParams(t, "test-nara", 50, 1000)
 	now := time.Now().Unix()
 
 	// Add a newcomer that's been offline for 25 hours (should be pruned)
@@ -69,7 +69,7 @@ func TestPruneInactiveNaras_Newcomers(t *testing.T) {
 }
 
 func TestPruneInactiveNaras_Established(t *testing.T) {
-	ln := testLocalNaraWithParams(t,"test-nara", 50, 1000)
+	ln := testLocalNaraWithParams(t, "test-nara", 50, 1000)
 	now := time.Now().Unix()
 
 	// Add established nara offline for 8 days (should be pruned)
@@ -108,7 +108,7 @@ func TestPruneInactiveNaras_Established(t *testing.T) {
 }
 
 func TestPruneInactiveNaras_Veterans(t *testing.T) {
-	ln := testLocalNaraWithParams(t,"test-nara", 50, 1000)
+	ln := testLocalNaraWithParams(t, "test-nara", 50, 1000)
 	now := time.Now().Unix()
 
 	// Add veteran nara (known for 100 days) that's been offline for 30 days
@@ -147,7 +147,7 @@ func TestPruneInactiveNaras_Veterans(t *testing.T) {
 }
 
 func TestPruneInactiveNaras_OnlineNeverPruned(t *testing.T) {
-	ln := testLocalNaraWithParams(t,"test-nara", 50, 1000)
+	ln := testLocalNaraWithParams(t, "test-nara", 50, 1000)
 	now := time.Now().Unix()
 
 	// Add an ONLINE nara (should never be pruned regardless of age)
@@ -171,7 +171,7 @@ func TestPruneInactiveNaras_OnlineNeverPruned(t *testing.T) {
 
 func TestPruneInactiveNaras_Integration(t *testing.T) {
 	// Comprehensive test with realistic mix of naras
-	ln := testLocalNaraWithParams(t,"test-nara", 50, 1000)
+	ln := testLocalNaraWithParams(t, "test-nara", 50, 1000)
 	now := time.Now().Unix()
 
 	// Setup: mix of zombies, newcomers, established, and veterans
@@ -269,7 +269,7 @@ func TestPruneInactiveNaras_RemovesFromObservations(t *testing.T) {
 	// This test verifies that pruning removes naras from BOTH the Neighbourhood
 	// AND from our own Observations. The bug was that we only removed from
 	// Neighbourhood but forgot to properly lock and remove from Observations.
-	ln := testLocalNaraWithParams(t,"test-nara", 50, 1000)
+	ln := testLocalNaraWithParams(t, "test-nara", 50, 1000)
 	now := time.Now().Unix()
 
 	// Add a newcomer that should be pruned (offline for 25 hours)
@@ -345,7 +345,7 @@ func TestPruneInactiveNaras_RemovesFromObservations(t *testing.T) {
 func TestPruneInactiveNaras_RaceCondition(t *testing.T) {
 	// This test verifies that pruning properly locks when removing from observations.
 	// Without proper locking, concurrent access to observations would cause a race.
-	ln := testLocalNaraWithParams(t,"test-nara", 50, 1000)
+	ln := testLocalNaraWithParams(t, "test-nara", 50, 1000)
 	now := time.Now().Unix()
 
 	// Add multiple naras that should be pruned
@@ -403,7 +403,7 @@ func TestPruneInactiveNaras_RaceCondition(t *testing.T) {
 func TestPruneInactiveNaras_HttpApi(t *testing.T) {
 	// This test verifies that pruned naras don't show up in the HTTP API response.
 	// This replicates the user's bug report where pruned naras still appeared in api.json
-	ln := testLocalNaraWithParams(t,"test-nara", 50, 1000)
+	ln := testLocalNaraWithParams(t, "test-nara", 50, 1000)
 	now := time.Now().Unix()
 
 	// Add a newcomer that should be pruned (offline for 25 hours)
@@ -485,7 +485,7 @@ func TestPruneInactiveNaras_ObservationMaintenanceRace(t *testing.T) {
 	//
 	// The fix: observationMaintenance now holds network.local.mu during both
 	// the existence check AND the observation write (atomic check-and-write).
-	ln := testLocalNaraWithParams(t,"test-nara", 50, 1000)
+	ln := testLocalNaraWithParams(t, "test-nara", 50, 1000)
 	now := time.Now().Unix()
 
 	// Add a zombie nara that should be pruned
@@ -541,7 +541,7 @@ func TestPruneInactiveNaras_ObservationMaintenanceRace(t *testing.T) {
 func TestPruneInactiveNaras_FullCleanup(t *testing.T) {
 	// This test verifies that pruning removes all traces of a nara,
 	// preventing re-discovery from any event type.
-	ln := testLocalNaraWithParams(t,"test-nara", 50, 1000)
+	ln := testLocalNaraWithParams(t, "test-nara", 50, 1000)
 	now := time.Now().Unix()
 
 	zombieName := "ghost-nara"
@@ -602,7 +602,7 @@ func TestPruneInactiveNaras_FullCleanup(t *testing.T) {
 func TestPruneInactiveNaras_PrunesEvents(t *testing.T) {
 	// This test verifies that pruning removes events from the SyncLedger.
 	// This prevents "ghost naras" from being re-discovered by discoverNarasFromEvents.
-	ln := testLocalNaraWithParams(t,"test-nara", 50, 1000)
+	ln := testLocalNaraWithParams(t, "test-nara", 50, 1000)
 	now := time.Now().Unix()
 
 	// Add a zombie nara that should be pruned
@@ -649,7 +649,7 @@ func TestPruneInactiveNaras_PrunesCheckpointEventsAboutSubject(t *testing.T) {
 	// This test verifies that when a ghost nara is pruned, checkpoint events
 	// WHERE THEY ARE THE SUBJECT are also removed from the ledger.
 	// However, checkpoints where they were only a voter/emitter should be kept.
-	ln := testLocalNara(t,"test-nara")
+	ln := testLocalNara(t, "test-nara")
 	now := time.Now().Unix()
 
 	// Create a ghost nara that will be pruned

@@ -43,7 +43,7 @@ func TestCheckpoint_VoteSignatureVerificationBug(t *testing.T) {
 
 	// Setup network with voter's public key
 	ledger := NewSyncLedger(1000)
-	local := testLocalNara(t,"verifier")
+	local := testLocalNara(t, "verifier")
 	network := &Network{
 		Neighbourhood: make(map[string]*Nara),
 		local:         local,
@@ -113,7 +113,7 @@ func TestCheckpoint_VoteSignatureNameSpoofing(t *testing.T) {
 
 	// Setup network: both victim and attacker are known
 	ledger := NewSyncLedger(1000)
-	local := testLocalNara(t,"verifier")
+	local := testLocalNara(t, "verifier")
 	network := &Network{
 		Neighbourhood: make(map[string]*Nara),
 		local:         local,
@@ -192,7 +192,7 @@ func TestCheckpoint_VoteNameVsIDLookup(t *testing.T) {
 
 	// Our network knows her by new name and ID
 	ledger := NewSyncLedger(1000)
-	local := testLocalNara(t,"verifier")
+	local := testLocalNara(t, "verifier")
 	network := &Network{
 		Neighbourhood: make(map[string]*Nara),
 		local:         local,
@@ -251,7 +251,7 @@ func TestCheckpoint_ProposalSignatureVerification(t *testing.T) {
 
 	// Setup network
 	ledger := NewSyncLedger(1000)
-	local := testLocalNara(t,"verifier")
+	local := testLocalNara(t, "verifier")
 	network := &Network{
 		Neighbourhood: make(map[string]*Nara),
 		local:         local,

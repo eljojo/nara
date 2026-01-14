@@ -7,7 +7,7 @@ import (
 )
 
 func TestNetwork_ImportNara(t *testing.T) {
-	ln := testLocalNara(t,"me")
+	ln := testLocalNara(t, "me")
 	network := ln.Network
 
 	identity := testIdentity("other")
@@ -29,7 +29,7 @@ func TestNetwork_ImportNara(t *testing.T) {
 }
 
 func TestNetwork_NaraOrdering(t *testing.T) {
-	ln := testLocalNara(t,"me")
+	ln := testLocalNara(t, "me")
 	network := ln.Network
 
 	// Set me observation
@@ -62,7 +62,7 @@ func TestNetwork_NaraOrdering(t *testing.T) {
 }
 
 func TestNetwork_NeighbourhoodNames(t *testing.T) {
-	ln := testLocalNara(t,"me")
+	ln := testLocalNara(t, "me")
 	network := ln.Network
 
 	network.importNara(NewNara("a"))
@@ -133,7 +133,7 @@ func TestNara_SoulNotLeakedInJSON(t *testing.T) {
 // causes the nara to start a howdy coordinator to potentially respond.
 // This is the howdy protocol - up to 10 naras self-select to respond with howdy.
 func TestHeyThere_StartsHowdyCoordinator(t *testing.T) {
-	ln := testLocalNara(t,"me")
+	ln := testLocalNara(t, "me")
 	network := ln.Network
 
 	// Configure for testing:
@@ -174,7 +174,7 @@ func TestHeyThere_StartsHowdyCoordinator(t *testing.T) {
 // TestHeyThere_ReadOnlySkipsHowdy verifies that ReadOnly mode
 // prevents starting a howdy coordinator (as expected for read-only naras).
 func TestHeyThere_ReadOnlySkipsHowdy(t *testing.T) {
-	ln := testLocalNara(t,"me")
+	ln := testLocalNara(t, "me")
 	network := ln.Network
 
 	// ReadOnly mode should skip howdy coordinator
@@ -237,7 +237,7 @@ func TestNewspaperEvent_JSONParsing(t *testing.T) {
 	}
 
 	// 3. Setup receiver and process the event using real code
-	receiver := testLocalNara(t,"receiver")
+	receiver := testLocalNara(t, "receiver")
 	// Parse the JSON the way the MQTT handler does (newspaperHandler in mqtt.go)
 	var parsedEvent NewspaperEvent
 	if err := json.Unmarshal(eventJSON, &parsedEvent); err != nil {

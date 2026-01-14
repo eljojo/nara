@@ -579,7 +579,7 @@ func TestDeriveOpinionWithValidation_CheckpointComparison(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	projection := NewOpinionConsensusProjection(ledger)
 	subject := "nara-target"
-	attester := testLocalNara(t,"attester")
+	attester := testLocalNara(t, "attester")
 
 	// Add observation events
 	obs1 := NewRestartObservationEvent("observer-a", subject, 1000, 5)
@@ -645,7 +645,7 @@ func TestDeriveOpinionFromCheckpoint_WithPostCheckpointEvents(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	projection := NewOpinionConsensusProjection(ledger)
 	subject := "nara-target"
-	attester := testLocalNara(t,"attester")
+	attester := testLocalNara(t, "attester")
 
 	// Use times after cutoff to avoid filtering
 	timeOffset := CheckpointCutoffTime + 10000
@@ -707,7 +707,7 @@ func TestDeriveOpinionFromCheckpoint_WithOfflinePeriods(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	projection := NewOpinionConsensusProjection(ledger)
 	subject := "nara-target"
-	attester := testLocalNara(t,"attester")
+	attester := testLocalNara(t, "attester")
 
 	// Use times after cutoff to avoid filtering
 	timeOffset := CheckpointCutoffTime + 10000

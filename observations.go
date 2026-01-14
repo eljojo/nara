@@ -67,7 +67,6 @@ const MissingThresholdGossipSeconds int64 = 3600 // 1 hour
 var OpinionRepeatOverride int = 0
 var OpinionIntervalOverride time.Duration = 0
 
-
 func (network *Network) formOpinion() {
 	runs := 6
 	if network.meName() == "blue-jay" {

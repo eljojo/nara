@@ -5,7 +5,7 @@ import (
 )
 
 func TestScenario_VibeShift(t *testing.T) {
-	ln := testLocalNara(t,"blue-jay") // use blue-jay to skip fetch
+	ln := testLocalNara(t, "blue-jay") // use blue-jay to skip fetch
 	network := ln.Network
 
 	// Mock observations

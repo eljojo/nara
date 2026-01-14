@@ -329,7 +329,7 @@ func TestIntegration_CheckpointSync(t *testing.T) {
 	t.Log("🧪 Testing checkpoint sync HTTP endpoint")
 
 	// Create Alice who will have checkpoints
-	alice := testLocalNara(t,"alice")
+	alice := testLocalNara(t, "alice")
 
 	// Manually create 5 checkpoint events in Alice's ledger
 	// This simulates Alice having participated in checkpoint consensus
@@ -523,7 +523,7 @@ func TestIntegration_CheckpointSync(t *testing.T) {
 	t.Log("📡 Test 6: Full network sync flow")
 
 	// Create Bob who will sync checkpoints from Alice
-	bob := testLocalNara(t,"bob")
+	bob := testLocalNara(t, "bob")
 
 	// Verify Bob starts with no checkpoints
 	bobInitialCount := 0
@@ -624,7 +624,7 @@ func TestIntegration_CheckpointSync(t *testing.T) {
 	}
 
 	for i := range testNaras {
-		testNaras[i].ln = testLocalNara(t,testNaras[i].name)
+		testNaras[i].ln = testLocalNara(t, testNaras[i].name)
 
 		// Add checkpoints only if this nara should have data
 		if testNaras[i].hasData {
@@ -645,7 +645,7 @@ func TestIntegration_CheckpointSync(t *testing.T) {
 	}
 
 	// Create Charlie who will try to sync from all of them
-	charlie := testLocalNara(t,"charlie")
+	charlie := testLocalNara(t, "charlie")
 
 	// Set up Charlie's network with all test naras
 	charlie.Network.testHTTPClient = &http.Client{Timeout: 5 * time.Second}

@@ -28,7 +28,7 @@ func TestDelayedMissingReporting(t *testing.T) {
 	observers := make([]*LocalNara, 5)
 	for i := 0; i < 5; i++ {
 		name := "observer-" + string(rune('a'+i))
-		ln := testLocalNaraWithParams(t,name, 50, 1000)
+		ln := testLocalNaraWithParams(t, name, 50, 1000)
 		ln.SyncLedger = sharedLedger // Share the same ledger
 		delay := time.Duration(i) * 50 * time.Millisecond
 		ln.Network.testObservationDelay = &delay
@@ -99,7 +99,7 @@ func TestDelayedMissingReporting_NoRedundancy(t *testing.T) {
 	sharedLedger := NewSyncLedger(1000)
 
 	// Create first observer who reports immediately
-	ln1 := testLocalNaraWithParams(t,"observer-fast", 50, 1000)
+	ln1 := testLocalNaraWithParams(t, "observer-fast", 50, 1000)
 	ln1.SyncLedger = sharedLedger
 	fastDelay := time.Duration(0)
 	ln1.Network.testObservationDelay = &fastDelay
@@ -109,7 +109,7 @@ func TestDelayedMissingReporting_NoRedundancy(t *testing.T) {
 	ln1.setMeObservation(me1)
 
 	// Create second observer who will check later
-	ln2 := testLocalNaraWithParams(t,"observer-slow", 50, 1000)
+	ln2 := testLocalNaraWithParams(t, "observer-slow", 50, 1000)
 	ln2.SyncLedger = sharedLedger
 	slowDelay := 100 * time.Millisecond
 	ln2.Network.testObservationDelay = &slowDelay
@@ -172,7 +172,7 @@ func TestDelayedRestartReporting(t *testing.T) {
 	observers := make([]*LocalNara, 5)
 	for i := 0; i < 5; i++ {
 		name := "observer-" + string(rune('a'+i))
-		ln := testLocalNaraWithParams(t,name, 50, 1000)
+		ln := testLocalNaraWithParams(t, name, 50, 1000)
 		ln.SyncLedger = sharedLedger
 		delay := time.Duration(i) * 50 * time.Millisecond
 		ln.Network.testObservationDelay = &delay
@@ -224,12 +224,12 @@ func TestDelayedRestartReporting_NoRedundancy(t *testing.T) {
 
 	sharedLedger := NewSyncLedger(1000)
 
-	ln1 := testLocalNaraWithParams(t,"observer-fast", 50, 1000)
+	ln1 := testLocalNaraWithParams(t, "observer-fast", 50, 1000)
 	ln1.SyncLedger = sharedLedger
 	fastDelay := time.Duration(0)
 	ln1.Network.testObservationDelay = &fastDelay
 
-	ln2 := testLocalNaraWithParams(t,"observer-slow", 50, 1000)
+	ln2 := testLocalNaraWithParams(t, "observer-slow", 50, 1000)
 	ln2.SyncLedger = sharedLedger
 	slowDelay := 100 * time.Millisecond
 	ln2.Network.testObservationDelay = &slowDelay
