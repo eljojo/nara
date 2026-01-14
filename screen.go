@@ -37,17 +37,19 @@ func (ln *LocalNara) PrintNeigbourhoodForever(refreshRate int) {
 }
 
 func (ln *LocalNara) printNeigbourhood() {
-	if len(ln.Network.Neighbourhood) == 0 {
+	// Get a safe snapshot to avoid concurrent map access
+	snapshot := ln.Network.getAllNarasSnapshot()
+	if len(snapshot) == 0 {
 		return
 	}
 
 	printer := tableprinter.New(os.Stdout)
-	naras := make([]neighbour, 0, len(ln.Network.Neighbourhood)+1)
+	naras := make([]neighbour, 0, len(snapshot)+1)
 
 	nei := ln.generateScreenRow(ln.Me)
 	naras = append(naras, nei)
 
-	for _, nara := range ln.Network.Neighbourhood {
+	for _, nara := range snapshot {
 		nei := ln.generateScreenRow(nara)
 		naras = append(naras, nei)
 	}
