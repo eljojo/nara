@@ -102,6 +102,10 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 	// Available on mesh for distributed timeline recovery
 	mux.HandleFunc("/api/checkpoints/all", network.httpCheckpointsAllHandler)
 
+	// Event import endpoint - allows owner to restore events from backup
+	// No mesh auth required - uses soul-based signature verification
+	mux.HandleFunc("/api/events/import", network.loggingMiddleware("/api/events/import", network.httpEventsImportHandler))
+
 	if includeUI {
 		// Prepare static FS
 		var err error

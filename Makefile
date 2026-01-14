@@ -1,4 +1,4 @@
-.PHONY: all build test run run2 clean build-nix test-v test-fast lint-report build-web watch-web
+.PHONY: all build test run run2 clean build-nix test-v test-fast lint-report build-web watch-web build-backup
 
 # Default target: build and test
 all: build test
@@ -25,6 +25,13 @@ build: build-web
 	@mkdir -p bin
 	@go build -mod=mod -o bin/nara cmd/nara/main.go
 	@echo "✓ Built bin/nara"
+
+# Build the nara-backup tool (no web assets needed)
+build-backup:
+	@echo "Building nara-backup..."
+	@mkdir -p bin
+	@go build -mod=mod -o bin/nara-backup cmd/nara-backup/*.go
+	@echo "✓ Built bin/nara-backup"
 
 # Run all tests (includes slow integration tests)
 test:
