@@ -115,16 +115,8 @@ func (network *Network) neighborSupportsBackgroundSync(name string) bool {
 func (network *Network) performBackgroundSyncViaMesh(neighbor, ip string) {
 	logrus.Infof("🔄 background sync: requesting events from %s (%s)", neighbor, ip)
 
-	// Use existing fetchSyncEventsFromMesh method with lightweight parameters
-	client := network.getMeshHTTPClient()
-	if client == nil {
-		logrus.Infof("🔄 Background sync with %s skipped: mesh HTTP client unavailable", neighbor)
-		return
-	}
-
 	// Fetch events from this neighbor (all types, we filter below)
 	events, success := network.fetchSyncEventsFromMesh(
-		client,
 		ip,
 		neighbor,
 		nil, // subjects: nil = all naras

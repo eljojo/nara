@@ -34,7 +34,7 @@ build-backup:
 	@echo "✓ Built bin/nara-backup"
 
 # Run all tests (includes slow integration tests)
-test:
+test: lint-report
 	@echo "Running all tests..."
 	@go test ./... -timeout 3m
 

@@ -88,10 +88,6 @@ func (network *Network) recoverSelfStartTimeFromMesh() {
 		targetCount = 3
 	}
 
-	client := network.getMeshHTTPClient()
-	if client == nil {
-		return
-	}
 	subjects := []string{network.meName()}
 	totalAdded := 0
 
@@ -101,7 +97,7 @@ func (network *Network) recoverSelfStartTimeFromMesh() {
 			continue
 		}
 
-		events, respVerified := network.fetchSyncEventsFromMesh(client, ip, neighbor, subjects, 0, 1, 500)
+		events, respVerified := network.fetchSyncEventsFromMesh(ip, neighbor, subjects, 0, 1, 500)
 		if len(events) == 0 {
 			continue
 		}

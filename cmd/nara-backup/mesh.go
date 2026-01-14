@@ -1,12 +1,8 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"time"
 
 	"github.com/eljojo/nara"
@@ -17,10 +13,8 @@ import (
 // BackupMesh wraps a tsnet mesh connection for the backup tool
 type BackupMesh struct {
 	server       *tsnet.Server
-	client       *http.Client
-	naraName     string // The nara identity we're backing up
-	naraKeypair  nara.NaraKeypair
-	meshHostname string // Ephemeral hostname on mesh
+	meshClient   *nara.MeshClient // Reusable mesh HTTP client
+	meshHostname string           // Ephemeral hostname on mesh
 }
 
 // NewBackupMesh creates a new mesh connection
@@ -47,11 +41,12 @@ func NewBackupMesh(ctx context.Context, naraName string, naraSoul nara.SoulV1) (
 
 	logrus.Info("✅ Connected to mesh")
 
+	// Create mesh client with nara's identity (not ephemeral backup identity)
+	meshClient := nara.NewMeshClient(client, naraName, naraKeypair)
+
 	return &BackupMesh{
 		server:       server,
-		client:       client,
-		naraName:     naraName,
-		naraKeypair:  naraKeypair,
+		meshClient:   meshClient,
 		meshHostname: meshHostname,
 	}, nil
 }
@@ -62,45 +57,59 @@ func (m *BackupMesh) DiscoverPeers(ctx context.Context) ([]nara.TsnetPeer, error
 }
 
 // FetchEvents fetches all events from a specific peer via /events/sync
+// Uses slicing strategy (like boot recovery) instead of time-based pagination
+// because maxEvents returns the NEWEST events, making sinceTime pagination impossible
 func (m *BackupMesh) FetchEvents(ctx context.Context, peerIP string, peerName string) ([]nara.SyncEvent, error) {
-	url := nara.BuildMeshURL(peerIP, "/events/sync")
+	// Strategy: Make one request with maxEvents=0 to get all events (capped at 2000 by server)
+	// If we get exactly 2000 events, there might be more, so we'll use slicing to get the rest
 
-	reqBody := nara.SyncRequest{
-		From:      m.naraName, // Use nara's name, not ephemeral backup name
-		MaxEvents: 100000,     // Request large batch
-	}
+	// First request: try to get all events
+	events, err := m.meshClient.FetchSyncEvents(ctx, peerIP, nara.SyncRequest{
+		MaxEvents: 0, // No limit (server will cap at 2000)
+	})
 
-	jsonBody, err := json.Marshal(reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+		return nil, fmt.Errorf("fetch from %s: %w", peerName, err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonBody))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	// Sign request as the nara (not as ephemeral backup identity)
-	nara.SignMeshRequest(req, m.naraName, m.naraKeypair)
-
-	resp, err := m.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("server returned %d: %s", resp.StatusCode, string(body))
+	// If we got fewer than 2000 events, that's everything
+	if len(events) < 2000 {
+		return events, nil
 	}
 
-	var response nara.SyncResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+	// We got exactly 2000 events, which means there are likely more
+	// Use slicing strategy to fetch the rest
+	// We'll request multiple slices until we've covered the entire event space
+	seenIDs := make(map[string]bool)
+	for _, e := range events {
+		seenIDs[e.ID] = true
 	}
 
-	return response.Events, nil
+	allEvents := events
+	sliceTotal := 10 // Start with 10 slices
+
+	// Fetch remaining slices (we already got slice 0 implicitly)
+	for sliceIndex := 1; sliceIndex < sliceTotal; sliceIndex++ {
+		sliceEvents, err := m.meshClient.FetchSyncEvents(ctx, peerIP, nara.SyncRequest{
+			SliceIndex: sliceIndex,
+			SliceTotal: sliceTotal,
+			MaxEvents:  0,
+		})
+
+		if err != nil {
+			return nil, fmt.Errorf("fetch slice %d from %s: %w", sliceIndex, peerName, err)
+		}
+
+		// Add new events
+		for _, e := range sliceEvents {
+			if !seenIDs[e.ID] {
+				allEvents = append(allEvents, e)
+				seenIDs[e.ID] = true
+			}
+		}
+	}
+
+	return allEvents, nil
 }
 
 // Close closes the mesh connection

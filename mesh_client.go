@@ -1,0 +1,114 @@
+package nara
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strconv"
+	"time"
+)
+
+// MeshClient handles authenticated HTTP communication over the Tailscale mesh.
+// It encapsulates the HTTP client and identity used for signing requests.
+// This allows both the main nara app and external tools (like nara-backup)
+// to share the same mesh communication logic.
+type MeshClient struct {
+	httpClient *http.Client
+	name       string      // Who we are (for request signing)
+	keypair    NaraKeypair // For signing requests
+}
+
+// NewMeshClient creates a new mesh client with the given identity
+func NewMeshClient(httpClient *http.Client, name string, keypair NaraKeypair) *MeshClient {
+	return &MeshClient{
+		httpClient: httpClient,
+		name:       name,
+		keypair:    keypair,
+	}
+}
+
+// signRequest adds mesh authentication headers to an HTTP request
+func (m *MeshClient) signRequest(req *http.Request) {
+	timestamp := time.Now().UnixMilli()
+	message := fmt.Sprintf("%s%d%s%s", m.name, timestamp, req.Method, req.URL.Path)
+
+	req.Header.Set(HeaderNaraName, m.name)
+	req.Header.Set(HeaderNaraTimestamp, strconv.FormatInt(timestamp, 10))
+	req.Header.Set(HeaderNaraSignature, m.keypair.SignBase64([]byte(message)))
+}
+
+// FetchSyncEvents fetches events from a peer via POST /events/sync
+func (m *MeshClient) FetchSyncEvents(ctx context.Context, peerIP string, req SyncRequest) ([]SyncEvent, error) {
+	// Ensure From is set to our identity
+	req.From = m.name
+
+	jsonBody, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	url := BuildMeshURL(peerIP, "/events/sync")
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonBody))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	m.signRequest(httpReq)
+
+	resp, err := m.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("server returned %d", resp.StatusCode)
+	}
+
+	var response SyncResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	return response.Events, nil
+}
+
+// TODO: Add PostGossipZine when Zine type signature is confirmed
+// TODO: Add SendDM when DirectMessage type is confirmed (currently uses SyncEvent)
+
+// Ping sends a ping to a peer and returns the round-trip time
+func (m *MeshClient) Ping(ctx context.Context, peerIP string) (time.Duration, error) {
+	url := BuildMeshURL(peerIP, "/ping")
+	start := time.Now()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return 0, fmt.Errorf("create request: %w", err)
+	}
+	// Note: /ping doesn't require auth for latency reasons
+
+	resp, err := m.httpClient.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("server returned %d", resp.StatusCode)
+	}
+
+	return time.Since(start), nil
+}
+
+// TODO: Add FetchCheckpoints when needed
+// TODO: Add RelayWorldMessage when needed
+// TODO: Add FetchCoordinates when needed
+// TODO: Add StashStore when needed
+// TODO: Add StashRetrieve when needed
+// TODO: Add StashPush when needed
+
+// Note: Additional mesh client methods can be added as needed.
+// For now, we've implemented the core FetchSyncEvents and Ping methods
+// which are sufficient for boot recovery and the backup tool.

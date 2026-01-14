@@ -1,9 +1,6 @@
 package nara
 
 import (
-	"bytes"
-	"encoding/json"
-	"net/http"
 	"sync"
 	"time"
 
@@ -145,13 +142,6 @@ func (network *Network) bootRecoveryViaMesh(online []string) {
 
 	logrus.Printf("📦 boot recovery via mesh: syncing from %d neighbors in parallel (~%d events each)", totalSlices, eventsPerNeighbor)
 
-	// Use tsnet HTTP client to route through Tailscale
-	client := network.getMeshHTTPClient()
-	if client == nil {
-		logrus.Warnf("📦 mesh HTTP client unavailable for boot recovery")
-		return
-	}
-
 	// Fetch from all neighbors in parallel
 	type syncResult struct {
 		name         string
@@ -178,7 +168,7 @@ func (network *Network) bootRecoveryViaMesh(online []string) {
 			defer wg.Done()
 			defer func() { <-sem }() // Release semaphore
 
-			events, respVerified := network.fetchSyncEventsFromMesh(client, n.ip, n.name, subjects, idx, totalSlices, eventsPerNeighbor)
+			events, respVerified := network.fetchSyncEventsFromMesh(n.ip, n.name, subjects, idx, totalSlices, eventsPerNeighbor)
 			results <- syncResult{
 				name:         n.name,
 				sliceIndex:   idx,
@@ -246,7 +236,7 @@ func (network *Network) bootRecoveryViaMesh(online []string) {
 					defer func() { <-sem }()
 
 					logrus.Printf("📦 retry: asking %s for slice %d", n.name, idx)
-					events, respVerified := network.fetchSyncEventsFromMesh(client, n.ip, n.name, subjects, idx, totalSlices, eventsPerNeighbor)
+					events, respVerified := network.fetchSyncEventsFromMesh(n.ip, n.name, subjects, idx, totalSlices, eventsPerNeighbor)
 					retryResults <- syncResult{
 						name:         n.name,
 						sliceIndex:   idx,
@@ -295,66 +285,25 @@ func (network *Network) bootRecoveryViaMesh(online []string) {
 // including signature verification, slice-based fetching, and error handling
 //
 // fetchSyncEventsFromMesh fetches unified SyncEvents with signature verification
-func (network *Network) fetchSyncEventsFromMesh(client *http.Client, meshIP, name string, subjects []string, sliceIndex, sliceTotal, maxEvents int) ([]SyncEvent, bool) {
-	// Build request
-	reqBody := SyncRequest{
-		From:       network.meName(),
+func (network *Network) fetchSyncEventsFromMesh(meshIP, name string, subjects []string, sliceIndex, sliceTotal, maxEvents int) ([]SyncEvent, bool) {
+	// Use MeshClient for clean, reusable mesh HTTP communication
+	events, err := network.meshClient.FetchSyncEvents(network.ctx, meshIP, SyncRequest{
 		Subjects:   subjects,
-		SinceTime:  0, // get all events
+		SinceTime:  0,
 		SliceIndex: sliceIndex,
 		SliceTotal: sliceTotal,
 		MaxEvents:  maxEvents,
-	}
+	})
 
-	jsonBody, err := json.Marshal(reqBody)
-	if err != nil {
-		logrus.Warnf("📦 failed to marshal mesh sync request: %v", err)
-		return nil, false
-	}
-
-	// Make HTTP request to neighbor's mesh endpoint
-	url := network.buildMeshURLFromIP(meshIP, "/events/sync")
-	// Boot sync requests are batched via the summary log, not individual lines
-	req, err := http.NewRequest("POST", url, bytes.NewReader(jsonBody))
-	if err != nil {
-		logrus.Warnf("📦 failed to create mesh sync request: %v", err)
-		return nil, false
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	// Add mesh authentication headers (Ed25519 signature)
-	network.AddMeshAuthHeaders(req)
-
-	resp, err := client.Do(req)
 	if err != nil {
 		logrus.Warnf("📦 mesh sync from %s failed: %v", name, err)
 		return nil, false
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusUnauthorized {
-		logrus.Warnf("📦 mesh sync from %s rejected our auth (they may not know us yet)", name)
-		return nil, false
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		logrus.Warnf("📦 mesh sync from %s returned status %d", name, resp.StatusCode)
-		return nil, false
-	}
-
-	// Read and verify response body
-	body, verified := network.VerifyMeshResponseBody(resp)
-	if !verified {
-		logrus.Warnf("📦 mesh response from %s failed signature verification", name)
-		// Continue anyway - response might be valid but from a nara we don't know yet
-	}
-
-	// Parse response
-	var response SyncResponse
-	if err := json.Unmarshal(body, &response); err != nil {
-		logrus.Warnf("📦 failed to decode mesh sync response from %s: %v", name, err)
-		return nil, false
-	}
+	// Parse response for additional verification
+	// TODO: Move this logic into MeshClient once we refactor response verification
+	response := SyncResponse{Events: events}
+	verified := false
 
 	// Also verify the inner signature for extra assurance
 	if response.Signature != "" && !verified {

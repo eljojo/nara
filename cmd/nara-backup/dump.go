@@ -18,13 +18,15 @@ func dumpEventsCmd(args []string) {
 	name := fs.String("name", "", "nara name (required)")
 	soulStr := fs.String("soul", "", "soul string (required)")
 	verbose := fs.Bool("verbose", false, "show progress on stderr")
-	timeout := fs.Duration("timeout", 5*time.Minute, "total operation timeout")
+	timeout := fs.Duration("timeout", 3*time.Minute, "timeout per peer (not total)")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `Usage: nara-backup dump-events -name <name> -soul <soul> [options]
 
 Connects to the Tailscale mesh as your nara, discovers all peers, and fetches events from each.
 Uses mesh authentication (signing with your keypair) to fetch from each peer.
 Outputs events in JSON Lines format (one JSON object per line) to stdout.
+
+Each peer gets its own timeout window (-timeout flag). Slow/offline peers won't starve later peers.
 
 Options:
 `)
@@ -36,6 +38,9 @@ Examples:
 
   # Dump with progress info
   nara-backup dump-events -name alice -soul <your-soul> -verbose > backup.jsonl
+
+  # Increase per-peer timeout for slow connections
+  nara-backup dump-events -name alice -soul <your-soul> -timeout 5m > backup.jsonl
 
   # Append more events later
   nara-backup dump-events -name alice -soul <your-soul> >> backup.jsonl
@@ -68,8 +73,8 @@ Examples:
 		logrus.Fatalf("❌ Invalid soul: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
-	defer cancel()
+	// Use background context for overall operation (no global timeout)
+	ctx := context.Background()
 
 	// Connect to mesh
 	mesh, err := NewBackupMesh(ctx, *name, soul)
@@ -98,7 +103,11 @@ Examples:
 	for i, peer := range peers {
 		logrus.Infof("📥 [%d/%d] Fetching events from %s (%s)...", i+1, len(peers), peer.Name, peer.IP)
 
-		events, err := mesh.FetchEvents(ctx, peer.IP, peer.Name)
+		// Create per-peer timeout context
+		peerCtx, peerCancel := context.WithTimeout(ctx, *timeout)
+		events, err := mesh.FetchEvents(peerCtx, peer.IP, peer.Name)
+		peerCancel() // Clean up context resources immediately
+
 		if err != nil {
 			logrus.Warnf("⚠️  Failed to fetch from %s: %v", peer.Name, err)
 			continue

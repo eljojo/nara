@@ -67,6 +67,7 @@ type Network struct {
 	worldMesh       *MockMeshNetwork   // Used when no tsnet configured
 	worldTransport  *MockMeshTransport // Used when no tsnet configured
 	tsnetMesh       *TsnetMesh         // Used when Headscale is configured
+	meshClient      *MeshClient        // Reusable mesh HTTP client for authenticated requests
 	// Transport mode (MQTT, Gossip, or Hybrid)
 	TransportMode TransportMode
 	// Peer discovery strategy for gossip-only mode
@@ -592,6 +593,13 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 
 					network.initMeshHTTPClients(tsnetMesh.Server())
 					tsnetMesh.SetHTTPClient(network.getMeshHTTPClient())
+
+					// Initialize mesh client for authenticated mesh HTTP requests
+					network.meshClient = NewMeshClient(
+						network.getMeshHTTPClient(),
+						network.meName(),
+						network.local.Keypair,
+					)
 
 					// Initialize peer discovery for gossip-only mode
 					network.peerDiscovery = &TailscalePeerDiscovery{

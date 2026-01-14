@@ -1,7 +1,9 @@
 package nara
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -86,4 +88,65 @@ func DiscoverMeshPeers(ctx context.Context, server *tsnet.Server) ([]TsnetPeer, 
 // BuildMeshURL builds a mesh URL for a given IP and path
 func BuildMeshURL(ip string, path string) string {
 	return fmt.Sprintf("http://%s:%d%s", ip, DefaultMeshPort, path)
+}
+
+// FetchSyncEventsFromMesh makes a mesh-authenticated request to /events/sync
+// Returns the events and whether the response was signature-verified
+// This is used by both boot recovery and the backup tool
+func FetchSyncEventsFromMesh(
+	client *http.Client,
+	fromName string,
+	keypair NaraKeypair,
+	peerIP string,
+	peerName string,
+	subjects []string,
+	sliceIndex int,
+	sliceTotal int,
+	maxEvents int,
+) ([]SyncEvent, bool) {
+	// Build request
+	reqBody := SyncRequest{
+		From:       fromName,
+		Subjects:   subjects,
+		SinceTime:  0, // get all events
+		SliceIndex: sliceIndex,
+		SliceTotal: sliceTotal,
+		MaxEvents:  maxEvents,
+	}
+
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, false
+	}
+
+	// Make HTTP request to neighbor's mesh endpoint
+	url := BuildMeshURL(peerIP, "/events/sync")
+	req, err := http.NewRequest("POST", url, bytes.NewReader(jsonBody))
+	if err != nil {
+		return nil, false
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Add mesh authentication headers (Ed25519 signature)
+	SignMeshRequest(req, fromName, keypair)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, false
+	}
+
+	// Parse response
+	var response SyncResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, false
+	}
+
+	// TODO: Add response signature verification (requires access to neighbourhood public keys)
+	// For now, return false for verified (caller can decide whether to trust)
+	return response.Events, false
 }

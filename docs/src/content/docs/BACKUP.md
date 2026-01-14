@@ -26,34 +26,39 @@ This creates `bin/nara-backup`.
 
 ## Dump Events
 
-The `dump-events` command connects to the Headscale mesh, discovers all peers, fetches their events, deduplicates by event ID, sorts by timestamp, and outputs as JSONL.
+The `dump-events` command connects to the Headscale mesh as your nara, discovers all peers, fetches their events (with automatic pagination), deduplicates by event ID, sorts by timestamp, and outputs as JSONL.
 
 ### Basic Usage
 
 ```bash
 # Dump all events to a file
-nara-backup dump-events > backup.jsonl
+nara-backup dump-events -name alice -soul <your-soul> > backup.jsonl
 
 # Show progress while dumping
-nara-backup dump-events -verbose > backup.jsonl
+nara-backup dump-events -name alice -soul <your-soul> -verbose > backup.jsonl
 ```
 
 ### How It Works
 
-1. **Connects to mesh** - Uses the same Headscale credentials as the main nara binary
+1. **Connects to mesh** - Uses your nara's soul to sign mesh requests (same identity as your running nara)
 2. **Discovers peers** - Uses tsnet Status API to find all naras on the network
 3. **Fetches events** - POSTs to `/events/sync` on each peer via mesh HTTP
-4. **Deduplicates** - Events with the same ID are merged (only one copy kept)
-5. **Sorts** - Events are sorted by timestamp (oldest first)
-6. **Outputs JSONL** - One JSON object per line for easy appending
+4. **Paginates automatically** - Loops to fetch all events from each peer (server limits to 2000 events per response)
+5. **Deduplicates** - Events with the same ID are merged (only one copy kept)
+6. **Sorts** - Events are sorted by timestamp (oldest first)
+7. **Outputs JSONL** - One JSON object per line for easy appending
 
 ### Options
 
 ```
+-name        Your nara name (required)
+-soul        Your nara's soul string (required)
 -verbose     Show progress on stderr (default: false)
--timeout     Operation timeout (default: 5m)
+-timeout     Timeout per peer, not total (default: 3m)
 -help        Show usage information
 ```
+
+**Important:** The `-timeout` flag sets a timeout **per peer**, not for the entire operation. Each peer gets the full timeout window, so slow/offline peers won't starve later peers. With 15 peers and a 3-minute timeout, the dump could take up to 45 minutes if all peers are slow.
 
 ### Appending Events
 
@@ -61,10 +66,10 @@ Because the output format is JSON Lines, you can easily append more events later
 
 ```bash
 # Initial backup
-nara-backup dump-events > backup.jsonl
+nara-backup dump-events -name alice -soul <your-soul> > backup.jsonl
 
 # Later, append more events
-nara-backup dump-events >> backup.jsonl
+nara-backup dump-events -name alice -soul <your-soul> >> backup.jsonl
 ```
 
 When you restore, duplicates are automatically handled - events with the same ID won't be imported twice.
@@ -160,14 +165,14 @@ grep '"emitter":"alice"' backup.jsonl
 
 ```bash
 # Periodic backup (e.g., in a cron job)
-nara-backup dump-events > "backup-$(date +%Y%m%d).jsonl"
+nara-backup dump-events -name alice -soul <your-soul> > "backup-$(date +%Y%m%d).jsonl"
 ```
 
 ### Incremental Append
 
 ```bash
 # Daily incremental backup
-nara-backup dump-events >> backup-incremental.jsonl
+nara-backup dump-events -name alice -soul <your-soul> >> backup-incremental.jsonl
 ```
 
 ### Restore After Fresh Install
@@ -186,8 +191,8 @@ nara-backup restore-events \
 ### Migrate to New Instance
 
 ```bash
-# 1. Dump from old instance's network perspective
-nara-backup dump-events > migration.jsonl
+# 1. Dump from network using your identity
+nara-backup dump-events -name alice -soul <your-soul> > migration.jsonl
 
 # 2. Start new instance with same soul
 ./bin/nara -soul <your-soul> -http-addr :8080
@@ -235,15 +240,41 @@ nara-backup restore-events \
 - The restore request must be made within 5 minutes of creation
 - If restoring from a script, generate the request just before sending
 
+### "Got 2000 events from peer, but expected more"
+
+This is normal behavior:
+- The server limits responses to 2000 events per request
+- The backup tool automatically paginates to fetch all events
+- Check the logs - you should see multiple fetches from the same peer
+- If the peer times out, try increasing `-timeout` (e.g., `-timeout 5m`)
+
+### Slow dumps with many peers
+
+Each peer gets its own timeout window (default 3 minutes):
+- 15 peers × 3 minutes = up to 45 minutes total if all are slow
+- Increase `-timeout` if individual peers need more time (large event counts)
+- Decrease `-timeout` if you want to skip slow peers faster
+- Failed peers are logged but don't stop the dump
+
 ## Implementation Details
 
 ### Mesh Connection
 
-The backup tool uses an **ephemeral identity** to connect to the mesh:
-- Generates a random soul for this session only
-- Registers with Headscale as `nara-backup-<timestamp>`
-- Uses same credentials as main nara binary (stored in `credentials.go`)
+The backup tool connects to the mesh using **your nara's identity**:
+- Connects with an ephemeral hostname (`nara-backup-<timestamp>`) to avoid conflicts
+- But signs requests using your actual nara's keypair (derived from the soul you provide)
+- Uses same Headscale credentials as main nara binary (stored in `credentials.go`)
 - Mesh authentication via Ed25519 signatures
+- This allows the backup tool to fetch events from peers who recognize your identity
+
+### Automatic Pagination
+
+The dump command automatically paginates to fetch all events from each peer:
+- Server limits responses to **2000 events max** per request
+- Backup tool loops, using `SinceTime` parameter to request the next batch
+- Continues until fewer than 2000 events are returned (indicating the end)
+- Each peer can make multiple round-trips within its timeout window
+- Example: A peer with 50,000 events requires 25 requests (2000 events each)
 
 ### Event Deduplication
 
@@ -265,6 +296,12 @@ Since both client and server derive the same keypair from the same soul, only th
 
 This is implemented as a reusable middleware in `http_import.go` for use by other endpoints in the future.
 
+## Recent Improvements
+
+- ✅ **Automatic pagination**: Fetches all events from each peer (not just first 2000)
+- ✅ **Per-peer timeouts**: Each peer gets its own timeout window
+- ✅ **MeshClient refactor**: Consolidated mesh HTTP communication into reusable component
+
 ## Future Extensions
 
 Planned features for future versions:
@@ -272,8 +309,8 @@ Planned features for future versions:
 - **Stash backup**: `dump-stash` and `restore-stash` commands for encrypted storage
 - **Selective restore**: Filter by service type, time range, or specific naras
 - **Compression**: Optional gzip compression for large backups
-- **Progress tracking**: More detailed progress reporting for large dumps
-- **Parallel fetching**: Concurrent requests to speed up dumps
+- **Progress tracking**: More detailed progress reporting for large dumps (bytes transferred, estimated time remaining)
+- **Parallel fetching**: Fetch from multiple peers concurrently to speed up dumps
 
 ## See Also
 

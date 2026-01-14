@@ -18,13 +18,6 @@ type SoulAuthenticatedRequest interface {
 	SigningData() []byte // Returns the data that was signed
 }
 
-type soulAuthContextKey string
-
-const (
-	soulAuthVerifiedKey soulAuthContextKey = "soul_auth_verified"
-	soulAuthSoulKey     soulAuthContextKey = "soul_auth_soul"
-)
-
 // EventImportRequest is the request body for event import
 type EventImportRequest struct {
 	Events    []SyncEvent `json:"events"`
@@ -50,24 +43,8 @@ type EventImportResponse struct {
 	Success    bool   `json:"success"`
 	Imported   int    `json:"imported"`
 	Duplicates int    `json:"duplicates"`
+	Warnings   int    `json:"warnings,omitempty"`   // Signature verification warnings
 	Error      string `json:"error,omitempty"`
-}
-
-// soulAuthMiddleware verifies soul-based authentication for requests
-// Checks that:
-// 1. Timestamp is within 5-minute window (replay protection)
-// 2. Soul matches this nara's soul (owner-only access)
-// 3. Signature is valid
-//
-// Usage: wrap handlers that need soul-based auth
-func (network *Network) soulAuthMiddleware(handler func(http.ResponseWriter, *http.Request, SoulAuthenticatedRequest)) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// This middleware expects the handler to parse the request body
-		// and call verifySoulAuth with the parsed request
-		// For now, we'll just pass through - actual verification happens in handler
-		// This is a placeholder for future enhancement
-		handler(w, r, nil)
-	}
 }
 
 // verifySoulAuth verifies a soul-authenticated request
@@ -122,24 +99,27 @@ func (network *Network) httpEventsImportHandler(w http.ResponseWriter, r *http.R
 
 	logrus.Infof("📥 Importing %d events", len(req.Events))
 
-	// Import events using the existing MergeEvents method
-	imported := network.local.SyncLedger.MergeEvents(req.Events)
+	// Import events with signature verification
+	// This verifies each event's signature, discovers naras, processes hey_there/chau events, etc.
+	imported, warned := network.MergeSyncEventsWithVerification(req.Events)
 
-	// Trigger projection update if we have projections
-	if network.local.Projections != nil {
-		network.local.Projections.Trigger()
+	if warned > 0 {
+		logrus.Warnf("⚠️  %d events had signature verification warnings", warned)
 	}
 
-	logrus.Infof("✅ Imported %d events (%d duplicates)", imported, len(req.Events)-imported)
+	logrus.Infof("✅ Imported %d events (%d duplicates, %d warnings)", imported, len(req.Events)-imported, warned)
 
 	response := EventImportResponse{
 		Success:    true,
 		Imported:   imported,
 		Duplicates: len(req.Events) - imported,
+		Warnings:   warned,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logrus.WithError(err).Warn("Failed to encode import response")
+	}
 }
 
 
@@ -147,8 +127,10 @@ func (network *Network) httpEventsImportHandler(w http.ResponseWriter, r *http.R
 func sendJSONError(w http.ResponseWriter, message string, statusCode int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(EventImportResponse{
+	if err := json.NewEncoder(w).Encode(EventImportResponse{
 		Success: false,
 		Error:   message,
-	})
+	}); err != nil {
+		logrus.WithError(err).Warn("Failed to encode error response")
+	}
 }

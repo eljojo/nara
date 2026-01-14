@@ -107,6 +107,7 @@ Examples:
 	const batchSize = 2000
 	totalImported := 0
 	totalDuplicates := 0
+	totalWarnings := 0
 
 	for i := 0; i < len(events); i += batchSize {
 		end := i + batchSize
@@ -133,56 +134,65 @@ Examples:
 		request.Signature = keypair.SignBase64(data)
 
 		// POST batch
-		imported, duplicates, err := postImportRequest(ctx, *naraURL, request)
+		imported, duplicates, warnings, err := postImportRequest(ctx, *naraURL, request)
 		if err != nil {
 			logrus.Fatalf("❌ Batch import failed: %v", err)
 		}
 
 		totalImported += imported
 		totalDuplicates += duplicates
+		totalWarnings += warnings
 
-		logrus.Infof("   ✅ Batch complete: %d imported, %d duplicates", imported, duplicates)
+		if warnings > 0 {
+			logrus.Infof("   ✅ Batch complete: %d imported, %d duplicates, %d warnings", imported, duplicates, warnings)
+		} else {
+			logrus.Infof("   ✅ Batch complete: %d imported, %d duplicates", imported, duplicates)
+		}
 	}
 
-	logrus.Infof("✅ All batches complete: %d total imported, %d total duplicates", totalImported, totalDuplicates)
+	if totalWarnings > 0 {
+		logrus.Warnf("⚠️  All batches complete: %d total imported, %d total duplicates, %d signature warnings", totalImported, totalDuplicates, totalWarnings)
+	} else {
+		logrus.Infof("✅ All batches complete: %d total imported, %d total duplicates", totalImported, totalDuplicates)
+	}
 }
 
-func postImportRequest(ctx context.Context, naraURL string, req nara.EventImportRequest) (int, int, error) {
+func postImportRequest(ctx context.Context, naraURL string, req nara.EventImportRequest) (imported, duplicates, warnings int, err error) {
 	url := naraURL + "/api/events/import"
 
-	jsonBody, err := json.Marshal(req)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to marshal request: %w", err)
+	jsonBody, marshalErr := json.Marshal(req)
+	if marshalErr != nil {
+		return 0, 0, 0, fmt.Errorf("failed to marshal request: %w", marshalErr)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonBody))
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to create request: %w", err)
+	httpReq, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonBody))
+	if reqErr != nil {
+		return 0, 0, 0, fmt.Errorf("failed to create request: %w", reqErr)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		return 0, 0, fmt.Errorf("request failed: %w", err)
+	resp, doErr := client.Do(httpReq)
+	if doErr != nil {
+		return 0, 0, 0, fmt.Errorf("request failed: %w", doErr)
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
-		return 0, 0, fmt.Errorf("server returned %d: %s", resp.StatusCode, string(body))
+		return 0, 0, 0, fmt.Errorf("server returned %d: %s", resp.StatusCode, string(body))
 	}
 
 	// Parse response
 	var importResp nara.EventImportResponse
-	if err := json.Unmarshal(body, &importResp); err != nil {
-		return 0, 0, fmt.Errorf("failed to parse response: %w", err)
+	if unmarshalErr := json.Unmarshal(body, &importResp); unmarshalErr != nil {
+		return 0, 0, 0, fmt.Errorf("failed to parse response: %w", unmarshalErr)
 	}
 
 	if !importResp.Success {
-		return 0, 0, fmt.Errorf("import failed: %s", importResp.Error)
+		return 0, 0, 0, fmt.Errorf("import failed: %s", importResp.Error)
 	}
 
-	return importResp.Imported, importResp.Duplicates, nil
+	return importResp.Imported, importResp.Duplicates, importResp.Warnings, nil
 }

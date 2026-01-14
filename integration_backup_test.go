@@ -267,11 +267,16 @@ func TestIntegration_EventImport_Deduplication(t *testing.T) {
 	request2.Signature = keypair.SignBase64(data2)
 
 	jsonBody2, _ := json.Marshal(request2)
-	resp2, _ := http.Post(server.URL+"/api/events/import", "application/json", bytes.NewReader(jsonBody2))
+	resp2, err := http.Post(server.URL+"/api/events/import", "application/json", bytes.NewReader(jsonBody2))
+	if err != nil {
+		t.Fatalf("Failed to post second import: %v", err)
+	}
 	defer resp2.Body.Close()
 
 	var importResp EventImportResponse
-	json.NewDecoder(resp2.Body).Decode(&importResp)
+	if err := json.NewDecoder(resp2.Body).Decode(&importResp); err != nil {
+		t.Fatalf("Failed to decode second import response: %v", err)
+	}
 
 	if !importResp.Success {
 		t.Fatalf("Second import failed: %s", importResp.Error)
