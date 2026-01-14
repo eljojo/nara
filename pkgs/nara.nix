@@ -14,6 +14,8 @@ let
     npmDepsHash = "sha256-WcpFv2gKA7cq7vlMW+1/2/SFvNjzYV+wERwOLiyuKPI=";
     nativeBuildInputs = [ esbuild ];
 
+    makeCacheWritable = true; # necessary for git pull on mermaid dependency
+
     dontNpmBuild = true;
 
     buildPhase = ''
