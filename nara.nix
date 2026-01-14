@@ -31,6 +31,11 @@ in
             default = null;
             description = "HTTP server address (e.g. :8080 or 127.0.0.1:8080).";
           };
+          publicUrl = lib.mkOption {
+            type = lib.types.nullOr lib.types.str;
+            default = null;
+            description = "Public URL for this nara's web UI.";
+          };
           extraArgs = lib.mkOption {
             type = lib.types.listOf lib.types.str;
             default = [ ];
@@ -42,7 +47,7 @@ in
       description = "Nara instances to run. Keys are instance names.";
       example = lib.literalExpression ''
         {
-          lily = { soul = "5Kd3NBqT..."; httpAddr = ":8080"; };
+          lily = { soul = "5Kd3NBqT..."; httpAddr = ":8080"; publicUrl = "https://lily.example.com"; };
           rose = { };  # will generate new soul from hardware
         }
       '';
@@ -89,6 +94,7 @@ in
                 + " -nara-id=${name}"
                 + (lib.optionalString (instanceCfg.soul != null) " -soul=${instanceCfg.soul}")
                 + (lib.optionalString (instanceCfg.httpAddr != null) " -http-addr=${instanceCfg.httpAddr}")
+                + (lib.optionalString (instanceCfg.publicUrl != null) " -public-url=${instanceCfg.publicUrl}")
                 + " " + (lib.concatStringsSep " " (cfg.extraArgs ++ instanceCfg.extraArgs));
               Restart = "always";
               RestartSec = 3;
