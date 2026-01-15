@@ -38,7 +38,9 @@ func (t TransportMode) String() string {
 }
 
 type Network struct {
-	Neighbourhood          map[string]*Nara
+	Neighbourhood          map[string]*Nara   // Index by name (legacy, to be deprecated)
+	NeighbourhoodByID      map[string]*Nara   // Primary index: by nara ID
+	nameToID               map[string]string  // Secondary index: name → ID for quick lookup
 	Buzz                   *Buzz
 	LastHeyThere           int64
 	skippingEvents         bool
@@ -147,6 +149,8 @@ type PeerResponse struct {
 func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Network {
 	network := &Network{local: localNara}
 	network.Neighbourhood = make(map[string]*Nara)
+	network.NeighbourhoodByID = make(map[string]*Nara)
+	network.nameToID = make(map[string]string)
 	network.heyThereInbox = make(chan SyncEvent, 50)
 	network.chauInbox = make(chan SyncEvent, 50)
 	network.howdyInbox = make(chan HowdyEvent, 50)
@@ -348,24 +352,38 @@ func (network *Network) hasPublicKeyFor(name string) bool {
 }
 
 // getPublicKeyForNaraID looks up a public key by nara ID instead of name.
-// Searches the neighborhood for a nara with matching ID.
+// Uses O(1) lookup via the NeighbourhoodByID index when available,
+// falls back to O(N) search of Neighbourhood for backwards compatibility.
 func (network *Network) getPublicKeyForNaraID(naraID string) []byte {
+	if naraID == "" {
+		return nil
+	}
+
 	// Check self first
 	if naraID == network.local.Me.Status.ID {
 		return network.local.Keypair.PublicKey
 	}
 
-	// Search neighborhood by ID
 	network.local.mu.Lock()
 	var matchedNara *Nara
-	for _, nara := range network.Neighbourhood {
-		nara.mu.Lock()
-		if nara.Status.ID == naraID {
-			matchedNara = nara
+
+	// Try O(1) lookup via NeighbourhoodByID index if available
+	if network.NeighbourhoodByID != nil {
+		matchedNara = network.NeighbourhoodByID[naraID]
+	}
+
+	// Fall back to O(N) search of Neighbourhood for backwards compatibility
+	// (handles test cases that don't initialize NeighbourhoodByID)
+	if matchedNara == nil {
+		for _, nara := range network.Neighbourhood {
+			nara.mu.Lock()
+			if nara.Status.ID == naraID {
+				matchedNara = nara
+				nara.mu.Unlock()
+				break
+			}
 			nara.mu.Unlock()
-			break
 		}
-		nara.mu.Unlock()
 	}
 	network.local.mu.Unlock()
 

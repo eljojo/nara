@@ -416,7 +416,9 @@ func (network *Network) recordObservationOnlineNara(name string, timestamp int64
 
 		// Emit first-seen observation event
 		if !network.local.isBooting() && network.local.SyncLedger != nil {
-			event := NewFirstSeenObservationEvent(network.meName(), name, timestamp)
+			observerID := network.local.ID
+			subjectID := network.getNaraIDByName(name)
+			event := NewFirstSeenObservationEventWithIDs(network.meName(), observerID, name, subjectID, timestamp)
 			if network.local.SyncLedger.AddEventWithDedup(event) && network.local.Projections != nil {
 				network.local.Projections.Trigger()
 			}
@@ -479,7 +481,9 @@ func (network *Network) recordObservationOnlineNara(name string, timestamp int64
 	// This avoids duplicate events for the same transition
 	if name != network.meName() && !network.local.isBooting() && network.local.SyncLedger != nil {
 		if isRecent && previousState != "" && previousState != "ONLINE" && !wasRestart {
-			event := NewStatusChangeObservationEvent(network.meName(), name, "ONLINE")
+			observerID := network.local.ID
+			subjectID := network.getNaraIDByName(name)
+			event := NewStatusChangeObservationEventWithIDs(network.meName(), observerID, name, subjectID, "ONLINE")
 			if network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality) && network.local.Projections != nil {
 				network.local.Projections.Trigger()
 			}
@@ -698,7 +702,9 @@ func (network *Network) reportMissingWithDelay(subject string) {
 	}
 
 	// No one else reported it and ping failed, so we'll report it
-	event := NewStatusChangeObservationEvent(network.meName(), subject, "MISSING")
+	observerID := network.local.ID
+	subjectID := network.getNaraIDByName(subject)
+	event := NewStatusChangeObservationEventWithIDs(network.meName(), observerID, subject, subjectID, "MISSING")
 	if network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality) && network.local.Projections != nil {
 		network.local.Projections.Trigger()
 	}
@@ -722,7 +728,9 @@ func (network *Network) reportRestartWithDelay(subject string, startTime, restar
 		return
 	}
 
-	event := NewRestartObservationEvent(network.meName(), subject, startTime, restartNum)
+	observerID := network.local.ID
+	subjectID := network.getNaraIDByName(subject)
+	event := NewRestartObservationEventWithIDs(network.meName(), observerID, subject, subjectID, startTime, restartNum)
 	if network.local.SyncLedger.AddEventWithDedup(event) && network.local.Projections != nil {
 		network.local.Projections.Trigger()
 	}
