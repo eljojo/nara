@@ -156,34 +156,105 @@ Version    int       // Schema version for this kind (default 1)
 2. **Old messages keep their version** — received messages retain original version
 3. **Behaviors declare supported versions** — min/max range for compatibility
 4. **Version-aware deserialization** — runtime uses version to pick correct payload type
+5. **Version-specific handlers** — each version routes to its own typed handler function
 
-**Example: Checkpoint evolved from v1 to v2**
+**Example: Stash evolved from v1 to v2**
 
 ```go
-// v1 payload (old)
-type CheckpointPayloadV1 struct {
-    Epoch      int
-    Votes      map[string]int  // Simple vote counts
+// v1 payload (old - name-based)
+type StashStorePayloadV1 struct {
+    Owner      string `json:"owner"`       // Name only
+    Nonce      []byte `json:"nonce"`
+    Ciphertext []byte `json:"ciphertext"`
 }
 
-// v2 payload (current)
-type CheckpointPayloadV2 struct {
-    Epoch      int
-    Votes      map[string]VoteDetail  // Rich vote details
-    Signatures [][]byte               // Multi-sig added in v2
+// v2 payload (current - ID-based)
+type StashStorePayloadV2 struct {
+    Owner      string `json:"owner,omitempty"` // For display only
+    OwnerID    string `json:"owner_id"`        // Primary identifier
+    Nonce      []byte `json:"nonce"`
+    Ciphertext []byte `json:"ciphertext"`
+    TTL        int64  `json:"ttl,omitempty"`   // New in v2
 }
+```
 
-// Behavior registers both versions
-Register(&Behavior{
-    Kind:           "checkpoint",
+**Version-Specific Handlers:**
+
+Each version gets its own typed handler. The runtime routes to the correct one:
+
+```go
+// Behavior registers versions AND their handlers
+rt.Register(&rt.Behavior{
+    Kind:           "stash:store",
     CurrentVersion: 2,
-    MinVersion:     1,  // Still accept v1 from old naras
+    MinVersion:     1,
+
     PayloadTypes: map[int]reflect.Type{
-        1: PayloadTypeOf[CheckpointPayloadV1](),
-        2: PayloadTypeOf[CheckpointPayloadV2](),
+        1: rt.PayloadTypeOf[StashStorePayloadV1](),
+        2: rt.PayloadTypeOf[StashStorePayloadV2](),
     },
-    // ... stages can check msg.Version if needed
+
+    // Version-specific typed handlers
+    Handlers: map[int]any{
+        1: rt.TypedHandler(s.handleStoreV1),  // func(*Message, *V1)
+        2: rt.TypedHandler(s.handleStoreV2),  // func(*Message, *V2)
+    },
+
+    Emit:    rt.MeshRequestEmit(),
+    Receive: rt.MeshRequestReceive(),
 })
+```
+
+**Handler Implementations:**
+
+```go
+// V1 handler - migrates to V2 and delegates
+func (s *StashService) handleStoreV1(msg *rt.Message, p *StashStorePayloadV1) {
+    // Migrate to V2 format
+    v2 := &StashStorePayloadV2{
+        OwnerID:    s.rt.LookupIDByName(p.Owner),
+        Owner:      p.Owner,
+        Nonce:      p.Nonce,
+        Ciphertext: p.Ciphertext,
+        TTL:        0,  // V1 didn't have TTL
+    }
+    // Delegate to V2 handler
+    s.handleStoreV2(msg, v2)
+}
+
+// V2 handler - the real logic lives here
+func (s *StashService) handleStoreV2(msg *rt.Message, p *StashStorePayloadV2) {
+    s.store(p.OwnerID, p.Nonce, p.Ciphertext, p.TTL)
+}
+```
+
+**Benefits of Version-Specific Handlers:**
+- **Type-safe** — each handler receives correctly typed payload, no type switches
+- **Clean separation** — version logic is isolated, not mixed in one big function
+- **Migration as a pattern** — V1 handler can migrate and call V2 handler
+- **Easy deprecation** — when dropping V1 support, just delete the handler
+
+**TypedHandler helper:**
+
+```go
+// Wraps a typed handler for the registry
+func TypedHandler[T any](fn func(*Message, *T)) any {
+    return fn
+}
+
+// Runtime invokes the correct handler
+func (rt *Runtime) invokeHandler(msg *Message, behavior *Behavior) {
+    handler := behavior.Handlers[msg.Version]
+    if handler == nil {
+        rt.log.Warn("no handler for %s v%d", msg.Kind, msg.Version)
+        return
+    }
+    // Reflection call: handler(msg, msg.Payload)
+    reflect.ValueOf(handler).Call([]reflect.Value{
+        reflect.ValueOf(msg),
+        reflect.ValueOf(msg.Payload),
+    })
+}
 ```
 
 **Version-aware receive:**
@@ -216,11 +287,37 @@ func (rt *Runtime) deserialize(raw []byte) (*Message, error) {
 }
 ```
 
+**Version Lifecycle:**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Version 1 only                                                  │
+│ CurrentVersion: 1, MinVersion: 1                                │
+│ Handlers: {1: handleV1}                                         │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ Transition period                                               │
+│ CurrentVersion: 2, MinVersion: 1                                │
+│ Handlers: {1: handleV1, 2: handleV2}                            │
+│                                                                 │
+│ V1 handler migrates and delegates to V2 handler                 │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ Deprecation (once all naras updated)                            │
+│ CurrentVersion: 2, MinVersion: 2                                │
+│ Handlers: {2: handleV2}                                         │
+│                                                                 │
+│ Delete V1 handler and payload struct                            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
 **Migration strategy:**
 - Bump version only for breaking changes (new required fields, type changes)
 - Keep `MinVersion` at oldest version you still want to accept
-- Old naras sending v1 still work until you drop support
-- Stages can check `msg.Version` to handle differences
+- V1 handlers can migrate payload and delegate to V2 handler
+- When dropping V1: bump MinVersion, delete V1 handler and payload struct
 
 ---
 
@@ -977,7 +1074,7 @@ func (s *StashService) handleStoreRequest(msg *Message) {
 
 ### Behavior Definition
 
-Each message kind has a Behavior that defines its pipelines:
+Each message kind has a Behavior that defines its pipelines and handlers:
 
 ```go
 type Behavior struct {
@@ -989,6 +1086,10 @@ type Behavior struct {
     CurrentVersion int                    // Version for new messages (default 1)
     MinVersion     int                    // Oldest version still accepted (default 1)
     PayloadTypes   map[int]reflect.Type   // Payload type per version (required)
+
+    // Version-specific handlers (typed via TypedHandler helper)
+    // Each handler has signature: func(*Message, *PayloadType)
+    Handlers map[int]any
 
     // ContentKey derivation (nil = no content key)
     ContentKey func(payload any) string
@@ -1096,45 +1197,94 @@ func Casual(f func(*Message, *Personality) bool) Stage {
 
 Note: No `ID` helpers needed — ID is always computed the same way. `ContentKey` is defined as a function in `Behavior`, not a stage.
 
-### Pattern Templates
+### Pattern Defaults
 
-Instead of configuring every field, use pattern templates for common cases:
+Instead of configuring every field, define defaults and override what's different:
 
 ```go
+// === Base Defaults ===
+
+// EphemeralDefaults - not stored, not gossiped, unverified
+var EphemeralDefaults = Behavior{
+    Emit:    EmitBehavior{Sign: NoSign(), Store: NoStore(), Gossip: NoGossip()},
+    Receive: ReceiveBehavior{Verify: NoVerify(), Dedupe: IDDedupe(), Store: NoStore()},
+}
+
+// ProtocolDefaults - not stored, not gossiped, verified, critical
+var ProtocolDefaults = Behavior{
+    Emit:    EmitBehavior{Sign: DefaultSign(), Store: NoStore(), Gossip: NoGossip()},
+    Receive: ReceiveBehavior{Verify: DefaultVerify(), Dedupe: IDDedupe(), Store: NoStore(), Filter: Critical()},
+}
+
+// ProtocolUnverifiedDefaults - like Protocol but no signature verification
+var ProtocolUnverifiedDefaults = Behavior{
+    Emit:    EmitBehavior{Sign: NoSign(), Store: NoStore(), Gossip: NoGossip()},
+    Receive: ReceiveBehavior{Verify: NoVerify(), Dedupe: IDDedupe(), Store: NoStore(), Filter: Critical()},
+}
+
+// StoredDefaults - persisted, gossiped, verified
+var StoredDefaults = Behavior{
+    Emit:    EmitBehavior{Sign: DefaultSign(), Store: DefaultStore(2), Gossip: Gossip(), Transport: NoTransport()},
+    Receive: ReceiveBehavior{Verify: DefaultVerify(), Dedupe: IDDedupe(), Store: DefaultStore(2)},
+}
+
+// === Template Functions (copy defaults, override differences) ===
+
 // Ephemeral broadcasts - no storage, MQTT only
 func Ephemeral(kind, desc, topic string) *Behavior {
-    return &Behavior{
-        Kind: kind, Description: desc,
-        Emit:    EmitBehavior{Sign: NoSign(), Store: NoStore(), Gossip: NoGossip(), Transport: MQTT(topic)},
-        Receive: ReceiveBehavior{Verify: NoVerify(), Dedupe: IDDedupe(), Store: NoStore()},
-    }
+    b := EphemeralDefaults  // struct copy
+    b.Kind = kind
+    b.Description = desc
+    b.Emit.Transport = MQTT(topic)
+    return &b
 }
 
-// Mesh-only request/response - no storage, direct transport
+// Protocol messages - not stored, verified, critical (MQTT transport)
+func Protocol(kind, desc, topic string) *Behavior {
+    b := ProtocolDefaults
+    b.Kind = kind
+    b.Description = desc
+    b.Emit.Transport = MQTT(topic)
+    return &b
+}
+
+// ProtocolUnverified - like Protocol but no signature verification
+func ProtocolUnverified(kind, desc, topic string) *Behavior {
+    b := ProtocolUnverifiedDefaults
+    b.Kind = kind
+    b.Description = desc
+    b.Emit.Transport = MQTT(topic)
+    return &b
+}
+
+// MeshRequest - protocol messages over mesh (not MQTT)
 func MeshRequest(kind, desc string) *Behavior {
-    return &Behavior{
-        Kind: kind, Description: desc,
-        Emit:    EmitBehavior{Sign: DefaultSign(), Store: NoStore(), Gossip: NoGossip(), Transport: MeshOnly()},
-        Receive: ReceiveBehavior{Verify: DefaultVerify(), Dedupe: IDDedupe(), Store: NoStore()},
-    }
+    b := ProtocolDefaults
+    b.Kind = kind
+    b.Description = desc
+    b.Emit.Transport = MeshOnly()
+    return &b
 }
 
-// Stored events - persisted, gossiped
+// StoredEvent - persisted, gossiped (no MQTT broadcast)
 func StoredEvent(kind, desc string, priority int) *Behavior {
-    return &Behavior{
-        Kind: kind, Description: desc,
-        Emit:    EmitBehavior{Sign: DefaultSign(), Store: DefaultStore(priority), Gossip: Gossip(), Transport: NoTransport()},
-        Receive: ReceiveBehavior{Verify: DefaultVerify(), Dedupe: IDDedupe(), Store: DefaultStore(priority)},
-    }
+    b := StoredDefaults
+    b.Kind = kind
+    b.Description = desc
+    b.Emit.Store = DefaultStore(priority)
+    b.Receive.Store = DefaultStore(priority)
+    return &b
 }
 
-// Broadcast events - stored, gossiped, AND broadcast via MQTT
+// BroadcastEvent - stored, gossiped, AND broadcast via MQTT
 func BroadcastEvent(kind, desc string, priority int, topic string) *Behavior {
-    return &Behavior{
-        Kind: kind, Description: desc,
-        Emit:    EmitBehavior{Sign: DefaultSign(), Store: DefaultStore(priority), Gossip: Gossip(), Transport: MQTT(topic)},
-        Receive: ReceiveBehavior{Verify: DefaultVerify(), Dedupe: IDDedupe(), Store: DefaultStore(priority)},
-    }
+    b := StoredDefaults
+    b.Kind = kind
+    b.Description = desc
+    b.Emit.Store = DefaultStore(priority)
+    b.Emit.Transport = MQTT(topic)
+    b.Receive.Store = DefaultStore(priority)
+    return &b
 }
 
 // Helper to set payload type on a template (defaults to v1)
@@ -1145,6 +1295,21 @@ func (b *Behavior) WithPayload[T any]() *Behavior {
         1: PayloadTypeOf[T](),
     }
     return b
+}
+
+// Helper to add a typed handler for a version
+// Usage: .WithHandler(1, service.handleV1).WithHandler(2, service.handleV2)
+func (b *Behavior) WithHandler[T any](version int, fn func(*Message, *T)) *Behavior {
+    if b.Handlers == nil {
+        b.Handlers = make(map[int]any)
+    }
+    b.Handlers[version] = fn
+    return b
+}
+
+// TypedHandler wraps a typed handler function for the registry
+func TypedHandler[T any](fn func(*Message, *T)) any {
+    return fn
 }
 
 // Helper to add ContentKey to a template
@@ -1169,26 +1334,41 @@ func (b *Behavior) WithRateLimit(stage Stage) *Behavior {
 **Usage - clean and readable:**
 
 ```go
-// Stash messages
-Register(Ephemeral("stash-refresh", "Request stash recovery", "nara/plaza/stash_refresh"))
-Register(MeshRequest("stash:store", "Store encrypted stash").WithPayload[StashStorePayload]())
-Register(MeshRequest("stash:request", "Request stored stash").WithPayload[StashRequestPayload]())
-Register(MeshRequest("stash:response", "Return stored stash").WithPayload[StashResponsePayload]())
+// Stash messages (mesh-only protocol)
+Register(Ephemeral("stash-refresh", "Request stash recovery", "nara/plaza/stash_refresh").
+    WithPayload[StashRefreshPayload]().
+    WithHandler(1, s.handleRefreshV1))
+
+Register(MeshRequest("stash:store", "Store encrypted stash").
+    WithPayload[StashStorePayload]().
+    WithHandler(1, s.handleStoreV1))
+
+// Protocol messages (MQTT, not stored, verified)
+Register(Protocol("checkpoint:propose", "Checkpoint proposal", "nara/checkpoint/propose").
+    WithPayload[CheckpointProposalPayload]().
+    WithHandler(1, s.handleProposeV1))
+
+Register(Protocol("checkpoint:vote", "Checkpoint vote", "nara/checkpoint/vote").
+    WithPayload[CheckpointVotePayload]().
+    WithHandler(1, s.handleVoteV1))
+
+// Protocol messages (unverified variant)
+Register(ProtocolUnverified("sync:request", "Ledger sync request", "nara/ledger/%s/request").
+    WithPayload[SyncRequestPayload]().
+    WithHandler(1, s.handleSyncRequestV1))
 
 // Social with personality filter
-Register(
-    BroadcastEvent("social", "Social interactions", 2, "nara/plaza/social").
-        WithPayload[SocialPayload]().
-        WithFilter(Casual(socialFilter)),
-)
+Register(BroadcastEvent("social", "Social interactions", 2, "nara/plaza/social").
+    WithPayload[SocialPayload]().
+    WithFilter(Casual(socialFilter)).
+    WithHandler(1, s.handleSocialV1))
 
 // Observations with ContentKey dedup
-Register(
-    StoredEvent("observation:restart", "Records nara restarts", 0).
-        WithPayload[ObservationRestartPayload]().
-        WithContentKey(restartContentKey).
-        WithRateLimit(RateLimit(5*time.Minute, 10, subjectKey)),
-)
+Register(StoredEvent("observation:restart", "Records nara restarts", 0).
+    WithPayload[ObservationRestartPayload]().
+    WithContentKey(restartContentKey).
+    WithRateLimit(RateLimit(5*time.Minute, 10, subjectKey)).
+    WithHandler(1, s.handleRestartV1))
 ```
 
 ---
@@ -1444,57 +1624,31 @@ func checkpointVerifyMultiSig(msg *Message, ctx *PipelineContext) StageResult {
 
 ### Protocol Messages
 
+Using the `Protocol()` and `ProtocolUnverified()` templates — much cleaner:
+
 ```go
 func init() {
-    // Checkpoint proposal
-    Register(&Behavior{
-        Kind:        "checkpoint:propose",
-        Description: "Checkpoint proposal (consensus protocol)",
-        PayloadType: PayloadTypeOf[CheckpointProposalPayload](),
-        Store:       NoStore(),
-        Gossip:      NoGossip(),
-        Transport:   MQTT("nara/checkpoint/propose"),
-        Verify:      DefaultVerify(),
-        Filter:      Critical(),
-    })
+    // Checkpoint protocol (verified)
+    Register(Protocol("checkpoint:propose", "Checkpoint proposal", "nara/checkpoint/propose").
+        WithPayload[CheckpointProposalPayload]().
+        WithHandler(1, s.handleProposeV1))
 
-    // Checkpoint vote
-    Register(&Behavior{
-        Kind:        "checkpoint:vote",
-        Description: "Checkpoint vote (consensus protocol)",
-        PayloadType: PayloadTypeOf[CheckpointVotePayload](),
-        Store:       NoStore(),
-        Gossip:      NoGossip(),
-        Transport:   MQTT("nara/checkpoint/vote"),
-        Verify:      DefaultVerify(),
-        Filter:      Critical(),
-    })
+    Register(Protocol("checkpoint:vote", "Checkpoint vote", "nara/checkpoint/vote").
+        WithPayload[CheckpointVotePayload]().
+        WithHandler(1, s.handleVoteV1))
 
-    // Sync request
-    Register(&Behavior{
-        Kind:        "sync:request",
-        Description: "Ledger sync request",
-        PayloadType: PayloadTypeOf[SyncRequestPayload](),
-        Store:       NoStore(),
-        Gossip:      NoGossip(),
-        Transport:   MQTTPerNara("nara/ledger/%s/request"),
-        Verify:      NoVerify(),
-        Filter:      Critical(),
-    })
+    // Sync protocol (request is unverified, response is verified)
+    Register(ProtocolUnverified("sync:request", "Ledger sync request", "nara/ledger/%s/request").
+        WithPayload[SyncRequestPayload]().
+        WithHandler(1, s.handleSyncRequestV1))
 
-    // Sync response
-    Register(&Behavior{
-        Kind:        "sync:response",
-        Description: "Ledger sync response",
-        PayloadType: PayloadTypeOf[SyncResponsePayload](),
-        Store:       NoStore(),
-        Gossip:      NoGossip(),
-        Transport:   MQTTPerNara("nara/ledger/%s/response"),
-        Verify:      DefaultVerify(),
-        Filter:      Critical(),
-    })
+    Register(Protocol("sync:response", "Ledger sync response", "nara/ledger/%s/response").
+        WithPayload[SyncResponsePayload]().
+        WithHandler(1, s.handleSyncResponseV1))
 }
 ```
+
+Compare to the verbose version without templates — the templates eliminate all the repetitive `Store: NoStore(), Gossip: NoGossip(), Filter: Critical()` boilerplate.
 
 ---
 
@@ -1513,14 +1667,9 @@ type Service interface {
     Stop() error
 }
 
-// Optional interfaces services can implement
-type MessageHandler interface {
-    Kinds() []string
-    Handle(msg *Message)
-}
-
+// Optional interface for services that register behaviors with handlers
 type BehaviorRegistrar interface {
-    RegisterBehaviors()
+    RegisterBehaviors(rt *Runtime)
 }
 ```
 
@@ -1533,26 +1682,31 @@ type PresenceService struct {
 
 func (s *PresenceService) Name() string { return "presence" }
 
-func (s *PresenceService) RegisterBehaviors() {
-    Register(&Behavior{
-        Kind:        "hey-there",
-        Description: "Identity announcement",
-        // ...
-    })
-    // ...
+func (s *PresenceService) RegisterBehaviors(rt *Runtime) {
+    // hey-there with version-specific handlers
+    rt.Register(
+        BroadcastEvent("hey-there", "Identity announcement", 1, "nara/plaza/hey_there").
+            WithPayload[HeyTherePayloadV1]().
+            WithHandler(1, s.handleHeyThereV1),
+    )
+
+    // howdy - ephemeral, no storage
+    rt.Register(
+        Ephemeral("howdy", "Discovery poll", "nara/plaza/howdy").
+            WithPayload[HowdyPayload]().
+            WithHandler(1, s.handleHowdyV1),
+    )
 }
 
-func (s *PresenceService) Kinds() []string {
-    return []string{"hey-there", "chau", "newspaper", "howdy"}
+// Typed handlers - no type switches needed
+func (s *PresenceService) handleHeyThereV1(msg *Message, p *HeyTherePayloadV1) {
+    s.rt.RegisterPublicKey(msg.FromID, p.PublicKey)
+    s.rt.UpdatePeerMeshIP(msg.FromID, p.MeshIP)
 }
 
-func (s *PresenceService) Handle(msg *Message) {
-    switch msg.Kind {
-    case "hey-there":
-        s.handleHeyThere(msg)
-    case "howdy":
-        s.handleHowdy(msg)
-    }
+func (s *PresenceService) handleHowdyV1(msg *Message, p *HowdyPayload) {
+    // Respond with our hey-there
+    s.announceIdentity()
 }
 
 func (s *PresenceService) Init(rt *Runtime) error {
@@ -1575,13 +1729,20 @@ func (s *PresenceService) announceLoop(ctx context.Context) {
         case <-ctx.Done():
             return
         case <-ticker.C:
-            s.rt.Emit(&Message{
-                Kind:    "hey-there",
-                From:    s.rt.Me().Name,
-                Payload: s.buildHeyTherePayload(),
-            })
+            s.announceIdentity()
         }
     }
+}
+
+func (s *PresenceService) announceIdentity() {
+    s.rt.Emit(&Message{
+        Kind:    "hey-there",
+        FromID:  s.rt.MeID(),
+        Payload: &HeyTherePayloadV1{
+            PublicKey: s.rt.PublicKey(),
+            MeshIP:    s.rt.MeshIP(),
+        },
+    })
 }
 ```
 
