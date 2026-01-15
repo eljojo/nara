@@ -272,7 +272,7 @@ export function ProfileView({ name }) {
             onClick={openCheckpointModal}
             style={{ cursor: 'pointer' }}
           >
-            <h3><i className="iconoir-camera"></i> Checkpoint</h3>
+            <h3><i className="iconoir-camera"></i> Checkpoint {checkpoint.version && checkpoint.version > 1 && <span className="version-badge">v{checkpoint.version}</span>}</h3>
             <div className="checkpoint-observations">
               <div className="observation-item">
                 <span className="observation-label">Restarts:</span>
@@ -291,6 +291,11 @@ export function ProfileView({ name }) {
               {checkpoint.verified_count} of {checkpoint.voter_count} signatures verified
               {checkpoint.all_verified && ' ✓'}
             </div>
+            {checkpoint.previous_checkpoint_id && (
+              <div className="checkpoint-chain-indicator">
+                🔗 Chained to previous checkpoint
+              </div>
+            )}
             <div className="checkpoint-hint">Click to view details</div>
           </div>
         )}
@@ -443,10 +448,36 @@ export function ProfileView({ name }) {
             <div className="modal-body">
               <div className="detail-section">
                 <div className="detail-label">SUMMARY</div>
+                <div>Version: {checkpointModal.event?.checkpoint?.version || 1}</div>
                 <div>Total Voters: {checkpointModal.summary?.total_voters}</div>
                 <div>Verified: {checkpointModal.summary?.verified_voters}</div>
                 <div>Self-Attestation: {checkpointModal.summary?.is_self_attestation ? 'Yes' : 'No'}</div>
               </div>
+
+              {checkpointModal.event?.checkpoint?.previous_checkpoint_id && (
+                <div className="detail-section checkpoint-chain-section">
+                  <div className="detail-label">CHAIN OF TRUST</div>
+                  <div className="checkpoint-chain-info">
+                    <div className="chain-item current">
+                      <div className="chain-icon">📍</div>
+                      <div className="chain-details">
+                        <div className="chain-label">Current Checkpoint</div>
+                        <div className="chain-id">{checkpointModal.event?.id?.substring(0, 12)}...</div>
+                        <div className="chain-time">{new Date(checkpointModal.event?.checkpoint?.as_of_time * 1000).toLocaleString()}</div>
+                      </div>
+                    </div>
+                    <div className="chain-arrow">↓</div>
+                    <div className="chain-item previous">
+                      <div className="chain-icon">🔗</div>
+                      <div className="chain-details">
+                        <div className="chain-label">Previous Checkpoint</div>
+                        <div className="chain-id">{checkpointModal.event?.checkpoint?.previous_checkpoint_id?.substring(0, 12)}...</div>
+                        <div className="chain-note">Verifiable chain link</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="detail-section">
                 <div className="detail-label">VOTERS</div>

@@ -21,7 +21,8 @@
       "Bash(/usr/bin/make:*)",
       "Bash(npm run build:*)",
       "Bash(gofmt:*)",
-      "Bash(golangci-lint run:*)"
+      "Bash(golangci-lint run:*)",
+      "Bash(find:*)"
     ]
   }
 }

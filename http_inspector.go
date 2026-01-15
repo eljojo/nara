@@ -200,17 +200,19 @@ func (ln *LocalNara) inspectorCheckpointsHandler(w http.ResponseWriter, r *http.
 	ln.SyncLedger.mu.RUnlock()
 
 	type CheckpointSummary struct {
-		Subject       string `json:"subject"`
-		SubjectID     string `json:"subject_id"`
-		AsOfTime      int64  `json:"as_of_time"`
-		Round         int    `json:"round"`
-		Restarts      int64  `json:"restarts"`
-		TotalUptime   int64  `json:"total_uptime"`
-		StartTime     int64  `json:"start_time"`
-		VoterCount    int    `json:"voter_count"`
-		VerifiedCount int    `json:"verified_count"`
-		KnownCount    int    `json:"known_count"`
-		Verified      bool   `json:"verified"`
+		Subject              string `json:"subject"`
+		SubjectID            string `json:"subject_id"`
+		AsOfTime             int64  `json:"as_of_time"`
+		Round                int    `json:"round"`
+		Restarts             int64  `json:"restarts"`
+		TotalUptime          int64  `json:"total_uptime"`
+		StartTime            int64  `json:"start_time"`
+		VoterCount           int    `json:"voter_count"`
+		VerifiedCount        int    `json:"verified_count"`
+		KnownCount           int    `json:"known_count"`
+		Verified             bool   `json:"verified"`
+		Version              int    `json:"version"`                          // v2: checkpoint version
+		PreviousCheckpointID string `json:"previous_checkpoint_id,omitempty"` // v2: chain link
 	}
 
 	checkpoints := make([]CheckpointSummary, 0)
@@ -238,17 +240,19 @@ func (ln *LocalNara) inspectorCheckpointsHandler(w http.ResponseWriter, r *http.
 		}
 
 		checkpoints = append(checkpoints, CheckpointSummary{
-			Subject:       checkpoint.Subject,
-			SubjectID:     checkpoint.SubjectID,
-			AsOfTime:      checkpoint.AsOfTime,
-			Round:         checkpoint.Round,
-			Restarts:      checkpoint.Observation.Restarts,
-			TotalUptime:   checkpoint.Observation.TotalUptime,
-			StartTime:     checkpoint.Observation.StartTime,
-			VoterCount:    len(checkpoint.VoterIDs),
-			VerifiedCount: result.ValidCount,
-			KnownCount:    result.KnownCount,
-			Verified:      result.Valid,
+			Subject:              checkpoint.Subject,
+			SubjectID:            checkpoint.SubjectID,
+			AsOfTime:             checkpoint.AsOfTime,
+			Round:                checkpoint.Round,
+			Restarts:             checkpoint.Observation.Restarts,
+			TotalUptime:          checkpoint.Observation.TotalUptime,
+			StartTime:            checkpoint.Observation.StartTime,
+			VoterCount:           len(checkpoint.VoterIDs),
+			VerifiedCount:        result.ValidCount,
+			KnownCount:           result.KnownCount,
+			Verified:             result.Valid,
+			Version:              checkpoint.Version,
+			PreviousCheckpointID: checkpoint.PreviousCheckpointID,
 		})
 	}
 

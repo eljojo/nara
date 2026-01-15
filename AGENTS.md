@@ -1,33 +1,6 @@
 # AGENTS.md
 
-This file provides guidance for AI agents when working with code in this repository.
-
-## Troubleshooting Protocol (READ BEFORE DEBUGGING)
-
-When the user reports something is broken: **STOP. Do not immediately edit code.**
-
-**TRUST THE USER:** When the user says they've done something ("I already rebuilt", "I'm running the new version", "the file is there"), believe them immediately. Do not verify their claims. If they say it, it's true. Move on to investigating other causes.
-
-1. **Run tests first** - Use `make test` or `go test` to see actual failures. Integration tests run real production code - trust them over assumptions.
-2. **Gather evidence** - If tests pass, get actual error output: curl endpoints, check API responses, read logs. Run the real code, don't guess.
-3. **Confirm the root cause** - Verify with concrete evidence before proposing fixes
-4. **Make minimal changes** - Fix ONE thing, run tests again, verify it works, then continue if needed
-5. **Ask when uncertain** - If evidence is missing, ask the user for the minimal additional detail instead of assuming
-
-**Prefer automated verification:**
-- Run existing tests to understand current behavior
-- Use `curl` or similar to check actual API responses
-- Read the actual struct definitions and json tags, don't assume naming conventions
-- If a test doesn't exist for the bug, consider writing one first
-
-**DO NOT:**
-- Doubt or verify what the user tells you - if they say they did something, they did it
-- Change multiple things at once hoping one fixes it
-- Assume naming conventions, field formats, or data shapes without checking
-- Replicate production logic in tests - run the real code instead
-- **NEVER perform git write operations** (git add, git commit, git push, etc.) - the user will handle version control
-
-**After ANY fix:** Run tests and verify with the user before making additional changes.
+This file provides guidance for AI agents working with code in this repository.
 
 ---
 
@@ -37,11 +10,31 @@ Nara is an experiment. It's a distributed network with a hazy memory. It's a soc
 
 Autonomous agents (naras) observe events, form opinions based on personality, and interact with each other. No single nara has the complete picture, but together they remember. Events spread through MQTT broadcast and P2P mesh gossip, and opinions are deterministically derived from events + personality.
 
-**To read more about NARA read this file: @docs/src/content/docs/index.md **
+**For the full story, read: `docs/src/content/docs/index.mdx`**
+
+### Key Concepts
+
+- **Soul**: Portable cryptographic identity (~54 chars Base58). Contains a bond to a specific name. Same soul + same name = same nara, anywhere.
+- **Personality**: Three traits (Agreeableness, Sociability, Chill, 0-100 each) that affect event filtering and opinion formation.
+- **Aura**: Visual identity (colors) derived deterministically from soul + personality.
+- **Clout**: Subjective reputation score derived from observed events. Each nara calculates their own.
+- **Checkpoints**: Multi-party signed consensus anchors. Naras vote on network state (uptime, restarts) and collectively sign the result. Hard to dispute.
+- **Zines**: Gossip bundles exchanged peer-to-peer. Each nara compiles "interesting" updates filtered by personality.
+- **Stash**: Distributed encrypted storage. Naras store their state on trusted peers (confidants) instead of disk. Only the owner can decrypt.
+- **Confidants**: Peers that hold your encrypted stash. They can store it but not read it.
+- **Postcards/Journeys**: Messages that hop nara-to-nara collecting signatures, then return home.
+- **Plaza (MQTT)**: Public broadcast channel where naras announce presence.
+- **Mesh (WireGuard)**: P2P connections for direct gossip and private sync.
+- **Observations**: Signed events about network state ("A went offline", "B restarted"). Spread through gossip.
+- **Projections**: Derived state computed from events. Nothing is stored as "current status"—it's always derived.
+- **Importance Levels**: Critical (3, never filtered), Normal (2), Casual (1, personality-filtered).
+- **Trimmed Mean Consensus**: Outliers removed, remaining values averaged for checkpoint voting.
+
+---
 
 ## Project Structure
 
-Code is organized by **domain prefix** in a flat directory structure. All files are `package nara`.
+Code is organized by **domain prefix** in a flat directory structure. All Go files are `package nara`.
 
 ### Domain Map
 
@@ -54,25 +47,78 @@ Code is organized by **domain prefix** in a flat directory structure. All files 
 | `stash_` | Distributed storage | `stash_types.go`, `stash_manager.go`, `stash_confidant.go`, `stash_service.go`, `stash_tracker.go` |
 | `social_` | Social interactions | `social_events.go`, `social_tease.go`, `social_clout.go`, `social_trend.go`, `social_buzz.go`, `social_network.go` |
 | `world_` | World journeys | `world_message.go`, `world_handler.go`, `world_network.go` |
-| `checkpoint_` | Consensus checkpoints | `checkpoint_types.go`, `checkpoint_service.go` |
+| `checkpoint_` | Consensus checkpoints | `checkpoint_types.go`, `checkpoint_service.go`, `boot_checkpoint.go` |
 | `neighbourhood_` | Peer tracking | `neighbourhood_tracking.go`, `neighbourhood_queries.go`, `neighbourhood_pruning.go`, `neighbourhood_observations.go`, `neighbourhood_opinion.go` |
+| `observation_` | Network observations | `observations.go` (restart, first-seen, status-change events) |
 | `transport_` | Network transport | `transport_mqtt.go`, `transport_mesh.go`, `transport_mesh_auth.go`, `transport_http_client.go`, `transport_peer_resolution.go` |
 | `http_` | HTTP endpoints | `http_server.go`, `http_api.go`, `http_mesh.go`, `http_ui.go`, `http_inspector.go` |
 | `boot_` | Boot & recovery | `boot_recovery.go`, `boot_sync.go`, `boot_ledger.go`, `boot_checkpoint.go`, `boot_backfill.go` |
 | `network` | Core coordination | `network.go`, `network_lifecycle.go`, `network_events.go`, `network_context.go` |
+| `aura_` | Visual identity | `aura.go` (colors derived from soul + personality) |
+| `coordinate_` | Network geometry | `coordinate.go`, `vivaldi.go` (Vivaldi coordinates for network map) |
+| `projection_` | Derived state | `projections.go` |
+| `flair_` | Personality flair | `flair.go` |
+| `memory_` | Memory management | `memory.go` |
+
+### Frontend (Preact Web App)
+
+The web UI lives in `nara-web/` and uses **Preact + esbuild**.
+
+```
+nara-web/
+├── src/
+│   ├── app.jsx              # Main entry point
+│   ├── router.jsx           # Route configuration
+│   ├── utils.js             # Utility functions
+│   ├── nara-avatar.jsx      # Avatar component
+│   ├── HomeView.jsx         # Home/dashboard page
+│   ├── ProfileView.jsx      # Individual nara profile
+│   ├── TimelineView.jsx     # Event timeline
+│   ├── PostcardsView.jsx    # Postcards/journeys view
+│   ├── ProjectionsView.jsx  # Projections explorer
+│   ├── NetworkRadar.jsx     # Network map visualization
+│   ├── ShootingStars.jsx    # Social events animation
+│   ├── app.css              # Main styles
+│   └── vendor.css           # Vendor styles
+├── public/
+│   ├── app.js               # Built bundle (esbuild output)
+│   ├── app.css              # Built styles
+│   └── docs/                # Astro documentation site
+└── package.json             # Build scripts
+```
+
+**Key dependencies**: `preact`, `d3` (visualizations), `dayjs` (dates), `iconoir` (icons)
+
+### Documentation Site
+
+The docs site uses **Astro + Starlight** and lives in `docs/`:
+
+```
+docs/
+├── src/content/docs/
+│   ├── index.mdx            # Main documentation (the nara story)
+│   ├── EVENTS.md            # Event types and structure
+│   ├── OBSERVATIONS.md      # Consensus system
+│   ├── SYNC.md              # Sync backbone and gossip
+│   ├── STASH.md             # Distributed encrypted storage
+│   ├── WORLD.md             # Journey feature
+│   └── COORDINATES.md       # Vivaldi network coordinates
+└── astro.config.mjs
+```
 
 ### Where to Add Code
 
-When adding new features, follow these guidelines:
+- **New presence mechanism?** → `presence_*.go`
+- **New event type?** → `sync_event.go` + processing in appropriate domain
+- **New gossip feature?** → `gossip_*.go`
+- **New HTTP endpoint?** → `http_*.go` (API vs UI vs Mesh)
+- **New stash feature?** → `stash_service.go` or appropriate stash file
+- **New social feature?** → `social_*.go`
+- **Neighbourhood query?** → `neighbourhood_queries.go`
+- **Boot recovery change?** → `boot_*.go`
+- **New frontend view?** → `nara-web/src/` (add to router.jsx)
 
-- **New presence mechanism?** → Add to `presence_*.go` (e.g., new announcement type)
-- **New event type?** → Update `sync_event.go` and add processing to appropriate domain
-- **New gossip feature?** → Add to `gossip_*.go` (e.g., new zine validation)
-- **New HTTP endpoint?** → Add to appropriate `http_*.go` based on purpose (API vs UI vs Mesh)
-- **New stash feature?** → Update `stash_service.go` or appropriate stash file
-- **New social feature?** → Add to `social_*.go` (e.g., new tease reason)
-- **Neighbourhood query?** → Add to `neighbourhood_queries.go`
-- **Boot recovery change?** → Update appropriate `boot_*.go` file
+**make sure to keep this list up-to-date!**
 
 ### File Naming Conventions
 
@@ -81,28 +127,7 @@ When adding new features, follow these guidelines:
 - Target <500 lines per file, max 800 lines
 - Test files match source: `{domain}_{function}_test.go`
 
-## Build & Development Commands
-
-**IMPORTANT:** Always use `/usr/bin/make` instead of `make` to avoid shell issues:
-
-```bash
-/usr/bin/make build       # Build binary to bin/nara
-/usr/bin/make build-web   # Build JS bundle (Preact app)
-/usr/bin/make test        # Run all tests (2-minute timeout)
-/usr/bin/make test-v      # Run tests with verbose output
-/usr/bin/make test-fast   # Run fast tests only (skips integration tests via -short flag)
-/usr/bin/make clean       # Remove build artifacts
-/usr/bin/make build-nix   # Build using Nix
-```
-
-- When working, always use `gofmt -w` to format code.
-
-### Running a Single Test
-
-```bash
-go test -v -run TestFunctionName ./...
-go test -v -run TestFunctionName -timeout 2m  # with timeout
-```
+---
 
 ## Architecture Overview
 
@@ -123,28 +148,38 @@ Same events + same personality = same opinions (deterministic).
    - `sync_event.go` - Event types and payloads
    - `sync_ledger.go` - Ledger implementation
    - `sync_request.go` - Request/response protocol
+
 2. **Projections** - Derived views computed from events:
    - `social_clout.go` - Social reputation scoring
    - `presence_projection.go` - Online/offline state tracking
    - `neighbourhood_opinion.go` - Opinion consensus derivation
+
 3. **Identity** (`identity_*.go`) - Cryptographic portable identity using Ed25519
    - `identity_soul.go` - Soul generation and validation
    - `identity_crypto.go` - Ed25519 keypair operations
    - `identity_detection.go` - Identity discovery
    - `identity_attestation.go` - Identity attestation protocol
+
 4. **Transport** - Hybrid MQTT + mesh architecture:
    - `transport_mqtt.go` - MQTT broker connectivity (Plaza broadcasts)
    - `transport_mesh.go` - Tailscale/Headscale P2P networking (Zine gossip)
    - `transport_mesh_auth.go` - Mesh authentication middleware
    - `network.go` - Core network coordination
+
 5. **Stash** (`stash_*.go`) - Distributed encrypted storage:
    - HTTP-based bidirectional exchange (piggybacks on gossip)
    - Memory-only storage (no disk persistence)
    - Memory-aware limits (5/20/50 based on memory mode)
    - Smart confidant selection (prefer high memory + uptime)
    - XChaCha20-Poly1305 encryption (owner-only decryption)
+
 6. **Social** (`social_*.go`) - Teasing, trends, clout
+
 7. **Neighbourhood** (`neighbourhood_*.go`) - Distributed consensus on network state and peer tracking
+
+8. **Checkpoints** (`checkpoint_*.go`) - Multi-party signed consensus anchors for uptime/restart data
+
+**make sure to keep this list up-to-date!**
 
 ### Event Types (service field)
 
@@ -152,6 +187,7 @@ Same events + same personality = same opinions (deterministic).
 - `social` - Teasing and interactions
 - `ping` - Latency measurements
 - `hey-there` / `chau` - Presence announcements
+- `checkpoint` - Consensus checkpoint proposals and votes
 
 ### Transport Modes
 
@@ -159,21 +195,93 @@ Same events + same personality = same opinions (deterministic).
 - **Gossip**: P2P zines passed hand-to-hand via mesh
 - **Hybrid** (default): Both MQTT and gossip simultaneously
 
-## Testing Patterns
+---
+
+## Build & Development Commands
+
+**IMPORTANT:** Always use `/usr/bin/make` instead of `make` to avoid shell issues:
+
+```bash
+/usr/bin/make build       # Build binary to bin/nara
+/usr/bin/make build-web   # Build JS bundle (Preact app) + docs site
+/usr/bin/make test        # Run all tests (3-minute timeout)
+/usr/bin/make test-v      # Run tests with verbose output
+/usr/bin/make test-fast   # Run fast tests only (skips integration tests via -short flag)
+/usr/bin/make clean       # Remove build artifacts
+/usr/bin/make build-nix   # Build using Nix
+/usr/bin/make all         # format build test lint-report
+```
+
+Always use `gofmt -w` to format Go code.
+
+### Running Tests
+
+```bash
+# Single test (preferred during development)
+go test -v -run TestFunctionName -timeout 2m
+
+# Domain tests (after finishing a feature)
+go test -v -run Checkpoint -short -timeout 2m
+
+# Full suite (before finishing)
+/usr/bin/make test
+```
+
+---
+
+## Testing
+
+### Test Discipline
+
+**CRITICAL: Run tests immediately after writing them.**
+
+1. **Write ONE test at a time** - Don't batch tests
+2. **Run IMMEDIATELY** - Execute as soon as you finish writing
+3. **Verify it runs** - Check execution, not just compilation
+4. **Fix infrastructure first** - If setup is needed (MQTT broker, etc.), add it before more tests
+5. **Only proceed after it passes** - Don't write the next test until the current one works
+
+**The test suite is expensive.** Integration tests start MQTT brokers and wait for consensus (3-10s per test). Full suite takes 2-3 minutes.
+
+**Best practice:**
+- **During development:** Run ONLY the specific test (`-run TestSpecificName`)
+- **After a group of changes:** Run domain tests (`-run Checkpoint`)
+- **Before finishing:** Run full suite once (`/usr/bin/make all`)
+
+### Red → Green → Refactor
+
+**When fixing a bug, write a FAILING test first.**
+
+1. Write test that reproduces the bug - it MUST fail initially
+2. Run test, verify it fails (see red)
+3. Fix the bug (minimal change)
+4. Run test again, verify it passes (see green)
+
+If you never see red, you don't know if your test works.
+
+**Bad pattern:**
+```
+✗ Discover bug → Fix code → Write test → Test passes
+❓ Would it have passed anyway?
+```
+
+**Good pattern:**
+```
+✓ Discover bug → Write test → Test FAILS → Fix code → Test PASSES
+✓ Confidence: the test catches the bug AND the fix works
+```
 
 ### Test Helpers (`test_helpers_test.go`)
 
-**CRITICAL: Always use `testNara()` with automatic cleanup!**
+**Always use `testNara()` with automatic cleanup!**
 
-LocalNara instances start background goroutines that must be shut down properly. Without cleanup, tests will experience goroutine leaks, port conflicts, resource exhaustion, logrus nil pointer panics, and test flakiness.
-
-#### Unified Test Helper (Use This!)
+LocalNara instances start background goroutines. Without cleanup: goroutine leaks, port conflicts, test flakiness.
 
 ```go
-// testNara creates a test LocalNara with options. Auto-cleanup via t.Cleanup().
+// Create test nara with options. Auto-cleanup via t.Cleanup().
 testNara(t, name, opts ...TestNaraOption)
 
-// Available options:
+// Options:
 WithMQTT(port)                          // Configure MQTT connection
 WithParams(chattiness, ledgerCapacity)  // Set custom parameters
 WithSoul(soul)                          // Use custom soul string
@@ -183,47 +291,21 @@ WithHowdyTestConfig()                   // Enable flags for howdy tests
 **Examples:**
 ```go
 func TestBasicFeature(t *testing.T) {
-    // Simple test nara
     ln := testNara(t, "test-nara")
 }
 
-func TestWithCustomParams(t *testing.T) {
-    // Custom chattiness and ledger size
-    ln := testNara(t, "test-nara", WithParams(50, 1000))
-}
-
 func TestMQTTIntegration(t *testing.T) {
-    // MQTT-enabled nara
     ln := testNara(t, "test-nara", WithMQTT(11883), WithParams(50, 1000))
     go ln.Start(false, false, "", nil, TransportMQTT)
 }
 
 func TestWithCustomSoul(t *testing.T) {
-    // Specific soul for identity tests
     soul := "BZbvJDjG3hkhsb9y8e4nYy3DPmPFUQ5DKLHe6oqH5sbe"
     ln := testNara(t, "test-nara", WithSoul(soul))
 }
-
-func TestHowdyDiscovery(t *testing.T) {
-    // Combine multiple options for complex scenarios
-    ln := testNara(t, "test-nara",
-        WithMQTT(11884),
-        WithParams(-1, 1000),
-        WithHowdyTestConfig())
-}
 ```
 
-#### Legacy Helpers (Deprecated - use testNara instead)
-
-```go
-testLocalNara(t, name)                  // → testNara(t, name)
-testLocalNaraWithParams(t, ...)         // → testNara(t, name, WithParams(...))
-testLocalNaraWithSoul(t, name, soul)    // → testNara(t, name, WithSoul(soul))
-createTestNaraForMQTT(t, name, port)    // → testNara(t, name, WithMQTT(port), WithParams(-1, 1000))
-```
-
-#### Utility Helpers
-
+**Utility helpers:**
 ```go
 testSoul(name)                          // Generate valid test soul
 testIdentity(name)                      // Create valid identity result
@@ -235,30 +317,53 @@ startTestNaras(t, port, names, ensureDiscovery)  // Start multiple MQTT naras
 Tests automatically configure:
 - `OpinionRepeatOverride = 1`
 - `OpinionIntervalOverride = 0`
-- Log level set to WarnLevel (suppresses info/debug)
-- Logrus output to stderr (prevents nil pointer panics)
+- Log level: WarnLevel (suppresses info/debug)
+- Logrus output to stderr
 
-Individual tests can override with `logrus.SetLevel(logrus.DebugLevel)`.
+Override in individual tests with `logrus.SetLevel(logrus.DebugLevel)`.
 
 ### Test File Naming
 
 - `*_test.go` - Standard unit tests
 - `integration_*.go` - Integration tests (skipped with `-short` flag)
 
-## Key Concepts
+---
 
-- **Soul**: Portable cryptographic identity (~54 chars Base58)
-- **Personality**: Agreeableness, Sociability, Chill (0-100 each) - affects event filtering and opinion formation
-- **Clout**: Subjective reputation score derived from observed events
-- **Importance Levels**: Critical (3, never filtered), Normal (2), Casual (1, personality-filtered)
-- **Trimmed Mean Consensus**: Outliers removed, remaining values averaged
+## Troubleshooting Protocol
+
+When the user reports something is broken: **STOP. Do not immediately edit code.**
+
+**TRUST THE USER:** If they say they did something ("I already rebuilt", "I'm running the new version"), believe them. Move on to investigating other causes.
+
+1. **Run tests first** - Use `/usr/bin/make test` or `go test` to see actual failures
+2. **Gather evidence** - curl endpoints, check API responses, read logs
+3. **Confirm root cause** - Verify with concrete evidence before proposing fixes
+4. **Make minimal changes** - Fix ONE thing, run tests, verify, then continue
+5. **Ask when uncertain** - Request minimal additional detail instead of assuming
+
+**Prefer automated verification:**
+- Run existing tests to understand current behavior
+- Use `curl` to check actual API responses
+- Read actual struct definitions and json tags, don't assume naming conventions
+- If no test exists for the bug, consider writing one first
+
+**DO NOT:**
+- Doubt or verify what the user tells you
+- Change multiple things at once hoping one fixes it
+- Assume naming conventions without checking
+- Replicate production logic in tests - run the real code instead
+- **NEVER perform git write operations** (git add, git commit, git push) - the user handles version control
+
+**After ANY fix:** Run tests and verify with the user before making additional changes.
+
+---
 
 ## Documentation
 
+- `docs/src/content/docs/index.mdx` - Main documentation (the nara story)
 - `docs/src/content/docs/EVENTS.md` - Event types and structure
 - `docs/src/content/docs/OBSERVATIONS.md` - Event-driven consensus system
 - `docs/src/content/docs/SYNC.md` - Unified sync backbone and gossip protocol
 - `docs/src/content/docs/STASH.md` - Distributed encrypted storage system
 - `docs/src/content/docs/WORLD.md` - "Around the world" journey feature
 - `docs/src/content/docs/COORDINATES.md` - Vivaldi network coordinate system
-
