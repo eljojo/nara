@@ -2,88 +2,90 @@
 
 ## Purpose
 
-Projections transform **events (facts)** into **opinions (state)**.
-
-They are where personality, bias, and interpretation live.
-
----
+Projections turn the event ledger into derived state: online status, clout, and
+consensus observations. They keep the system deterministic without storing
+mutable state in the ledger itself.
 
 ## Conceptual Model
 
-A projection is:
-- pure (no side effects)
-- deterministic
-- local to a nara
-
-```
-opinion = f(events, personality)
-```
+- Projections are pure, deterministic read models over SyncEvents.
+- The same ledger state produces the same projection output.
+- Projections can reset and replay when the ledger structure changes.
 
 Key invariants:
 - Projections never emit events.
 - Projections never mutate the ledger.
-- Same inputs → same outputs.
-
----
+- Reset + replay is allowed when the ledger is pruned or reordered.
 
 ## External Behavior
 
-Different naras:
-- may see the same events
-- but compute different opinions
-
-There is no “correct” projection.
-
----
+- Projections run continuously in the background.
+- They may lag behind until explicitly triggered or RunOnce is called.
+- Derived values are used for UI, decision-making, and maintenance logic.
 
 ## Interfaces
 
-Projections surface through:
-- HTTP API (derived fields)
-- Web UI visualizations
-- Internal decision-making
+ProjectionStore:
+- `OnlineStatus()` -> OnlineStatusProjection
+- `Clout()` -> CloutProjection
+- `Opinion()` -> OpinionConsensusProjection
+- `Trigger()` -> run all projections immediately
 
----
+OnlineStatusProjection:
+- `GetStatus(name)` -> "ONLINE", "OFFLINE", "MISSING", or "" (unknown)
+- `GetTotalUptime(name)` -> uptime in seconds (derived from ledger)
+
+OpinionConsensusProjection:
+- `DeriveOpinion(name)` -> start time, restart count, last restart, total uptime
+- `DeriveOpinionFromCheckpoint(name)` -> checkpoint baseline + post-checkpoint events
+- `DeriveOpinionWithValidation(name)` -> compares both methods and logs divergence
+
+## Event Types & Schemas (if relevant)
+
+- OnlineStatusProjection consumes presence, observation, ping, and social events.
+- OpinionConsensusProjection consumes observation events (restart/first-seen).
+- CloutProjection consumes social events.
 
 ## Algorithms
 
-Typical projection steps:
-1. Filter relevant events
-2. Sort or group by subject
-3. Apply decay, thresholds, or bias
-4. Produce derived state
+Projection reset and replay:
+- Each projection tracks a ledger version and event position.
+- If the ledger structure changes (pruning or reordering), projections reset to
+  position 0 and replay events sorted by timestamp for determinism.
 
-Personality parameters influence:
-- weighting
-- memory span
-- reaction strength
+Online status derivation (most recent event wins):
+- `hey-there` -> ONLINE
+- `chau` -> OFFLINE
+- `seen`, `social`, `ping` -> ONLINE
+- `observation`:
+  - `status-change` -> ONLINE/OFFLINE/MISSING
+  - `restart` or `first-seen` -> ONLINE
+- If the last ONLINE event is older than the missing threshold, status is MISSING.
+  Threshold is 5 minutes by default, 1 hour when either node is in gossip mode.
 
----
+Opinion consensus:
+- Start time uses trimmed-mean consensus over `first-seen` and restart observations.
+- Restart count uses trimmed mean when multiple observers exist; otherwise max.
+- Last restart uses the maximum observed `last_restart` value.
+- Total uptime uses ledger-derived uptime (checkpoint + status changes).
 
 ## Failure Modes
 
-- Missing events → incomplete opinions
-- Conflicting events → ambiguity
-- Old events → faded influence
-
----
+- Projections can be stale until triggered.
+- Missing events can lead to divergent opinions across naras.
+- Pruning can cause projections to reset and replay (temporary CPU spike).
 
 ## Security / Trust Model
 
-- Projections are unverifiable.
-- Only events are verifiable.
-- Disagreement is expected.
-
----
+- Projections are local opinions; they are not verifiable in isolation.
+- Only the underlying events are signed and verifiable.
 
 ## Test Oracle
 
-- Same events + same personality → same projection.
-- Different personalities → divergent results.
-- Removing events changes projections.
-
----
+- Same ledger state yields deterministic projections. (`projections_test.go`)
+- Online status transitions follow most-recent-event semantics. (`presence_howdy_test.go`)
+- Opinion consensus uses trimmed-mean rules. (`consensus_events_test.go`)
 
 ## Open Questions / TODO
 
-- Standard confidence metrics for projections.
+- Add explicit confidence scores to projection outputs.

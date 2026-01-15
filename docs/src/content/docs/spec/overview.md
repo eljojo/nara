@@ -63,7 +63,27 @@ At a high level, Nara exposes:
 - an HTTP API for observability
 - a web UI that visualizes the network
 
+This spec folder mirrors those interfaces; every file documents a single domain
+and the index groups them by identity, transport, memory, social layer, UI, and ops.
+
 No interface is considered authoritative; all are views over events.
+
+## Event Types & Schemas
+
+The core data shared over the wire are `SyncEvent` objects with a `svc`
+field. Known services include `hey-there`, `chau`, `observation`, `social`,
+`ping`, `seen`, and `checkpoint`. Each service carries a structured payload
+(`HeyThereEvent`, `ObservationEventPayload`, `SocialEventPayload`, etc.) with
+canonical string builders and Ed25519 signatures, and the per-service specs
+spell out required fields and signing expectations.
+
+## Algorithms
+
+Consensus and routing emerge from simple loops:
+- Identity derives a soul/name bond, then publishes `hey_there`/`announce` to bootstrap discovery.
+- Events flow through the `SyncLedger` and inform projections (presence, clout, memory). Background loops poll the ledger and the network context.
+- Maintenance routines (observation upkeep, gossip exchange, coordinate pings, trend tracking, stash/confidant churn, checkpoint voting) react to the projections and the incoming events.
+- Opinions are formed only after boot recovery unblocks, ensuring derived projections arrive before the social layer mutates state.
 
 ---
 
