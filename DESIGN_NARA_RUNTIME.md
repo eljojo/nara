@@ -90,21 +90,22 @@ The universal primitive. Everything that flows through the system is a Message.
 // Message is the universal primitive - what services emit and receive
 type Message struct {
     // Core identity (always present)
-    ID        string    // Unique identifier (computed by runtime)
-    Kind      string    // "hey-there", "observation:restart", "checkpoint"
-    From      string    // Who created this message
-    Timestamp time.Time // When it was created
+    ID         string    // Unique envelope identifier (always unique per message instance)
+    ContentKey string    // Semantic identity for dedup (optional, stable across observers)
+    Kind       string    // "hey-there", "observation:restart", "checkpoint"
+    Version    int       // Schema version for this kind (default 1, increment on breaking changes)
+    From       string    // Who created this message
+    Timestamp  time.Time // When it was created
 
     // Content
-    Payload   any       // Kind-specific data (Go struct, runtime handles serialization)
+    Payload    any       // Kind-specific data (Go struct, runtime handles serialization)
 
     // Cryptographic (attached by runtime)
-    Signature []byte    // Creator's signature (may be nil for some kinds)
+    Signature  []byte    // Creator's signature (may be nil for some kinds)
 }
 
-// ComputeID generates deterministic ID from content
-// Default implementation - can be overridden per kind
-func DefaultComputeID(msg *Message) string {
+// ComputeID generates unique envelope ID - always includes timestamp and sender
+func ComputeID(msg *Message) string {
     h := sha256.New()
     h.Write([]byte(msg.Kind))
     h.Write([]byte(msg.From))
@@ -113,6 +114,114 @@ func DefaultComputeID(msg *Message) string {
     return base58.Encode(h.Sum(nil))[:16]
 }
 ```
+
+### ID vs ContentKey
+
+Two distinct concepts that were previously conflated:
+
+| Concept | Purpose | Uniqueness | Example |
+|---------|---------|------------|---------|
+| **ID** | Envelope identity | Always unique per message | `abc123` (Alice's message), `def456` (Bob's message) |
+| **ContentKey** | Semantic identity | Same for same logical fact | `bob:restart:5:1700000000` (both Alice and Bob) |
+
+**Why split them?**
+
+```
+Alice observes: "Bob restarted for the 5th time at 10:00"
+Bob observes:   "Bob restarted for the 5th time at 10:00"
+
+Old design (overloaded ID):
+  Alice: ID = "bob:restart:5:1700000000"  ← ID loses uniqueness
+  Bob:   ID = "bob:restart:5:1700000000"  ← Same ID, confusing
+
+New design (split):
+  Alice: ID = "abc123", ContentKey = "bob:restart:5:1700000000"
+  Bob:   ID = "def456", ContentKey = "bob:restart:5:1700000000"
+
+  ✓ IDs are unique — can reference specific messages
+  ✓ ContentKey enables semantic dedup — same fact from different observers
+```
+
+### Versioning
+
+Messages include a `Version` field to handle schema evolution:
+
+```go
+Version    int       // Schema version for this kind (default 1)
+```
+
+**Rules:**
+1. **New messages default to current version** — runtime sets `Version` to behavior's `CurrentVersion`
+2. **Old messages keep their version** — received messages retain original version
+3. **Behaviors declare supported versions** — min/max range for compatibility
+4. **Version-aware deserialization** — runtime uses version to pick correct payload type
+
+**Example: Checkpoint evolved from v1 to v2**
+
+```go
+// v1 payload (old)
+type CheckpointPayloadV1 struct {
+    Epoch      int
+    Votes      map[string]int  // Simple vote counts
+}
+
+// v2 payload (current)
+type CheckpointPayloadV2 struct {
+    Epoch      int
+    Votes      map[string]VoteDetail  // Rich vote details
+    Signatures [][]byte               // Multi-sig added in v2
+}
+
+// Behavior registers both versions
+Register(&Behavior{
+    Kind:           "checkpoint",
+    CurrentVersion: 2,
+    MinVersion:     1,  // Still accept v1 from old naras
+    PayloadTypes: map[int]reflect.Type{
+        1: PayloadTypeOf[CheckpointPayloadV1](),
+        2: PayloadTypeOf[CheckpointPayloadV2](),
+    },
+    // ... stages can check msg.Version if needed
+})
+```
+
+**Version-aware receive:**
+
+```go
+func (rt *Runtime) deserialize(raw []byte) (*Message, error) {
+    // Peek at kind and version
+    var envelope struct {
+        Kind    string `json:"kind"`
+        Version int    `json:"version"`
+    }
+    json.Unmarshal(raw, &envelope)
+
+    behavior := Lookup(envelope.Kind)
+
+    // Default to v1 if not specified (backwards compat)
+    version := envelope.Version
+    if version == 0 {
+        version = 1
+    }
+
+    // Check version bounds
+    if version < behavior.MinVersion || version > behavior.CurrentVersion {
+        return nil, fmt.Errorf("unsupported version %d for %s", version, envelope.Kind)
+    }
+
+    // Get correct payload type for this version
+    payloadType := behavior.PayloadTypes[version]
+    // ... deserialize with correct type
+}
+```
+
+**Migration strategy:**
+- Bump version only for breaking changes (new required fields, type changes)
+- Keep `MinVersion` at oldest version you still want to accept
+- Old naras sending v1 still work until you drop support
+- Stages can check `msg.Version` to handle differences
+
+---
 
 ### Why Everything is a Message
 
@@ -191,9 +300,9 @@ Two pipelines, different purposes:
 
 **Emit Pipeline** (outgoing messages):
 ```
-Message → [ID] → [Sign] → [Store] → [Gossip?] → [Transport] → [Notify]
-                                        ↓
-                              Returns StageResult
+Message → [ID] → [ContentKey?] → [Sign] → [Store] → [Gossip?] → [Transport] → [Notify]
+                                                ↓
+                                      Returns StageResult
 ```
 
 **Receive Pipeline** (incoming messages):
@@ -202,6 +311,8 @@ Message → [Verify] → [Dedupe] → [RateLimit] → [Filter] → [Store] → [
                                         ↓
                               Returns StageResult
 ```
+
+Note: ContentKey stage only runs if the behavior defines a `ContentKey` function. Dedupe can use either `IDDedupe()` (exact message) or `ContentKeyDedupe()` (same fact).
 
 ---
 
@@ -303,49 +414,64 @@ func (rt *Runtime) applyErrorStrategy(
 
 ### 1. ID Stage
 
-Computes the message ID. Default uses (kind, from, timestamp, payload hash).
+Computes the unique envelope ID. Always includes kind, from, timestamp, and payload hash.
 
 ```go
-// DefaultIDStage computes ID from all fields
-type DefaultIDStage struct{}
+// IDStage computes unique envelope ID
+type IDStage struct{}
 
-func (s *DefaultIDStage) Process(msg *Message, ctx *PipelineContext) StageResult {
+func (s *IDStage) Process(msg *Message, ctx *PipelineContext) StageResult {
     if msg.ID == "" {
-        msg.ID = DefaultComputeID(msg)
+        msg.ID = ComputeID(msg)
+    }
+    return Continue(msg)
+}
+```
+
+ID is always unique per message instance. No customization needed.
+
+---
+
+### 2. ContentKey Stage
+
+Computes the semantic identity for dedup. Only used for messages that need cross-observer deduplication.
+
+```go
+// ContentKeyStage computes semantic identity from payload
+type ContentKeyStage struct {
+    KeyFunc func(payload any) string
+}
+
+func (s *ContentKeyStage) Process(msg *Message, ctx *PipelineContext) StageResult {
+    if msg.ContentKey == "" && s.KeyFunc != nil {
+        msg.ContentKey = s.KeyFunc(msg.Payload)
     }
     return Continue(msg)
 }
 
-// ContentIDStage computes ID from payload content only (for dedup across observers)
-type ContentIDStage struct {
-    ContentFunc func(payload any) string
-}
+// NoContentKeyStage is a no-op (most messages don't need content keys)
+type NoContentKeyStage struct{}
 
-func (s *ContentIDStage) Process(msg *Message, ctx *PipelineContext) StageResult {
-    if msg.ID == "" {
-        content := s.ContentFunc(msg.Payload)
-        h := sha256.Sum256([]byte(msg.Kind + ":" + content))
-        msg.ID = base58.Encode(h[:])[:16]
-    }
+func (s *NoContentKeyStage) Process(msg *Message, ctx *PipelineContext) StageResult {
     return Continue(msg)
 }
 ```
 
 **Usage:**
 ```go
-// Default: most messages
-ID: DefaultID()
+// Most messages: no content key needed
+ContentKey: nil  // or NoContentKey()
 
-// Custom: observations use content-based ID for cross-observer dedup
-ID: ContentID(func(p any) string {
-    obs := p.(*ObservationPayload)
-    return fmt.Sprintf("%s:%d:%d", obs.Subject, obs.RestartNum, obs.StartTime)
+// Observations: content key for cross-observer dedup
+ContentKey: ContentKey(func(p any) string {
+    obs := p.(*ObservationRestartPayload)
+    return fmt.Sprintf("%s:%d:%d", obs.Subject, obs.RestartNum, obs.StartTime.Unix())
 })
 ```
 
 ---
 
-### 2. Sign Stage
+### 3. Sign Stage
 
 Signs the message with the creator's keypair.
 
@@ -368,7 +494,7 @@ func (s *NoSignStage) Process(msg *Message, ctx *PipelineContext) StageResult {
 
 ---
 
-### 3. Store Stage
+### 4. Store Stage
 
 Stores the message in the ledger.
 
@@ -392,17 +518,17 @@ func (s *NoStoreStage) Process(msg *Message, ctx *PipelineContext) StageResult {
     return Continue(msg)  // Don't store
 }
 
-// DedupStoreStage stores with content-based deduplication
-type DedupStoreStage struct {
-    Priority  int
-    IsSameAs  func(new, existing *Message) bool
+// ContentKeyStoreStage stores with ContentKey-based deduplication
+// Only stores if no message with the same ContentKey exists
+type ContentKeyStoreStage struct {
+    Priority int
 }
 
-func (s *DedupStoreStage) Process(msg *Message, ctx *PipelineContext) StageResult {
-    if ctx.Ledger.HasMatching(msg.Kind, func(existing *Message) bool {
-        return s.IsSameAs(msg, existing)
-    }) {
-        return Drop("duplicate")  // Explicit drop reason
+func (s *ContentKeyStoreStage) Process(msg *Message, ctx *PipelineContext) StageResult {
+    if msg.ContentKey != "" {
+        if ctx.Ledger.HasContentKey(msg.ContentKey) {
+            return Drop("content_exists")  // Same fact already stored
+        }
     }
     if err := ctx.Ledger.Add(msg, s.Priority); err != nil {
         return Fail(fmt.Errorf("ledger add: %w", err))
@@ -422,7 +548,7 @@ func (s *DedupStoreStage) Process(msg *Message, ctx *PipelineContext) StageResul
 
 ---
 
-### 4. Gossip Stage
+### 6. Gossip Stage
 
 **Key change: Gossip is now explicit, not coupled to ledger.**
 
@@ -461,7 +587,7 @@ The gossip service reads from `GossipQueue`, not from the ledger. Store and goss
 
 ---
 
-### 5. Transport Stage
+### 7. Transport Stage
 
 Sends the message over the network.
 
@@ -520,7 +646,7 @@ func (s *NoTransportStage) Process(msg *Message, ctx *PipelineContext) StageResu
 
 ---
 
-### 6. Notify Stage
+### 8. Notify Stage
 
 Always runs last. Notifies local subscribers.
 
@@ -591,10 +717,10 @@ func (s *NoVerifyStage) Process(msg *Message, ctx *PipelineContext) StageResult 
 
 ### 2. Dedupe Stage
 
-Prevents storing duplicate messages.
+Prevents storing duplicate messages. Now cleanly split between ID and ContentKey:
 
 ```go
-// IDDedupeStage rejects messages with duplicate ID
+// IDDedupeStage rejects messages with duplicate ID (exact same message)
 type IDDedupeStage struct{}
 
 func (s *IDDedupeStage) Process(msg *Message, ctx *PipelineContext) StageResult {
@@ -604,19 +730,36 @@ func (s *IDDedupeStage) Process(msg *Message, ctx *PipelineContext) StageResult 
     return Continue(msg)
 }
 
-// ContentDedupeStage rejects messages with duplicate content
-type ContentDedupeStage struct {
-    IsSameAs func(new, existing *Message) bool
-}
+// ContentKeyDedupeStage rejects messages with duplicate ContentKey (same fact)
+type ContentKeyDedupeStage struct{}
 
-func (s *ContentDedupeStage) Process(msg *Message, ctx *PipelineContext) StageResult {
-    if ctx.Ledger.HasMatching(msg.Kind, func(existing *Message) bool {
-        return s.IsSameAs(msg, existing)
-    }) {
-        return Drop("duplicate_content")
+func (s *ContentKeyDedupeStage) Process(msg *Message, ctx *PipelineContext) StageResult {
+    if msg.ContentKey != "" {
+        if ctx.Ledger.HasContentKey(msg.ContentKey) {
+            return Drop("duplicate_content")
+        }
     }
     return Continue(msg)
 }
+```
+
+**When to use which:**
+
+| Stage | Checks | Use Case |
+|-------|--------|----------|
+| `IDDedupe()` | `msg.ID` | Default — reject exact same message seen twice |
+| `ContentKeyDedupe()` | `msg.ContentKey` | Observations — reject same fact from different observers |
+
+**Example: Observation Dedup**
+
+```
+Alice sends: ID=abc123, ContentKey="bob:restart:5:1700000000"
+Bob sends:   ID=def456, ContentKey="bob:restart:5:1700000000"
+
+IDDedupe: Both pass (different IDs)
+ContentKeyDedupe: Bob's message dropped (same ContentKey as Alice's)
+
+Result: We store Alice's message, dedupe Bob's. Both IDs remain unique and referenceable.
 ```
 
 ---
@@ -687,10 +830,17 @@ type Behavior struct {
     // Identity
     Kind        string       // Unique identifier, e.g., "observation:restart"
     Description string       // Human-readable description
-    PayloadType reflect.Type // The Go struct type for payload (runtime handles serialization)
+
+    // Versioning
+    CurrentVersion int                    // Version for new messages (default 1)
+    MinVersion     int                    // Oldest version still accepted (default 1)
+    PayloadTypes   map[int]reflect.Type   // Payload type per version (nil = use PayloadType for all)
+    PayloadType    reflect.Type           // Single payload type (shorthand when no versioning needed)
+
+    // ContentKey derivation (nil = no content key)
+    ContentKey func(payload any) string
 
     // Emit pipeline stages (nil = use default)
-    ID        Stage  // IDStage
     Sign      Stage  // SignStage
     Store     Stage  // StoreStage
     Gossip    Stage  // GossipStage (explicit, not coupled to Store)
@@ -714,6 +864,8 @@ func PayloadTypeOf[T any]() reflect.Type {
     return reflect.TypeOf(zero)
 }
 ```
+
+Note: `ID` is not in Behavior because ID computation is always the same (unique envelope ID). Only `ContentKey` is customizable.
 
 ### Registry
 
@@ -739,10 +891,6 @@ func Lookup(kind string) *Behavior {
 ### Helper Constructors (DSL)
 
 ```go
-// === ID Helpers ===
-func DefaultID() Stage { return &DefaultIDStage{} }
-func ContentID(f func(any) string) Stage { return &ContentIDStage{ContentFunc: f} }
-
 // === Sign Helpers ===
 func DefaultSign() Stage { return &DefaultSignStage{} }
 func NoSign() Stage { return &NoSignStage{} }
@@ -750,9 +898,7 @@ func NoSign() Stage { return &NoSignStage{} }
 // === Store Helpers ===
 func DefaultStore(priority int) Stage { return &DefaultStoreStage{Priority: priority} }
 func NoStore() Stage { return &NoStoreStage{} }
-func DedupStore(priority int, isSame func(*Message, *Message) bool) Stage {
-    return &DedupStoreStage{Priority: priority, IsSameAs: isSame}
-}
+func ContentKeyStore(priority int) Stage { return &ContentKeyStoreStage{Priority: priority} }
 
 // === Gossip Helpers ===
 func Gossip() Stage { return &GossipStage{} }
@@ -774,7 +920,7 @@ func NoVerify() Stage { return &NoVerifyStage{} }
 
 // === Dedupe Helpers ===
 func IDDedupe() Stage { return &IDDedupeStage{} }
-func ContentDedupe(f func(*Message, *Message) bool) Stage { return &ContentDedupeStage{IsSameAs: f} }
+func ContentKeyDedupe() Stage { return &ContentKeyDedupeStage{} }
 
 // === RateLimit Helpers ===
 func RateLimit(window time.Duration, max int, keyFunc func(*Message) string) Stage {
@@ -788,6 +934,8 @@ func Casual(f func(*Message, *Personality) bool) Stage {
     return &ImportanceFilterStage{Importance: 1, CasualFilter: f}
 }
 ```
+
+Note: No `ID` helpers needed — ID is always computed the same way. `ContentKey` is defined as a function in `Behavior`, not a stage.
 
 ---
 
@@ -876,12 +1024,12 @@ func init() {
         Kind:        "observation:restart",
         Description: "Records when a nara restarts",
         PayloadType: PayloadTypeOf[ObservationRestartPayload](),
-        ID:          ContentID(restartContentID),
-        Store:       DedupStore(0, restartIsSame),
+        ContentKey:  restartContentKey,  // Semantic identity for cross-observer dedup
+        Store:       ContentKeyStore(0), // Store with ContentKey dedup
         Gossip:      Gossip(),
-        Transport:   NoTransport(),  // Gossip only, no MQTT
+        Transport:   NoTransport(),      // Gossip only, no MQTT
         Verify:      DefaultVerify(),
-        Dedupe:      ContentDedupe(restartIsSame),
+        Dedupe:      ContentKeyDedupe(), // Dedupe by ContentKey, not ID
         RateLimit:   RateLimit(5*time.Minute, 10, subjectKey),
         Filter:      Critical(),
         OnStoreError: ErrorLog,
@@ -892,17 +1040,17 @@ func init() {
         Kind:        "observation:first-seen",
         Description: "Records first time a nara is observed",
         PayloadType: PayloadTypeOf[ObservationFirstSeenPayload](),
-        ID:          ContentID(firstSeenContentID),
-        Store:       DedupStore(0, firstSeenIsSame),
+        ContentKey:  firstSeenContentKey,
+        Store:       ContentKeyStore(0),
         Gossip:      Gossip(),
         Transport:   NoTransport(),
         Verify:      DefaultVerify(),
-        Dedupe:      ContentDedupe(firstSeenIsSame),
+        Dedupe:      ContentKeyDedupe(),
         RateLimit:   RateLimit(5*time.Minute, 10, subjectKey),
         Filter:      Critical(),
     })
 
-    // Status change observation
+    // Status change observation (no ContentKey - each observer's view is distinct)
     Register(&Behavior{
         Kind:        "observation:status-change",
         Description: "Records online/offline transitions",
@@ -916,18 +1064,15 @@ func init() {
     })
 }
 
-// Helper functions
-func restartContentID(p any) string {
+// ContentKey functions derive semantic identity from payload
+func restartContentKey(p any) string {
     obs := p.(*ObservationRestartPayload)
     return fmt.Sprintf("%s:%d:%d", obs.Subject, obs.RestartNum, obs.StartTime.Unix())
 }
 
-func restartIsSame(new, existing *Message) bool {
-    n := new.Payload.(*ObservationRestartPayload)
-    e := existing.Payload.(*ObservationRestartPayload)
-    return n.Subject == e.Subject &&
-           n.RestartNum == e.RestartNum &&
-           n.StartTime.Equal(e.StartTime)
+func firstSeenContentKey(p any) string {
+    obs := p.(*ObservationFirstSeenPayload)
+    return fmt.Sprintf("%s:%s", obs.Subject, obs.FirstSeenAt.Format(time.RFC3339))
 }
 
 func subjectKey(msg *Message) string {
@@ -1268,8 +1413,13 @@ func (rt *Runtime) Emit(msg *Message) error {
 func (rt *Runtime) buildEmitPipeline(b *Behavior) Pipeline {
     stages := []Stage{}
 
-    // ID stage
-    stages = append(stages, orDefault(b.ID, DefaultID()))
+    // ID stage (always the same - unique envelope ID)
+    stages = append(stages, &IDStage{})
+
+    // ContentKey stage (if behavior defines ContentKey function)
+    if b.ContentKey != nil {
+        stages = append(stages, &ContentKeyStage{KeyFunc: b.ContentKey})
+    }
 
     // Sign stage
     stages = append(stages, orDefault(b.Sign, DefaultSign()))
@@ -1468,10 +1618,13 @@ build-web: docs
 | Component | Purpose |
 |-----------|---------|
 | **Message** | Universal primitive — everything is a message |
+| **ID** | Unique envelope identity — always unique per message instance |
+| **ContentKey** | Semantic identity — stable across observers for the same fact |
+| **Version** | Schema version — enables backwards-compatible evolution |
 | **StageResult** | Explicit outcomes — Continue/Drop/Error, no silent failures |
 | **Behavior** | Declares how a message kind is handled |
 | **Pipeline** | Chains stages, returns StageResult |
-| **Stages** | Pluggable units: ID, Sign, Store, Gossip, Transport, Verify, Filter |
+| **Stages** | Pluggable units: ID, ContentKey, Sign, Store, Gossip, Transport, Verify, Filter |
 | **GossipQueue** | Explicit gossip, decoupled from ledger |
 | **ErrorStrategy** | Per-behavior error handling |
 | **Registry** | Central catalog of all behaviors |
@@ -1481,14 +1634,16 @@ build-web: docs
 ### Key Benefits
 
 1. **Everything is a Message** — unified model for events, ephemerals, protocols
-2. **Explicit outcomes** — StageResult replaces error-prone `next()` callback
-3. **Gossip decoupled from Store** — independent concerns
-4. **Error strategies** — configurable per-behavior error handling
-5. **OS handles serialization** — services provide structs, runtime handles wire format
-6. **Auto-documented** — registry generates docs from PayloadType reflection
-7. **Testable** — each stage testable in isolation
+2. **ID vs ContentKey split** — envelope identity vs semantic identity, no more confusion
+3. **Versioning built-in** — evolve message schemas without breaking old naras
+4. **Explicit outcomes** — StageResult replaces error-prone `next()` callback
+5. **Gossip decoupled from Store** — independent concerns
+6. **Error strategies** — configurable per-behavior error handling
+7. **OS handles serialization** — services provide structs, runtime handles wire format
+8. **Auto-documented** — registry generates docs from PayloadType reflection
+9. **Testable** — each stage testable in isolation
 
 ### The 80/20 Split
 
 - **80%**: Use default stages, just define Kind + Description + PayloadType
-- **20%**: Customize specific stages (ID, Sign, Verify, Filter, etc.)
+- **20%**: Customize ContentKey, Store, Verify, Filter, etc. for special cases

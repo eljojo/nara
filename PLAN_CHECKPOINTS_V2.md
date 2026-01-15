@@ -57,12 +57,14 @@ import (
 
 // Message is the universal primitive
 type Message struct {
-    ID        string
-    Kind      string
-    From      string
-    Timestamp time.Time
-    Payload   any
-    Signature []byte
+    ID         string    // Unique envelope identifier (always unique)
+    ContentKey string    // Semantic identity for dedup (optional)
+    Kind       string
+    Version    int       // Schema version (default 1, increment on breaking changes)
+    From       string
+    Timestamp  time.Time
+    Payload    any
+    Signature  []byte
 }
 
 // DefaultComputeID generates deterministic ID from content
@@ -189,10 +191,17 @@ const (
 type Behavior struct {
     Kind        string
     Description string
-    PayloadType reflect.Type
+
+    // Versioning
+    CurrentVersion int                    // Version for new messages (default 1)
+    MinVersion     int                    // Oldest version still accepted (default 1)
+    PayloadTypes   map[int]reflect.Type   // Payload type per version (nil = use PayloadType for all)
+    PayloadType    reflect.Type           // Single payload type (shorthand when no versioning needed)
+
+    // ContentKey derivation (nil = no content key)
+    ContentKey func(payload any) string
 
     // Emit stages
-    ID        Stage
     Sign      Stage
     Store     Stage
     Gossip    Stage
@@ -264,15 +273,16 @@ func PayloadTypeOf[T any]() reflect.Type {
 ### Step 1.5: Implement Helper Constructors
 
 Create `runtime/helpers.go` with all DSL helpers:
-- `DefaultID()`, `ContentID(f)`
 - `DefaultSign()`, `NoSign()`
-- `DefaultStore(priority)`, `NoStore()`, `DedupStore(priority, f)`
+- `DefaultStore(priority)`, `NoStore()`, `ContentKeyStore(priority)`
 - `Gossip()`, `NoGossip()`
 - `MQTT(topic)`, `MQTTPerNara(pattern)`, `DirectFirst(topic)`, `NoTransport()`
 - `DefaultVerify()`, `SelfAttesting(f)`, `CustomVerify(f)`, `NoVerify()`
-- `IDDedupe()`, `ContentDedupe(f)`
+- `IDDedupe()`, `ContentKeyDedupe()`
 - `RateLimit(window, max, keyFunc)`
 - `Critical()`, `Normal()`, `Casual(f)`
+
+Note: No `ID` helpers needed — ID is always computed the same way (unique envelope). `ContentKey` is a function in `Behavior`, not a stage.
 
 Each helper returns a stage. Implement the stage structs as well.
 
@@ -288,13 +298,13 @@ Each helper returns a stage. Implement the stage structs as well.
 
 Create `runtime/stages_emit.go`:
 
-1. **DefaultIDStage** - computes hash of (kind, from, timestamp, payload)
-2. **ContentIDStage** - computes hash from content function
+1. **IDStage** - always computes unique envelope ID from (kind, from, timestamp, payload)
+2. **ContentKeyStage** - computes semantic identity from payload (if behavior.ContentKey defined)
 3. **DefaultSignStage** - signs with keypair from context
 4. **NoSignStage** - no-op
 5. **DefaultStoreStage** - adds to ledger with priority
 6. **NoStoreStage** - no-op
-7. **DedupStoreStage** - checks for duplicates before storing
+7. **ContentKeyStoreStage** - stores with ContentKey-based deduplication
 8. **GossipStage** - adds to gossip queue
 9. **NoGossipStage** - no-op
 10. **MQTTStage** - publishes to MQTT topic
@@ -313,8 +323,8 @@ Create `runtime/stages_receive.go`:
 2. **SelfAttestingVerifyStage** - extracts key from payload, verifies
 3. **CustomVerifyStage** - calls custom verification function
 4. **NoVerifyStage** - no-op
-5. **IDDedupeStage** - rejects duplicate IDs
-6. **ContentDedupeStage** - rejects duplicate content
+5. **IDDedupeStage** - rejects messages with duplicate ID (exact same message)
+6. **ContentKeyDedupeStage** - rejects messages with duplicate ContentKey (same fact)
 7. **RateLimitStage** - checks rate limiter
 8. **ImportanceFilterStage** - filters by importance level
 
@@ -345,6 +355,7 @@ type RuntimeInterface interface {
 type LedgerInterface interface {
     Add(msg *Message, priority int) error
     HasID(id string) bool
+    HasContentKey(contentKey string) bool
     HasMatching(kind string, matcher func(*Message) bool) bool
 }
 
@@ -504,6 +515,14 @@ func (rt *Runtime) Emit(msg *Message) error {
         return fmt.Errorf("unknown message kind: %s", msg.Kind)
     }
 
+    // Set version to current if not specified
+    if msg.Version == 0 {
+        msg.Version = behavior.CurrentVersion
+        if msg.Version == 0 {
+            msg.Version = 1  // Default to v1
+        }
+    }
+
     pipeline := rt.buildEmitPipeline(behavior)
     ctx := rt.newPipelineContext()
 
@@ -561,7 +580,15 @@ func (rt *Runtime) newPipelineContext() *PipelineContext {
 
 func (rt *Runtime) buildEmitPipeline(b *Behavior) Pipeline {
     stages := []Stage{}
-    stages = append(stages, orDefault(b.ID, DefaultID()))
+
+    // ID stage - always computes unique envelope ID
+    stages = append(stages, &IDStage{})
+
+    // ContentKey stage - if behavior defines ContentKey function
+    if b.ContentKey != nil {
+        stages = append(stages, &ContentKeyStage{KeyFunc: b.ContentKey})
+    }
+
     stages = append(stages, orDefault(b.Sign, DefaultSign()))
     stages = append(stages, orDefault(b.Store, DefaultStore(2)))
     stages = append(stages, orDefault(b.Gossip, NoGossip()))
@@ -635,6 +662,10 @@ func (a *LedgerAdapter) Add(msg *runtime.Message, priority int) error {
 
 func (a *LedgerAdapter) HasID(id string) bool {
     return a.ledger.HasID(id)
+}
+
+func (a *LedgerAdapter) HasContentKey(contentKey string) bool {
+    return a.ledger.HasContentKey(contentKey)
 }
 
 func (a *LedgerAdapter) HasMatching(kind string, matcher func(*runtime.Message) bool) bool {
