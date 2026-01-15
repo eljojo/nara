@@ -32,6 +32,10 @@ type Service struct {
 	// Our confidants (peers who hold our stash)
 	confidants []string // List of nara IDs
 
+	// Our own stash data (to be encrypted and distributed to confidants)
+	myStashData      []byte // Arbitrary JSON payload
+	myStashTimestamp int64  // When it was last updated
+
 	// Request/response correlation
 	storeCorrelator   *utilities.Correlator[messages.StashStoreAck]
 	requestCorrelator *utilities.Correlator[messages.StashResponsePayload]
@@ -190,6 +194,77 @@ func (s *Service) SetConfidants(confidantIDs []string) {
 	s.log.Info("configured %d confidants", len(confidantIDs))
 }
 
+// SetStashData updates the stash data and distributes it to all confidants.
+func (s *Service) SetStashData(data []byte) error {
+	s.mu.Lock()
+	s.myStashData = data
+	s.myStashTimestamp = time.Now().Unix()
+	s.mu.Unlock()
+
+	s.log.Info("stash data updated (%d bytes)", len(data))
+
+	// Distribute to all configured confidants
+	return s.DistributeToConfidants()
+}
+
+// GetStashData returns the current stash data.
+func (s *Service) GetStashData() (data []byte, timestamp int64) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.myStashData, s.myStashTimestamp
+}
+
+// HasStashData returns true if we have stash data configured.
+func (s *Service) HasStashData() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.myStashData) > 0
+}
+
+// DistributeToConfidants distributes the current stash to all configured confidants.
+func (s *Service) DistributeToConfidants() error {
+	s.mu.RLock()
+	data := s.myStashData
+	confidants := make([]string, len(s.confidants))
+	copy(confidants, s.confidants)
+	s.mu.RUnlock()
+
+	if len(data) == 0 {
+		return fmt.Errorf("no stash data to distribute")
+	}
+
+	if len(confidants) == 0 {
+		return fmt.Errorf("no confidants configured")
+	}
+
+	if len(confidants) < 3 {
+		return fmt.Errorf("minimum 3 confidants required, only have %d", len(confidants))
+	}
+
+	// Distribute to each confidant
+	var errors []string
+	successCount := 0
+	for _, confidantID := range confidants {
+		if err := s.StoreWith(confidantID, data); err != nil {
+			s.log.Warn("failed to store with %s: %v", confidantID, err)
+			errors = append(errors, fmt.Sprintf("%s: %v", confidantID, err))
+		} else {
+			successCount++
+		}
+	}
+
+	if successCount == 0 {
+		return fmt.Errorf("failed to distribute to any confidants: %v", errors)
+	}
+
+	s.log.Info("distributed stash to %d/%d confidants", successCount, len(confidants))
+	if len(errors) > 0 {
+		s.log.Warn("distribution errors: %v", errors)
+	}
+
+	return nil
+}
+
 // HasStashFor returns true if we're storing a stash for the given owner.
 func (s *Service) HasStashFor(ownerID string) bool {
 	s.mu.RLock()
@@ -228,11 +303,15 @@ func (s *Service) MarshalState() ([]byte, error) {
 	defer s.mu.RUnlock()
 
 	state := struct {
-		Confidants []string                   `json:"confidants"`
-		Stored     map[string]*EncryptedStash `json:"stored"`
+		Confidants       []string                   `json:"confidants"`
+		Stored           map[string]*EncryptedStash `json:"stored"`
+		MyStashData      []byte                     `json:"my_stash_data,omitempty"`
+		MyStashTimestamp int64                      `json:"my_stash_timestamp,omitempty"`
 	}{
-		Confidants: s.confidants,
-		Stored:     s.stored,
+		Confidants:       s.confidants,
+		Stored:           s.stored,
+		MyStashData:      s.myStashData,
+		MyStashTimestamp: s.myStashTimestamp,
 	}
 
 	return json.Marshal(state)
@@ -241,8 +320,10 @@ func (s *Service) MarshalState() ([]byte, error) {
 // UnmarshalState loads the service's state from JSON.
 func (s *Service) UnmarshalState(data []byte) error {
 	var state struct {
-		Confidants []string                   `json:"confidants"`
-		Stored     map[string]*EncryptedStash `json:"stored"`
+		Confidants       []string                   `json:"confidants"`
+		Stored           map[string]*EncryptedStash `json:"stored"`
+		MyStashData      []byte                     `json:"my_stash_data,omitempty"`
+		MyStashTimestamp int64                      `json:"my_stash_timestamp,omitempty"`
 	}
 
 	if err := json.Unmarshal(data, &state); err != nil {
@@ -254,9 +335,11 @@ func (s *Service) UnmarshalState(data []byte) error {
 
 	s.confidants = state.Confidants
 	s.stored = state.Stored
+	s.myStashData = state.MyStashData
+	s.myStashTimestamp = state.MyStashTimestamp
 
-	logrus.Infof("[stash] loaded state: %d confidants, %d stored stashes",
-		len(s.confidants), len(s.stored))
+	logrus.Infof("[stash] loaded state: %d confidants, %d stored stashes, my stash: %d bytes",
+		len(s.confidants), len(s.stored), len(s.myStashData))
 
 	return nil
 }
