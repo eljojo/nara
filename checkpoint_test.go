@@ -197,7 +197,7 @@ func TestCheckpoint_NeverPruned(t *testing.T) {
 // Test checkpoint with single voter (basic case)
 func TestCheckpoint_SingleVoter(t *testing.T) {
 	subject := "lisa"
-	voterID := "homer-id-123"
+	voterID := NaraID("homer-id-123")
 	keypair := generateTestKeypair()
 
 	event := NewTestCheckpointEvent(subject, time.Now().Unix(), 1624066568, 47, 23456789)
@@ -219,7 +219,7 @@ func TestCheckpoint_SingleVoter(t *testing.T) {
 // Test checkpoint with multiple voters
 func TestCheckpoint_MultipleVoters(t *testing.T) {
 	subject := "lisa"
-	voterIDs := []string{"homer-id", "marge-id", "bart-id"}
+	voterIDs := []NaraID{NaraID("homer-id"), NaraID("marge-id"), NaraID("bart-id")}
 	keypairs := make([]NaraKeypair, 3)
 	for i := range keypairs {
 		keypairs[i] = generateTestKeypair()
@@ -243,9 +243,9 @@ func TestCheckpoint_MultipleVoters(t *testing.T) {
 // Test checkpoint signature verification
 func TestCheckpoint_VerifySignatures(t *testing.T) {
 	subject := "lisa"
-	voterIDs := []string{"homer-id", "marge-id", "bart-id"}
+	voterIDs := []NaraID{NaraID("homer-id"), NaraID("marge-id"), NaraID("bart-id")}
 	keypairs := make([]NaraKeypair, 3)
-	publicKeys := make(map[string]string)
+	publicKeys := make(map[NaraID]string)
 
 	for i, voterID := range voterIDs {
 		keypairs[i] = generateTestKeypair()
@@ -267,7 +267,7 @@ func TestCheckpoint_VerifySignatures(t *testing.T) {
 // Test checkpoint signature verification with wrong keys
 func TestCheckpoint_VerifySignatures_WrongKeys(t *testing.T) {
 	subject := "lisa"
-	voterID := "homer-id"
+	voterID := NaraID("homer-id")
 	keypair := generateTestKeypair()
 	wrongKeypair := generateTestKeypair()
 
@@ -275,7 +275,7 @@ func TestCheckpoint_VerifySignatures_WrongKeys(t *testing.T) {
 	event.AddCheckpointVoter(voterID, keypair)
 
 	// Verify with wrong public key
-	publicKeys := map[string]string{
+	publicKeys := map[NaraID]string{
 		voterID: pubKeyToBase64(wrongKeypair.PublicKey), // Wrong key!
 	}
 
@@ -303,7 +303,7 @@ func TestCheckpoint_DeriveRestartCount(t *testing.T) {
 	}
 
 	// Total should be 47 (checkpoint) + 3 (new) = 50
-	total := ledger.DeriveRestartCount(subject)
+	total := ledger.DeriveRestartCount(NaraName(subject))
 	if total != 50 {
 		t.Errorf("Expected total restarts=50 (47+3), got %d", total)
 	}
@@ -322,7 +322,7 @@ func TestCheckpoint_DeriveRestartCount_NoCheckpoint(t *testing.T) {
 	}
 
 	// Total should just be 5 (count of unique start times)
-	total := ledger.DeriveRestartCount(subject)
+	total := ledger.DeriveRestartCount(NaraName(subject))
 	if total != 5 {
 		t.Errorf("Expected total restarts=5, got %d", total)
 	}
@@ -334,7 +334,7 @@ func TestCheckpoint_DeriveRestartCount_BackfillFallback(t *testing.T) {
 	subject := "lisa"
 
 	// Add backfill event (old system)
-	backfillEvent := NewBackfillObservationEvent("observer", subject, 1624066568, 47, 1704067200)
+	backfillEvent := NewBackfillObservationEvent(NaraName("observer"), NaraName(subject), 1624066568, 47, 1704067200)
 	ledger.AddEvent(backfillEvent)
 
 	// Add 2 new restart events with different start times
@@ -344,7 +344,7 @@ func TestCheckpoint_DeriveRestartCount_BackfillFallback(t *testing.T) {
 	ledger.AddEvent(event2)
 
 	// Total should be 47 (backfill baseline) + 2 (new unique start times) = 49
-	total := ledger.DeriveRestartCount(subject)
+	total := ledger.DeriveRestartCount(NaraName(subject))
 	if total != 49 {
 		t.Errorf("Expected total restarts=49 (47+2), got %d", total)
 	}
@@ -357,7 +357,7 @@ func TestCheckpoint_PrecedenceOverBackfill(t *testing.T) {
 	checkpointTime := time.Now().Unix() // Use current time (after cutoff, won't be adjusted)
 
 	// Add backfill event with old data
-	backfillEvent := NewBackfillObservationEvent("observer", subject, 1624066568, 40, 1704067200)
+	backfillEvent := NewBackfillObservationEvent(NaraName("observer"), NaraName(subject), 1624066568, 40, 1704067200)
 	ledger.AddEvent(backfillEvent)
 
 	// Add checkpoint with newer data (should take precedence)
@@ -369,7 +369,7 @@ func TestCheckpoint_PrecedenceOverBackfill(t *testing.T) {
 	ledger.AddEvent(newEvent)
 
 	// Total should be 47 (checkpoint) + 1 (new) = 48, NOT 40 (backfill) + something
-	total := ledger.DeriveRestartCount(subject)
+	total := ledger.DeriveRestartCount(NaraName(subject))
 	if total != 48 {
 		t.Errorf("Expected total restarts=48 (checkpoint 47 + 1 new), got %d", total)
 	}
@@ -390,7 +390,7 @@ func TestCheckpoint_UniqueStartTimes(t *testing.T) {
 	}
 
 	// Should count as 1 restart (same start time)
-	total := ledger.DeriveRestartCount(subject)
+	total := ledger.DeriveRestartCount(NaraName(subject))
 	if total != 1 {
 		t.Errorf("Expected total restarts=1 (same start_time), got %d", total)
 	}
@@ -417,7 +417,7 @@ func TestCheckpoint_DeriveTotalUptime(t *testing.T) {
 	ledger.AddEvent(offlineEvent)
 
 	// Total uptime should be 1000 (checkpoint) + 500 (new period) = 1500
-	total := ledger.DeriveTotalUptime(subject)
+	total := ledger.DeriveTotalUptime(NaraName(subject))
 	if total != 1500 {
 		t.Errorf("Expected total uptime=1500 (1000+500), got %d", total)
 	}
@@ -431,11 +431,11 @@ func TestCheckpoint_DeriveTotalUptime_Backfill(t *testing.T) {
 
 	// Backfill: lisa has been around since startTime
 	startTime := time.Now().Unix() - 7200 // 2 hours ago
-	backfillEvent := NewBackfillObservationEvent("observer", subject, startTime, 10, time.Now().Unix())
+	backfillEvent := NewBackfillObservationEvent(NaraName("observer"), NaraName(subject), startTime, 10, time.Now().Unix())
 	ledger.AddEvent(backfillEvent)
 
 	// With no status-change events, uptime should be time since startTime
-	total := ledger.DeriveTotalUptime(subject)
+	total := ledger.DeriveTotalUptime(NaraName(subject))
 	expectedUptime := time.Now().Unix() - startTime
 
 	// Allow 2 second tolerance for timing
@@ -450,7 +450,7 @@ func TestCheckpoint_DeriveTotalUptime_BackfillWithOffline(t *testing.T) {
 	subject := "lisa"
 
 	// Backfill: lisa has been around since time 1000
-	backfillEvent := NewBackfillObservationEvent("observer", subject, 1000, 10, 2000)
+	backfillEvent := NewBackfillObservationEvent(NaraName("observer"), NaraName(subject), 1000, 10, 2000)
 	ledger.AddEvent(backfillEvent)
 
 	// Status events: OFFLINE at 1500, back ONLINE at 1700, OFFLINE at 1900
@@ -469,7 +469,7 @@ func TestCheckpoint_DeriveTotalUptime_BackfillWithOffline(t *testing.T) {
 	offline2.Timestamp = 1900 * 1e9
 	ledger.AddEvent(offline2)
 
-	total := ledger.DeriveTotalUptime(subject)
+	total := ledger.DeriveTotalUptime(NaraName(subject))
 	expectedUptime := int64(500 + 200) // 700
 	if total != expectedUptime {
 		t.Errorf("Expected uptime=%d (500+200 from backfill timeline), got %d", expectedUptime, total)
@@ -491,7 +491,7 @@ func TestCheckpoint_RestartEventsPreservedWithoutCheckpoint(t *testing.T) {
 	}
 
 	// All 25 should still be there since no checkpoint exists
-	restartCount := ledger.DeriveRestartCount(subject)
+	restartCount := ledger.DeriveRestartCount(NaraName(subject))
 	if restartCount != 25 {
 		t.Errorf("Expected 25 restarts to be preserved (no checkpoint), got %d", restartCount)
 	}
@@ -543,7 +543,7 @@ func TestCheckpoint_RestartEventsPrunedAfterCheckpoint(t *testing.T) {
 	}
 
 	// But derived restart count should still be correct: 10 (checkpoint) + remaining unique StartTimes
-	restartCount := ledger.DeriveRestartCount(subject)
+	restartCount := ledger.DeriveRestartCount(NaraName(subject))
 	// We should have checkpoint(10) + some number of new restarts
 	if restartCount < 10 {
 		t.Errorf("Expected at least checkpoint restarts (10), got %d", restartCount)
@@ -558,11 +558,11 @@ func TestCheckpoint_Round2SignatureVerification(t *testing.T) {
 	voter1Keypair := generateTestKeypair()
 	voter2Keypair := generateTestKeypair()
 
-	proposerID := "proposer-id"
-	voter1ID := "voter1-id"
-	voter2ID := "voter2-id"
+	proposerID := NaraID("proposer-id")
+	voter1ID := NaraID("voter1-id")
+	voter2ID := NaraID("voter2-id")
 
-	subject := "proposer"
+	subject := NaraName("proposer")
 	asOfTime := time.Now().Unix()
 	restarts := int64(100)
 	totalUptime := int64(50000)
@@ -596,7 +596,7 @@ func TestCheckpoint_Round2SignatureVerification(t *testing.T) {
 			TotalUptime: totalUptime,
 			StartTime:   firstSeen,
 		},
-		Attester:   "voter1",
+		Attester:   NaraName("voter1"),
 		AttesterID: voter1ID,
 		AsOfTime:   asOfTime,
 	}
@@ -611,7 +611,7 @@ func TestCheckpoint_Round2SignatureVerification(t *testing.T) {
 			TotalUptime: totalUptime,
 			StartTime:   firstSeen,
 		},
-		Attester:   "voter2",
+		Attester:   NaraName("voter2"),
 		AttesterID: voter2ID,
 		AsOfTime:   asOfTime,
 	}
@@ -619,7 +619,7 @@ func TestCheckpoint_Round2SignatureVerification(t *testing.T) {
 
 	// Create checkpoint with round 2 signatures
 	checkpoint := &CheckpointEventPayload{
-		Subject:   subject,
+		Subject:   string(subject),
 		SubjectID: proposerID,
 		AsOfTime:  asOfTime,
 		Observation: NaraObservation{
@@ -627,7 +627,7 @@ func TestCheckpoint_Round2SignatureVerification(t *testing.T) {
 			TotalUptime: totalUptime,
 			StartTime:   firstSeen,
 		},
-		VoterIDs:   []string{proposerID, voter1ID, voter2ID},
+		VoterIDs:   []NaraID{proposerID, voter1ID, voter2ID},
 		Signatures: []string{proposerSig, voter1Sig, voter2Sig},
 		Round:      round, // Must match what was signed
 	}
@@ -685,11 +685,11 @@ func TestCheckpoint_PartialSignatureVerification(t *testing.T) {
 	voter1Keypair := generateTestKeypair()
 	voter2Keypair := generateTestKeypair()
 
-	proposerID := "proposer-id"
-	voter1ID := "voter1-id"
-	voter2ID := "voter2-id"
+	proposerID := NaraID("proposer-id")
+	voter1ID := NaraID("voter1-id")
+	voter2ID := NaraID("voter2-id")
 
-	subject := "proposer"
+	subject := NaraName("proposer")
 	asOfTime := time.Now().Unix()
 	restarts := int64(100)
 	totalUptime := int64(50000)
@@ -736,7 +736,7 @@ func TestCheckpoint_PartialSignatureVerification(t *testing.T) {
 			TotalUptime: totalUptime,
 			StartTime:   firstSeen,
 		},
-		Attester:   "voter2",
+		Attester:   NaraName("voter2"),
 		AttesterID: voter2ID,
 		AsOfTime:   asOfTime,
 	}
@@ -744,7 +744,7 @@ func TestCheckpoint_PartialSignatureVerification(t *testing.T) {
 
 	// Create checkpoint with all 3 signatures
 	checkpoint := &CheckpointEventPayload{
-		Subject:   subject,
+		Subject:   string(subject),
 		SubjectID: proposerID,
 		AsOfTime:  asOfTime,
 		Observation: NaraObservation{
@@ -752,7 +752,7 @@ func TestCheckpoint_PartialSignatureVerification(t *testing.T) {
 			TotalUptime: totalUptime,
 			StartTime:   firstSeen,
 		},
-		VoterIDs:   []string{proposerID, voter1ID, voter2ID},
+		VoterIDs:   []NaraID{proposerID, voter1ID, voter2ID},
 		Signatures: []string{proposerSig, voter1Sig, voter2Sig},
 		Round:      round,
 	}
@@ -847,7 +847,7 @@ func TestCheckpoint_BackfillCreatedWithExistingRestarts(t *testing.T) {
 
 	// Now add a backfill event with the FULL restart history
 	// This simulates what should happen during backfillObservations()
-	backfillEvent := NewBackfillObservationEvent("observer", subject, 1639996062, 1025, time.Now().Unix())
+	backfillEvent := NewBackfillObservationEvent(NaraName("observer"), NaraName(subject), 1639996062, 1025, time.Now().Unix())
 	added := ledger.AddEvent(backfillEvent)
 
 	if !added {
@@ -855,7 +855,7 @@ func TestCheckpoint_BackfillCreatedWithExistingRestarts(t *testing.T) {
 	}
 
 	// Now derive restart count - should use backfill baseline (1025) + new restart (1)
-	totalRestarts := ledger.DeriveRestartCount(subject)
+	totalRestarts := ledger.DeriveRestartCount(NaraName(subject))
 
 	// We expect: backfill baseline (1025) + 1 new restart event with different StartTime = 1026
 	// BUT the restart event has StartTime=recentStartTime which is different from backfills StartTime=1639996062

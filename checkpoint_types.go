@@ -25,8 +25,8 @@ type CheckpointEventPayload struct {
 	Version int `json:"version"` // Checkpoint format version (default: 1)
 
 	// Identity (who this checkpoint is about)
-	Subject   string `json:"subject"`    // Nara name
-	SubjectID NaraID `json:"subject_id"` // Nara ID (for indexing)
+	Subject   NaraName `json:"subject"`    // Nara name
+	SubjectID NaraID   `json:"subject_id"` // Nara ID (for indexing)
 
 	// Chain of trust (v2+)
 	PreviousCheckpointID string `json:"previous_checkpoint_id,omitempty"` // ID of previous checkpoint for this subject (empty for first checkpoint or v1)
@@ -102,7 +102,7 @@ func (p *CheckpointEventPayload) GetActor() string {
 }
 
 // GetTarget implements Payload (Subject is the target)
-func (p *CheckpointEventPayload) GetTarget() string { return p.Subject }
+func (p *CheckpointEventPayload) GetTarget() NaraName { return p.Subject }
 
 // CheckpointVerificationResult contains detailed verification information
 type CheckpointVerificationResult struct {
@@ -209,7 +209,7 @@ func (p *CheckpointEventPayload) signableData() []byte {
 //   - firstSeen: Unix timestamp (seconds) when the network first saw this nara
 //   - restarts: Total restart count known at checkpoint time
 //   - totalUptime: Total verified online seconds at checkpoint time
-func NewCheckpointEvent(subject string, asOfTime, firstSeen, restarts, totalUptime int64) SyncEvent {
+func NewCheckpointEvent(subject NaraName, asOfTime, firstSeen, restarts, totalUptime int64) SyncEvent {
 	e := SyncEvent{
 		Timestamp: time.Now().UnixNano(),
 		Service:   ServiceCheckpoint,
@@ -235,7 +235,7 @@ func NewCheckpointEvent(subject string, asOfTime, firstSeen, restarts, totalUpti
 // Preserves relative ordering of timestamps by adding an offset when needed.
 // Use this in tests that need checkpoints to exist in the ledger.
 // Use NewCheckpointEvent() for tests that need precise timestamp control.
-func NewTestCheckpointEvent(subject string, asOfTime, firstSeen, restarts, totalUptime int64) SyncEvent {
+func NewTestCheckpointEvent(subject NaraName, asOfTime, firstSeen, restarts, totalUptime int64) SyncEvent {
 	// Ensure test checkpoints aren't filtered by the cutoff time
 	// Preserve relative ordering by adding the same offset to all old timestamps
 	if asOfTime <= CheckpointCutoffTime {
@@ -304,7 +304,7 @@ func (e *SyncEvent) VerifyCheckpointSignatures(publicKeys map[NaraID]string) int
 }
 
 // GetCheckpoint returns the most recent checkpoint event for a subject, or nil if none exists
-func (l *SyncLedger) GetCheckpoint(subject string) *CheckpointEventPayload {
+func (l *SyncLedger) GetCheckpoint(subject NaraName) *CheckpointEventPayload {
 	event := l.GetCheckpointEvent(subject)
 	if event != nil {
 		return event.Checkpoint
@@ -313,7 +313,7 @@ func (l *SyncLedger) GetCheckpoint(subject string) *CheckpointEventPayload {
 }
 
 // GetCheckpointEvent returns the full SyncEvent for the most recent checkpoint, or nil if none exists
-func (l *SyncLedger) GetCheckpointEvent(subject string) *SyncEvent {
+func (l *SyncLedger) GetCheckpointEvent(subject NaraName) *SyncEvent {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
@@ -382,7 +382,7 @@ func (l *SyncLedger) DeriveRestartCount(subject string) int64 {
 
 // countUniqueStartTimesAfterLocked counts unique StartTime values for restart events after a given time
 // Caller must hold the read lock
-func (l *SyncLedger) countUniqueStartTimesAfterLocked(subject string, afterTime int64) int64 {
+func (l *SyncLedger) countUniqueStartTimesAfterLocked(subject NaraName, afterTime int64) int64 {
 	startTimes := make(map[int64]bool)
 
 	for _, e := range l.Events {
@@ -413,7 +413,7 @@ func (l *SyncLedger) countUniqueStartTimesAfterLocked(subject string, afterTime 
 // countUniqueStartTimesExcludingLocked counts unique StartTime values excluding a specific one
 // Used for backfill: count all unique start times except the one the backfill already captured
 // Caller must hold the read lock
-func (l *SyncLedger) countUniqueStartTimesExcludingLocked(subject string, excludeStartTime int64) int64 {
+func (l *SyncLedger) countUniqueStartTimesExcludingLocked(subject NaraName, excludeStartTime int64) int64 {
 	startTimes := make(map[int64]bool)
 
 	for _, e := range l.Events {
@@ -448,7 +448,7 @@ func (l *SyncLedger) countUniqueStartTimesExcludingLocked(subject string, exclud
 //
 // For backfill events, we assume the nara has been online since their StartTime
 // (first seen) unless status-change events indicate otherwise.
-func (l *SyncLedger) DeriveTotalUptime(subject string) int64 {
+func (l *SyncLedger) DeriveTotalUptime(subject NaraName) int64 {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
@@ -548,7 +548,7 @@ func (l *SyncLedger) DeriveTotalUptime(subject string) int64 {
 // DeriveUptimeAfter calculates uptime from status-change events after a given timestamp.
 // This is used for checkpoint-based uptime derivation where we need to add
 // new uptime on top of a checkpoint baseline.
-func (l *SyncLedger) DeriveUptimeAfter(subject string, afterTime int64) int64 {
+func (l *SyncLedger) DeriveUptimeAfter(subject NaraName, afterTime int64) int64 {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
@@ -605,7 +605,7 @@ func (l *SyncLedger) DeriveUptimeAfter(subject string, afterTime int64) int64 {
 }
 
 // GetFirstSeenFromEvents returns the earliest known StartTime for a subject from events
-func (l *SyncLedger) GetFirstSeenFromEvents(subject string) int64 {
+func (l *SyncLedger) GetFirstSeenFromEvents(subject NaraName) int64 {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 

@@ -88,16 +88,19 @@ func (network *Network) seedAvgPingRTTFromHistory() {
 	pingsByTarget := make(map[string][]float64)
 
 	for _, ping := range allPings {
+		// TODO: ping.Target should be migrated to NaraID instead of string
+		// Currently using string comparison but this should be ID-based
 		// Skip pings TO us (we care about targets we might ping, not pings to us)
 		if ping.Target != myName {
-			pingsByTarget[ping.Target] = append(pingsByTarget[ping.Target], ping.RTT)
+			pingsByTarget[ping.Target.String()] = append(pingsByTarget[ping.Target.String()], ping.RTT)
 		}
 	}
 
 	// Seed AvgPingRTT for each target
 	seededCount := 0
 	for target, rtts := range pingsByTarget {
-		obs := network.local.getObservation(target)
+		naraName := NaraName(target)
+		obs := network.local.getObservation(naraName)
 
 		// Only seed if AvgPingRTT is not already set (0 means uninitialized)
 		if obs.AvgPingRTT == 0 && len(rtts) > 0 {

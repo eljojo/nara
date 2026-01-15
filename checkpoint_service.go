@@ -825,7 +825,7 @@ func (s *CheckpointService) HandleFinalCheckpoint(event *SyncEvent) {
 
 // verifyCheckpointSignatures verifies checkpoint signatures and returns detailed result
 func (s *CheckpointService) verifyCheckpointSignatures(checkpoint *CheckpointEventPayload) CheckpointVerificationResult {
-	lookup := PublicKeyLookup(func(id NaraID, name string) ed25519.PublicKey {
+	lookup := PublicKeyLookup(func(id NaraID, name NaraName) ed25519.PublicKey {
 		return s.network.getPublicKeyForNaraID(id)
 	})
 	return checkpoint.VerifySignatureWithCounts(lookup)
