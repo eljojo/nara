@@ -81,6 +81,7 @@ func (s *Service) Init(rt runtime.RuntimeInterface) error {
 
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 
+	logrus.Info("📦 Stash service initialized successfully")
 	return nil
 }
 
@@ -205,10 +206,24 @@ func (s *Service) SetConfidants(confidantIDs []string) {
 // - Second and third: random peers
 // Returns error if unable to find 3 willing peers.
 func (s *Service) SelectConfidantsAutomatically() error {
+	// Check if runtime has network info (might not be configured yet)
+	if s.rt == nil {
+		logrus.Error("📦 CRITICAL: Stash service runtime is nil! Init() was never called or failed silently.")
+		logrus.Error("📦 This usually means initRuntime() or startRuntime() failed during startup.")
+		logrus.Error("📦 Check logs for 'Failed to initialize runtime' or 'Failed to start runtime'.")
+		return fmt.Errorf("runtime not initialized - check startup logs for initialization errors")
+	}
+
 	s.log.Info("selecting confidants automatically...")
 
 	// Get list of online peers from runtime
 	peers := s.rt.OnlinePeers()
+
+	logrus.Infof("📦 Auto-selecting confidants: found %d online peers", len(peers))
+	for i, peer := range peers {
+		logrus.Infof("📦   Peer %d: %s (%s) uptime=%v", i+1, peer.Name, peer.ID, peer.Uptime)
+	}
+
 	if len(peers) < 3 {
 		return fmt.Errorf("need at least 3 online peers, only found %d", len(peers))
 	}
@@ -244,11 +259,14 @@ func (s *Service) SelectConfidantsAutomatically() error {
 
 		// Try to store with this peer
 		testData := []byte(fmt.Sprintf(`{"test":"probe","timestamp":%d}`, time.Now().Unix()))
+		logrus.Infof("📦 Trying peer %s (%s) as first confidant (uptime: %v)...", peer.Name, peer.ID, peer.Uptime)
 		if err := s.StoreWith(peer.ID, testData); err != nil {
+			logrus.Warnf("📦   ❌ Peer %s declined: %v", peer.Name, err)
 			s.log.Warn("peer %s (uptime: %s) declined: %v", peer.ID, peer.Uptime, err)
 			continue
 		}
 
+		logrus.Infof("📦   ✅ Peer %s accepted!", peer.Name)
 		s.log.Info("selected confidant 1/3: %s (uptime: %s)", peer.ID, peer.Uptime)
 		selected = append(selected, peer.ID)
 		used[peer.ID] = true
@@ -310,9 +328,11 @@ func (s *Service) SetStashData(data []byte) error {
 
 	s.log.Info("stash data updated (%d bytes)", len(data))
 
-	// If no confidants configured, select them automatically
-	if len(s.confidants) == 0 {
-		s.log.Info("no confidants configured, selecting automatically...")
+	// If fewer than 3 confidants, try to auto-select
+	if len(s.confidants) < 3 {
+		s.log.Info("only %d confidants configured (need 3), selecting automatically...", len(s.confidants))
+		// Clear old confidants before auto-selecting
+		s.confidants = []string{}
 		if err := s.SelectConfidantsAutomatically(); err != nil {
 			return fmt.Errorf("failed to auto-select confidants: %w", err)
 		}

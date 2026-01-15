@@ -569,7 +569,8 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 
 	// Initialize runtime with adapters and services
 	if err := network.initRuntime(); err != nil {
-		logrus.Errorf("Failed to initialize runtime: %v", err)
+		logrus.Errorf("❌ CRITICAL: Failed to initialize runtime: %v", err)
+		logrus.Error("❌ Stash service will not work! Check configuration and dependencies.")
 	}
 
 	// Start log service
@@ -733,7 +734,8 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 	// Start runtime services
 	if network.runtime != nil {
 		if err := network.startRuntime(); err != nil {
-			logrus.Errorf("Failed to start runtime: %v", err)
+			logrus.Errorf("❌ CRITICAL: Failed to start runtime: %v", err)
+			logrus.Error("❌ Stash service will not work! Check logs above for details.")
 		}
 	}
 
