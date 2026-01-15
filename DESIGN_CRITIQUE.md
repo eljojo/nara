@@ -99,62 +99,78 @@ func (q *GossipQueue) Add(msg *Message) {
 
 ---
 
-### 4. Versioning Complexity for Simple Cases
+### 4. Versioning Complexity for Simple Cases ✅ SOLVED
 
 ```go
 type Behavior struct {
     CurrentVersion int
     MinVersion     int
-    PayloadTypes   map[int]reflect.Type
-    PayloadType    reflect.Type  // Shorthand
+    PayloadTypes   map[int]reflect.Type  // Always use this, no shorthand
 }
 ```
 
-**Concern:** Two ways to specify payload type. Which takes precedence? What if both are set?
+**Original concern:** Two ways to specify payload type (`PayloadTypes` map vs `PayloadType` single).
 
-**Rules (implicit):**
-- If `PayloadTypes` is set, use version lookup
-- Otherwise use `PayloadType`
-- If neither... panic? Default to empty?
+**Solution:** Removed `PayloadType` shorthand. Always use `PayloadTypes` map - it's explicit about versioning from day one, and the runtime deserializes for you.
 
-**Risk for stash:** Low. Stash is new, starts at v1, uses simple `PayloadType`.
-
-**Recommendation:** Document precedence clearly. Add validation in `Register()`:
 ```go
-if b.PayloadTypes != nil && b.PayloadType != nil {
-    return errors.New("set PayloadTypes OR PayloadType, not both")
+// Even for v1-only services, use the map:
+PayloadTypes: map[int]reflect.Type{
+    1: PayloadTypeOf[StashStorePayload](),
 }
 ```
+
+**Risk:** None. One way to do things = no confusion.
 
 ---
 
-### 5. Testing the Runtime Itself
+### 5. Testing the Runtime Itself ✅ SOLVED
 
-**Concern:** How do we test the runtime without starting MQTT, mesh, ledger?
+**Original concern:** How do we test the runtime without starting MQTT, mesh, ledger?
 
-**Current plan:** Interfaces everywhere, mock implementations.
+**Solution:** Two testing levels with different approaches:
 
+**1. Runtime tests (integration)** — Start real MQTT, test the runtime itself:
 ```go
-type TransportInterface interface {
-    PublishMQTT(topic string, data []byte) error
-    TrySendDirect(target string, msg *Message) error
+func TestRuntimeEmitReceive(t *testing.T) {
+    broker := startTestMQTTBroker(t)
+    rt := NewRuntime(RuntimeConfig{
+        Transport: NewMQTTTransport(broker.URL),
+    })
+    // Test real message flow through the runtime
 }
-
-// In tests
-transport := &MockTransport{}
-rt := NewRuntime(RuntimeConfig{Transport: transport})
 ```
 
-**Risk for stash:** Medium. We need good mocks before we can test stash service.
+**2. Service tests (unit)** — MockRuntime, no external dependencies:
+```go
+func TestStashStore(t *testing.T) {
+    // No MQTT, no mesh - just test business logic
+    mock := NewMockRuntime("alice")
+    stash := NewStashService()
+    stash.Init(mock)
 
-**Order of implementation:**
-1. Core types (Message, StageResult, Behavior)
-2. Interfaces
-3. Mock implementations
-4. Runtime with mocks
-5. Stash service with mock runtime
+    // Simulate receiving a store request
+    mock.Deliver(&Message{
+        Kind: "stash:store",
+        From: "bob",
+        Payload: &StashStorePayload{Data: []byte("secret")},
+    })
 
-**Recommendation:** Write mocks as part of Phase 3, not Phase 4. Can't test anything without them.
+    // Check that stash stored it
+    assert.True(t, stash.HasStashFor("bob"))
+
+    // Check that stash emitted an ack
+    assert.Equal(t, 1, len(mock.Emitted))
+    assert.Equal(t, "stash:ack", mock.Emitted[0].Kind)
+}
+```
+
+**MockRuntime provides:**
+- `Emitted []Message` — Capture all `Emit()` calls for assertions
+- `Deliver(msg)` — Simulate incoming messages to services
+- Fake `Me()`, keypair, personality — No real identity needed
+
+**Risk:** Low. Services interact through `RuntimeInterface`, which MockRuntime implements.
 
 ---
 
@@ -255,13 +271,13 @@ HTTP request → http_mesh.go → rt.Receive() → pipeline → service.Handle()
 - **#8 Mesh receive flow** — document and implement
 
 ### Medium (solve during implementation)
-- **#5 Testing mocks** — write mocks in Phase 3
+- **#5 Testing mocks** — ✅ SOLVED (MockRuntime for services, real MQTT for runtime)
 - **#7 Error strategy defaults** — add sensible defaults
 
 ### Low (defer to later phases)
 - **#1 PipelineContext size** — discipline, not architecture
 - **#3 GossipQueue backpressure** — fix before Phase 6
-- **#4 Versioning complexity** — add validation
+- **#4 Versioning complexity** — ✅ SOLVED (removed PayloadType shorthand)
 
 ---
 
@@ -273,9 +289,9 @@ Before writing stash service code:
 - [x] Decide request/response pattern → **Correlator utility** (see `DESIGN_SERVICE_UTILITIES.md`)
 - [ ] Create `utilities/` package with Correlator, Encryptor, RateLimiter
 - [ ] Document mesh receive flow (HTTP → Receive → pipeline → Handle)
-- [ ] Write mock Transport and Ledger for testing
+- [x] Write MockRuntime for service testing → **Phase 3.3**
 - [ ] Add error strategy defaults (ErrorLog, not ErrorDrop)
-- [ ] Add PayloadType validation in Register()
+- [x] PayloadTypes validation → **Removed PayloadType shorthand, only PayloadTypes exists**
 
 ---
 
@@ -285,8 +301,9 @@ Stash will teach us:
 
 1. **Does the pipeline pattern work for request/response?** — stash is all req/resp
 2. **Is MeshOnly the right abstraction?** — stash is mesh-only, fails if unreachable
-3. **How painful is manual message correlation?** — might need runtime help
-4. **Are the interfaces right?** — first real consumer of TransportInterface
+3. **Does Correlator utility work well?** — first real consumer of the utility pattern
+4. **Are the interfaces right?** — first real consumer of RuntimeInterface
 5. **Does the service lifecycle work?** — Init/Start/Stop/Handle pattern
+6. **Does MockRuntime enable fast iteration?** — test services without MQTT
 
 If stash works cleanly, we have confidence for the rest. If it's painful, we learn what to fix before migrating production services.

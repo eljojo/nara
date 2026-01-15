@@ -988,8 +988,7 @@ type Behavior struct {
     // Versioning
     CurrentVersion int                    // Version for new messages (default 1)
     MinVersion     int                    // Oldest version still accepted (default 1)
-    PayloadTypes   map[int]reflect.Type   // Payload type per version (nil = use PayloadType for all)
-    PayloadType    reflect.Type           // Single payload type (shorthand when no versioning needed)
+    PayloadTypes   map[int]reflect.Type   // Payload type per version (required)
 
     // ContentKey derivation (nil = no content key)
     ContentKey func(payload any) string
@@ -1138,9 +1137,13 @@ func BroadcastEvent(kind, desc string, priority int, topic string) *Behavior {
     }
 }
 
-// Helper to set payload type on a template
+// Helper to set payload type on a template (defaults to v1)
 func (b *Behavior) WithPayload[T any]() *Behavior {
-    b.PayloadType = PayloadTypeOf[T]()
+    b.CurrentVersion = 1
+    b.MinVersion = 1
+    b.PayloadTypes = map[int]reflect.Type{
+        1: PayloadTypeOf[T](),
+    }
     return b
 }
 

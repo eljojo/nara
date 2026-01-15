@@ -198,8 +198,7 @@ type Behavior struct {
     // Versioning
     CurrentVersion int                    // Version for new messages (default 1)
     MinVersion     int                    // Oldest version still accepted (default 1)
-    PayloadTypes   map[int]reflect.Type   // Payload type per version (nil = use PayloadType for all)
-    PayloadType    reflect.Type           // Single payload type (shorthand when no versioning needed)
+    PayloadTypes   map[int]reflect.Type   // Payload type per version (required)
 
     // ContentKey derivation (nil = no content key)
     ContentKey func(payload any) string
@@ -472,7 +471,95 @@ func (q *GossipQueue) Prune() {
 
 **Test:** Write tests for Add, Recent, Prune.
 
-### Step 3.3: Implement Runtime
+### Step 3.3: Implement MockRuntime (for service tests)
+
+Create `runtime/mock_runtime.go` for testing services without MQTT:
+
+```go
+package runtime
+
+// MockRuntime implements RuntimeInterface for testing services
+type MockRuntime struct {
+    name        string
+    Emitted     []*Message           // Captured Emit() calls
+    handlers    map[string][]func(*Message)
+    keypair     *MockKeypair
+}
+
+func NewMockRuntime(name string) *MockRuntime {
+    return &MockRuntime{
+        name:     name,
+        Emitted:  make([]*Message, 0),
+        handlers: make(map[string][]func(*Message)),
+        keypair:  NewMockKeypair(),
+    }
+}
+
+// Emit captures messages for test assertions
+func (m *MockRuntime) Emit(msg *Message) error {
+    if msg.ID == "" {
+        msg.ID = ComputeID(msg)
+    }
+    m.Emitted = append(m.Emitted, msg)
+    return nil
+}
+
+// Deliver simulates receiving a message (calls service handlers)
+func (m *MockRuntime) Deliver(msg *Message) {
+    for _, handler := range m.handlers[msg.Kind] {
+        handler(msg)
+    }
+}
+
+// Subscribe registers a handler for a message kind
+func (m *MockRuntime) Subscribe(kind string, handler func(*Message)) {
+    m.handlers[kind] = append(m.handlers[kind], handler)
+}
+
+// Me returns a fake Nara for the mock
+func (m *MockRuntime) Me() *Nara {
+    return &Nara{Name: m.name}
+}
+
+// Test helpers
+func (m *MockRuntime) EmittedCount() int { return len(m.Emitted) }
+func (m *MockRuntime) LastEmitted() *Message {
+    if len(m.Emitted) == 0 { return nil }
+    return m.Emitted[len(m.Emitted)-1]
+}
+func (m *MockRuntime) EmittedOfKind(kind string) []*Message {
+    var result []*Message
+    for _, msg := range m.Emitted {
+        if msg.Kind == kind {
+            result = append(result, msg)
+        }
+    }
+    return result
+}
+func (m *MockRuntime) Clear() { m.Emitted = make([]*Message, 0) }
+```
+
+**Usage in service tests:**
+```go
+func TestStashStoreAndAck(t *testing.T) {
+    mock := NewMockRuntime("alice")
+    stash := NewStashService()
+    stash.Init(mock)
+
+    // Simulate Bob sending a store request
+    mock.Deliver(&Message{
+        Kind: "stash:store",
+        From: "bob",
+        Payload: &StashStorePayload{Data: []byte("encrypted")},
+    })
+
+    // Verify stash emitted an ack
+    assert.Equal(t, 1, mock.EmittedCount())
+    assert.Equal(t, "stash:ack", mock.LastEmitted().Kind)
+}
+```
+
+### Step 3.4: Implement Runtime
 
 Create `runtime/runtime.go`:
 
@@ -965,8 +1052,9 @@ Network becomes a thin wrapper or is removed entirely:
 
 ### After Phase 3:
 - [ ] Runtime compiles
-- [ ] Emit/Receive work with mock dependencies
+- [ ] Emit/Receive work with real MQTT (integration tests)
 - [ ] GossipQueue works
+- [ ] MockRuntime works for service testing (no MQTT needed)
 
 ### After Phase 4:
 - [ ] Adapters wrap existing code
