@@ -5,98 +5,79 @@ description: Real-time liveness and discovery protocol in the Nara Network.
 
 # Presence
 
-Presence signals enable naras to discover each other, track liveness, and manage graceful departures. It uses a hybrid approach of direct broadcasts and gossip.
+Presence signals enable discovery, liveness tracking, and graceful departures via hybrid MQTT and gossip.
 
-Presence signals enable naras to discover each other, track liveness, and manage graceful departures. It uses a hybrid approach of direct broadcasts and gossip.
 ## 1. Purpose
-- Announce new nodes to the network (`hey_there`).
-- Provide bootstrap information to joining nodes (`howdy`).
-- Signal intentional departures to avoid "missing" timeouts (`chau`).
-- Track derived online status based on any observed activity.
+- **`hey_there`**: Announce new nodes.
+- **`howdy`**: Bootstrap joining nodes with network and history data.
+- **`chau`**: Signal intentional departures.
+- **Derived Status**: Track liveness from any signed activity (pings, social, etc.).
+
 ## 2. Conceptual Model
-- **`hey_there`**: A signed announcement sent on join (MQTT and Gossip). Includes identity (Public Key, ID) and connectivity (Mesh IP).
-- **`howdy`**: A coordination response to `hey_there`. Peers help the newcomer by sharing what they know about the network and the newcomer's own history.
-- **`chau`**: A signed announcement sent on graceful shutdown.
-- **Derived Status**: Presence is not just about messages; any signed event (ping, social) proves a Nara is "ONLINE".
-- **Thresholds**: If no events are seen for a Nara within a threshold (default 5m for Plaza, 1h for Gossip), they are marked "MISSING".
+- **Liveness Thresholds**: Mark **MISSING** if no events seen within 5m (Plaza) or 1h (Gossip).
+- **Status Types**: **ONLINE** (active), **OFFLINE** (graceful exit), **MISSING** (timeout).
 
 ### Invariants
-- **Evidence-Based**: Activity in the ledger is the source of truth for presence projections.
-- **Graceful vs. Abrupt**: `chau` marks a node "OFFLINE"; silence marks it "MISSING".
-- **Graceful vs. Abrupt**: `chau` marks a node "OFFLINE"; silence marks it "MISSING".
-- **Self-Selection**: Up to 10 peers respond with `howdy` using random delays to prevent thundering herds.
+- **Evidence-Based**: Ledger activity is the source of truth for status.
+- **Thundering Herd Protection**: Up to 10 peers respond with `howdy` using random jitter.
+- **Bootstrap Priority**: `chau` events are ignored during initial boot to prevent clobbering live join events.
+
 ## 3. External Behavior
-- **Join**: New nodes broadcast `hey_there` and wait for `howdy` responses.
-- **Bootstrap**: Nodes learn about neighbors through `howdy` before having to discover them manually.
-- **Steady State**: Continuous activity (pings, heartbeats) maintains the "ONLINE" status.
-- **Departure**: On shutdown, the node emits `chau` and local state marks it "OFFLINE".
+- **Join**: Broadcast `hey_there`; wait for `howdy`.
+- **Bootstrap**: Neighbors share peer lists via `howdy` to avoid manual discovery.
+- **Heartbeat**: `NewspaperEvent` broadcasts full state at decreasing frequency.
 
-## Interfaces
+## 4. Interfaces
 
-### HeyThereEvent (SyncEvent Payload)
-- `From`: Nara name.
-- `PublicKey`: Base64 Ed25519 public key.
-- `MeshIP`: Tailscale/Mesh IP.
-- `ID`: Stable Nara ID.
-- `Signature`: Inner signature of identity fields (Legacy, typically verified via outer SyncEvent).
+### HeyThereEvent (SyncEvent)
+- `PublicKey`, `MeshIP`, `ID`.
 
-### ChauEvent (SyncEvent Payload)
-- `From`: Nara name.
-- `PublicKey`: Base64 Ed25519 public key.
-- `ID`: Stable Nara ID.
+### ChauEvent (SyncEvent)
+- `PublicKey`, `ID`.
 
 ### HowdyEvent (MQTT Only)
-- `From`: Responder name.
-- `To`: Newcomer name.
-- `Seq`: Sequence number (1-10).
-- `You`: `NaraObservation` of the newcomer (assists in StartTime recovery).
-- `Neighbors`: Up to 10 known peers (Name, PublicKey, MeshIP, ID, Observation).
+- `You`: Newcomer's history (`NaraObservation`).
+- `Neighbors`: Up to 10 peers (Name, PK, MeshIP, ID, Observation).
 - `Me`: Responder's full `NaraStatus`.
+
 ### NewspaperEvent (MQTT Only)
-Naras periodically broadcast their full state as a `NewspaperEvent` on `nara/plaza/newspaper/{name}`.
 - `Status`: Full `NaraStatus` object.
-- `Signature`: Ed25519 signature of the status content.
+- `Signature`: Ed25519 of status content.
 
-**Invariants**:
-- Used as a heartbeat and for broadcasting complex local state.
-- Frequency decreases over time (fibonacci or exponential backoff) to reduce noise.
+## 5. Algorithms
 
-## 6. Algorithms
 ### Discovery & Howdy Coordination
 ```mermaid
 sequenceDiagram
-1. **Joiner** sends `hey_there`.
-2. **Peers** start a `howdyCoordinator`:
-   - Wait 0-3 seconds (random jitter).
-   - Listen for other `howdy` messages for this joiner.
-   - If `seen >= 10` before our timer fires, **abort**.
-   - Otherwise, select neighbors and send `howdy`.
+    participant J as Joiner
+    participant P as Peers
+    J->>P: hey_there (MQTT)
+    Note over P: Start Coordinator (0-3s Jitter)
+    P->>P: Count other howdys for J
+    alt count < 10
+        P->>J: howdy (Neighbor List)
+    else count >= 10
+        Note over P: Abort
+    end
+```
 
-### 2. Neighbor Selection
-Howdy responders pick up to 10 neighbors (5 in short-memory mode):
-1. Prioritize **ONLINE** naras.
-2. Sort by **least recently active** (oldest `LastSeen`) to help spread network knowledge.
-3. Exclude the joiner and the responder themselves.
+### Neighbor Selection (for Howdy)
+1. Pick up to 10 **ONLINE** naras.
+2. Sort by **least recently active** to maximize network knowledge spread.
 
-### 3. Online Status Projection
-Derived status is computed using a "most recent event wins" rule:
-- `hey_there` / `Social` / `Ping` / `Seen` / `Restart` → **ONLINE**.
-- `chau` / `Observation(status-change: OFFLINE)` → **OFFLINE**.
-- `Observation(status-change: MISSING)` → **MISSING**.
-- **Timeout**: If current status is **ONLINE** but `now - LastEventTime > threshold`, status becomes **MISSING**.
+### Online Status Projection
+Derived from "most recent event wins":
+- `hey_there`, `Social`, `Ping`, `Seen`, `Restart` → **ONLINE**.
+- `chau`, `Observation(OFFLINE)` → **OFFLINE**.
+- `Observation(MISSING)` → **MISSING**.
+- **Timeout**: If ONLINE and `now - LastEventTime > threshold` → **MISSING**.
 
-## Failure Modes
-- **Storms**: If jitter fails or many peers start simultaneously, `howdy` responses may spike.
-- **Stale Chau**: A `chau` from an old session could mark a Nara offline. Projections protect against this by only accepting status changes newer than the current state.
-- **Boot Race**: `chau` events are ignored during the initial boot phase to prevent backfilled history from clobbering live join events.
+## 6. Failure Modes
+- **Storms**: Jitter failure leads to `howdy` spikes.
+- **Identity TOFU**: Public keys are Trusted On First Use; potential for name spoofing before key binding.
 
-## Security / Trust Model
-- **Identity Proof**: `hey_there` is the first time a Nara's public key is seen. Peers use TOFU (Trust On First Use) for the name-to-key binding.
-- **Attestation**: `howdy` responses are signed by the responder.
-- **Hearsay**: Neighbor info in `howdy` is considered unverified until the Nara is seen directly or via a signed event.
-
-## Test Oracle
-- `TestHowdyCoordination`: Verifies that no more than 10 responses are sent.
-- `TestOnlineStatusProjection`: Ensures that pings/social events correctly mark nodes ONLINE and timeouts mark them MISSING.
-- `TestChauEvent`: Confirms graceful shutdown correctly updates projection state to OFFLINE.
-- `TestHeyThereBootstrap`: Checks that identity and mesh IP are correctly imported from join events.
+## 7. Test Oracle
+- `TestHowdyCoordination`: Response limit enforcement.
+- `TestOnlineStatusProjection`: Event-driven status transitions and timeouts.
+- `TestChauEvent`: Graceful exit state.
+- `TestHeyThereBootstrap`: Identity/Mesh IP import.

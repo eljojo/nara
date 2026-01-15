@@ -5,65 +5,54 @@ description: Deterministic traits and subjective behavior in the Nara Network.
 
 # Personality
 
-Personality defines a Nara's "character" and determines how it filters events, weights clout, and interacts with peers. It is the primary engine of subjectivity in the network.
+Personality defines a Nara's "character," driving subjectivity by determining event filtering, clout weighting, and interaction frequency.
 
-## Purpose
-- Drive divergent, subjective views of the network state.
-- Determine which events are "meaningful" to a specific Nara.
-- Influence the frequency and type of social interactions (teasing, trends).
-- Model human-like social dynamics (e.g., chill naras vs. sociable ones).
+## 1. Purpose
+- Drive divergent, subjective views of network state.
+- Define "meaningful" events for a specific Nara.
+- Influence social dynamics (teasing, trends).
+- Model human-like social behaviors (e.g., Chill vs. Sociable).
 
-## Conceptual Model
-A Nara's personality consists of three core traits, each on a scale of 0-99:
-
-- **Agreeableness**: Affects trend participation and willingness to criticize/tease.
-- **Sociability**: Influences the frequency of outgoing social events and the weighting of social data.
-- **Chill**: Determines the memory decay rate and how much a Nara ignores routine or "noisy" events.
+## 2. Conceptual Model
+Three core traits (0-99):
+- **Agreeableness**: Trend participation and willingness to tease.
+- **Sociability**: Social event frequency and data weighting.
+- **Chill**: Memory decay rate and noise sensitivity.
 
 ### Invariants
-- **Deterministic Seeding**: Traits are seeded from a SHA256 hash of the Nara's `soul`.
-- **Immutable**: Once generated, a personality is stable for that identity across restarts.
-- **Public**: Personality traits are included in `NaraStatus` and visible to the network.
+- **Deterministic**: Seeded from `SHA256(soul)`.
+- **Immutable**: Stable for a given identity across restarts.
+- **Transparent**: Traits are included in public `NaraStatus`.
 
-## External Behavior
-- **Filtering**: A Nara with high `Chill` will drop routine `online`/`offline` observations from its ledger to save space.
-- **Reactions**: `Sociability` lowers the threshold for a Nara to notice a problem (like high restarts) and comment on it.
-- **Memory**: The half-life of social weight is subjective; "chill" naras forget drama faster than "non-chill" ones.
+## 3. Algorithms
 
-## Algorithms
+### Seeding Traits
+1. `Seed = BigEndianUint64(SHA256(soul)[0:8])`.
+2. `Rand = NewRand(Seed)`.
+3. Traits = `Rand.Intn(100)`.
 
-### 1. Seeding Traits
-1. `Hash = SHA256(RawSoulBytes)`
-2. `Seed = BigEndianUint64(Hash[0:8])`
-3. `Rand = NewRand(Seed)`
-4. `Agreeableness = Rand.Intn(100)`
-5. `Sociability = Rand.Intn(100)`
-6. `Chill = Rand.Intn(100)`
+### Event Filtering (`socialEventIsMeaningful`)
+- **Casual Events** (Importance 1): Dropped if `Chill` or `Agreeableness` thresholds are met.
+- **Routine Logs**: High-chill (>85) nodes may ignore standard online/offline observations.
+- **Engagement**: Low-sociability (<30) nodes may ignore journeys or gossip.
 
-### 2. Meaningful Event Filtering (`socialEventIsMeaningful`)
-Naras use their personality to decide if an event is worth storing in their ledger:
-- **Casual Events** (Importance 1): Dropped if `Chill` or `Agreeableness` thresholds are met (e.g., high-chill naras ignore random teases).
-- **Routine Logs**: High-chill naras (>85) may ignore standard `online`/`offline` observations.
-- **Social Engagement**: Low-sociability naras (<30) may ignore journey events or gossip.
+### Subjective Weighting & Decay
+Weight adjustment:
+- **Sociability Bonus**: Up to +0.5.
+- **Chill Penalty**: Up to -0.25.
+- **Half-Life**: `Base (24h) * chillModifier * socModifier`.
+  - `chillModifier`: 0.5x to 1.5x based on Chill.
+  - `socModifier`: 1.0x to 1.3x based on Sociability.
 
-### 3. Subjective Weighting
-The weight of an event in a Nara's opinion is adjusted:
-- **Sociability Bonus**: Weight increases by up to 0.5 for sociable naras.
-- **Chill Penalty**: Weight decreases by up to 0.25 for chill naras.
-- **Half-Life Modifier**: 
-  - `chillModifier = 1.0 + (50 - Chill) / 100.0` (0.5x to 1.5x)
-  - `socModifier = 1.0 + Sociability / 333.0` (1.0x to 1.3x)
-  - `SubjectiveHalfLife = BaseHalfLife (24h) * chillModifier * socModifier`
+## 4. Failure Modes
+- **Subjective Isolation**: Extreme traits (e.g., high Chill + low Sociability) lead to sparse ledgers and loss of social context.
+- **Truth Divergence**: Different personalities derive different `Clout` from identical event streams.
 
-## Failure Modes
-- **Subjective Isolation**: A Nara with extremely high `Chill` or low `Sociability` might have an almost empty ledger, missing important social context.
-- **Personality Conflicts**: Different personalities will derive different `Clout` scores for the same Nara, leading to subjective "truth" divergence.
+## 5. Security & Trust
+- **Authenticity**: Personality is tied to soul; cannot be faked without the seed.
+- **Auditability**: Public traits allow peers to interpret a Nara's "behavior" (e.g., why it ignores events).
 
-## Security / Trust Model
-- **Non-Forgeable**: Since personality is derived from the soul, you cannot "fake" a personality without having the corresponding seed.
-- **Visibility**: Transparency in personality allows peers to "understand" why another Nara might be teasing them or ignoring their events.
-
-## Test Oracle
-- `TestPersonalitySeeding`: Verifies that the same soul always produces the same traits.
-- `TestMeaningfulFilter`: Checks that high-chill naras correctly filter out noise events.
-- `TestSubjectiveWeighting`: Validates that Sociability and Chill correctly influence event weights and decay.
+## 6. Test Oracle
+- `TestPersonalitySeeding`: Consistency verification.
+- `TestMeaningfulFilter`: Noise reduction logic.
+- `TestSubjectiveWeighting`: Variance in weight/decay calculation.

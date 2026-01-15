@@ -1,50 +1,46 @@
 ---
 title: Deployment
+description: Build and runtime orchestration for Nara binaries and assets.
 ---
 
 # Deployment
 
 Build and runtime orchestration for Nara binaries, UI assets, and documentation.
 
-## Conceptual Model
-
-| Component | Description |
-| :--- | :--- |
-| **`bin/nara`** | Main binary with embedded UI and documentation. |
-| **`bin/nara-backup`**| CLI tool for ledger export/import. |
-| **`nara-web/public`**| Bundled SPA and docs site. |
+## 1. Conceptual Model
+- **`bin/nara`**: Standalone binary with embedded UI and docs.
+- **`bin/nara-backup`**: CLI for ledger operations.
+- **`nara-web/public`**: Pre-compiled SPA and docs site.
 
 ### Invariants
-- Web assets must be compiled before the main Go binary to ensure embedding.
-- A single HTTP port serves both the API and the UI.
+- **Embedding**: Web assets must be built before the Go binary.
+- **Unified Port**: Single HTTP port serves API and UI.
 
-## Build Pipeline
-
+## 2. Build Pipeline
 ```mermaid
 graph TD
-    A[npm run build: SPA] --> D[Copy to nara-web/public]
+    A[npm run build: SPA] --> D[nara-web/public]
     B[astro build: Docs] --> D
     D --> E[go build: cmd/nara]
     E --> F[bin/nara: Embedded Artifact]
 ```
 
-## Build Targets (`/usr/bin/make`)
-
+## 3. Build Targets (`/usr/bin/make`)
 - `build-web`: Compiles SPA and docs.
 - `build`: Compiles `bin/nara` (includes web).
-- `build-backup`: Compiles the backup utility.
-- `build-nix`: Reproducible build via Nix.
-- `clean`: Remove all artifacts.
+- `build-backup`: Compiles backup utility.
+- `build-nix`: Reproducible Nix build.
+- `clean`: Artifact removal.
 
-## Infrastructure: Fly.io
-Configuration in `fly.toml` for the `nara-web` app:
-- **Port**: 8080 (Internal & External).
+## 4. Infrastructure: Fly.io
+Configuration (`fly.toml`):
+- **Port**: 8080.
 - **Health Check**: `GET /` every 15s.
 
-## Failure Modes
-- **Missing Assets**: Empty UI/404 on docs if the build-web step is skipped.
-- **Port Conflicts**: Multiple instances require unique `-http-addr` flags.
+## 5. Failure Modes
+- **Stale Assets**: Empty/missing UI if `build-web` is skipped.
+- **Port Conflict**: Instances on same host require unique `-http-addr`.
 
-## Test Oracle
-- **Binary**: Successful build produces a standalone executable.
-- **Embedded UI**: Verify `/` and `/docs/` are accessible on the running node.
+## 6. Test Oracle
+- **Standalone**: Produce functional executable.
+- **Accessibility**: Verify `/` and `/docs/` on a running node.

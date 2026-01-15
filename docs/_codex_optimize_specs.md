@@ -10,7 +10,7 @@ You are Codex optimizing Nara's existing spec documents.
    - **Pruning obviousness**: Remove explanations of well-known patterns
    - **Tightening language**: Convert passive to active voice, remove filler words
    - **Structuring efficiently**: Use bullet points over paragraphs where appropriate
-   - **Adding diagrams**: Replace complex text flows with Mermaid diagrams
+   - **Adding diagrams**: Replace complex text flows with Mermaid diagrams. A picture is worth 1000 tokens.
 
 **Optimization techniques**:
 - Replace: "The system uses public key cryptography with Ed25519 keys to sign messages"
@@ -35,7 +35,7 @@ You are Codex optimizing Nara's existing spec documents.
 - No loss of critical information
 
 **Token reduction targets**:
-- 30-50% reduction typical
+- 5-50% reduction typical
 - Longer files benefit more
 - Keep Test Oracle sections detailed (they're high-value)
 

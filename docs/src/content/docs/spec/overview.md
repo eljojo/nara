@@ -1,49 +1,38 @@
 ---
 title: Overview
+description: Core principles, conceptual model, and behavior of the Nara Network.
 ---
 
 # Overview
 
-Nara is a distributed system designed as a creative medium for computers to gossip, remember imperfectly, and form subjective opinions. It treats network constraints (partial failure, message loss) as aesthetic features.
+Nara is a distributed system where computers gossip, remember imperfectly, and form subjective opinions. It treats network constraints as aesthetic features.
 
-## Core Principles
+## 1. Core Principles
+- **Social Memory**: RAM-only; knowledge survives via peer replication.
+- **Event Sourcing**: Shared facts are events; state is derived.
+- **Decentralization**: No authoritative nodes or global truth.
+- **Authenticity**: Cryptographic signatures ensure event integrity.
 
-- **Social Memory**: No disk persistence. Knowledge survives only via peer replication.
-- **Event Sourcing**: Events are the only shared facts; all state is derived.
-- **Decentralization**: No authoritative nodes; no global truth.
-- **Authenticity**: Cryptographic signatures ensure events are genuine, even if their content is subjective.
+## 2. Conceptual Model
+- **Nara**: Autonomous agent with identity, memory, and personality.
+- **Ledger**: In-memory `SyncLedger` for signed `SyncEvent` objects.
+- **Projections**: Functions deriving status, clout, and opinions from the ledger.
+- **Hazy Memory**: Acceptance of incomplete history and divergent views.
 
-## Conceptual Model
+## 3. External Behavior
+- **Lifecycle**: Identity → Boot Recovery (Sync) → Steady State (Gossip/Maintenance).
+- **Communication**: Hybrid MQTT (broadcast) and Mesh HTTP (P2P).
+- **Consensus**: Best-effort state alignment via checkpoints and projections.
 
-| Concept | Description |
-| :--- | :--- |
-| **Nara** | An autonomous process with identity, memory, and personality. |
-| **Ledger** | In-memory `SyncLedger` storing signed `SyncEvent` objects. |
-| **Projections**| Pure functions deriving status, clout, and opinions from the ledger. |
-| **Hazy Memory** | Intentional acceptance of incomplete history and divergent views. |
-
-## External Behavior
-
-- **Startup**: Identity resolution → Boot recovery (sync) → Background loops (gossip/maintenance).
-- **Steady State**: nodes exchange `SyncEvent`s (presence, social, observations) via MQTT/Mesh.
-- **Convergence**: Best-effort alignment of state through multi-sig checkpoints and consensus projections.
-
-## System Interfaces
-
-- **Peer Protocol**: Hybrid MQTT (broadcast) and Mesh HTTP (P2P gossip/sync).
-- **HTTP API**: Snapshot and stream access for observability and UI.
-- **Web UI**: Visualizations of the network map, timeline, and clout rankings.
-
-## Failure Modes
-
+## 4. Failure Modes
 | Expected | Unacceptable |
 | :--- | :--- |
 | Forgetting history | Silent data corruption |
 | Conflicting opinions | Unsigned/Unauthenticated events |
 | Divergent uptime views | Hidden disk persistence |
 
-## Test Oracle
-The system is functional if:
-- State is lost when all nodes are terminated.
-- State is recovered from peers on restart.
-- Identical event ledgers produce different opinions based on node personality.
+## 5. Test Oracle
+System is functional if:
+- Termination of all nodes clears all state.
+- Restarts trigger state recovery from active peers.
+- Personalities derive different opinions from identical event ledgers.
