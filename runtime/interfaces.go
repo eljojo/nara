@@ -24,6 +24,18 @@ type RuntimeInterface interface {
 
 	// Environment
 	Env() Environment
+
+	// Network information (for automatic confidant selection)
+	OnlinePeers() []*PeerInfo
+	MemoryMode() string
+	StorageLimit() int
+}
+
+// PeerInfo contains information about a network peer.
+type PeerInfo struct {
+	ID     string
+	Name   string
+	Uptime time.Duration
 }
 
 // LedgerInterface is what store stages use.
@@ -42,6 +54,13 @@ type TransportInterface interface {
 // GossipQueueInterface is what gossip stages use.
 type GossipQueueInterface interface {
 	Add(msg *Message)
+}
+
+// NetworkInfoInterface provides network and peer information.
+type NetworkInfoInterface interface {
+	OnlinePeers() []*PeerInfo
+	MemoryMode() string
+	StorageLimit() int
 }
 
 // KeypairInterface is what sign stages use.

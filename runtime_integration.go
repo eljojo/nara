@@ -1,6 +1,8 @@
 package nara
 
 import (
+	"time"
+
 	"github.com/eljojo/nara/runtime"
 	"github.com/eljojo/nara/services/stash"
 
@@ -27,6 +29,9 @@ func (network *Network) initRuntime() error {
 		network: network,
 	}
 
+	// Create network info adapter (for peer/memory information)
+	networkInfoAdapter := NewNetworkInfoAdapter(network)
+
 	// Create runtime.Personality from NaraPersonality
 	personality := &runtime.Personality{
 		Agreeableness: network.local.Me.Status.Personality.Agreeableness,
@@ -45,6 +50,7 @@ func (network *Network) initRuntime() error {
 		Transport:   transportAdapter,
 		EventBus:    eventBusAdapter,
 		GossipQueue: gossipAdapter,
+		NetworkInfo: networkInfoAdapter,
 		Personality: personality,
 		Environment: runtime.EnvProduction,
 	})
@@ -126,4 +132,77 @@ type GossipQueueAdapter struct {
 
 func (a *GossipQueueAdapter) Add(msg *runtime.Message) {
 	// In Chapter 2, we'll properly integrate with zine exchange
+}
+
+// === Network Info Adapter ===
+
+// NetworkInfoAdapter provides network and peer information to services.
+type NetworkInfoAdapter struct {
+	network *Network
+}
+
+// NewNetworkInfoAdapter creates a network info adapter.
+func NewNetworkInfoAdapter(network *Network) *NetworkInfoAdapter {
+	return &NetworkInfoAdapter{network: network}
+}
+
+// OnlinePeers returns a list of currently online peers.
+func (a *NetworkInfoAdapter) OnlinePeers() []*runtime.PeerInfo {
+	peers := make([]*runtime.PeerInfo, 0)
+
+	a.network.local.mu.Lock()
+	defer a.network.local.mu.Unlock()
+
+	for id, nara := range a.network.Neighbourhood {
+		nara.mu.Lock()
+
+		// Check if online via observations
+		online := false
+		uptime := time.Duration(0)
+		if obs, ok := a.network.local.Me.Status.Observations[id]; ok {
+			online = obs.isOnline()
+			// Calculate uptime from observation
+			if obs.LastRestart > 0 {
+				// Current session uptime = time since last restart
+				uptime = time.Since(time.Unix(obs.LastRestart, 0))
+			} else if obs.StartTime > 0 {
+				// If no restarts recorded, use time since first seen
+				uptime = time.Since(time.Unix(obs.StartTime, 0))
+			}
+		}
+
+		if online {
+			peers = append(peers, &runtime.PeerInfo{
+				ID:     id,
+				Name:   nara.Name,
+				Uptime: uptime,
+			})
+		}
+
+		nara.mu.Unlock()
+	}
+
+	return peers
+}
+
+// MemoryMode returns the current memory mode (low/medium/high).
+func (a *NetworkInfoAdapter) MemoryMode() string {
+	a.network.local.mu.Lock()
+	defer a.network.local.mu.Unlock()
+	return a.network.local.Me.Status.MemoryMode
+}
+
+// StorageLimit returns the maximum number of stashes based on memory mode.
+func (a *NetworkInfoAdapter) StorageLimit() int {
+	mode := a.MemoryMode()
+	switch mode {
+	case "low":
+		return 5
+	case "medium":
+		return 20
+	case "high":
+		return 50
+	default:
+		return 5 // Default to low
+	}
 }

@@ -32,6 +32,9 @@ type Runtime struct {
 	// Personality for filtering
 	personality *Personality
 
+	// Network information (for automatic confidant selection)
+	networkInfo NetworkInfoInterface
+
 	// Services
 	services []Service
 	handlers map[string][]func(*Message)
@@ -59,6 +62,7 @@ type RuntimeConfig struct {
 	EventBus    EventBusInterface    // Optional
 	GossipQueue GossipQueueInterface // Optional (nil for stash-only)
 	Personality *Personality         // Optional
+	NetworkInfo NetworkInfoInterface // Optional (for peer/memory info)
 	Environment Environment          // Default: EnvProduction
 }
 
@@ -79,6 +83,7 @@ func NewRuntime(cfg RuntimeConfig) *Runtime {
 		eventBus:    cfg.EventBus,
 		gossipQueue: cfg.GossipQueue,
 		personality: cfg.Personality,
+		networkInfo: cfg.NetworkInfo,
 		handlers:    make(map[string][]func(*Message)),
 		env:         env,
 		ctx:         ctx,
@@ -135,6 +140,30 @@ func (rt *Runtime) Log(service string) *ServiceLog {
 // Env returns the runtime environment.
 func (rt *Runtime) Env() Environment {
 	return rt.env
+}
+
+// OnlinePeers returns a list of currently online peers.
+func (rt *Runtime) OnlinePeers() []*PeerInfo {
+	if rt.networkInfo == nil {
+		return []*PeerInfo{}
+	}
+	return rt.networkInfo.OnlinePeers()
+}
+
+// MemoryMode returns the current memory mode (low/medium/high).
+func (rt *Runtime) MemoryMode() string {
+	if rt.networkInfo == nil {
+		return "low" // Default
+	}
+	return rt.networkInfo.MemoryMode()
+}
+
+// StorageLimit returns the maximum number of stashes based on memory mode.
+func (rt *Runtime) StorageLimit() int {
+	if rt.networkInfo == nil {
+		return 5 // Default to low
+	}
+	return rt.networkInfo.StorageLimit()
 }
 
 // === Message handling ===
