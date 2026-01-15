@@ -7,101 +7,121 @@ consensus and projections can be derived deterministically.
 
 ## Conceptual Model
 
-- Observation events are SyncEvents with service `observation`.
+- Observation events are `SyncEvent`s with service `observation`.
 - The derived state is stored in `NaraObservation` records per subject.
 
-NaraObservation fields:
-- `restarts` (int64)
-- `total_uptime` (seconds)
-- `start_time` (Unix seconds)
-- `online` ("ONLINE" | "OFFLINE" | "MISSING")
-- `last_seen` (Unix seconds)
-- `last_restart` (Unix seconds)
-- `cluster_name`, `cluster_emoji`
-- Ping fields (local-only): `last_ping_rtt`, `avg_ping_rtt`, `last_ping_time`
+### NaraObservation Data Structure
+Pure state data about a nara.
+```go
+type NaraObservation struct {
+    // The Trinity (Checkpointable State)
+    Restarts    int64 // Total restart count
+    TotalUptime int64 // Total verified online seconds
+    StartTime   int64 // Unix timestamp (seconds) when first observed
+
+    // Current State
+    Online      string // "ONLINE", "OFFLINE", "MISSING"
+    LastSeen    int64  // Unix timestamp (seconds)
+    LastRestart int64  // Unix timestamp (seconds)
+
+    // Cluster Info
+    ClusterName  string
+    ClusterEmoji string
+
+    // Local-Only Metrics (Not Synced)
+    LastPingRTT  float64
+    AvgPingRTT   float64
+    LastPingTime int64
+}
+```
 
 Key invariants:
-- Observation event timestamps inside payloads are in seconds.
-- SyncEvent timestamps are in nanoseconds.
-- Restart events can be deduplicated by content.
+- Observation event timestamps inside payloads are in **seconds**.
+- `SyncEvent` timestamps are in **nanoseconds**.
+- Restart events can be deduplicated by content (subject + restart_num + start_time).
 
 ## External Behavior
 
-- Observations are emitted for restarts, first-seen events, and status changes.
-- Presence signals (hey_there, chau, ping, social) also drive derived online state.
-- Derived values are recalculated from the ledger, not stored as truth.
+- Observations are emitted for:
+  - **Restarts** (when a node detects a peer's start time changed).
+  - **First Seen** (when a node encounters a new peer).
+  - **Status Changes** (ONLINE/OFFLINE transitions).
+- Presence signals (`hey_there`, `chau`, `ping`, `social`) also drive derived online state.
+- Derived values (`Restarts`, `TotalUptime`) are recalculated from the ledger history + checkpoints.
 
 ## Interfaces
 
-ObservationEventPayload:
-- `observer`, `subject`, `type`, `importance`
-- `type` is "restart", "first-seen", or "status-change"
-- `start_time`, `restart_num`, `last_restart` (seconds)
-- `online_state` ("ONLINE", "OFFLINE", "MISSING")
-- `observer_uptime` (seconds)
-- `is_backfill` (bool)
+### ObservationEventPayload (JSON)
+```json
+{
+  "observer": "observer-name",
+  "subject": "subject-name",
+  "type": "restart | first-seen | status-change",
+  "importance": 1|2|3,
+  "start_time": 1700000000,
+  "restart_num": 42,
+  "last_restart": 1700000000,
+  "online_state": "ONLINE",
+  "observer_uptime": 12345,
+  "is_backfill": false
+}
+```
 
-## Event Types & Schemas (if relevant)
-
-Observation event content strings:
-- Restart: `{subject}:restart:{restart_num}:{start_time}`
-- Other types: `{observer}:{subject}:{type}:{online_state}:{start_time}:{restart_num}`
+### Event Content Strings (for Signing/Dedupe)
+- **Restart**: `{subject}:restart:{restart_num}:{start_time}`
+- **Other**: `{observer}:{subject}:{type}:{online_state}:{start_time}:{restart_num}`
 
 ## Algorithms
 
-Deduplication (optional path):
-- `AddEventWithDedup` deduplicates restart events by
-  `(subject, restart_num, start_time)`.
-- First-seen events are only deduped per observer->subject pair.
-- Status-change events are not deduplicated.
+### 1. Deduplication
+- **Restart Events**: Deduplicated by `(subject, restart_num, start_time)`. This ensures multiple observers can report the same restart without inflating the count.
+- **First-Seen**: Deduplicated per observer-subject pair.
+- **Status-Change**: Generally not deduplicated (records history of transitions).
 
-Compaction:
-- Max 20 observation events per observer->subject pair.
-- When over limit:
-  - Prefer pruning the oldest non-restart event.
-  - If all are restarts and a checkpoint exists for the subject, prune oldest restart.
-  - If all are restarts and no checkpoint exists, do not prune (preserve history).
+### 2. Compaction (Ledger Maintenance)
+To prevent unbound ledger growth:
+- Limit: Max **20** observation events per observer-subject pair.
+- Pruning Strategy when full:
+  1. Prefer pruning the oldest **non-restart** event.
+  2. If all are restarts and a **Checkpoint** exists: Prune oldest restart.
+  3. If all are restarts and **No Checkpoint**: Do NOT prune (preserve history for future checkpointing).
 
-Rate limiting (optional path):
-- `AddEventWithRateLimit` limits to 10 events per subject per 5 minutes.
+### 3. Rate Limiting
+- **Limit**: Max 10 events per subject per 5 minutes.
+- **Scope**: Applied locally before ingesting events.
 
-Derived restart count:
-1. If a checkpoint exists: checkpoint.restarts + unique restart StartTimes after checkpoint.
-2. Else if a backfill exists: backfill.restart_num + unique StartTimes excluding the backfill’s StartTime.
-3. Else: count unique StartTimes from all restart events.
-
-Derived total uptime:
-1. If checkpoint exists: checkpoint.total_uptime + uptime from status-change events after checkpoint.
-2. Else if backfill exists: assume online since backfill start_time, adjusted by status-change events.
-3. Else: sum online intervals from status-change events.
-
-Online status:
-- Most recent presence/observation event wins.
-- ONLINE decays to MISSING after 5 minutes, or 1 hour if either node is in gossip mode.
-
-Consensus opinion (projection):
-- Start time uses trimmed-mean consensus over observations.
-- Restart count uses trimmed mean when multiple observers exist; otherwise max.
-- Last restart is the max observed `last_restart`.
+### 4. State Derivation
+- **Restarts**:
+  - `Base + NewRestarts`
+  - Base = Checkpoint.Restarts OR Backfill.Restarts.
+  - NewRestarts = Unique `StartTime`s observed *after* the base timestamp.
+- **Total Uptime**:
+  - `Base + NewUptime`
+  - Base = Checkpoint.TotalUptime.
+  - NewUptime = Sum of ONLINE intervals derived from status-change events after the base timestamp.
+- **Online Status**:
+  - Latest `observation` or `presence` event determines state.
+  - **Timeouts**: ONLINE -> MISSING after 5m (or 1h if gossip mode).
 
 ## Failure Modes
 
-- Missing observations lead to incomplete restart counts or uptime.
-- Clock skew affects start_time consensus (tolerance is 60s).
-- Excess observation spam is trimmed by rate limiting (if used).
+- **Missing Observations**: Leads to incomplete restart counts or uptime until a checkpoint syncs.
+- **Clock Skew**: Can cause disagreement on `StartTime` (consensus tolerates ±60s).
+- **Spam**: Mitigated by rate limiting and compaction.
 
 ## Security / Trust Model
 
-- Observations are signed as SyncEvents; signatures authenticate the observer.
-- Observations can be wrong; consensus is used to reduce outliers.
+- **Authentication**: All observations are signed `SyncEvent`s.
+- **Consensus**: Individual observations are "opinions". The network truth is derived via **Trimmed Mean Consensus** (removing outliers) and **Checkpoints**.
+- **Trust**: Observers with higher uptime have more weight in some consensus decisions.
 
 ## Test Oracle
 
-- Restart dedupe by content. (`observation_dedup_test.go`)
-- Compaction respects the 20-per-pair limit. (`observation_compaction_test.go`)
-- Rate limit of 10 events per 5 minutes. (`observation_ratelimit_test.go`)
-- Derived restart counts and uptime align with checkpoints. (`consensus_events_test.go`)
+- **Deduplication**: Multiple reports of the same restart result in one logical event. (`observation_dedup_test.go`)
+- **Compaction**: Ledger respects the 20-per-pair limit and preserves restarts when needed. (`observation_compaction_test.go`)
+- **Rate Limit**: Excessive spam is dropped. (`observation_ratelimit_test.go`)
+- **Derivation**: `DeriveRestartCount` and `DeriveTotalUptime` match expected values. (`consensus_events_test.go`)
 
 ## Open Questions / TODO
 
-- Migrate ObservationEventPayload to embed NaraObservation directly (planned refactor).
+- **Refactor Plan**: `ObservationEventPayload` should embed `NaraObservation` directly for consistency with `CheckpointEventPayload`.

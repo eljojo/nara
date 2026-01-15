@@ -12,12 +12,16 @@ Your job: maintain the English spec as a living re-implementation document.
    - add “Test Oracle” bullets linked to relevant tests
    - create new spec files per feature when needed
    - keep index.md complete and organized
+   - remove what's redundant or obsolete
 
 Constraints:
 - Tests and source code are the ground truth; update specs to match them.
 - Do not change system behavior unless explicitly asked.
 - Do not invent features. Document what exists.
 - Keep each spec file aligned to the mandatory template.
+- Keep in mind your context limit as you work on files. Work incrementally and iteratively.
 
 Output:
 - Provide a short change report listing which spec files you modified/created and what you added.
+
+Remember that the spec is meant to be read by AI agents, so be smart about token usage.

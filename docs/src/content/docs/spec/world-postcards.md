@@ -8,86 +8,108 @@ They provide a shared ritual of participation and a source of social observation
 ## Conceptual Model
 
 Entities:
-- WorldMessage: a journey with an ID, original message, originator, and hop list.
-- WorldHop: a signed hop entry (nara, timestamp, signature, stamp).
-- WorldJourneyHandler: handles routing, verification, and forwarding.
-- PendingJourney: a locally tracked journey awaiting completion confirmation.
+- **`WorldMessage`**: A journey object containing an ID, original message, originator, and hop list.
+- **`WorldHop`**: A signed hop entry `{nara, timestamp, signature, stamp}`.
+- **`WorldJourneyHandler`**: Logic for routing, verification, and forwarding.
 
 Key invariants:
-- Each hop signs the entire journey state up to that hop.
-- A journey is complete only when it returns to the originator.
-- A nara is visited at most once per journey (no repeat hops).
+- **Chain Integrity**: Each hop signs the entire journey state up to that point.
+- **Completion**: A journey is complete only when it returns to the originator.
+- **Uniqueness**: A nara is visited at most once per journey (no repeat hops).
 
 ## External Behavior
 
-- Starting a journey selects a next hop and sends it over the mesh.
-- Each recipient verifies the hop chain, adds its own signed hop, then forwards.
-- Journeys produce observation social events (pass, complete, timeout).
-- Completion is broadcast via MQTT to inform participants who did not receive the final hop.
+- **Start**: Originator creates a message and sends it to the first hop (selected by clout).
+- **Relay**: Each recipient verifies the chain, appends a signed hop, and forwards to the next candidate.
+- **Completion**: When it returns to the originator, a `journey-complete` event is emitted.
+- **Events**: Journeys emit `social` observation events (pass, complete) as they travel.
 
 ## Interfaces
 
-HTTP endpoints:
-- `POST /world/start`: starts a new journey (body includes `message`).
-- `POST /world/relay`: receives and forwards a world message.
-- `GET /world/journeys`: returns up to the last 20 completed journeys.
+### HTTP Endpoints (Mesh)
+- `POST /world/relay`: Receives and forwards a `WorldMessage`.
+- `GET /world/journeys`: Returns recent completed journeys (UI).
 
-MQTT topics:
-- `nara/plaza/journey_complete`: notifies completion (JourneyCompletion payload).
+### MQTT Topics
+- `nara/plaza/journey_complete`: Broadcasts the final completed journey object.
 
-Public structs:
-- `WorldMessage`, `WorldHop`, `WorldJourneyHandler`, `JourneyCompletion`.
+### Data Structures
 
-## Event Types & Schemas (if relevant)
+**`WorldMessage`** (JSON):
+```json
+{
+  "id": "base64-id",
+  "message": "Hello World",
+  "originator": "nara-name",
+  "hops": [
+    {
+      "nara": "hop-1",
+      "timestamp": 1700000000,
+      "signature": "base64-sig",
+      "stamp": "🌟"
+    },
+    ...
+  ]
+}
+```
 
-World journeys emit social observation events (`svc="social"`, `type="observation"`):
-- `reason="journey-pass"`: recorded when a journey passes through.
-- `reason="journey-complete"`: recorded by originator and listeners on completion.
-- `reason="journey-timeout"`: recorded when a pending journey times out.
+## Event Types & Schemas
 
-The journey ID is stored in `SocialEventPayload.Witness`.
+Journeys emit `SyncEvent` with `svc: social`, `type: observation`.
+- `reason="journey-pass"`: Emitted by a node when it relays a message.
+- `reason="journey-complete"`: Emitted by the originator upon return.
+- `reason="journey-timeout"`: Emitted if a tracked journey fails to complete.
+
+The `WorldMessage.ID` is stored in `SocialEventPayload.Witness`.
 
 ## Algorithms
 
-Journey ID:
-- `ID = Base64(sha256(originator + message + timestamp))` over 16 bytes.
+### Journey ID
+`ID = Base64(SHA256(originator + message + timestamp))[0..16]`
 
-Hop signing:
-- Each hop signs `sha256(json({id, message, originator, previous_hops, current_nara}))`.
-- `previous_hops` includes all hops before the current hop.
+### Hop Signing
+Each hop signs a canonical JSON representation of the current state:
+```go
+SHA256(JSON({
+  "id": ...,
+  "message": ...,
+  "originator": ...,
+  "previous_hops": [ ... ], // All prior hops
+  "current_nara": "me"
+}))
+```
+This ensures the history cannot be altered.
 
-Routing (`ChooseNextNara`):
-- Candidate set: online naras, not self, not originator, not already visited.
-- Score by clout (higher is better); tie order is arbitrary.
-- If no candidates remain, return to originator if they are online and we are not them.
-- If originator is not available, the journey is stuck.
+### Routing (`ChooseNextNara`)
+1. **Candidates**: Online naras (mesh-enabled), excluding self, originator, and already visited.
+2. **Scoring**: Sort by local Clout score (descending).
+3. **Selection**: Pick the highest-clout candidate.
+4. **Return**: If no candidates remain, return to originator (if online).
+5. **Stuck**: If no candidates and originator unreachable, journey halts.
 
-Handler flow:
-1. Verify existing hop chain.
-2. Add own hop with a deterministic stamp.
-3. If complete, call `onComplete` and stop.
-4. Otherwise, call `onJourneyPass` and forward to the next candidate.
-
-Timeouts:
-- Pending journeys time out after 5 minutes.
-- Timeout check runs every 30 seconds.
+### Handler Logic
+1. **Verify**: Check all signatures in `Hops`.
+2. **Sign**: Append new `WorldHop` with signature and a deterministic emoji stamp.
+3. **Check Completion**: If `LastHop == Originator`, trigger completion logic.
+4. **Forward**: Select next hop and send via mesh HTTP.
 
 ## Failure Modes
 
-- Invalid signature or unknown public key rejects the journey.
-- If no next hop exists, the journey stops with an error.
-- If mesh is not configured, journeys fall back to a local mock mesh.
+- **Signature Failure**: If any hop signature is invalid, the journey is dropped.
+- **Routing Failure**: If no next hop is found, the journey dies.
+- **Timeout**: Pending journeys are cleaned up after 5 minutes if not completed.
 
-## Security / Trust Model (if relevant)
+## Security / Trust Model
 
-- Each hop is individually signed and verified by public keys in the neighbourhood.
-- Completion via MQTT is not cryptographically verified beyond the included hop chain.
+- **Chain of Trust**: Each hop verifies the entire history before adding their signature.
+- **Public Keys**: Verification relies on locally known public keys (from `hey_there` or directory).
 
 ## Test Oracle
 
-- Hop chain signing and verification succeed for a complete journey. (`world_test.go`)
-- Routing respects clout ordering and completion conditions. (`world_integration_test.go`)
+- **Signing**: `VerifyChain` succeeds for valid journeys, fails for tampered ones. (`world_test.go`)
+- **Routing**: `ChooseNextNara` respects constraints (no repeats, return to originator last). (`world_integration_test.go`)
+- **Completion**: Originator detects return and fires completion event. (`world_integration_test.go`)
 
 ## Open Questions / TODO
 
-- None.
+- **Retries**: Currently no retry mechanism if a specific hop fails (HTTP error).

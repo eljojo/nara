@@ -3,109 +3,130 @@
 ## Purpose
 
 Sync answers "what did I miss?" by fetching events from peers and merging them
-into the local SyncLedger. It supports hazy recovery, deterministic pagination,
+into the local SyncLedger. It supports hazy memory, deterministic pagination,
 and legacy MQTT fallback.
 
 ## Conceptual Model
 
-- SyncRequest asks for SyncEvents; SyncResponse returns them.
-- Multiple modes trade completeness vs. cost.
-- Merge is idempotent (dedupe by event ID).
+- `SyncRequest`: Asks for `SyncEvents`.
+- `SyncResponse`: Returns `SyncEvents` with optional pagination cursor and signature.
+- **Merge Logic**: Idempotent merge (deduplication by Event ID).
+- **Hazy Memory**: Peers may only return a sample of events or events they consider "meaningful".
 
 Key invariants:
-- Sync is best-effort; missing events are normal.
-- Merge never mutates existing events; it only adds new ones.
-- Old buggy checkpoints are filtered before ingestion.
+- **Best Effort**: Sync does not guarantee 100% completeness; gossip fills gaps.
+- **Append Only**: Existing events are never mutated.
+- **Filtering**: Events are filtered by personality (e.g., ignoring boring teases) and cutoff times (checkpoints).
 
 ## External Behavior
 
-Boot recovery flow:
-1. Wait for peers (immediate in gossip mode if already discovered).
-2. Prefer mesh HTTP recovery; fallback to MQTT social-only sync.
-3. After event recovery, fetch the checkpoint timeline.
+### Boot Recovery
+When a node starts:
+1. **Discovery**: Wait for peers to appear (via `hey_there` or local cache).
+2. **Mesh Sync**: Prefer HTTP-over-Mesh (Tailscale/Headscale).
+   - Sample Mode: Requests weighted random samples of history.
+   - Target Size: ~5k (short memory), ~50k (medium), ~80k (hog).
+   - Parallelism: Fetches from multiple peers (up to 10) in round-robin.
+3. **MQTT Fallback**: If mesh fails, listen for `social` events on MQTT (partial history only).
+4. **Checkpoint Sync**: After event recovery, fetch the consensus checkpoint timeline.
 
-Boot recovery (mesh, sample mode):
-- short memory: target ~5,000 events, 1,000 per call
-- medium memory: target ~50,000 events, 5,000 per call
-- hog memory: target ~80,000 events, 5,000 per call
-- Calls are round-robin across neighbors with max concurrency 10 (short: 3).
-
-Background sync:
-- Every ~30 minutes, fetch recent events from 1-2 peers (mesh only).
+### Background Sync
+Every ~30 minutes (±5m jitter):
+- Pick 1-2 online neighbors (preferring those with higher memory/uptime).
+- Request `recent` events (limit 100).
+- Merge new `observation`, `ping`, and `social` events.
+- Update projections and Vivaldi coordinates if new data arrives.
 
 ## Interfaces
 
-SyncRequest:
-- `from` (required)
-- `services` (optional filter)
-- `subjects` (optional filter)
-- `mode`:
-  - `sample`: decay-weighted sample (boot recovery)
-  - `page`: deterministic pagination
-  - `recent`: most recent events for UI
-- `sample_size`, `cursor`, `page_size`, `limit` (mode-specific)
-- Legacy fields: `since_time`, `slice_index`, `slice_total`, `max_events`
+### SyncRequest (JSON)
+Sent via HTTP POST `/api/sync`.
+```json
+{
+  "from": "requester-name",
+  "services": ["social", "observation"], // Optional filter
+  "subjects": ["target-nara"],           // Optional filter
+  "mode": "sample | page | recent",      // Defaults to 'recent' if omitted
+  "sample_size": 5000,                   // For 'sample' mode
+  "limit": 100,                          // For 'recent' mode
+  "cursor": "1700000000000000000",       // For 'page' mode (timestamp nanos)
+  "page_size": 5000                      // For 'page' mode
+}
+```
 
-SyncResponse:
-- `from`, `events[]`, `next_cursor`, `ts`, `sig`
-- `sig` is Base64 Ed25519 over SHA256("{from}:{ts}:" + event IDs)
+### SyncResponse (JSON)
+```json
+{
+  "from": "responder-name",
+  "events": [ ... ],       // List of SyncEvents
+  "next_cursor": "...",    // Timestamp for next page
+  "ts": 1700000000,        // Response generation time (seconds)
+  "sig": "base64-sig"      // Optional signature over content
+}
+```
 
-## Event Types & Schemas (if relevant)
-
-- All responses contain SyncEvents (see `events.md`).
-- Legacy MQTT sync uses SocialEvent only (see `social-events.md`).
+### Signing
+Response signature covers: `SHA256("{from}:{ts}:" + list_of_event_ids)`.
+This authenticates that *this set of events* came from *this peer* at *this time*, preventing tampering in transit.
 
 ## Algorithms
 
-Mode: sample (organic hazy memory)
-- `sample_size` capped at 5000; default 5000 if invalid.
-- Critical events are always included:
-  - checkpoints, hey_there, chau
-  - observation events with critical importance
-- Non-critical events are weighted by:
-  - age decay (30-day half-life)
-  - observation importance (casual/normal/critical)
-  - self relevance (emitter/actor/target == me)
-- If sample mode fails, boot recovery falls back to legacy slicing.
+### 1. Sample Mode (The "Hazy" Sync)
+Used during boot to get a representative view without downloading the whole world.
+- **Input**: `sample_size` (max 5000).
+- **Priority**:
+  - **Critical**: Always include `checkpoint`, `hey_there`, `chau`, and critical `observation`s.
+  - **Weighted**: Other events are selected based on:
+    - **Recency**: Decay function (30-day half-life).
+    - **Relevance**: Higher weight if `from` or `to` matches the requester or responder.
+    - **Importance**: Higher weight for `normal` importance over `casual`.
+- **Output**: A mix of recent facts and important historical context.
 
-Mode: page (complete pagination)
-- `page_size` capped at 5000.
-- `cursor` is the last event timestamp (nanoseconds) from prior page.
-- Returns oldest-first; `next_cursor` is timestamp of last event returned.
+### 2. Page Mode (Deterministic)
+Used for deep history traversal.
+- **Input**: `cursor` (nanoseconds), `page_size`.
+- **Order**: Oldest first (ascending timestamp).
+- **Output**: Events with `ts > cursor`.
+- **Next Cursor**: Timestamp of the last event in the batch.
 
-Mode: recent
-- `limit` capped at 5000 (default 100).
-- Returns newest-first.
+### 3. Recent Mode (Catch-up)
+Used for UI and background sync.
+- **Input**: `limit`.
+- **Order**: Newest first (descending timestamp).
+- **Output**: The `limit` most recent events.
 
-Legacy mode
-- Uses `slice_total` / `slice_index` for interleaved slices.
-- Filters by `since_time`, `services`, `subjects`.
-
-Merge (used by mesh sync, zines, and imports)
-1. Discover unknown naras mentioned in events.
-2. Process `hey_there` and `chau` for identity/liveness.
-3. Mark emitters as seen (unless a matching chau is present).
-4. Verify signatures (warnings only; unsigned is allowed).
-5. Add events to ledger with ID dedupe and checkpoint filtering.
-6. Trigger projections if any events were added.
+### Merge Process
+When receiving `SyncResponse`:
+1. **Discovery**: Detect unknown naras mentioned in payloads.
+2. **Identity**: Process `hey_there` / `chau` to update identity/liveness state.
+3. **Verification**: Verify event signatures (warn on failure).
+4. **Ingestion**: `SyncLedger.AddEvent(event)`:
+   - Check dedupe (by ID).
+   - Check checkpoint cutoff.
+   - Filter by personality (e.g., ignore `casual` spam if `Chill > 80`).
+5. **Projections**: If any event was new, trigger `Projections.Trigger()`.
 
 ## Failure Modes
 
-- Missing peers -> no recovery.
-- Mesh auth or signature failures -> events may be skipped or warned.
-- Legacy MQTT sync only returns SocialEvents (partial history).
+- **Missing Peers**: If no peers are reachable via mesh, sync is skipped (eventually relying on real-time gossip).
+- **Auth Failure**: HTTP requests rejected (401/403) are logged; syncing continues with other peers.
+- **Partial History**: "Sample" mode explicitly drops data; the system is designed to tolerate holes in history.
 
 ## Security / Trust Model
 
-- Sync responses may be signed; verification is optional and best-effort.
-- Event-level signatures are the primary authenticity layer.
-- Unsigned events are accepted but logged.
+- **Transport**: Secured via WireGuard (Tailscale/Headscale) or TLS.
+- **Event Integrity**: Each event is self-verifying (signed by emitter).
+- **Response Integrity**: The response header is signed by the serving peer, proving they served this specific batch.
+- **Trust**: We trust peers to serve *valid* events, but we don't necessarily trust the *completeness* of their response (they might withhold events).
 
 ## Test Oracle
 
-- Page mode returns deterministic slices. (`sync_test.go`)
-- Merge warns on bad signatures but still ingests events. (`integration_events_test.go`)
+- **Pagination**: `page` mode returns contiguous slices of history. (`sync_test.go`)
+- **Sampling**: `sample` mode prioritizes critical events. (`sync_sampling_test.go`)
+- **Signatures**: `SyncResponse` signature verification passes. (`sync_request.go`)
+- **Merge**: Duplicate events are ignored; new events trigger projections. (`integration_events_test.go`)
 
 ## Open Questions / TODO
 
-- Require SyncResponse signature verification in MeshClient.
+- **Mesh Auth Enforcement**: Currently warnings only; should stricter auth be enforced for sync?
+- **Request Signing**: `SyncRequest` is currently unsigned; adding signatures would prevent spoofed requests.

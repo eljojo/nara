@@ -2,8 +2,8 @@
 
 ## Purpose
 
-Stash provides distributed, encrypted, memory-only persistence. It lets naras
-recover state after restarts by storing encrypted blobs with confidants.
+Stash provides distributed, encrypted, memory-only persistence. It enables naras
+to recover state after restarts by storing encrypted blobs with confidants.
 
 ## Conceptual Model
 
@@ -12,87 +12,91 @@ recover state after restarts by storing encrypted blobs with confidants.
 - Recovery is owner-only: only the soul-derived key can decrypt.
 
 Key invariants:
-- Stash payloads are encrypted with XChaCha20-Poly1305.
-- Confidants do not verify contents and cannot decrypt.
-- Storage is in-memory only (no disk persistence).
+- **Encryption**: Stash payloads are encrypted with XChaCha20-Poly1305.
+- **Privacy**: Confidants do not verify contents and cannot decrypt.
+- **Volatility**: Storage is in-memory only (no disk persistence).
 
 ## External Behavior
 
-- On boot, naras attempt to recover stash from confidants.
-- Confidants may push stash to owners when they see `hey_there` or `stash_refresh`.
-- Owners maintain a target number of confidants in the background.
+- **Boot Recovery**: Naras attempt to recover stash from confidants on startup.
+- **Push Recovery**: Confidants push stash to owners when they see `hey_there` (boot) or `stash_refresh`.
+- **Maintenance**: Owners maintain a target number of confidants in the background, replacing offline ones.
 
 ## Interfaces
 
-Data types:
-- `StashData`: `{timestamp, data, version}` (data is arbitrary JSON)
-- `StashPayload`: `{owner, nonce, ciphertext}`
+### Data Types
+- **StashData**: `{Timestamp, Data (json), Version}`. The cleartext payload.
+- **StashPayload**: `{Owner, Nonce, Ciphertext}`. The encrypted blob sent over the wire.
 
-Mesh HTTP endpoints (mesh auth required):
-- `POST /stash/store` -> {accepted, reason}
-- `DELETE /stash/store` -> {deleted}
-- `POST /stash/retrieve` -> {found, stash}
-- `POST /stash/push` -> {accepted, reason}
+### Mesh HTTP Endpoints
+Authenticated via mesh headers (`X-Nara-Mesh-Auth`).
+- `POST /stash/store`: Store a stash payload. Returns `{accepted, reason}`.
+- `DELETE /stash/store`: Delete a stored stash. Returns `{deleted}`.
+- `POST /stash/retrieve`: Retrieve a stored stash. Returns `{found, stash}`.
+- `POST /stash/push`: Push a stash to its owner (recovery). Returns `{accepted, reason}`.
 
-MQTT:
-- `nara/plaza/stash_refresh` -> {from, timestamp}
+### MQTT Topics
+- `nara/plaza/stash_refresh`: `{from, timestamp}`. Requests confidants to push stash immediately.
 
-Legacy request/response (used in tests):
-- `StashRequest` signed with "stash_request:{from}"
-- `StashResponse` with `StashPayload`
+## Event Types & Schemas
 
-## Event Types & Schemas (if relevant)
-
-Stash does not emit SyncEvents; it uses mesh HTTP and occasional MQTT requests.
-Social events may be emitted for stash operations (observability only).
+- **SyncEvents**: Stash does NOT emit SyncEvents for data transfer.
+- **SocialEvents**: Emitted for observability (e.g., "stored stash for X").
+  - Type: `service`
+  - Reason: `stash_stored`
 
 ## Algorithms
 
-Encryption:
-1. Serialize StashData to JSON.
+### Encryption
+1. Serialize `StashData` to JSON.
 2. Gzip-compress the JSON.
 3. Encrypt with XChaCha20-Poly1305 using a 24-byte random nonce.
-4. Key is derived via HKDF-SHA256 from the soul-derived Ed25519 private key
-   (salt: "nara:stash:v1", info: "symmetric").
+4. Key Derivation: `HKDF-SHA256(PrivateKey.Seed, salt="nara:stash:v1", info="symmetric")`.
 
-Payload limits:
-- Max stash payload size is 10KB.
-- Confidant storage capacity by memory mode:
-  - short: 5
-  - medium: 20
-  - hog: 50
+### Payload Limits
+- **Max Size**: 10KB (enforced on receipt).
+- **Capacity**: Confidant storage capacity depends on memory mode:
+  - `short`: 5 stashes
+  - `medium`: 20 stashes
+  - `hog`: 50 stashes
 
-Confidant selection:
-- Owners target 3 confidants by default.
-- First candidate is highest-uptime/high-memory peer; others are random.
-- Pending confidants time out after 60s; failed ones are retried after 5 minutes.
+### Confidant Selection
+- **Target**: 3 confidants by default.
+- **Strategy**:
+  - First candidate: Best score (Highest uptime + High/Hog memory).
+  - Subsequent candidates: Random selection (to distribute load).
+- **Timeout**: Pending requests time out after 60s.
+- **Retry**: Failed confidants are ignored for 5 minutes before retrying.
 
-Recovery:
-- On `hey_there`, confidants push stash back to the owner (2s delay).
-- On `stash_refresh`, confidants push after 500ms.
-- Owners accept the newest stash timestamp and ignore older payloads.
+### Recovery
+- **Trigger**: Owner sends `hey_there` on boot.
+- **Push**: Confidants receiving `hey_there` wait 2s (jitter) then push the stash to the owner via `/stash/push`.
+- **Conflict Resolution**: Owners decrypt all received stashes and keep the one with the newest timestamp.
 
-Eviction:
-- Confidants keep stashes unless the owner is a ghost (offline > 7 days).
+### Eviction
+- **Ghost Pruning**: Confidants remove stashes for owners who have been offline (MISSING/OFFLINE) for > 7 days.
+- **Capacity Eviction**: If full, new requests are rejected (LRU eviction is not currently implemented; rejection is preferred to maintain promises).
 
 ## Failure Modes
 
-- Missing confidants -> stash cannot be recovered.
-- Stale or replayed stash payloads are rejected by timestamp validation.
-- Over-capacity confidants reject new owners (updates to existing owners allowed).
+- **No Confidants**: If all confidants are lost, stash is unrecoverable.
+- **Decryption Failure**: If keys change (hardware change w/o soul migration), stash is unreadable.
+- **Capacity**: If the network is full, new nodes may fail to find confidants.
 
 ## Security / Trust Model
 
-- Only the owner can decrypt the stash.
-- Confidant storage is blind and purely a commitment to keep bytes.
-- Mesh auth provides transport-level identity, but stash content is end-to-end encrypted.
+- **Confidentiality**: End-to-end encrypted. Confidants see only blob size and owner name.
+- **Integrity**: Poly1305 tag ensures ciphertext hasn't been tampered with.
+- **Authentication**: Mesh auth headers (`X-Nara-Mesh-Auth`) verify the sender's identity for storage/retrieval.
 
 ## Test Oracle
 
-- Stash encryption/decryption round trips. (`stash_test.go`)
-- Confidant capacity limits (short/medium/hog). (`stash_test.go`)
-- Recovery picks newest timestamp. (`stash_test.go`)
+- **Encryption**: Round-trip encryption/decryption works. (`stash_test.go`)
+- **Capacity**: Confidants reject stashes when full based on memory mode. (`stash_test.go`)
+- **Recovery**: Old stashes are discarded in favor of newer timestamps. (`stash_test.go`)
+- **Ghost Pruning**: Offline owners are evicted after 7 days. (`stash_test.go`)
 
 ## Open Questions / TODO
 
-- StashRequest MQTT flow is currently unused in production.
+- **Legacy MQTT**: `StashRequest`/`StashResponse` structs exist but are deprecated in favor of Mesh HTTP.
+- **Resharding**: No mechanism to migrate stashes when a confidant shuts down gracefully (currently they just vanish).

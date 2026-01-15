@@ -8,84 +8,100 @@ mutable state in the ledger itself.
 
 ## Conceptual Model
 
-- Projections are pure, deterministic read models over SyncEvents.
+- **Projections** are pure, deterministic read models over `SyncEvent`s.
 - The same ledger state produces the same projection output.
-- Projections can reset and replay when the ledger structure changes.
+- Projections track a ledger version and event position, allowing them to reset and replay if the ledger is restructured (e.g., pruning).
 
 Key invariants:
-- Projections never emit events.
-- Projections never mutate the ledger.
-- Reset + replay is allowed when the ledger is pruned or reordered.
+- **Read-Only**: Projections never emit events and never mutate the ledger.
+- **Determinism**: Replaying events in the same order produces identical state.
+- **Resilience**: If the ledger is pruned or reordered, projections detect the version change and reset/replay automatically.
 
 ## External Behavior
 
-- Projections run continuously in the background.
-- They may lag behind until explicitly triggered or RunOnce is called.
-- Derived values are used for UI, decision-making, and maintenance logic.
+- Projections run continuously in the background (via `RunToEnd` or `RunOnce`).
+- They provide synchronous read access to derived state (e.g., `IsOnline(name)`).
+- When new events arrive, projections update incrementally.
 
 ## Interfaces
 
-ProjectionStore:
-- `OnlineStatus()` -> OnlineStatusProjection
-- `Clout()` -> CloutProjection
-- `Opinion()` -> OpinionConsensusProjection
-- `Trigger()` -> run all projections immediately
+### ProjectionStore
+The container for all active projections.
+- `OnlineStatus()` -> `OnlineStatusProjection`
+- `Clout()` -> `CloutProjection`
+- `Opinion()` -> `OpinionConsensusProjection`
+- `Trigger()` -> forces an immediate update cycle.
 
-OnlineStatusProjection:
-- `GetStatus(name)` -> "ONLINE", "OFFLINE", "MISSING", or "" (unknown)
-- `GetTotalUptime(name)` -> uptime in seconds (derived from ledger)
+### OnlineStatusProjection
+Tracks who is online/offline based on presence and observation events.
+- `GetStatus(name)` -> "ONLINE", "OFFLINE", "MISSING", or "" (unknown).
+- `GetTotalUptime(name)` -> uptime in seconds (derived from ledger, not real-time).
 
-OpinionConsensusProjection:
-- `DeriveOpinion(name)` -> start time, restart count, last restart, total uptime
-- `DeriveOpinionFromCheckpoint(name)` -> checkpoint baseline + post-checkpoint events
-- `DeriveOpinionWithValidation(name)` -> compares both methods and logs divergence
+### OpinionConsensusProjection
+Derives consensus on network state (restarts, start time) from multiple observers.
+- `DeriveOpinion(name)` -> `OpinionData` (start time, restart count, last restart, total uptime).
+- `DeriveOpinionFromCheckpoint(name)` -> Calculation using checkpoint baseline + post-checkpoint events.
+- `DeriveOpinionWithValidation(name)` -> Compares derived values with other methods for debugging.
 
-## Event Types & Schemas (if relevant)
+### CloutProjection
+Calculates social clout scores based on interaction events.
+- `GetClout(name)` -> Score (0-100).
 
-- OnlineStatusProjection consumes presence, observation, ping, and social events.
-- OpinionConsensusProjection consumes observation events (restart/first-seen).
-- CloutProjection consumes social events.
+## Event Types & Schemas
+
+- **OnlineStatus**: Consumes `hey-there`, `chau`, `ping`, `social`, `seen`, and `observation` (restart, first-seen, status-change).
+- **OpinionConsensus**: Consumes `observation` events (restart, first-seen).
+- **Clout**: Consumes `social` events (tease, observed).
 
 ## Algorithms
 
-Projection reset and replay:
-- Each projection tracks a ledger version and event position.
-- If the ledger structure changes (pruning or reordering), projections reset to
-  position 0 and replay events sorted by timestamp for determinism.
+### Projection Reset & Replay
+To handle ledger changes (pruning/reordering):
+1. Projection stores `lastVersion` of the ledger.
+2. Before processing, it checks `ledger.GetVersion()`.
+3. If versions differ:
+   - Reset internal state (e.g., clear maps).
+   - Reset position to 0.
+   - Replay **all** events from the ledger, sorted by timestamp.
+4. If versions match:
+   - Fetch events since `position`.
+   - Apply incrementally.
 
-Online status derivation (most recent event wins):
+### Online Status Derivation
+"Most recent event wins" logic:
 - `hey-there` -> ONLINE
 - `chau` -> OFFLINE
 - `seen`, `social`, `ping` -> ONLINE
 - `observation`:
-  - `status-change` -> ONLINE/OFFLINE/MISSING
-  - `restart` or `first-seen` -> ONLINE
-- If the last ONLINE event is older than the missing threshold, status is MISSING.
-  Threshold is 5 minutes by default, 1 hour when either node is in gossip mode.
+  - `status-change` -> Set to payload state (ONLINE/OFFLINE/MISSING).
+  - `restart`, `first-seen` -> ONLINE.
+- **Timeout**: If the last ONLINE event is older than 5 minutes (or 1 hour in gossip mode), status decays to MISSING.
 
-Opinion consensus:
-- Start time uses trimmed-mean consensus over `first-seen` and restart observations.
-- Restart count uses trimmed mean when multiple observers exist; otherwise max.
-- Last restart uses the maximum observed `last_restart` value.
-- Total uptime uses ledger-derived uptime (checkpoint + status changes).
+### Opinion Consensus (Trimmed Mean)
+- **Start Time**: Collect `first-seen` and `restart` (start_time) observations. Apply trimmed mean (remove outliers) to find the consensus start time.
+- **Restart Count**:
+  - If multiple observers: Trimmed mean of observed counts.
+  - If single/few observers: Max observed count.
+- **Last Restart**: Max observed `last_restart` timestamp.
 
 ## Failure Modes
 
-- Projections can be stale until triggered.
-- Missing events can lead to divergent opinions across naras.
-- Pruning can cause projections to reset and replay (temporary CPU spike).
+- **Stale Projections**: If the background loop stalls, read models may be outdated. `Trigger()` forces an update.
+- **Divergence**: Missing events (e.g., during partition) lead to different derived states on different nodes. Consensus algorithms mitigate this impact.
+- **Replay Cost**: Heavy pruning causes frequent resets, spiking CPU usage as projections replay the full history.
 
 ## Security / Trust Model
 
-- Projections are local opinions; they are not verifiable in isolation.
-- Only the underlying events are signed and verifiable.
+- **Local View**: Projections represent the *local* node's interpretation of the ledger. They are not shared or signed.
+- **Verifiability**: Any peer with the same events will derive the exact same projection state (event sourcing guarantee).
 
 ## Test Oracle
 
-- Same ledger state yields deterministic projections. (`projections_test.go`)
-- Online status transitions follow most-recent-event semantics. (`presence_howdy_test.go`)
-- Opinion consensus uses trimmed-mean rules. (`consensus_events_test.go`)
+- **Determinism**: Replaying the same events yields the same state. (`projections_test.go`)
+- **Reset Logic**: Modifying the ledger (pruning) triggers a projection reset. (`projections_test.go`)
+- **Consensus**: Trimmed mean logic correctly identifies consensus values amidst outliers. (`consensus_events_test.go`)
+- **Online Decay**: Status transitions to MISSING after timeout. (`presence_projection_test.go` - inferred coverage)
 
 ## Open Questions / TODO
 
-- Add explicit confidence scores to projection outputs.
+- **Confidence Scores**: Add metadata to projection outputs indicating confidence (e.g., "based on 1 observer" vs "based on 10").
