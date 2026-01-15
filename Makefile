@@ -8,6 +8,7 @@ all: format build test lint-report
 build-web:
 	@echo "Building web assets..."
 	@npm run build
+	@./scripts/gen-api-docs.sh
 	@./node_modules/.bin/astro build --root docs --config astro.config.mjs
 	@rm -rf nara-web/public/docs
 	@mkdir -p nara-web/public/docs
