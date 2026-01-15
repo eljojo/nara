@@ -477,9 +477,14 @@ func (s *CheckpointService) HandleVote(vote *CheckpointVote) {
 	// Add vote
 	pending.votesMu.Lock()
 	pending.votes = append(pending.votes, vote)
+	shouldFinalize := len(pending.votes) >= MinVotersRequired
 	pending.votesMu.Unlock()
 
 	logrus.Debugf("checkpoint: received vote from %s (approved=%v)", vote.Attester, vote.Approved)
+
+	if shouldFinalize {
+		go s.finalizeProposal()
+	}
 }
 
 // verifyVoteSignature verifies that a vote has a valid signature from the claimed voter
