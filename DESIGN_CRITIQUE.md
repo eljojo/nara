@@ -1,661 +1,357 @@
-# Design Critique: Nara Runtime
+# Design Critique: Nara Runtime (Revised)
 
-A critical examination of the proposed architecture. What's overengineered? What won't scale? What's missing?
+A critical examination of the proposed architecture in `DESIGN_NARA_RUNTIME.md`. What are the remaining risks? What might we discover when implementing stash?
 
 ---
 
-## Red Flags
+## What We Got Right
 
-### 1. PipelineContext is a God Object in Disguise
+Before the critique, acknowledging what's solid:
+
+1. **StageResult monads** — explicit Continue/Drop/Fail, no silent failures
+2. **ID vs ContentKey split** — clean separation of envelope vs semantic identity
+3. **Versioning built-in** — can evolve schemas without breaking old naras
+4. **GossipQueue decoupled** — gossip and storage are independent
+5. **Stash as first target** — no backwards compatibility baggage
+
+---
+
+## Remaining Concerns
+
+### 1. PipelineContext Is Still Large
 
 ```go
 type PipelineContext struct {
     Runtime     *Runtime
     Ledger      *Ledger
     Transport   *Transport
+    GossipQueue *GossipQueue
     Keypair     NaraKeypair
     Personality *Personality
     EventBus    *EventBus
 }
 ```
 
-**Problem:** Every stage gets access to everything. This is the same problem as Network — just renamed.
+**Concern:** Every stage gets access to everything. A stage that only needs to sign a message can also poke at the ledger.
 
-**Why it matters:** Stages can reach into anything. No clear boundaries. Testing requires mocking everything.
+**Why we kept it:** Narrow interfaces per stage would mean many interface types. The complexity tradeoff wasn't worth it.
 
-**Alternative:** Stages declare what they need:
+**Risk for stash:** Low. Stash stages are simple (no store, no gossip). But if stages start reaching into context for "convenience" things, we'll regret it.
 
-```go
-type IDStage interface {
-    ComputeID(msg *Message) string
-    // No context needed
-}
-
-type StoreStage interface {
-    Store(msg *Message, ledger Ledger)
-    // Only gets what it needs
-}
-```
-
-**Or:** Accept that stages need runtime access and keep it, but acknowledge this isn't true decoupling.
+**Mitigation:** Code review discipline. Stages should only touch what they need.
 
 ---
 
-### 2. The `next()` Pattern is Error-Prone
-
-```go
-func (s *SomeStage) Process(msg *Message, ctx *PipelineContext, next func()) {
-    // Do stuff
-    next()  // Easy to forget!
-}
-```
-
-**Problems:**
-- Forgetting to call `next()` silently drops the message
-- No way to return errors
-- No way to know if downstream stages succeeded
-- Hard to debug "why didn't my message arrive?"
-
-**Alternative A:** Return-based instead of callback:
-
-```go
-type Stage interface {
-    Process(msg *Message, ctx *PipelineContext) (*Message, error)
-}
-
-// Pipeline chains return values
-func (p Pipeline) Run(msg *Message, ctx *PipelineContext) (*Message, error) {
-    for _, stage := range p {
-        var err error
-        msg, err = stage.Process(msg, ctx)
-        if err != nil {
-            return nil, err
-        }
-        if msg == nil {
-            return nil, nil // Dropped
-        }
-    }
-    return msg, nil
-}
-```
-
-**Alternative B:** Keep `next()` but add explicit drop/error:
-
-```go
-type Stage interface {
-    Process(msg *Message, ctx *PipelineContext, next func(), drop func(reason string))
-}
-```
-
----
-
-### 3. Two Pipelines (Emit vs Receive) Adds Complexity
-
-We have:
-- `buildEmitPipeline()` with stages: ID → Sign → Store → Transport → Notify
-- `buildReceivePipeline()` with stages: Verify → Dedupe → RateLimit → Filter → Store → Notify
-
-**Problem:**
-- Some stages appear in both (Store, Notify)
-- Some stages are emit-only (ID, Sign, Transport)
-- Some stages are receive-only (Verify, Dedupe, RateLimit, Filter)
-- The Behavior struct mixes both: confusing what's emit vs receive
-
-**Question:** Do we need two pipelines, or one pipeline with conditional stages?
+### 2. The Behavior Struct Mixes Emit and Receive
 
 ```go
 type Behavior struct {
-    // Instead of separate emit/receive stages:
-    Stages []Stage  // All stages, some skip based on direction
-}
-
-type Stage interface {
-    OnEmit() bool    // Should this run on emit?
-    OnReceive() bool // Should this run on receive?
-    Process(...)
-}
-```
-
-**Counter-argument:** Two pipelines is clearer. You know exactly what runs when.
-
----
-
-### 4. Helper Constructors Will Proliferate
-
-Current helpers:
-```go
-DefaultID(), ContentID(fn)
-DefaultSign(), NoSign()
-DefaultStore(priority), NoStore(), DedupStore(priority, fn), MaxPerKeyStore(...)
-MQTT(topic), MQTTPerNara(pattern), Gossip(), Broadcast(topic), DirectFirst(topic)
-DefaultVerify(), SelfAttesting(fn), CustomVerify(fn), NoVerify()
-IDDedupe(), ContentDedupe(fn)
-RateLimit(window, max, keyFn)
-Critical(), Normal(), Casual(fn)
-```
-
-That's **20+ helpers** already. As we add features:
-- `ConditionalStore(condition, store)`?
-- `RetryTransport(transport, retries)`?
-- `CachingVerify(verify, ttl)`?
-- `CompositeFilter(filters...)`?
-
-**Problem:** The DSL grows unbounded. New developers need to learn the vocabulary.
-
-**Alternative:** Fewer helpers, more explicit structs:
-
-```go
-// Instead of helpers, just use structs directly
-Store: &DefaultStoreStage{Priority: 2}
-Store: &DedupStoreStage{Priority: 0, IsSameAs: myFunc}
-
-// Or use a builder pattern
-Store: Store().WithPriority(2).WithDedup(myFunc)
-```
-
----
-
-### 5. Schema is Over-Engineering (For Now)
-
-```go
-type Schema struct {
-    Fields []FieldDef
-}
-
-var HeyThereSchema = &Schema{
-    Fields: []FieldDef{
-        {Name: "PublicKey", Type: "[]byte", Required: true, ...},
-    },
-}
-```
-
-**Problems:**
-- Who maintains this? It'll drift from actual structs.
-- Go already has struct definitions with types.
-- No validation uses it (yet).
-- Docs could be generated from Go struct tags instead.
-
-**Alternative:** Skip Schema for now. Add it later if we need validation or generated docs.
-
-```go
-type Behavior struct {
-    Kind        string
-    Description string
-    // Schema      *Schema  // Remove for now
-    // ...
-}
-
-// For docs, use reflection on actual payload types
-func GenerateDocs() {
-    for _, b := range Behaviors {
-        payloadType := reflect.TypeOf(b.ExamplePayload)
-        // Generate from actual struct fields
-    }
-}
-```
-
----
-
-### 6. What If a Stage Needs to Conditionally Skip?
-
-Current: A stage either runs or is nil.
-
-**But what about:**
-- "Only rate limit if sender isn't a trusted peer"
-- "Only verify signature if message is over 1 hour old"
-- "Store with priority 0 if checkpoint exists, priority 2 otherwise"
-
-**Current approach:** Custom stage with condition baked in.
-
-**Problem:** Every condition needs a new stage type.
-
-**Alternative:** Wrapper stages:
-
-```go
-type ConditionalStage struct {
-    Condition func(msg *Message, ctx *PipelineContext) bool
-    Stage     Stage
-}
-
-func (s *ConditionalStage) Process(msg *Message, ctx *PipelineContext, next func()) {
-    if s.Condition(msg, ctx) {
-        s.Stage.Process(msg, ctx, next)
-    } else {
-        next()
-    }
-}
-
-// Usage
-RateLimit: Conditional(
-    func(msg *Message, ctx *PipelineContext) bool {
-        return !ctx.Runtime.IsTrustedPeer(msg.From)
-    },
-    RateLimit(5*time.Minute, 10, subjectKey),
-)
-```
-
----
-
-### 7. The Behavior Struct Mixes Concerns
-
-```go
-type Behavior struct {
-    Kind        string
-    Description string
-    Schema      *Schema
-
     // Emit stages
-    ID        IDStage
-    Sign      SignStage
-    Store     StoreStage     // Used by both!
-    Transport TransportStage
+    Sign      Stage
+    Store     Stage
+    Gossip    Stage
+    Transport Stage
 
     // Receive stages
-    Verify    VerifyStage
-    Dedupe    DedupeStage
-    RateLimit RateLimitStage
-    Filter    FilterStage
+    Verify    Stage
+    Dedupe    Stage
+    RateLimit Stage
+    Filter    Stage
 }
 ```
 
-**Problem:** Store appears once but is used differently:
-- Emit: Always store
-- Receive: Store only if not NoStore
+**Concern:** Not obvious which fields apply when. `Store` is used by both emit and receive pipelines.
 
-**Problem:** Not obvious which fields are emit vs receive.
+**Risk for stash:** Medium. Stash messages are mostly request/response — emit and receive are tightly coupled. Easy to get confused about which stage runs where.
 
-**Alternative:** Explicit separation:
-
+**Example confusion:**
 ```go
-type Behavior struct {
-    Kind        string
-    Description string
-
-    Emit    EmitBehavior
-    Receive ReceiveBehavior
-}
-
-type EmitBehavior struct {
-    ID        IDStage
-    Sign      SignStage
-    Store     StoreStage
-    Transport TransportStage
-}
-
-type ReceiveBehavior struct {
-    Verify    VerifyStage
-    Dedupe    DedupeStage
-    RateLimit RateLimitStage
-    Filter    FilterStage
-    Store     StoreStage  // Can differ from emit!
-}
+// stash:request — what does Store mean here?
+Register(&Behavior{
+    Kind:      "stash:request",
+    Store:     NoStore(),     // Don't store the request... on emit? receive? both?
+    Transport: DirectFirst(""),
+})
 ```
 
-**Counter-argument:** More nesting, more verbose. Maybe not worth it.
+**Possible fix:** Be explicit in comments, or split into `EmitBehavior` / `ReceiveBehavior` structs. But that adds verbosity.
+
+**Decision:** Live with it for stash. Revisit if it causes real confusion.
 
 ---
 
-### 8. No Error Handling Strategy
-
-What happens when:
-- MQTT publish fails?
-- Ledger is full?
-- Signature verification throws an exception?
-- Rate limiter has a bug?
-
-**Current:** Stages just don't call `next()`. Silent failure.
-
-**Problem:** No logging, no metrics, no retry, no dead letter queue.
-
-**Alternative:** Explicit error handling:
+### 3. DirectFirst With Empty Topic Is Weird
 
 ```go
-type Stage interface {
-    Process(msg *Message, ctx *PipelineContext) StageResult
+Transport: runtime.DirectFirst("")  // Mesh only, no MQTT fallback
+```
+
+**Concern:** Empty string to mean "no fallback" is implicit. What if someone passes `""` by accident?
+
+**Better alternative:**
+
+```go
+// Option A: Separate helper
+Transport: runtime.MeshOnly()
+
+// Option B: Explicit nil fallback
+Transport: runtime.DirectFirst(nil)  // nil = no fallback
+
+// Option C: Different stage type
+Transport: runtime.Direct()  // Always mesh, never broadcast
+```
+
+**Risk for stash:** Low, but code smell. Stash is mesh-only, so we'll use this pattern a lot.
+
+**Recommendation:** Add `MeshOnly()` helper before implementing stash.
+
+---
+
+### 4. No Request/Response Correlation
+
+Stash is request/response:
+1. Alice sends `stash:store` to Bob
+2. Bob processes, sends `stash:ack` back (or error)
+3. Alice sends `stash:request` to Bob
+4. Bob sends `stash:response` back
+
+**Concern:** The runtime doesn't help with correlation. No request IDs, no timeouts, no "wait for response" primitive.
+
+**Current approach:** Service handles it manually:
+```go
+func (s *StashService) StoreWith(confidant string, data []byte) error {
+    s.rt.Emit(&Message{Kind: "stash:store", ...})
+    // Now what? How do we know if it succeeded?
+    // Poll? Callback? Channel?
+}
+```
+
+**Risk for stash:** High. This is the core of what stash does.
+
+**Options:**
+
+1. **Fire and forget** — emit and hope. Stash recovery handles failures.
+2. **Callback registration** — service registers "when I get stash:ack from Bob, call this"
+3. **Request context** — runtime provides `EmitAndWait(msg, timeout)` that returns response
+4. **Keep it in service** — service maintains pending requests map, correlates manually
+
+**Recommendation:** Start with option 4 (manual correlation in service). If it's painful, add runtime support later. Don't over-engineer before we know the real pain points.
+
+---
+
+### 5. No Backpressure on GossipQueue
+
+```go
+type GossipQueue struct {
+    messages []*Message
+    maxAge   time.Duration
 }
 
-type StageResult struct {
-    Continue bool
-    Error    error
-    Reason   string // "rate_limited", "invalid_signature", etc.
+func (q *GossipQueue) Add(msg *Message) {
+    q.messages = append(q.messages, msg)  // Unbounded!
+}
+```
+
+**Concern:** If messages arrive faster than gossip can spread them, queue grows forever.
+
+**Risk for stash:** Low. Stash messages don't use gossip queue (they're direct mesh).
+
+**But still a problem for:** Observations, social events, anything with `Gossip: Gossip()`.
+
+**Recommendation:** Add max size to GossipQueue. Drop oldest when full. Not blocking for stash, but fix before Phase 6.
+
+---
+
+### 6. Versioning Complexity for Simple Cases
+
+```go
+type Behavior struct {
+    CurrentVersion int
+    MinVersion     int
+    PayloadTypes   map[int]reflect.Type
+    PayloadType    reflect.Type  // Shorthand
+}
+```
+
+**Concern:** Two ways to specify payload type. Which takes precedence? What if both are set?
+
+**Rules (implicit):**
+- If `PayloadTypes` is set, use version lookup
+- Otherwise use `PayloadType`
+- If neither... panic? Default to empty?
+
+**Risk for stash:** Low. Stash is new, starts at v1, uses simple `PayloadType`.
+
+**Recommendation:** Document precedence clearly. Add validation in `Register()`:
+```go
+if b.PayloadTypes != nil && b.PayloadType != nil {
+    return errors.New("set PayloadTypes OR PayloadType, not both")
+}
+```
+
+---
+
+### 7. Testing the Runtime Itself
+
+**Concern:** How do we test the runtime without starting MQTT, mesh, ledger?
+
+**Current plan:** Interfaces everywhere, mock implementations.
+
+```go
+type TransportInterface interface {
+    PublishMQTT(topic string, data []byte) error
+    TrySendDirect(target string, msg *Message) error
 }
 
-// Runtime logs/tracks failures
-func (rt *Runtime) runPipeline(msg *Message, pipeline Pipeline) {
-    for _, stage := range pipeline {
-        result := stage.Process(msg, ctx)
-        if !result.Continue {
-            rt.metrics.RecordDrop(msg.Kind, result.Reason)
-            if result.Error != nil {
-                logrus.Errorf("stage failed: %v", result.Error)
-            }
-            return
+// In tests
+transport := &MockTransport{}
+rt := NewRuntime(RuntimeConfig{Transport: transport})
+```
+
+**Risk for stash:** Medium. We need good mocks before we can test stash service.
+
+**Order of implementation:**
+1. Core types (Message, StageResult, Behavior)
+2. Interfaces
+3. Mock implementations
+4. Runtime with mocks
+5. Stash service with mock runtime
+
+**Recommendation:** Write mocks as part of Phase 3, not Phase 4. Can't test anything without them.
+
+---
+
+### 8. Where Do Payload Structs Live?
+
+**Current:** Payload types are defined... somewhere. Behaviors reference them.
+
+```go
+PayloadType: runtime.PayloadTypeOf[StashStorePayload]()
+```
+
+**But where is `StashStorePayload` defined?**
+
+Options:
+1. In `runtime/` package — runtime knows all payload types
+2. In service packages — `stash/payloads.go`
+3. In a shared `types/` package
+
+**Concern:** If payloads are in service packages, runtime can't deserialize without importing services. Circular dependency risk.
+
+**Risk for stash:** High. Need to solve this before writing any code.
+
+**Recommendation:** Shared `messages/` or `payloads/` package:
+```
+messages/
+├── stash.go      // StashStorePayload, StashRequestPayload, etc.
+├── social.go     // SocialPayload
+├── presence.go   // HeyTherePayload, ChauPayload, etc.
+└── checkpoint.go // CheckpointPayload
+```
+
+Runtime imports `messages/`. Services import `messages/`. No cycles.
+
+---
+
+### 9. Error Strategy Defaults
+
+```go
+type Behavior struct {
+    OnTransportError ErrorStrategy
+    OnStoreError     ErrorStrategy
+    OnVerifyError    ErrorStrategy
+}
+```
+
+**Concern:** What if not set? Zero value is `ErrorDrop` (silent).
+
+**Risk for stash:** Medium. Forgetting to set error strategy = silent failures.
+
+**Recommendation:** Make default explicit:
+```go
+func (rt *Runtime) getErrorStrategy(b *Behavior, stage string) ErrorStrategy {
+    switch stage {
+    case "transport":
+        if b.OnTransportError != 0 {
+            return b.OnTransportError
         }
+        return ErrorLog  // Default: at least log it
+    // ...
     }
 }
 ```
 
----
-
-### 9. Testing Complexity
-
-**To test a behavior, you need:**
-- A Runtime (or mock)
-- A Ledger (or mock)
-- A Transport (or mock)
-- A Keypair
-- Potentially other services
-
-**Example:**
-```go
-func TestObservationRestart(t *testing.T) {
-    // Setup
-    ledger := NewMockLedger()
-    transport := NewMockTransport()
-    keypair := generateTestKeypair()
-    rt := NewRuntime(
-        WithLedger(ledger),
-        WithTransport(transport),
-        WithKeypair(keypair),
-    )
-
-    // Test
-    msg := &Message{Kind: "observation:restart", ...}
-    rt.Emit(msg)
-
-    // Verify
-    assert.True(t, ledger.Has(msg.ID))
-    assert.False(t, transport.Published()) // Gossip only
-}
-```
-
-**Problem:** Still need to set up a lot of infrastructure.
-
-**Alternative:** Test stages in isolation:
-
-```go
-func TestContentIDStage(t *testing.T) {
-    stage := ContentID(func(p any) string {
-        return p.(*ObservationPayload).Subject
-    })
-
-    msg := &Message{Payload: &ObservationPayload{Subject: "bob"}}
-    stage.Process(msg, nil, func() {})
-
-    assert.NotEmpty(t, msg.ID)
-    assert.Contains(t, msg.ID, "bob")
-}
-```
-
-**This is good!** Stages are testable in isolation. Keep this property.
+Or require all strategies in `Register()` validation.
 
 ---
 
-### 10. What Happens at Scale?
+### 10. The "Receive" Pipeline for Direct Messages
 
-**50 message kinds:**
-- Registry becomes a big init() block
-- Hard to find the behavior you want
-- IDE autocomplete doesn't help
-
-**100 message kinds:**
-- Need to organize by category/package
-- Behaviors need to be in separate files
-- Import cycles become a risk
-
-**Dynamic behaviors:**
-- What if a service wants to register behaviors at runtime?
-- What if behaviors need to change based on config?
-
-**Current:** Static registration at init time.
-
-**Alternative:** Allow dynamic registration, but with validation:
+MQTT messages go through receive pipeline. But what about direct mesh messages?
 
 ```go
-func Register(b *Behavior) error {
-    if Behaviors[b.Kind] != nil {
-        return fmt.Errorf("behavior %s already registered", b.Kind)
-    }
-    if err := b.Validate(); err != nil {
-        return err
-    }
-    Behaviors[b.Kind] = b
-    return nil
-}
+// Alice sends stash:store directly to Bob via HTTP
+POST /mesh/message
+{kind: "stash:store", ...}
+
+// Does Bob run the receive pipeline?
+// Or does the HTTP handler process it directly?
 ```
+
+**Current design (implicit):** Mesh HTTP handler calls `rt.Receive(raw)`, which runs the pipeline.
+
+**Risk for stash:** High. This is exactly how stash works. Need to be clear about the flow:
+
+```
+HTTP request → http_mesh.go → rt.Receive() → pipeline → service.Handle()
+```
+
+**Recommendation:** Document this flow explicitly. Add it to the plan.
 
 ---
 
-### 11. Gossip's Implicit Dependency on Ledger
+## Summary: Risks by Severity
 
-**Current design:**
-- `Transport: Gossip()` does nothing — it relies on Store putting the message in the ledger
-- Gossip service reads from ledger to create zines
+### High (solve before implementing stash)
+- **#4 Request/Response correlation** — decide on approach
+- **#8 Payload struct location** — create `messages/` package
+- **#10 Mesh receive flow** — document and implement
 
-**Problem:** If you set `Store: NoStore()` but expect gossip to work, it won't. This coupling is implicit.
+### Medium (solve during implementation)
+- **#2 Emit/Receive confusion** — use clear comments
+- **#7 Testing mocks** — write mocks in Phase 3
+- **#9 Error strategy defaults** — add sensible defaults
 
-**Worse:** What if you want gossip but NOT permanent storage? "Spread this message but don't remember it"?
-
-**Alternative:** Make gossip explicit:
-
-```go
-type Behavior struct {
-    Store     StoreStage
-    Transport TransportStage
-    Gossip    bool  // Explicit: include in zines?
-}
-
-// Or make gossip a transport option
-Transport: Gossip()                    // Gossip only, implies store
-Transport: MQTT("topic").WithGossip()  // MQTT + gossip
-Transport: MQTT("topic")               // MQTT only, no gossip
-```
+### Low (defer to later phases)
+- **#1 PipelineContext size** — discipline, not architecture
+- **#3 DirectFirst empty topic** — add `MeshOnly()` helper
+- **#5 GossipQueue backpressure** — fix before Phase 6
+- **#6 Versioning complexity** — add validation
 
 ---
 
-### 12. The "Message" Name is Generic
+## Pre-Implementation Checklist for Stash
 
-`Message` is used everywhere in software. It's not searchable.
+Before writing stash service code:
 
-**Alternatives:**
-- `NaraEvent` — but we said not everything is an event
-- `Packet` — too low-level
-- `Signal` — interesting but vague
-- `Dispatch` — could work
-- Keep `Message` — it's accurate
-
-**Recommendation:** Keep `Message` but be consistent. Never call it "event" in code.
-
----
-
-## What Could Be Removed?
-
-### 1. Schema (for now)
-
-Remove entirely. Use Go struct tags or reflection for docs.
-
-### 2. Dedupe Stage (maybe)
-
-Merge into Store stage:
-```go
-Store: DefaultStore(2).WithIDDedupe()
-Store: DedupStore(0).WithContentDedupe(fn)
-```
-
-One less stage type to understand.
-
-### 3. Separate VerifyStage types
-
-Instead of `DefaultVerify`, `SelfAttesting`, `CustomVerify`, `NoVerify`...
-
-Just have one:
-```go
-type VerifyStage struct {
-    Verify func(msg *Message, ctx *PipelineContext) bool
-}
-
-// Helpers return configured instances
-func DefaultVerify() *VerifyStage {
-    return &VerifyStage{Verify: defaultVerifyFunc}
-}
-```
-
-Fewer types, same flexibility.
-
-### 4. The NotifyStage
-
-It's always last. It's never customized. Just hardcode it in the runtime:
-
-```go
-func (rt *Runtime) runPipeline(msg *Message, pipeline Pipeline) {
-    // Run user-defined stages
-    pipeline.Run(msg, ctx)
-
-    // Always notify (not a stage)
-    rt.eventBus.Emit(msg)
-}
-```
+- [ ] Create `messages/` package with payload structs
+- [ ] Decide request/response pattern (manual correlation in service)
+- [ ] Add `MeshOnly()` transport helper
+- [ ] Document mesh receive flow (HTTP → Receive → pipeline → Handle)
+- [ ] Write mock Transport and Ledger for testing
+- [ ] Add error strategy defaults (ErrorLog, not ErrorDrop)
+- [ ] Add PayloadType validation in Register()
 
 ---
 
-## What's Missing?
+## What We'll Learn From Stash
 
-### 1. Observability
+Stash will teach us:
 
-No hooks for:
-- Metrics (messages per second, drop rate, latency)
-- Tracing (follow a message through the pipeline)
-- Logging (structured logs per stage)
+1. **Does the pipeline pattern work for request/response?** — stash is all req/resp
+2. **Is DirectFirst/MeshOnly the right abstraction?** — stash is mesh-only
+3. **How painful is manual message correlation?** — might need runtime help
+4. **Are the interfaces right?** — first real consumer of TransportInterface
+5. **Does the service lifecycle work?** — Init/Start/Stop/Handle pattern
 
-**Need:** Observer pattern or middleware for cross-cutting concerns.
-
-### 2. Backpressure
-
-What if the pipeline is overwhelmed?
-- Messages queue up
-- Memory grows
-- Eventually OOM
-
-**Need:** Bounded channels, drop policies, circuit breakers.
-
-### 3. Priority/QoS
-
-All messages treated equally. But:
-- Checkpoints are critical
-- Pings are expendable
-- During recovery, prioritize certain kinds
-
-**Need:** Priority queues or weighted scheduling.
-
-### 4. Versioning
-
-What happens when message format changes?
-- Old naras send v1, new naras send v2
-- How to handle backwards compatibility?
-
-**Need:** Version field in Message, version-aware stages.
-
----
-
-## Summary: Keep, Change, Remove
-
-### Keep
-- **Message as universal primitive** — good unifying concept
-- **Behavior registry** — centralized, visible, documented
-- **Pipeline pattern** — composable, testable
-- **Stage isolation** — each stage testable alone
-- **Helper constructors** — readable behavior definitions
-
-### Change
-- **`next()` pattern** → Return-based with explicit errors
-- **PipelineContext** → Consider narrower interfaces per stage
-- **Schema** → Defer or use reflection
-- **Gossip coupling** → Make explicit
-- **Emit/Receive in Behavior** → Consider explicit separation
-
-### Remove (for v1)
-- **Schema** — over-engineering for now
-- **NotifyStage** — hardcode in runtime
-- **Some stage type proliferation** — use functions instead of types where possible
-
-### Add
-- **Error handling** — explicit errors, logging, metrics
-- **Observability hooks** — for debugging and monitoring
-- **Backpressure** — bounded queues, drop policies
-
----
-
-## Revised Minimal Design
-
-If we strip to essentials:
-
-```go
-// Message — the universal primitive
-type Message struct {
-    ID        string
-    Kind      string
-    From      string
-    Timestamp time.Time
-    Payload   any
-    Signature []byte
-}
-
-// Behavior — how a message kind is handled
-type Behavior struct {
-    Kind        string
-    Description string
-
-    // Functions, not stage objects
-    ComputeID   func(msg *Message) string                    // nil = default
-    Sign        func(msg *Message, keypair Keypair) []byte   // nil = default, false = skip
-    Store       func(msg *Message, ledger *Ledger) bool      // nil = default, return false to skip
-    Transport   func(msg *Message, transport *Transport)     // required
-    Verify      func(msg *Message, lookup KeyLookup) bool    // nil = default
-    Filter      func(msg *Message, personality *Personality) bool // nil = accept all
-}
-
-// Registry
-var Behaviors = map[string]*Behavior{}
-
-// Runtime
-func (rt *Runtime) Emit(msg *Message) error {
-    b := Behaviors[msg.Kind]
-    if b == nil {
-        return fmt.Errorf("unknown kind: %s", msg.Kind)
-    }
-
-    // ID
-    if b.ComputeID != nil {
-        msg.ID = b.ComputeID(msg)
-    } else {
-        msg.ID = defaultComputeID(msg)
-    }
-
-    // Sign
-    if b.Sign != nil {
-        msg.Signature = b.Sign(msg, rt.keypair)
-    } else {
-        msg.Signature = defaultSign(msg, rt.keypair)
-    }
-
-    // Store
-    shouldStore := true
-    if b.Store != nil {
-        shouldStore = b.Store(msg, rt.ledger)
-    } else {
-        rt.ledger.Add(msg, 2) // default priority
-    }
-
-    // Transport
-    b.Transport(msg, rt.transport)
-
-    // Notify
-    rt.eventBus.Emit(msg)
-
-    return nil
-}
-```
-
-**~50 lines** instead of hundreds. Is this enough?
-
-**Trade-off:** Less flexible, but simpler. Add complexity only when needed.
+If stash works cleanly, we have confidence for the rest. If it's painful, we learn what to fix before migrating production services.
