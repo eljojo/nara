@@ -262,60 +262,174 @@ services/     ← Import both runtime/ and messages/
 
 ---
 
-### 7. Error Strategy Defaults
+### 7. Error Strategy Defaults ✅ SOLVED
+
+**Solution:** Environment-aware defaults, like Rails environments.
 
 ```go
-type Behavior struct {
-    OnTransportError ErrorStrategy
-    OnStoreError     ErrorStrategy
-    OnVerifyError    ErrorStrategy
+// runtime/environment.go
+type Environment int
+
+const (
+    EnvProduction Environment = iota  // Graceful: log errors, don't crash
+    EnvDevelopment                     // Loud: log + warnings, fail on suspicious things
+    EnvTest                            // Strict: panic on errors, catch bugs early
+)
+```
+
+**Error strategy defaults by environment:**
+
+| Environment | Default Strategy | Rationale |
+|-------------|------------------|-----------|
+| Production | `ErrorLog` | Log and continue - don't crash in prod |
+| Development | `ErrorLogWarn` | Log at WARN level - make errors visible |
+| Test | `ErrorPanic` | Fail fast - catch bugs in CI |
+
+**Runtime config:**
+```go
+type RuntimeConfig struct {
+    Environment Environment  // Defaults to EnvProduction if not set
+    // ...
+}
+
+func NewRuntime(cfg RuntimeConfig) *Runtime {
+    env := cfg.Environment
+    if env == 0 && os.Getenv("NARA_ENV") != "" {
+        env = parseEnv(os.Getenv("NARA_ENV"))  // "production", "development", "test"
+    }
+    // ...
 }
 ```
 
-**Concern:** What if not set? Zero value is `ErrorDrop` (silent).
-
-**Risk for stash:** Medium. Forgetting to set error strategy = silent failures.
-
-**Recommendation:** Make default explicit:
+**Default strategy resolution:**
 ```go
-func (rt *Runtime) getErrorStrategy(b *Behavior, stage string) ErrorStrategy {
-    switch stage {
-    case "transport":
-        if b.OnTransportError != 0 {
-            return b.OnTransportError
-        }
-        return ErrorLog  // Default: at least log it
-    // ...
+func (rt *Runtime) defaultErrorStrategy() ErrorStrategy {
+    switch rt.env {
+    case EnvTest:
+        return ErrorPanic      // Fail fast in tests
+    case EnvDevelopment:
+        return ErrorLogWarn    // Loud warnings in dev
+    default:
+        return ErrorLog        // Graceful in prod
     }
 }
+
+func (rt *Runtime) getErrorStrategy(b *Behavior, direction string) ErrorStrategy {
+    var explicit ErrorStrategy
+    if direction == "emit" {
+        explicit = b.Emit.OnError
+    } else {
+        explicit = b.Receive.OnError
+    }
+
+    if explicit != 0 {
+        return explicit  // Behavior explicitly set it
+    }
+    return rt.defaultErrorStrategy()  // Environment default
+}
 ```
 
-Or require all strategies in `Register()` validation.
+**Other environment-specific behaviors:**
+
+| Behavior | Production | Development | Test |
+|----------|------------|-------------|------|
+| Error strategy | Log | LogWarn | Panic |
+| Logger verbosity | Batched | Verbose | Silent/Captured |
+| Validation | Log invalid | Warn invalid | Reject invalid |
+| Timeouts | Long (30s) | Medium (10s) | Short (1s) |
+| MockRuntime | N/A | N/A | Auto-cleanup |
+
+**Usage:**
+```go
+// In main.go
+rt := NewRuntime(RuntimeConfig{
+    Environment: EnvProduction,
+})
+
+// In tests - auto-detected or explicit
+rt := NewMockRuntime(t, "alice")  // Always EnvTest
+
+// Via environment variable
+NARA_ENV=development ./nara
+```
+
+**Risk:** None. Sensible defaults that fail loudly in dev/test, gracefully in prod.
 
 ---
 
-### 8. The "Receive" Pipeline for Direct Messages
+### 8. The "Receive" Pipeline for Direct Messages ✅ SOLVED
 
-MQTT messages go through receive pipeline. But what about direct mesh messages?
+**Rule: ALL incoming messages go through the receive pipeline. No exceptions.**
 
+Whether a message arrives via MQTT broadcast or direct mesh HTTP, it runs through the same pipeline. This ensures:
+- Signature verification always happens
+- Deduplication always happens
+- Rate limiting always happens
+- No "backdoors" that bypass security
+
+**The flow for mesh messages:**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  HTTP Request (mesh)                                             │
+│  POST /mesh/message                                              │
+│  {kind: "stash:store", from: "alice", ...}                      │
+└─────────────────────────┬───────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  http_mesh.go                                                    │
+│  func handleMeshMessage(w, r) {                                  │
+│      raw := readBody(r)                                          │
+│      rt.Receive(raw)  // ← ALWAYS use runtime, never bypass     │
+│  }                                                               │
+└─────────────────────────┬───────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  rt.Receive(raw)                                                 │
+│                                                                  │
+│  1. Deserialize (using messages/ package + version)             │
+│  2. Lookup behavior for msg.Kind                                 │
+│  3. Run receive pipeline:                                        │
+│     [Verify] → [Dedupe] → [RateLimit] → [Filter] → [Store]      │
+│  4. If Continue: notify service handlers                         │
+│  5. If Drop: record metric, done                                 │
+│  6. If Error: apply error strategy (env-aware)                   │
+└─────────────────────────┬───────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  service.Handle(msg)                                             │
+│                                                                  │
+│  Stash service receives verified, deduplicated message          │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Same flow for MQTT:**
+```
+MQTT message → mqtt_handler.go → rt.Receive(raw) → pipeline → service.Handle()
+```
+
+**Anti-pattern (DON'T DO THIS):**
 ```go
-// Alice sends stash:store directly to Bob via HTTP
-POST /mesh/message
-{kind: "stash:store", ...}
-
-// Does Bob run the receive pipeline?
-// Or does the HTTP handler process it directly?
+// BAD: Bypassing the pipeline
+func handleMeshMessage(w, r) {
+    var msg Message
+    json.Unmarshal(readBody(r), &msg)
+    stashService.Handle(&msg)  // ← NO! Skips verification, dedup, etc.
+}
 ```
 
-**Current design (implicit):** Mesh HTTP handler calls `rt.Receive(raw)`, which runs the pipeline.
-
-**Risk for stash:** High. This is exactly how stash works. Need to be clear about the flow:
-
+**Correct pattern:**
+```go
+// GOOD: Always go through runtime
+func handleMeshMessage(w, r) {
+    rt.Receive(readBody(r))  // Pipeline handles everything
+}
 ```
-HTTP request → http_mesh.go → rt.Receive() → pipeline → service.Handle()
-```
 
-**Recommendation:** Document this flow explicitly. Add it to the plan.
+**Risk:** None. Clear rule, single entry point for all messages.
 
 ---
 
@@ -324,11 +438,11 @@ HTTP request → http_mesh.go → rt.Receive() → pipeline → service.Handle()
 ### High (solve before implementing stash)
 - **#2 Request/Response correlation** — ✅ SOLVED with Correlator utility
 - **#6 Payload struct location** — ✅ SOLVED with `messages/` package (the "monorepo")
-- **#8 Mesh receive flow** — document and implement
+- **#8 Mesh receive flow** — ✅ SOLVED (all messages go through `rt.Receive()`, no exceptions)
 
 ### Medium (solve during implementation)
 - **#5 Testing mocks** — ✅ SOLVED (MockRuntime for services, real MQTT for runtime)
-- **#7 Error strategy defaults** — add sensible defaults
+- **#7 Error strategy defaults** — ✅ SOLVED (environment-aware: Panic in test, LogWarn in dev, Log in prod)
 
 ### Low (defer to later phases)
 - **#1 PipelineContext size** — discipline, not architecture
@@ -344,9 +458,9 @@ Before writing stash service code:
 - [x] Create `messages/` package → **The monorepo of Nara message types**
 - [x] Decide request/response pattern → **Correlator utility** (see `DESIGN_SERVICE_UTILITIES.md`)
 - [ ] Create `utilities/` package with Correlator, Encryptor, RateLimiter
-- [ ] Document mesh receive flow (HTTP → Receive → pipeline → Handle)
+- [x] Document mesh receive flow → **All messages through `rt.Receive()`, no exceptions**
 - [x] Write MockRuntime for service testing → **Phase 3.3**
-- [ ] Add error strategy defaults (ErrorLog, not ErrorDrop)
+- [x] Add error strategy defaults → **Environment-aware** (Panic/LogWarn/Log)
 - [x] PayloadTypes validation → **Removed PayloadType shorthand, only PayloadTypes exists**
 
 ---

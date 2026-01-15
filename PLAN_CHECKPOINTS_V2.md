@@ -84,6 +84,7 @@ nara docs --messages  # Generate message catalog from godoc comments
 Create the directory structure:
 ```
 runtime/
+├── environment.go   # Environment enum (Production, Development, Test)
 ├── message.go       # Message struct
 ├── stage.go         # Stage interface, StageResult, Pipeline
 ├── behavior.go      # Behavior struct, Registry
@@ -91,6 +92,33 @@ runtime/
 ├── runtime.go       # Runtime struct (stub)
 └── runtime_test.go  # Tests
 ```
+
+**Environment (like Rails):**
+```go
+// runtime/environment.go
+type Environment int
+
+const (
+    EnvProduction Environment = iota  // Graceful: log errors, don't crash
+    EnvDevelopment                     // Loud: warnings, fail on suspicious things
+    EnvTest                            // Strict: panic on errors, catch bugs early
+)
+
+// Detected from NARA_ENV or explicit in RuntimeConfig
+func (rt *Runtime) Env() Environment
+func (rt *Runtime) IsProd() bool
+func (rt *Runtime) IsDev() bool
+func (rt *Runtime) IsTest() bool
+```
+
+**Environment-aware defaults:**
+
+| Behavior | Production | Development | Test |
+|----------|------------|-------------|------|
+| Error strategy | Log | LogWarn | Panic |
+| Logger | Batched | Verbose | Captured |
+| Timeouts | 30s | 10s | 1s |
+| Validation | Log | Warn | Reject |
 
 ### Step 1.2: Implement Message
 
