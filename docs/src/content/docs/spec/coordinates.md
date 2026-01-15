@@ -4,106 +4,51 @@ title: Coordinates
 
 # Coordinates
 
-## Purpose
-
-Network coordinates estimate latency between naras without requiring direct ping measurements.
-They allow the network to discover topology (who is close to whom) scalably.
+Network coordinates estimate peer-to-peer latency using the Vivaldi algorithm, enabling scalable topology discovery without exhaustive pinging.
 
 ## Conceptual Model
 
-- Based on the **Vivaldi** algorithm.
-- Nodes exist in a 2D Euclidean space + a "Height" component (modeling non-Euclidean access links).
-- Latency `RTT = Distance(A, B)`.
+| Concept | Rule |
+| :--- | :--- |
+| **Model** | 2D Euclidean Space + "Height" component (link latency). |
+| **Prediction** | `Estimated_RTT = Distance(A, B)`. |
+| **Iterative** | Coordinates refine locally as real ping measurements (`svc: ping`) arrive. |
+| **Bias** | Nearby peers get a "Proximity Bonus" in clout and routing decisions. |
 
-Key invariants:
-- Coordinates update iteratively based on real ping measurements.
-- Coordinates predict latency between nodes that have never communicated.
-- Coordinates influence routing (e.g., world journey next-hop selection) and clout (proximity bias).
+## Algorithm: Vivaldi Update
 
-## External Behavior
-
-- Each nara maintains its own `NetworkCoordinate`.
-- Coordinates are piggybacked on `HeyThere` and `Newspaper` messages (not `SyncEvent`s directly, but part of `NaraStatus`).
-- Nodes ping random peers periodically to refine their coordinates.
+When a ping measurement `rtt` arrives from `peer`:
+1. **Predict**: `dist = sqrt((me.x - peer.x)^2 + (me.y - peer.y)^2) + me.h + peer.h`.
+2. **Error**: `e = rtt - dist`.
+3. **Weight**: `w = me.Error / (me.Error + peer.Error)` (Trust peers with lower error).
+4. **Nudge**: Move position by `0.25 * w * e` along the unit vector relative to peer.
+5. **Update Error**: Weighted moving average of `|e| / rtt`.
 
 ## Interfaces
 
 ### Data Structure (`NetworkCoordinate`)
-```go
-type NetworkCoordinate struct {
-    X      float64 `json:"x"`
-    Y      float64 `json:"y"`
-    Height float64 `json:"height"` // Models 'last mile' latency
-    Error  float64 `json:"error"`  // Confidence (lower is better)
+```json
+{
+    "x": 1.23, "y": -4.56,
+    "height": 10.0,
+    "error": 0.15
 }
 ```
 
-### Methods
-- `DistanceTo(other)`: Returns estimated RTT in milliseconds.
-- `Update(peer, rtt)`: Adjusts local coordinates based on measured RTT.
+### Usage
+- **Clout**: `Clout = (Base * 0.7) + (Base * exp(-Dist/100ms) * 0.3)`.
+- **World Journeys**: Next-hop selection prefers low predicted latency.
+- **Presence**: Embedded in `NaraStatus` (broadcast via Newspaper).
 
-### Usage in Other Systems
-- **Clout**: `ApplyProximityToClout` boosts clout for nearby peers.
-- **Routing**: `ProximityBonus` prefers nearby peers for world journey hops.
+## Constraints
+- **Initialization**: Small random offset near (0,0); `error = 1.0`.
+- **Non-Euclidean**: The `Height` component absorbs internet routing violations of the triangle inequality.
 
-## Event Types & Schemas
-
-Coordinates are not a distinct event type but are embedded in:
-- `NaraStatus` (used in `NewspaperEvent` and `HowdyEvent`).
-
-Ping events (`svc: ping`) are the inputs:
-- `PingObservation`: `{Observer, Target, RTT}`.
-
-## Algorithms
-
-### Initialization
-- Start at a small random position near origin (prevents singularity).
-- High initial error (1.0).
-
-### Update Rule (Vivaldi)
-When a ping measurement `rtt` arrives from `peer`:
-1. **Prediction**: `pred = Distance(me, peer)`.
-2. **Error**: `e = rtt - pred`.
-3. **Weight**: `w = me.Error / (me.Error + peer.Error)` (trust peer if they are more confident).
-4. **Move**: Nudge position by `Cc * w * e` along the unit vector towards/away from peer.
-5. **Update Error**: `me.Error` updated using weighted moving average of `|e|`.
-
-Defaults:
-- `Cc` (Coordinate Step): 0.25
-- `Ce` (Error Step): 0.25
-
-### Distance Calculation
-```go
-func Distance(a, b) float64 {
-    euclidean = Sqrt((a.x - b.x)^2 + (a.y - b.y)^2)
-    return euclidean + a.height + b.height
-}
-```
-
-### Proximity Influence on Clout
-Nearby peers have more influence on opinion.
-```go
-ProximityWeight = Exp(-Distance / 100ms)
-ResultClout = (BaseClout * 0.7) + (BaseClout * ProximityWeight * 0.3)
-```
-
-## Failure Modes
-
-- **High Error**: Nodes with unstable links or few peers will have high error estimates.
-- **Drift**: Without anchors, the entire coordinate system can drift (translation/rotation), but relative distances remain valid.
-- **Triangle Inequality**: Internet routing often violates Euclidean rules; the `Height` component absorbs this error.
-
-## Security / Trust Model
-
-- **No Verification**: Coordinates are self-reported. A malicious node could lie about its position to attract or repel traffic.
-- **Impact Limiting**: Bad coordinates mainly affect optimization (latency estimation), not correctness (connectivity).
+## Security
+- **Self-Reported**: Nodes report their own coordinates; malicious nodes can lie about position.
+- **Low Impact**: Malformed coordinates affect optimization (latency estimation) but not correctness or connectivity.
 
 ## Test Oracle
-
-- **Convergence**: Coordinates converge to accurate latency estimates over time. (`vivaldi_test.go`)
-- **Distance**: `DistanceTo` returns positive values. (`vivaldi_test.go`)
-- **Proximity**: Clout adjustment boosts nearby peers. (`vivaldi_test.go`)
-
-## Open Questions / TODO
-
-- **Anchors**: No fixed anchors are currently used; the system floats.
+- **Convergence**: Verify coordinate stabilization towards measured RTTs. (`vivaldi_test.go`)
+- **Distance**: `DistanceTo` remains positive and symmetric. (`vivaldi_test.go`)
+- **Influence**: Proximity bias correctly modifies Clout. (`vivaldi_test.go`)

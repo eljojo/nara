@@ -4,91 +4,56 @@ title: Web UI
 
 # Web UI
 
-## Purpose
-
-The Web UI provides a human-readable interface to the Nara network. It runs locally
-on each node and offers visualizations of the network, timeline, and internal state.
+The human-readable interface to Nara, providing real-time visualizations of the network, timeline, and internal projections.
 
 ## Conceptual Model
 
-- **Local-Only**: The UI is served by the local `http_server` on port 8080 (default).
-- **Single Page App**: Implemented as a React/Preact app embedded in the binary.
-- **SSE Driven**: Real-time updates (events, status) are pushed via Server-Sent Events.
+| Concept | Rule |
+| :--- | :--- |
+| **Architecture** | Single Page App (Preact) embedded in the Nara binary. |
+| **Serving** | Local-only via the primary HTTP server (Default: port 8080). |
+| **Data Flow** | Snapshots via JSON REST APIs; real-time updates via Server-Sent Events (SSE). |
 
-## External Behavior
+## Views & Features
 
-- **Dashboard**: Shows local status (online, uptime, memory, mood).
-- **Network Map**: Visualizes peers using Vivaldi coordinates.
-- **Timeline**: Displays a feed of recent social events (teases, observations).
-- **Inspector**: Deep dive into ledger events, checkpoints, and projections.
-- **World**: Tracking for world postcards and journeys.
+- **Dashboard**: Local status, uptime, memory usage, and current "mood" (Aura).
+- **Network Map**: 2D visualization of peers using Vivaldi coordinates and Barrio markers.
+- **Timeline**: Real-time feed of social interactions, presence signals, and pings.
+- **Inspector**: Deep-dive tools for auditing the `SyncLedger`, Checkpoints, and Projections.
+- **World**: Tracking for active and historical "World Postcard" journeys.
 
 ## Interfaces
 
-### HTTP Endpoints
-- `GET /`: Serves the SPA (`inspector.html`).
-- `GET /events`: SSE stream for real-time updates.
-- `GET /api.json`: Detailed network state.
-- `GET /narae.json`: Summary list of all known naras.
-- `GET /network/map`: Coordinate data for visualization.
-- `GET /social/recent`: Recent social events.
-- `GET /social/clout`: Current clout scores.
-- `GET /social/teases`: Tease counts.
-- `GET /world/journeys`: Active and completed journeys.
+### 1. REST APIs (JSON)
+- `GET /api.json`: Full network snapshot.
+- `GET /narae.json`: Summary peer list.
+- `GET /social/clout`: Subjective clout rankings.
+- `GET /world/journeys`: Journey history.
 
-### SSE Events
-Streamed from `/events`.
-- **Types**: `social`, `ping`, `observation`, `hey_there`, `chau`, `seen`.
-- **Payload**:
-  ```json
-  {
-    "id": "event-id",
-    "service": "social",
-    "timestamp": 1700000000000000000,
-    "emitter": "nara-name",
-    "icon": "👋",
-    "text": "nara-name says hi",
-    "detail": "via mqtt"
-  }
-  ```
+### 2. Real-time Stream (`GET /events`)
+SSE-formatted stream.
+**Payload Schema**:
+```json
+{
+  "id": "event-id",
+  "service": "social",
+  "timestamp": 1700000000000000000,
+  "icon": "👋",
+  "text": "Human-readable summary",
+  "detail": "Context (e.g., 'via mesh')"
+}
+```
 
-## Event Types & Schemas
+## Logic
 
-The UI consumes transformed events. Raw `SyncEvent`s are processed into UI-friendly formats:
-- **Icons**: Derived from event type (e.g., `👋` for `hey_there`, `😈` for `tease`).
-- **Text**: Human-readable summary.
-- **Detail**: Context (e.g., "via mesh", "RTT 45ms").
+- **Event Transformation**: Raw `SyncEvent`s are mapped to UI formats (e.g., `hey-there` → `👋`).
+- **Deduplication**: The UI uses Event IDs to prevent redundant entries in the timeline.
+- **Auto-Reconnect**: The SSE client automatically attempts to re-establish dropped connections.
 
-## Algorithms
-
-### Clout Visualization
-- Fetches clout scores from `CloutProjection`.
-- Displays top naras sorted by score.
-
-### Network Map
-- Uses `NetworkCoordinate` (Vivaldi) data from `/network/map`.
-- Projects 2D coordinates + Height into a visual graph.
-- Self is centered or highlighted.
-
-### Timeline
-- Merges `recent` social events with real-time SSE updates.
-- Dedupes events by ID to prevent stutter.
-
-## Failure Modes
-
-- **Connection Lost**: SSE stream disconnects; UI shows "Disconnected" badge. Auto-reconnects.
-- **Empty State**: If ledger is empty (fresh boot), timelines show placeholder.
-
-## Security / Trust Model
-
-- **Local Trust**: The UI assumes it is talking to a trusted local node.
-- **No Auth**: Endpoints are unauthenticated (bound to localhost or protected by network firewall).
+## Security
+- **Local Access**: Endpoints are unauthenticated, assuming local or firewalled network access.
+- **Read-Only**: Most actions are non-mutating, except for Stash recovery and World journey initiation.
 
 ## Test Oracle
-
-- **Endpoints**: JSON endpoints return valid structures. (`http_ui_test.go` - theoretical)
-- **SSE**: Stream sends initial connection event and subsequent updates. (`http_ui.go`)
-
-## Open Questions / TODO
-
-- **Write Actions**: Currently limited to `Stash` recovery and `World` journey start. More control actions could be added.
+- **Structure**: Verify JSON responses match expected schemas.
+- **Streaming**: Verify SSE heartbeats and event delivery. (`http_ui.go`)

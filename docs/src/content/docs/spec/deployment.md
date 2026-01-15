@@ -4,72 +4,47 @@ title: Deployment
 
 # Deployment
 
-## Purpose
-
-Deployment describes how to build and run Nara binaries and UI assets.
-It documents the supported build targets and the public web deployment config.
+Build and runtime orchestration for Nara binaries, UI assets, and documentation.
 
 ## Conceptual Model
 
-Entities:
-- `bin/nara`: main runtime with embedded UI and docs.
-- `bin/nara-backup`: backup/import helper tool.
-- `nara-web/public`: built UI assets bundled into the binary.
+| Component | Description |
+| :--- | :--- |
+| **`bin/nara`** | Main binary with embedded UI and documentation. |
+| **`bin/nara-backup`**| CLI tool for ledger export/import. |
+| **`nara-web/public`**| Bundled SPA and docs site. |
 
-Key invariants:
-- Web assets are built before the main binary.
-- Docs are built into `nara-web/public/docs`.
-- The runtime expects a single HTTP port for both UI and APIs.
+### Invariants
+- Web assets must be compiled before the main Go binary to ensure embedding.
+- A single HTTP port serves both the API and the UI.
 
-## External Behavior
+## Build Pipeline
 
-Build targets:
-- `make build-web`: builds the UI bundle and docs, then copies into `nara-web/public`.
-- `make build`: builds `bin/nara` (depends on build-web).
-- `make build-backup`: builds `bin/nara-backup`.
-- `make clean`: removes build artifacts.
-- `make build-nix`: builds via Nix.
+```mermaid
+graph TD
+    A[npm run build: SPA] --> D[Copy to nara-web/public]
+    B[astro build: Docs] --> D
+    D --> E[go build: cmd/nara]
+    E --> F[bin/nara: Embedded Artifact]
+```
 
-Runtime examples (Makefile):
-- `make run`: starts Nara with UI on `:8080`.
-- `make run2`: starts a second instance on `:8081` with `-nara-id nixos`.
+## Build Targets (`/usr/bin/make`)
 
-## Interfaces
+- `build-web`: Compiles SPA and docs.
+- `build`: Compiles `bin/nara` (includes web).
+- `build-backup`: Compiles the backup utility.
+- `build-nix`: Reproducible build via Nix.
+- `clean`: Remove all artifacts.
 
-Makefile targets:
-- `build-web`, `build`, `build-backup`, `run`, `run2`, `run3`, `clean`, `build-nix`.
-
-Fly.io deployment:
-- `fly.toml` defines app `nara-web`.
-- `PORT=8080` with HTTP service bound to internal 8080.
-- Health check: `GET /` every 15s.
-
-## Event Types & Schemas (if relevant)
-
-- None.
-
-## Algorithms
-
-Build pipeline:
-1. `npm run build` compiles the SPA assets.
-2. `astro build` compiles the docs site.
-3. Docs are copied into `nara-web/public/docs`.
-4. Go build embeds assets into the binary.
+## Infrastructure: Fly.io
+Configuration in `fly.toml` for the `nara-web` app:
+- **Port**: 8080 (Internal & External).
+- **Health Check**: `GET /` every 15s.
 
 ## Failure Modes
-
-- Missing UI build artifacts result in empty or missing web UI.
-- Missing docs build artifacts result in `/docs/` returning 404.
-
-## Security / Trust Model (if relevant)
-
-- Deployment is standard single-binary; access control is external.
+- **Missing Assets**: Empty UI/404 on docs if the build-web step is skipped.
+- **Port Conflicts**: Multiple instances require unique `-http-addr` flags.
 
 ## Test Oracle
-
-- Build target produces `bin/nara` with UI assets. (manual build)
-- Fly config exposes `/` on port 8080. (`fly.toml`)
-
-## Open Questions / TODO
-
-- None.
+- **Binary**: Successful build produces a standalone executable.
+- **Embedded UI**: Verify `/` and `/docs/` are accessible on the running node.

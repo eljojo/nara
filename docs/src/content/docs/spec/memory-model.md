@@ -4,96 +4,57 @@ title: Memory Model
 
 # Memory Model
 
-## Purpose
-
-The memory model defines how naras keep, forget, and prune information while
-staying memory-only and eventually consistent.
+Nara's memory is event-based, in-memory only, and intentionally bounded. Knowledge survives only through social replication and peer overlap.
 
 ## Conceptual Model
 
-- All durable knowledge is event-based; there is no disk persistence.
-- Memory is bounded by the ledger capacity and pruning policy.
-- Naras may forget or prune peers and events based on age and relevance.
+| Concept | Rule |
+| :--- | :--- |
+| **No Persistence** | All state is lost on process termination; recovered via sync. |
+| **Bounded** | Ledger capacity is strictly capped by the selected Memory Mode. |
+| **Priority-Based**| Pruning favors critical consensus over casual social noise. |
+| **Social Forgetting**| Information is lost permanently if all nodes prune it. |
 
-Key invariants:
-- SyncLedger is in-memory only.
-- Critical events are never pruned.
-- Pruning is deterministic given the same ledger contents.
+## Memory Modes
 
-## External Behavior
+| Mode | Capacity (Max Events) | Behavior |
+| :--- | :--- | :--- |
+| **`short`** | 20,000 | Background sync disabled; aggressive pruning. |
+| **`medium`**| 80,000 | Standard operational history. |
+| **`hog`** | 320,000 | Deep historical retention. |
 
-- Memory mode controls maximum event capacity and background sync behavior.
-- Periodic maintenance prunes old events and inactive peers.
-- Boot recovery reconstructs memory by sampling peers.
+## Pruning Algorithms
 
-## Interfaces
+### 1. Ledger Pruning
+When `MaxEvents` is reached, events are removed by **Priority** (high value = prune first), then by **Age**:
+- **Priority 4**: `ping` (Aggressively trimmed to most recent 5 per target).
+- **Priority 3**: `seen` (Ephemeral contact proofs).
+- **Priority 2**: `social` (Teases and casual observations).
+- **Priority 1**: `hey-there`, `chau`, `status-change`.
+- **Priority 0**: `checkpoint`, `restart`, `first-seen` (Never pruned).
 
-Memory modes and defaults (see `memory.go`):
-- short: 20,000 events, background sync disabled
-- medium: 80,000 events
-- hog: 320,000 events
-- custom: user-specified `LEDGER_CAPACITY`
-
-Maintenance loops:
-- `socialMaintenance` (every 5 minutes) prunes events and inactive naras.
-- Observation maintenance runs every 1 second.
-
-## Event Types & Schemas (if relevant)
-
-Memory behavior is driven by event types and priorities:
-- Checkpoints and critical observations are never pruned.
-- Pings are low-priority and aggressively trimmed.
-
-## Algorithms
-
-Ledger pruning:
-- If over `MaxEvents`, prune by priority (higher number pruned first):
-  - ping (4)
-  - seen (3)
-  - social (2)
-  - status-change observation (1)
-  - hey_there/chau (1)
-  - restart/first-seen observation and checkpoints (0, never pruned)
-- Events from unknown naras (no public key) are pruned first.
-- Within the same priority, oldest events are pruned first.
-
-Ping retention:
-- Keep only the most recent 5 ping events per target.
-- Older pings are dropped when a new ping arrives.
-
-Observation compaction:
-- At most 20 observation events per observer->subject pair.
+### 2. Observation Compaction
+Limits to 20 events per observer-subject pair:
 - Prefer pruning non-restart events.
-- Do not prune restart events unless a checkpoint exists for the subject.
+- Never prune `restart` events unless a `checkpoint` exists for the subject.
 
-Neighbourhood pruning:
-- Zombies (never seen) are pruned immediately.
-- Newcomers (<2 days old) are pruned after 24h offline.
-- Established (2-30 days) are pruned after 7 days offline.
-- Veterans (>=30 days) are never auto-pruned.
-- Pruning removes neighbourhood entry, observations, and all events involving the pruned name.
+### 3. Neighbourhood Pruning (Peer Memory)
+- **Zombies**: Never seen; pruned immediately.
+- **Newcomers** (<2 days old): Pruned after 24h offline.
+- **Established** (2-30 days): Pruned after 7 days offline.
+- **Veterans** (>=30 days): Never auto-pruned.
+*Pruning a peer removes their identity, observations, and all associated events.*
 
-Boot recovery:
-- Uses mesh sync (sample mode) to repopulate the ledger.
-- Falls back to legacy MQTT social sync if mesh is unavailable.
+## Lifecycle: Boot Recovery
+1. **Mesh Sync**: Request weighted random samples from peers (see [Sync Protocol](./sync-protocol.md)).
+2. **Replay**: Apply re-acquired events to projections.
+3. **Checkpoint Anchor**: Reconstruct historical uptime baseline.
 
-## Failure Modes
-
-- If all peers forget an event, it is lost permanently.
-- Aggressive pruning in short memory mode reduces historical context.
-- Ghost pruning removes checkpoints about the ghost subject.
-
-## Security / Trust Model
-
-- Memory loss is expected and not considered a security failure.
-- Event signatures still verify authenticity for remaining memory.
+## Security
+- **Integrity**: Pruning does not affect the authenticity of remaining events.
+- **Availability**: Reliability emerges from the high overlap of Priority 0 events across the network.
 
 ## Test Oracle
-
-- Critical events are never pruned. (`sync_test.go`, `checkpoint_test.go`)
-- Unknown-nara events are pruned first. (`sync_test.go`)
-- Neighbourhood pruning thresholds are enforced. (`network_prune_test.go`)
-
-## Open Questions / TODO
-
-- Formalize memory guarantees for hybrid MQTT + gossip deployments.
+- **Priority**: Verify `ping` is pruned before `social`. (`sync_test.go`)
+- **Retention**: Ensure `checkpoint` survives full-ledger cycles. (`checkpoint_test.go`)
+- **Peer Pruning**: Threshold enforcement for newcomers vs veterans. (`network_prune_test.go`)

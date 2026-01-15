@@ -4,91 +4,52 @@ title: Aura and Avatar
 
 # Aura and Avatar
 
-## Purpose
-
-Aura and avatar provide deterministic visual identity. They translate a nara's
-soul, personality, and uptime into color and flair so the UI can render a
-recognizable presence without storing images.
+Deterministic visual identity derived from a nara's soul, personality, and uptime. Aura and flair allow the UI to render a unique, recognizable presence without external assets.
 
 ## Conceptual Model
 
-- Aura: two HEX colors derived from soul + personality + uptime.
-- Flair: a compact string of visual tokens derived from identity, platform,
-  trend participation, and network status.
-- License plate: the barrio marker derived from clustering.
+| Concept | Description |
+| :--- | :--- |
+| **Aura** | Two HEX colors (Primary/Secondary) derived from soul + personality. |
+| **Flair** | A string of visual tokens (emojis) reflecting identity, platform, and status. |
+| **License Plate** | A barrio emoji marker derived from coordinate-based clustering. |
 
-Key invariants:
-- Aura is deterministic given (soul, name, personality, uptime).
-- Aura is recomputed during observation maintenance and stored in `NaraStatus`.
-- Flair uses only public data and never includes the soul.
-
-## External Behavior
-
-- Aura is included in `NaraStatus` and exposed via HTTP APIs.
-- Aura is set during initialization and refreshed during maintenance.
-- Flair and license plate update as status changes (trend, uptime, barrio).
-
-## Interfaces
-
-NaraStatus fields:
-- `Aura.Primary` and `Aura.Secondary` (HEX strings)
-- `Flair` (string of tokens)
-- `LicensePlate` (barrio emoji token)
-
-HTTP exposure:
-- `/api.json`, `/narae.json`, `/status/{name}.json`, and `/profile/{name}.json` include aura and flair.
-
-## Event Types & Schemas (if relevant)
-
-Aura and flair are not events; they are derived fields in status.
+### Invariants
+- **Aura**: Deterministic for a given (soul, name, personality, uptime). Recomputed during maintenance.
+- **Flair**: Uses public metadata; never reveals the soul.
+- **Exposure**: Fields are part of `NaraStatus` and included in all API snapshots.
 
 ## Algorithms
 
-Aura derivation:
-- Build ID string = soul + name.
-- Determine palette modifier from personality:
-  - High sociability + low chill -> neon
-  - High chill -> noir
-  - Low sociability -> cool bias
-  - High sociability + moderate chill -> warm bias
-  - Otherwise default
-- Generate a base hue from a FNV-1a hash of the ID.
-- Choose harmony mode based on agreeableness (analogous vs split/triad/complement).
-- Compute OKLCH L/C values from sociability and chill.
-- Apply an illuminant bias determined by uptime, personality, and palette modifier.
-- Convert to sRGB with gamut mapping.
+### 1. Aura Derivation (OKLCH → sRGB)
+1. **Palette**: Determined by personality:
+   - High Sociability + Low Chill: **Neon**.
+   - High Chill: **Noir**.
+   - Low Sociability: **Cool bias**.
+   - High Sociability + Mod. Chill: **Warm bias**.
+2. **Base Hue**: `FNV-1a(Soul + Name)`.
+3. **Harmony**: Selection (Analogous vs Complementary) based on Agreeableness.
+4. **Saturation/Lightness**: Derived from Sociability and Chill.
+5. **Uptime Influence**: Log-scaled uptime (0-30 days) biases the illuminant strength.
 
-Uptime influence:
-- Uptime is mapped (log curve, 0..30 days) into the illuminant selection and strength.
-- Agreeableness pulls the illuminant toward neutral daylight.
+### 2. Flair Derivation
+Base + Platform + Trend + Personality + Awards:
+- **Base**: 💎 (Valid soul bond) vs ⚪ (Generic/Inauthentic).
+- **Platform**: 🍓 (RPi), ❄️ (NixOS), ☸️ (K8s).
+- **Social**: Trend-specific emojis; extra tokens if Sociability is high.
+- **Awards**: 👑 (Oldest), 👶 (Youngest), 🌀 (Most Restarts).
 
-Flair derivation:
-- Base token is a gemstone if the soul/name bond is valid; otherwise a generic marker.
-- Platform markers are appended (Raspberry Pi, NixOS, Kubernetes).
-- Trend emoji is appended if participating in a trend.
-- Sociability determines how many personal flair tokens are appended.
-- Network-based awards (oldest, youngest, most restarts) are appended when known.
+### 3. License Plate
+- Derived from **Barrio Emoji** via neighborhood clustering.
+- Uses Vivaldi coordinates if available; falls back to `Hash(Name)`-based grid.
 
-License plate:
-- Uses barrio emoji from neighbourhood clustering (grid-based when coordinates exist,
-  hash-based fallback).
-
-## Failure Modes
-
-- Missing soul or invalid bond falls back to the generic flair base.
-- Missing coordinates fall back to hash-based barrio assignment.
-
-## Security / Trust Model
-
-- Aura and flair are cosmetic; no authentication is derived from them.
-- Aura depends on soul but does not reveal it.
+## Interfaces
+Fields in `NaraStatus`:
+- `Aura.Primary` / `Aura.Secondary` (HEX strings).
+- `Flair` (Token string).
+- `LicensePlate` (Emoji).
 
 ## Test Oracle
-
-- Aura is deterministic for a given soul and personality. (`aura_test.go`)
-- Aura is set during initialization and copied during status updates. (`aura_test.go`)
-- Flair includes trend and personality tokens. (`social_trend_test.go`)
-
-## Open Questions / TODO
-
-- Specify a stable, cross-language OKLCH implementation for re-implementations.
+- **Determinism**: Identical inputs yield identical HEX values. (`aura_test.go`)
+- **Initialization**: Aura is set during boot. (`aura_test.go`)
+- **Trends**: Participation correctly modifies Flair. (`social_trend_test.go`)

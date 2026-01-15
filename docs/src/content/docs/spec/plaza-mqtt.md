@@ -4,89 +4,50 @@ title: Plaza MQTT
 
 # Plaza MQTT
 
-## Purpose
-
-The plaza is the broadcast layer: MQTT topics used for real-time presence,
-lightweight gossip, and checkpoint consensus.
+The public broadcast layer for real-time presence, lightweight gossip, and checkpoint consensus. Delivery is best-effort (QoS 0) by design.
 
 ## Conceptual Model
 
-- Topics are public broadcast channels.
-- QoS is 0 (best effort).
-- Many payloads are SyncEvents, so dedupe and signatures are handled by the ledger.
+| Concept | Rule |
+| :--- | :--- |
+| **Broadcast** | One-to-many delivery via topic subscription. |
+| **Unreliable** | Best-effort (QoS 0). Messages are optional; sync fills gaps. |
+| **Payloads** | Most messages are signed `SyncEvent` objects. |
+| **Discovery** | Primary bootstrap mechanism for non-mesh nodes. |
 
-Key invariants:
-- MQTT delivery is unreliable by design; every message is treated as optional.
-- MQTT is skipped entirely in gossip-only mode.
+## Topics Reference
 
-## External Behavior
-
-On connect, a nara:
-- Subscribes to plaza topics.
-- Emits a `hey_there` SyncEvent with jitter (0-5s).
-
-Naras continually publish:
-- `hey_there` on join and periodically.
-- `newspaper` status heartbeats.
-- social events, howdy responses, and checkpoint consensus traffic.
-
-## Interfaces
-
-Topics (all QoS 0 unless noted):
-
-Presence and discovery:
-- `nara/plaza/hey_there` -> SyncEvent (ServiceHeyThere)
-- `nara/plaza/chau` -> SyncEvent (ServiceChau)
-- `nara/plaza/howdy` -> HowdyEvent
-- `nara/newspaper/{name}` -> NewspaperEvent (Status + Signature)
-
-Social and world:
-- `nara/plaza/social` -> SyncEvent (ServiceSocial)
-- `nara/plaza/journey_complete` -> JourneyCompletion
-
-Stash:
-- `nara/plaza/stash_refresh` -> {from, timestamp}
-
-Legacy ledger sync (social-only):
-- `nara/ledger/{name}/request` -> LedgerRequest
-- `nara/ledger/{name}/response` -> LedgerResponse
-
-Checkpoints:
-- `nara/checkpoint/propose` -> CheckpointProposal
-- `nara/checkpoint/vote` -> CheckpointVote
-- `nara/checkpoint/final` -> SyncEvent (ServiceCheckpoint)
-
-## Event Types & Schemas (if relevant)
-
-- SyncEvent payloads are defined in `events.md`.
-- HowdyEvent is defined in `presence.md`.
-- NewspaperEvent is defined in `presence.md`.
-- LedgerRequest/Response are legacy social-only sync (not SyncEvents).
+| Topic Group | Payloads | Purpose |
+| :--- | :--- | :--- |
+| **`nara/plaza/hey_there`** | `SyncEvent` | Arrival announcements. |
+| **`nara/plaza/chau`** | `SyncEvent` | Graceful departure. |
+| **`nara/plaza/howdy`** | `HowdyEvent` | Discovery responses. |
+| **`nara/newspaper/{name}`**| `NewspaperEvent`| Periodic status heartbeats. |
+| **`nara/plaza/social`** | `SyncEvent` | Public social interactions. |
+| **`nara/checkpoint/*`** | Proposals/Votes | Consensus coordination. |
+| **`nara/plaza/stash_refresh`**| Metadata | Requesting stash push from confidants. |
 
 ## Algorithms
 
-- `hey_there` emission is rate-limited to once per 5 seconds.
-- On connect, a random 0-5s jitter is applied before the first `hey_there`.
-- MQTT topics are subscribed with retry (max 3 attempts).
+### 1. Connection Lifecycle
+1. Connect to broker (Default: `tls://mqtt.nara.network:8883`).
+2. Apply 0-5s random jitter.
+3. Subscribe to all plaza topics.
+4. Emit initial `hey_there`.
 
-## Failure Modes
+### 2. Rate Limiting
+- `hey_there` is restricted to once every 5 seconds.
+- Heartbeats (`newspaper`) follow the node's configured chattiness/refresh rate.
 
-- Messages may be dropped or duplicated (QoS 0).
-- Missing `newspaper` events can cause stale status until other signals arrive.
-- Legacy ledger sync only returns SocialEvent, not full SyncEvent history.
+## Legacy Compatibility
+- `nara/ledger/{name}/*`: Legacy social-only sync protocol. Deprecated in favor of Mesh HTTP.
 
-## Security / Trust Model
-
-- SyncEvents are signed (Ed25519) by the emitter.
-- Howdy and Newspaper events include signatures over deterministic content.
-- MQTT transport security relies on broker TLS; payload signatures are the main trust layer.
+## Security
+- **Authentication**: Payloads are self-authenticating via Ed25519 signatures.
+- **Encryption**: Transport layer security (TLS) is required for the public broker.
+- **Integrity**: Every `SyncEvent` and `NewspaperEvent` is signed by the emitter's soul.
 
 ## Test Oracle
-
-- HeyThere/Chau signatures verify. (`identity_crypto_test.go`)
-- Howdy signature verification and handling. (`presence_howdy_test.go`)
-- Checkpoint topics accept valid proposals/votes. (`checkpoint_test.go`)
-
-## Open Questions / TODO
-
-- Migrate remaining legacy social-only MQTT sync to SyncEvent-based mesh APIs.
+- **Signatures**: Verify `hey_there` and `howdy` authenticity. (`identity_crypto_test.go`)
+- **Messaging**: Verify topic publication and subscription handling. (`presence_howdy_test.go`)
+- **Checkpoints**: Verify multi-step consensus traffic. (`checkpoint_test.go`)
