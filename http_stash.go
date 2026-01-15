@@ -54,32 +54,39 @@ func (network *Network) httpStashStatusHandler(w http.ResponseWriter, r *http.Re
 
 		if err := json.Unmarshal(stateBytes, &state); err == nil {
 			// Build confidants list with peer details
+			// Quickly gather references with minimal lock time
 			confidantList := make([]map[string]interface{}, 0, len(state.Confidants))
-			network.local.mu.Lock()
+
 			for _, confidantID := range state.Confidants {
 				info := map[string]interface{}{
 					"id":     confidantID,
 					"status": "confirmed",
 				}
 
-				// Try to get peer details from Neighbourhood
-				if nara, ok := network.Neighbourhood[confidantID]; ok {
+				// Try to get peer details from Neighbourhood (with short locks)
+				network.local.mu.Lock()
+				nara, exists := network.Neighbourhood[confidantID]
+				network.local.mu.Unlock()
+
+				if exists {
 					nara.mu.Lock()
 					info["name"] = nara.Name
+					info["memory_mode"] = nara.Status.MemoryMode
+					nara.mu.Unlock()
+
 					// Check if online via observation
+					network.local.mu.Lock()
 					if obs, ok := network.local.Me.Status.Observations[confidantID]; ok {
 						info["online"] = obs.isOnline()
 					}
-					info["memory_mode"] = nara.Status.MemoryMode
-					nara.mu.Unlock()
+					network.local.mu.Unlock()
 				}
 
 				confidantList = append(confidantList, info)
 			}
-			network.local.mu.Unlock()
 
 			response["confidants"] = confidantList
-			response["target_count"] = len(state.Confidants)
+			response["target_count"] = 3 // Always target 3 confidants
 
 			// Metrics from stored stashes (we're a confidant for these)
 			totalBytes := 0
@@ -179,28 +186,33 @@ func (network *Network) httpStashConfidantsHandler(w http.ResponseWriter, r *htt
 			}
 
 			if err := json.Unmarshal(stateBytes, &state); err == nil {
-				network.local.mu.Lock()
 				for _, confidantID := range state.Confidants {
 					info := map[string]interface{}{
 						"id":     confidantID,
 						"status": "confirmed",
 					}
 
-					// Get peer details if available
-					if nara, ok := network.Neighbourhood[confidantID]; ok {
+					// Get peer details if available (with short locks)
+					network.local.mu.Lock()
+					nara, exists := network.Neighbourhood[confidantID]
+					network.local.mu.Unlock()
+
+					if exists {
 						nara.mu.Lock()
 						info["name"] = nara.Name
+						info["memory_mode"] = nara.Status.MemoryMode
+						nara.mu.Unlock()
+
 						// Check if online via observation
+						network.local.mu.Lock()
 						if obs, ok := network.local.Me.Status.Observations[confidantID]; ok {
 							info["online"] = obs.isOnline()
 						}
-						info["memory_mode"] = nara.Status.MemoryMode
-						nara.mu.Unlock()
+						network.local.mu.Unlock()
 					}
 
 					confidants = append(confidants, info)
 				}
-				network.local.mu.Unlock()
 			}
 		}
 	}
