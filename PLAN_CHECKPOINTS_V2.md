@@ -11,8 +11,11 @@ This plan transforms Nara from a monolithic `Network` god-object into a modular 
 - **Pipeline** pattern with **StageResult** (explicit outcomes)
 - **Behavior** registry for declarative message handling
 - **Services** as independent programs running on the runtime
+- **Opt-in utilities** for cross-cutting concerns (correlation, encryption, rate limiting)
 
-**Reference:** `DESIGN_NARA_RUNTIME.md` for full design details.
+**References:**
+- `DESIGN_NARA_RUNTIME.md` — Full runtime design details
+- `DESIGN_SERVICE_UTILITIES.md` — Opt-in utility patterns
 
 ---
 
@@ -294,7 +297,7 @@ Create `runtime/helpers.go` with all DSL helpers:
 - `DefaultSign()`, `NoSign()`
 - `DefaultStore(priority)`, `NoStore()`, `ContentKeyStore(priority)`
 - `Gossip()`, `NoGossip()`
-- `MQTT(topic)`, `MQTTPerNara(pattern)`, `DirectFirst(topic)`, `NoTransport()`
+- `MQTT(topic)`, `MQTTPerNara(pattern)`, `MeshOnly()`, `NoTransport()`
 - `DefaultVerify()`, `SelfAttesting(f)`, `CustomVerify(f)`, `NoVerify()`
 - `IDDedupe()`, `ContentKeyDedupe()`
 - `RateLimit(window, max, keyFunc)`
@@ -327,7 +330,7 @@ Create `runtime/stages_emit.go`:
 9. **NoGossipStage** - no-op
 10. **MQTTStage** - publishes to MQTT topic
 11. **MQTTPerNaraStage** - publishes to per-nara topic
-12. **DirectFirstStage** - tries mesh first, falls back to MQTT
+12. **MeshOnlyStage** - sends directly via mesh, fails if unreachable
 13. **NoTransportStage** - no-op
 14. **NotifyStage** - emits to event bus
 
@@ -728,13 +731,51 @@ func (a *EventBusAdapter) Emit(msg *runtime.Message) {
 
 **Goal:** Migrate one service to validate the architecture.
 
+### Step 5.0: Create Service Utilities Package
+
+Before migrating stash, create the opt-in utilities it needs (see `DESIGN_SERVICE_UTILITIES.md`):
+
+```
+utilities/
+├── correlator.go       // Request/response correlation (stash needs this)
+├── encryptor.go        // XChaCha20-Poly1305 encryption (stash needs this)
+├── ratelimiter.go      // Per-key rate limiting (stash needs this)
+└── utilities_test.go   // Tests for all utilities
+```
+
+**Correlator** - Generic request/response correlation:
+```go
+type Correlator[Resp any] struct { ... }
+func NewCorrelator[Resp any](timeout time.Duration) *Correlator[Resp]
+func (c *Correlator[Resp]) Send(rt *Runtime, msg *Message) <-chan Result[Resp]
+func (c *Correlator[Resp]) Receive(requestID string, resp Resp) bool
+```
+
+**Encryptor** - Self-encryption (extracted from `identity_crypto.go`):
+```go
+type Encryptor struct { ... }
+func NewEncryptor(seed []byte) *Encryptor
+func (e *Encryptor) Seal(plaintext []byte) (nonce, ciphertext []byte, err error)
+func (e *Encryptor) Open(nonce, ciphertext []byte) ([]byte, error)
+```
+
+**RateLimiter** - Per-key throttling with cached results (extracted from `sync_ledger.go` and `observations.go`):
+```go
+type RateLimiter struct { ... }
+func NewRateLimiter(window time.Duration, maxCount int) *RateLimiter
+func (rl *RateLimiter) Allow(key string) bool
+func (rl *RateLimiter) AllowOrCached(key string) (allowed bool, cached any, hasCached bool)
+```
+
+**Test each utility in isolation** before using in stash service.
+
 ### Step 5.1: Choose Target Service
 
 Start with **stash** service:
 - Not used in production yet — no backwards compatibility needed
 - Can port completely in one go
 - Multiple message kinds to test (`stash:store`, `stash:request`, `stash:response`, `stash-refresh`)
-- Uses mesh transport (direct HTTP) — tests DirectFirst pattern
+- Uses mesh transport (direct HTTP) — tests MeshOnly pattern
 - Good proving ground for the new architecture
 
 ### Step 5.2: Register Behaviors
@@ -932,8 +973,12 @@ Network becomes a thin wrapper or is removed entirely:
 - [ ] No changes to existing code required
 
 ### After Phase 5:
+- [ ] Service utilities package created (`utilities/`)
+- [ ] Correlator, Encryptor, RateLimiter implemented and tested
 - [ ] Stash service migrated to new runtime
 - [ ] All stash message kinds working (`stash-refresh`, `stash:store`, `stash:request`, `stash:response`)
+- [ ] Stash uses Correlator for request/response tracking
+- [ ] Stash uses Encryptor for payload encryption
 - [ ] Round-trip tests pass (store → request → response)
 - [ ] No backwards compatibility needed — clean slate
 

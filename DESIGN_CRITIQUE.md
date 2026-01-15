@@ -44,34 +44,7 @@ type PipelineContext struct {
 
 ---
 
-### 2. DirectFirst With Empty Topic Is Weird
-
-```go
-Transport: runtime.DirectFirst("")  // Mesh only, no MQTT fallback
-```
-
-**Concern:** Empty string to mean "no fallback" is implicit. What if someone passes `""` by accident?
-
-**Better alternative:**
-
-```go
-// Option A: Separate helper
-Transport: runtime.MeshOnly()
-
-// Option B: Explicit nil fallback
-Transport: runtime.DirectFirst(nil)  // nil = no fallback
-
-// Option C: Different stage type
-Transport: runtime.Direct()  // Always mesh, never broadcast
-```
-
-**Risk for stash:** Low, but code smell. Stash is mesh-only, so we'll use this pattern a lot.
-
-**Recommendation:** Add `MeshOnly()` helper before implementing stash.
-
----
-
-### 3. No Request/Response Correlation
+### 2. No Request/Response Correlation ✅ SOLVED
 
 Stash is request/response:
 1. Alice sends `stash:store` to Bob
@@ -81,29 +54,29 @@ Stash is request/response:
 
 **Concern:** The runtime doesn't help with correlation. No request IDs, no timeouts, no "wait for response" primitive.
 
-**Current approach:** Service handles it manually:
+**Solution:** Opt-in **Correlator** utility (see `DESIGN_SERVICE_UTILITIES.md`).
+
+Services that need request/response can import the `Correlator[Resp]` utility:
 ```go
+type StashService struct {
+    storeCorrelator *utilities.Correlator[StashStoreAck]
+}
+
 func (s *StashService) StoreWith(confidant string, data []byte) error {
-    s.rt.Emit(&Message{Kind: "stash:store", ...})
-    // Now what? How do we know if it succeeded?
-    // Poll? Callback? Channel?
+    msg := &Message{Kind: "stash:store", To: confidant, ...}
+    result := <-s.storeCorrelator.Send(s.rt, msg)  // Returns channel
+    if result.Err != nil {
+        return result.Err  // Timeout or failure
+    }
+    // Handle result.Value (the ack)
 }
 ```
 
-**Risk for stash:** High. This is the core of what stash does.
-
-**Options:**
-
-1. **Fire and forget** — emit and hope. Stash recovery handles failures.
-2. **Callback registration** — service registers "when I get stash:ack from Bob, call this"
-3. **Request context** — runtime provides `EmitAndWait(msg, timeout)` that returns response
-4. **Keep it in service** — service maintains pending requests map, correlates manually
-
-**Recommendation:** Start with option 4 (manual correlation in service). If it's painful, add runtime support later. Don't over-engineer before we know the real pain points.
+**Risk:** Low. Utility provides type-safe, generic request correlation with timeouts and background cleanup. Services opt-in if needed.
 
 ---
 
-### 4. No Backpressure on GossipQueue
+### 3. No Backpressure on GossipQueue
 
 ```go
 type GossipQueue struct {
@@ -126,7 +99,7 @@ func (q *GossipQueue) Add(msg *Message) {
 
 ---
 
-### 5. Versioning Complexity for Simple Cases
+### 4. Versioning Complexity for Simple Cases
 
 ```go
 type Behavior struct {
@@ -155,7 +128,7 @@ if b.PayloadTypes != nil && b.PayloadType != nil {
 
 ---
 
-### 6. Testing the Runtime Itself
+### 5. Testing the Runtime Itself
 
 **Concern:** How do we test the runtime without starting MQTT, mesh, ledger?
 
@@ -185,7 +158,7 @@ rt := NewRuntime(RuntimeConfig{Transport: transport})
 
 ---
 
-### 7. Where Do Payload Structs Live?
+### 6. Where Do Payload Structs Live?
 
 **Current:** Payload types are defined... somewhere. Behaviors reference them.
 
@@ -217,7 +190,7 @@ Runtime imports `messages/`. Services import `messages/`. No cycles.
 
 ---
 
-### 8. Error Strategy Defaults
+### 7. Error Strategy Defaults
 
 ```go
 type Behavior struct {
@@ -249,7 +222,7 @@ Or require all strategies in `Register()` validation.
 
 ---
 
-### 9. The "Receive" Pipeline for Direct Messages
+### 8. The "Receive" Pipeline for Direct Messages
 
 MQTT messages go through receive pipeline. But what about direct mesh messages?
 
@@ -277,19 +250,18 @@ HTTP request → http_mesh.go → rt.Receive() → pipeline → service.Handle()
 ## Summary: Risks by Severity
 
 ### High (solve before implementing stash)
-- **#3 Request/Response correlation** — decide on approach
-- **#7 Payload struct location** — create `messages/` package
-- **#9 Mesh receive flow** — document and implement
+- **#2 Request/Response correlation** — ✅ SOLVED with Correlator utility
+- **#6 Payload struct location** — create `messages/` package
+- **#8 Mesh receive flow** — document and implement
 
 ### Medium (solve during implementation)
-- **#6 Testing mocks** — write mocks in Phase 3
-- **#8 Error strategy defaults** — add sensible defaults
+- **#5 Testing mocks** — write mocks in Phase 3
+- **#7 Error strategy defaults** — add sensible defaults
 
 ### Low (defer to later phases)
 - **#1 PipelineContext size** — discipline, not architecture
-- **#2 DirectFirst empty topic** — add `MeshOnly()` helper
-- **#4 GossipQueue backpressure** — fix before Phase 6
-- **#5 Versioning complexity** — add validation
+- **#3 GossipQueue backpressure** — fix before Phase 6
+- **#4 Versioning complexity** — add validation
 
 ---
 
@@ -298,8 +270,8 @@ HTTP request → http_mesh.go → rt.Receive() → pipeline → service.Handle()
 Before writing stash service code:
 
 - [ ] Create `messages/` package with payload structs
-- [ ] Decide request/response pattern (manual correlation in service)
-- [ ] Add `MeshOnly()` transport helper
+- [x] Decide request/response pattern → **Correlator utility** (see `DESIGN_SERVICE_UTILITIES.md`)
+- [ ] Create `utilities/` package with Correlator, Encryptor, RateLimiter
 - [ ] Document mesh receive flow (HTTP → Receive → pipeline → Handle)
 - [ ] Write mock Transport and Ledger for testing
 - [ ] Add error strategy defaults (ErrorLog, not ErrorDrop)
@@ -312,7 +284,7 @@ Before writing stash service code:
 Stash will teach us:
 
 1. **Does the pipeline pattern work for request/response?** — stash is all req/resp
-2. **Is DirectFirst/MeshOnly the right abstraction?** — stash is mesh-only
+2. **Is MeshOnly the right abstraction?** — stash is mesh-only, fails if unreachable
 3. **How painful is manual message correlation?** — might need runtime help
 4. **Are the interfaces right?** — first real consumer of TransportInterface
 5. **Does the service lifecycle work?** — Init/Start/Stop/Handle pattern

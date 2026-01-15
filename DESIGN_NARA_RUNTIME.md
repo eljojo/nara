@@ -13,11 +13,12 @@ A comprehensive design for restructuring Nara into a runtime with pluggable serv
 5. [Error Handling Strategies](#error-handling-strategies)
 6. [Emit Pipeline Stages](#emit-pipeline-stages)
 7. [Receive Pipeline Stages](#receive-pipeline-stages)
-8. [Behavior Registry](#behavior-registry)
-9. [Complete Behavior Catalog](#complete-behavior-catalog)
-10. [Services](#services)
-11. [Runtime Implementation](#runtime-implementation)
-12. [Auto-Generated Documentation](#auto-generated-documentation)
+8. [Service Utilities](#service-utilities)
+9. [Behavior Registry](#behavior-registry)
+10. [Complete Behavior Catalog](#complete-behavior-catalog)
+11. [Services](#services)
+12. [Runtime Implementation](#runtime-implementation)
+13. [Auto-Generated Documentation](#auto-generated-documentation)
 
 ---
 
@@ -617,21 +618,16 @@ func (s *MQTTPerNaraStage) Process(msg *Message, ctx *PipelineContext) StageResu
     return Continue(msg)
 }
 
-// DirectFirstStage tries mesh HTTP before falling back to broadcast
-type DirectFirstStage struct {
-    Topic string
-}
+// MeshOnlyStage sends directly via mesh, fails if unreachable
+type MeshOnlyStage struct{}
 
-func (s *DirectFirstStage) Process(msg *Message, ctx *PipelineContext) StageResult {
-    // Try direct mesh delivery first
-    if target := extractTarget(msg); target != "" {
-        if err := ctx.Transport.TrySendDirect(target, msg); err == nil {
-            return Continue(msg)  // Sent directly
-        }
+func (s *MeshOnlyStage) Process(msg *Message, ctx *PipelineContext) StageResult {
+    target := extractTarget(msg)
+    if target == "" {
+        return Fail(errors.New("mesh-only message has no target"))
     }
-    // Fall back to broadcast
-    if err := ctx.Transport.PublishMQTT(s.Topic, msg.Marshal()); err != nil {
-        return Fail(fmt.Errorf("mqtt publish: %w", err))
+    if err := ctx.Transport.TrySendDirect(target, msg); err != nil {
+        return Fail(fmt.Errorf("mesh send to %s: %w", target, err))
     }
     return Continue(msg)
 }
@@ -819,6 +815,164 @@ func (s *ImportanceFilterStage) Process(msg *Message, ctx *PipelineContext) Stag
 
 ---
 
+## Service Utilities
+
+Utilities that services can opt into. Not part of the runtime core, but provided to make common patterns easy.
+
+### Correlator: Request/Response Pattern
+
+For services that need request/response semantics (like stash), the `Correlator` tracks pending requests and matches responses:
+
+```go
+// correlator.go - a utility, not part of runtime core
+
+// Correlator tracks pending requests and matches responses
+type Correlator[Resp any] struct {
+    pending  map[string]*pendingRequest[Resp]
+    mu       sync.Mutex
+    timeout  time.Duration
+}
+
+type pendingRequest[Resp any] struct {
+    ch      chan Result[Resp]
+    sentAt  time.Time
+}
+
+type Result[Resp any] struct {
+    Response Resp
+    Error    error  // ErrTimeout if no response in time
+}
+
+var ErrTimeout = errors.New("request timed out")
+
+func NewCorrelator[Resp any](timeout time.Duration) *Correlator[Resp] {
+    c := &Correlator[Resp]{
+        pending: make(map[string]*pendingRequest[Resp]),
+        timeout: timeout,
+    }
+    go c.reapLoop()  // Clean up timed-out requests
+    return c
+}
+
+// Send emits a request and returns a channel for the response
+func (c *Correlator[Resp]) Send(rt *Runtime, msg *Message) <-chan Result[Resp] {
+    ch := make(chan Result[Resp], 1)
+
+    c.mu.Lock()
+    c.pending[msg.ID] = &pendingRequest[Resp]{ch: ch, sentAt: time.Now()}
+    c.mu.Unlock()
+
+    rt.Emit(msg)
+    return ch
+}
+
+// Receive is called when a response arrives - matches it to pending request
+func (c *Correlator[Resp]) Receive(requestID string, resp Resp) bool {
+    c.mu.Lock()
+    pending, ok := c.pending[requestID]
+    if ok {
+        delete(c.pending, requestID)
+    }
+    c.mu.Unlock()
+
+    if ok {
+        pending.ch <- Result[Resp]{Response: resp}
+        return true
+    }
+    return false  // No pending request (late response, already timed out)
+}
+
+func (c *Correlator[Resp]) reapLoop() {
+    ticker := time.NewTicker(time.Second)
+    for range ticker.C {
+        c.mu.Lock()
+        now := time.Now()
+        for id, req := range c.pending {
+            if now.Sub(req.sentAt) > c.timeout {
+                req.ch <- Result[Resp]{Error: ErrTimeout}
+                delete(c.pending, id)
+            }
+        }
+        c.mu.Unlock()
+    }
+}
+```
+
+**Usage in a service:**
+
+```go
+type StashService struct {
+    rt        *Runtime
+    storeReqs *Correlator[StashAckPayload]  // For store requests
+}
+
+func (s *StashService) Init(rt *Runtime) error {
+    s.rt = rt
+    s.storeReqs = NewCorrelator[StashAckPayload](30 * time.Second)
+    return nil
+}
+
+// Synchronous store - blocks until ack or timeout
+func (s *StashService) StoreWith(confidant string, data []byte) error {
+    msg := &Message{
+        Kind: "stash:store",
+        From: s.rt.Me().Name,
+        Payload: &StashStorePayload{Target: confidant, Data: data},
+    }
+
+    result := <-s.storeReqs.Send(s.rt, msg)
+    if result.Error != nil {
+        return result.Error  // Timeout
+    }
+    if !result.Response.Success {
+        return errors.New(result.Response.Reason)
+    }
+    return nil
+}
+
+// Handle incoming messages
+func (s *StashService) Handle(msg *Message) {
+    switch msg.Kind {
+    case "stash:ack":
+        ack := msg.Payload.(*StashAckPayload)
+        s.storeReqs.Receive(ack.RequestID, *ack)  // Match to pending
+    }
+}
+```
+
+**Response payloads include the original request ID:**
+
+```go
+type StashAckPayload struct {
+    RequestID string  // Echo back msg.ID from original request
+    Success   bool
+    Reason    string  // If not success
+}
+
+// Responder sends ack with original ID
+func (s *StashService) handleStoreRequest(msg *Message) {
+    // ... process the store request ...
+
+    s.rt.Emit(&Message{
+        Kind: "stash:ack",
+        From: s.rt.Me().Name,
+        Payload: &StashAckPayload{
+            RequestID: msg.ID,  // Correlation key
+            Success:   true,
+        },
+    })
+}
+```
+
+**Key properties:**
+- **Opt-in** — services choose to use it
+- **Type-safe** — generic over response type
+- **Timeouts built-in** — configurable per correlator
+- **Non-blocking option** — use channel select for async
+- **No runtime changes** — just a utility library
+
+---
+
 ## Behavior Registry
 
 ### Behavior Definition
@@ -913,7 +1067,7 @@ func NoGossip() Stage { return &NoGossipStage{} }
 // === Transport Helpers ===
 func MQTT(topic string) Stage { return &MQTTStage{Topic: topic} }
 func MQTTPerNara(pattern string) Stage { return &MQTTPerNaraStage{TopicPattern: pattern} }
-func DirectFirst(topic string) Stage { return &DirectFirstStage{Topic: topic} }
+func MeshOnly() Stage { return &MeshOnlyStage{} }
 func NoTransport() Stage { return &NoTransportStage{} }
 
 // === Verify Helpers ===
@@ -1187,7 +1341,7 @@ func init() {
         PayloadType: PayloadTypeOf[SocialPayload](),
         Store:       DefaultStore(2),
         Gossip:      Gossip(),
-        Transport:   DirectFirst("nara/plaza/social"),
+        Transport:   MQTT("nara/plaza/social"),
         Verify:      DefaultVerify(),
         Filter:      Casual(socialFilter),
         OnTransportError: ErrorLog,
