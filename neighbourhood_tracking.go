@@ -49,8 +49,8 @@ func (network *Network) getNara(name string) *Nara {
 }
 
 // getNaraByID returns a pointer to the nara with the given ID, or nil if not found.
-// This is the preferred lookup method - IDs are stable identifiers that don't change
-// even if a nara changes name.
+// This is the preferred lookup method - IDs are unique identifiers that don't clash
+// even if two nara share the same name.
 //
 // Uses O(1) lookup via the NeighbourhoodByID index when available,
 // falls back to O(N) search for backwards compatibility with tests.
