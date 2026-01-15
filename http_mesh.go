@@ -308,12 +308,6 @@ func (network *Network) httpCoordinatesHandler(w http.ResponseWriter, r *http.Re
 // Request structs can still include a "From" field for logging/debugging,
 // but handlers should verify it matches getVerifiedSender() if used.
 
-// getVerifiedSender returns the mesh-authenticated sender name from the request.
-// This is set by meshAuthMiddleware after verifying the request signature.
-// Always use this instead of trusting a "from" field in the request body.
-func getVerifiedSender(r *http.Request) string {
-	return r.Header.Get("X-Nara-Verified")
-}
 
 // POST /stash/store - Owner stores stash with confidant
 // DELETE /stash/store - Owner requests deletion of stash
@@ -328,92 +322,22 @@ func (network *Network) httpStashHandler(w http.ResponseWriter, r *http.Request)
 }
 
 func (network *Network) httpStashStoreHandler(w http.ResponseWriter, r *http.Request) {
-	sender := getVerifiedSender(r)
-
-	var req StashStoreRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	accepted, reason := network.stashService.AcceptStash(sender, req.Stash)
-	response := StashStoreResponse{
-		Accepted: accepted,
-		Reason:   reason,
-	}
-
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		logrus.WithError(err).Warn("Failed to encode response")
-	}
+	// OLD stash implementation removed - replaced by runtime/services/stash in Chapter 1
+	// This endpoint is no longer used by the new stash service
+	http.Error(w, "Old stash API deprecated", http.StatusGone)
 }
 
 func (network *Network) httpStashDeleteHandler(w http.ResponseWriter, r *http.Request) {
-	sender := getVerifiedSender(r)
-
-	response := StashDeleteResponse{
-		Deleted: network.stashService.DeleteStashFor(sender),
-	}
-
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		logrus.WithError(err).Warn("Failed to encode response")
-	}
+	// OLD stash implementation removed - replaced by runtime/services/stash in Chapter 1
+	http.Error(w, "Old stash API deprecated", http.StatusGone)
 }
 
 func (network *Network) httpStashRetrieveHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	sender := getVerifiedSender(r)
-
-	response := StashRetrieveResponse{Found: false}
-	if payload := network.stashService.RetrieveStashFor(sender); payload != nil {
-		response.Found = true
-		response.Stash = payload
-	}
-
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		logrus.WithError(err).Warn("Failed to encode response")
-	}
+	// OLD stash implementation removed - replaced by runtime/services/stash in Chapter 1
+	http.Error(w, "Old stash API deprecated", http.StatusGone)
 }
 
 func (network *Network) httpStashPushHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	sender := getVerifiedSender(r)
-
-	var req StashPushRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	if req.To == "" || req.Stash == nil {
-		http.Error(w, "to and stash are required", http.StatusBadRequest)
-		return
-	}
-
-	// Verify this push is for us
-	if req.To != network.meName() {
-		http.Error(w, "Push not intended for this nara", http.StatusBadRequest)
-		return
-	}
-
-	accepted, reason := network.stashService.AcceptPushedStash(sender, req.Stash)
-	response := StashPushResponse{
-		Accepted: accepted,
-		Reason:   reason,
-	}
-
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		logrus.WithError(err).Warn("Failed to encode response")
-	}
+	// OLD stash implementation removed - replaced by runtime/services/stash in Chapter 1
+	http.Error(w, "Old stash API deprecated", http.StatusGone)
 }

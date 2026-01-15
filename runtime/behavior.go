@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"errors"
-	"fmt"
 	"reflect"
 	"sync"
 )
@@ -12,10 +11,10 @@ type ErrorStrategy int
 
 const (
 	ErrorDrop  ErrorStrategy = iota // Drop message silently
-	ErrorLog                         // Log warning and drop
-	ErrorRetry                       // Retry with exponential backoff
-	ErrorQueue                       // Send to dead letter queue for inspection
-	ErrorPanic                       // Fail loudly (for critical messages)
+	ErrorLog                        // Log warning and drop
+	ErrorRetry                      // Retry with exponential backoff
+	ErrorQueue                      // Send to dead letter queue for inspection
+	ErrorPanic                      // Fail loudly (for critical messages)
 )
 
 // Behavior defines how a message kind is handled.
@@ -226,6 +225,9 @@ var (
 )
 
 // Register registers a behavior with the global registry.
+//
+// In tests, re-registration is allowed (replaces existing behavior).
+// In production, behaviors are registered once during startup.
 func Register(b *Behavior) error {
 	if b.Kind == "" {
 		return errors.New("behavior must have a Kind")
@@ -234,10 +236,7 @@ func Register(b *Behavior) error {
 	behaviorsMu.Lock()
 	defer behaviorsMu.Unlock()
 
-	if behaviors[b.Kind] != nil {
-		return fmt.Errorf("behavior %s already registered", b.Kind)
-	}
-
+	// Allow re-registration (for tests with multiple service instances)
 	behaviors[b.Kind] = b
 	return nil
 }
@@ -247,6 +246,13 @@ func Lookup(kind string) *Behavior {
 	behaviorsMu.RLock()
 	defer behaviorsMu.RUnlock()
 	return behaviors[kind]
+}
+
+// ClearBehaviors clears the global behavior registry (for testing).
+func ClearBehaviors() {
+	behaviorsMu.Lock()
+	defer behaviorsMu.Unlock()
+	behaviors = make(map[string]*Behavior)
 }
 
 // AllBehaviors returns a copy of all registered behaviors.

@@ -62,13 +62,13 @@ type Stage interface {
 // Stages receive this instead of importing the full runtime,
 // which helps avoid circular dependencies and makes testing easier.
 type PipelineContext struct {
-	Runtime     RuntimeInterface      // For accessing runtime methods
-	Ledger      LedgerInterface       // For storage stages
-	Transport   TransportInterface    // For transport stages
-	GossipQueue GossipQueueInterface  // For gossip stages
-	Keypair     KeypairInterface      // For signing stages
-	Personality *Personality          // For filtering stages
-	EventBus    EventBusInterface     // For notification stages
+	Runtime     RuntimeInterface     // For accessing runtime methods
+	Ledger      LedgerInterface      // For storage stages
+	Transport   TransportInterface   // For transport stages
+	GossipQueue GossipQueueInterface // For gossip stages
+	Keypair     KeypairInterface     // For signing stages
+	Personality *Personality         // For filtering stages
+	EventBus    EventBusInterface    // For notification stages
 }
 
 // Pipeline chains multiple stages together.

@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"fmt"
 	"time"
 )
 

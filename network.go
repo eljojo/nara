@@ -9,6 +9,8 @@ import (
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/runtime"
 )
 
 // TransportMode determines how events spread through the network
@@ -38,9 +40,9 @@ func (t TransportMode) String() string {
 }
 
 type Network struct {
-	Neighbourhood          map[string]*Nara   // Index by name (legacy, to be deprecated)
-	NeighbourhoodByID      map[string]*Nara   // Primary index: by nara ID
-	nameToID               map[string]string  // Secondary index: name → ID for quick lookup
+	Neighbourhood          map[string]*Nara  // Index by name (legacy, to be deprecated)
+	NeighbourhoodByID      map[string]*Nara  // Primary index: by nara ID
+	nameToID               map[string]string // Secondary index: name → ID for quick lookup
 	Buzz                   *Buzz
 	LastHeyThere           int64
 	skippingEvents         bool
@@ -108,17 +110,20 @@ type Network struct {
 	mqttReconnectMu     sync.Mutex
 	mqttReconnectActive bool
 
-	// Stash: distributed encrypted storage
-	stashManager     *StashManager        // Owner side: manages our arbitrary JSON stash on confidants
-	confidantStore   *ConfidantStashStore // Confidant side: stores others' stash for them
-	stashSyncTracker *StashSyncTracker    // Memory-only tracker for last sync time with each peer
-	stashService     *StashService        // Unified stash service layer
+	// Stash: distributed encrypted storage (OLD - replaced by runtime/services/stash in Chapter 1)
+	// stashManager     *StashManager        // Owner side: manages our arbitrary JSON stash on confidants
+	// confidantStore   *ConfidantStashStore // Confidant side: stores others' stash for them
+	// stashSyncTracker *StashSyncTracker    // Memory-only tracker for last sync time with each peer
+	// stashService     *StashService        // Unified stash service layer
 
 	// Logging service
 	logService *LogService
 
 	// Checkpoint service: consensus-based checkpointing
 	checkpointService *CheckpointService
+
+	// Runtime: new message-based runtime (Chapter 1+)
+	runtime *runtime.Runtime
 }
 
 // PendingJourney tracks a journey we participated in, waiting for completion
@@ -171,14 +176,14 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	// Initialize startup sequencing channels
 	network.bootRecoveryDone = make(chan struct{})
 
-	// Stash storage
-	network.confidantStore = NewConfidantStashStore()
-	network.stashSyncTracker = NewStashSyncTracker() // Memory-only, never persisted
-	// Configure stash storage limit based on memory mode
-	stashLimit := StashStorageForMemoryMode(localNara.MemoryProfile.Mode)
-	network.confidantStore.SetMaxStashes(stashLimit)
-	logrus.Infof("📦 Stash storage limit: %d (memory mode: %s)", stashLimit, localNara.MemoryProfile.Mode)
-	// stashManager initialized after keypair is available
+	// Stash storage (OLD - replaced by runtime/services/stash in Chapter 1)
+	// network.confidantStore = NewConfidantStashStore()
+	// network.stashSyncTracker = NewStashSyncTracker() // Memory-only, never persisted
+	// // Configure stash storage limit based on memory mode
+	// stashLimit := StashStorageForMemoryMode(localNara.MemoryProfile.Mode)
+	// network.confidantStore.SetMaxStashes(stashLimit)
+	// logrus.Infof("📦 Stash storage limit: %d (memory mode: %s)", stashLimit, localNara.MemoryProfile.Mode)
+	// // stashManager initialized after keypair is available
 
 	// Initialize log service
 	network.logService = NewLogService(localNara.Me.Name)
@@ -575,17 +580,22 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 		}
 	}
 
-	// Initialize stash manager if we have a keypair
-	if network.local.Keypair.PrivateKey != nil {
-		network.stashManager = NewStashManager(
-			network.meName(),
-			network.local.Keypair,
-			3, // target 3 confidants
-		)
-	}
+	// Initialize stash manager if we have a keypair (OLD - replaced by runtime/services/stash in Chapter 1)
+	// if network.local.Keypair.PrivateKey != nil {
+	// 	network.stashManager = NewStashManager(
+	// 		network.meName(),
+	// 		network.local.Keypair,
+	// 		3, // target 3 confidants
+	// 	)
+	// }
 
-	// Initialize unified stash service
-	network.initStashService()
+	// Initialize unified stash service (OLD - replaced by initRuntime() below)
+	// network.initStashService()
+
+	// Initialize runtime with adapters and services (Chapter 1+)
+	if err := network.initRuntime(); err != nil {
+		logrus.Errorf("Failed to initialize runtime: %v", err)
+	}
 
 	// Start log service
 	if network.logService != nil {
@@ -740,9 +750,16 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 	// Start coordinate maintenance (Vivaldi pings)
 	go network.coordinateMaintenance()
 
-	// Start stash maintenance (confidant selection, inventory)
-	if !network.ReadOnly && network.stashService != nil {
-		go network.stashMaintenance()
+	// Start stash maintenance (confidant selection, inventory) (OLD - replaced by runtime services)
+	// if !network.ReadOnly && network.stashService != nil {
+	// 	go network.stashMaintenance()
+	// }
+
+	// Start runtime services (Chapter 1+)
+	if network.runtime != nil {
+		if err := network.startRuntime(); err != nil {
+			logrus.Errorf("Failed to start runtime: %v", err)
+		}
 	}
 
 	// Start checkpoint service (consensus-based checkpointing via MQTT)

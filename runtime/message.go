@@ -102,6 +102,7 @@ func (m *Message) Marshal() []byte {
 func (m *Message) Reply(kind string, payload any) *Message {
 	return &Message{
 		Kind:      kind,
+		Version:   1, // Default to v1 for all replies
 		InReplyTo: m.ID,
 		ToID:      m.FromID,
 		To:        m.From,

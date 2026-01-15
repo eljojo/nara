@@ -78,7 +78,7 @@ type Nara struct {
 type Environment int
 
 const (
-	EnvProduction Environment = iota // Graceful: log errors, don't crash
+	EnvProduction  Environment = iota // Graceful: log errors, don't crash
 	EnvDevelopment                    // Loud: warnings, fail on suspicious things
 	EnvTest                           // Strict: panic on errors, catch bugs early
 )
@@ -144,8 +144,8 @@ type CallRegistry struct {
 }
 
 type pendingCall struct {
-	ch      chan CallResult
-	expires time.Time
+	ch      chan CallResult //nolint:unused // Will be used in Chapter 3
+	expires time.Time       //nolint:unused // Will be used in Chapter 3
 }
 
 // Stub methods for Chapter 1 compatibility

@@ -79,15 +79,14 @@ func (network *Network) heyThereHandler(client mqtt.Client, msg mqtt.Message) {
 		logrus.Debugf("hey-there inbox full, skipping event processing")
 	}
 
-	// Stash Recovery Trigger: If we have this nara's stash, push it back via HTTP
-	// This allows naras to recover their state when they boot up
-	hasStash := network.stashService != nil && network.stashService.HasStashFor(fromName)
-	logrus.Debugf("📦 hey-there recovery check: stashService=%v, HasStashFor(%s)=%v",
-		network.stashService != nil, fromName, hasStash)
-	if hasStash {
-		logrus.Debugf("📦 %s has stash for %s, triggering hey-there recovery", network.meName(), fromName)
-		network.pushStashToOwner(fromName, 2*time.Second)
-	}
+	// Stash Recovery Trigger (OLD - removed in Chapter 1)
+	// hasStash := network.stashService != nil && network.stashService.HasStashFor(fromName)
+	// logrus.Debugf("📦 hey-there recovery check: stashService=%v, HasStashFor(%s)=%v",
+	// 	network.stashService != nil, fromName, hasStash)
+	// if hasStash {
+	// 	logrus.Debugf("📦 %s has stash for %s, triggering hey-there recovery", network.meName(), fromName)
+	// 	network.pushStashToOwner(fromName, 2*time.Second)
+	// }
 }
 
 // stashRefreshHandler handles stash-refresh events (on-demand recovery request)
@@ -106,13 +105,13 @@ func (network *Network) stashRefreshHandler(client mqtt.Client, msg mqtt.Message
 
 	logrus.Debugf("📦 stash-refresh request from %s", fromName)
 
-	// Check if we have their stash
-	if network.stashService == nil || !network.stashService.HasStashFor(fromName) {
-		return
-	}
+	// Check if we have their stash (OLD - removed in Chapter 1)
+	// if network.stashService == nil || !network.stashService.HasStashFor(fromName) {
+	// 	return
+	// }
 
 	// Push stash back to them (small delay to avoid thundering herd)
-	network.pushStashToOwner(fromName, 500*time.Millisecond)
+	// network.pushStashToOwner(fromName, 500*time.Millisecond)
 }
 
 func (network *Network) howdyHandler(client mqtt.Client, msg mqtt.Message) {
@@ -317,6 +316,13 @@ func (network *Network) Shutdown() {
 	// Stop checkpoint service (has its own context)
 	if network.checkpointService != nil {
 		network.checkpointService.Stop()
+	}
+
+	// Stop runtime services (Chapter 1+)
+	if network.runtime != nil {
+		if err := network.stopRuntime(); err != nil {
+			logrus.Errorf("Failed to stop runtime: %v", err)
+		}
 	}
 
 	// Stop projections (has its own context)

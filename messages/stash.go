@@ -11,7 +11,7 @@ import "errors"
 //
 // Version History:
 //
-//	v1 (2024-01): Initial version
+//	v1 (2026-01): Initial version
 type StashStorePayload struct {
 	// OwnerID is who the stash belongs to (primary identifier for retrieval)
 	OwnerID string `json:"owner_id"`
@@ -51,7 +51,7 @@ func (p *StashStorePayload) Validate() error {
 //
 // Version History:
 //
-//	v1 (2024-01): Initial version
+//	v1 (2026-01): Initial version
 type StashStoreAck struct {
 	// OwnerID is echoed back for correlation
 	OwnerID string `json:"owner_id"`
@@ -75,7 +75,7 @@ type StashStoreAck struct {
 //
 // Version History:
 //
-//	v1 (2024-01): Initial version
+//	v1 (2026-01): Initial version
 type StashRequestPayload struct {
 	// OwnerID is who is requesting their stash back
 	OwnerID string `json:"owner_id"`
@@ -100,7 +100,7 @@ func (p *StashRequestPayload) Validate() error {
 //
 // Version History:
 //
-//	v1 (2024-01): Initial version
+//	v1 (2026-01): Initial version
 type StashResponsePayload struct {
 	// OwnerID is who the stash belongs to
 	OwnerID string `json:"owner_id"`
@@ -133,7 +133,7 @@ type StashResponsePayload struct {
 //
 // Version History:
 //
-//	v1 (2024-01): Initial version
+//	v1 (2026-01): Initial version
 type StashRefreshPayload struct {
 	// OwnerID is who wants their stash back
 	OwnerID string `json:"owner_id"`
