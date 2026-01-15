@@ -4,7 +4,6 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
-	"errors"
 	"io"
 	"reflect"
 	"testing"
@@ -126,12 +125,12 @@ func (m *MockRuntime) StorageLimit() int {
 	return 20 // Default storage limit for normal mode
 }
 
-// Seal encrypts plaintext using the mock keypair.
+// Seal encrypts plaintext using the keypair.
 func (m *MockRuntime) Seal(plaintext []byte) (nonce, ciphertext []byte, err error) {
 	return m.keypair.Seal(plaintext)
 }
 
-// Open decrypts ciphertext using the mock keypair.
+// Open decrypts ciphertext using the keypair.
 func (m *MockRuntime) Open(nonce, ciphertext []byte) ([]byte, error) {
 	return m.keypair.Open(nonce, ciphertext)
 }
@@ -244,4 +243,56 @@ func (k *MockKeypair) Sign(data []byte) []byte {
 
 func (k *MockKeypair) PublicKey() []byte {
 	return k.pub
+}
+
+// Seal encrypts plaintext using XChaCha20-Poly1305.
+func (k *MockKeypair) Seal(plaintext []byte) (nonce, ciphertext []byte, err error) {
+	// Derive a 32-byte symmetric key from the Ed25519 seed using HKDF
+	seed := k.priv.Seed()
+	hkdfReader := hkdf.New(sha256.New, seed, nil, []byte("nara-self-encryption"))
+	symmetricKey := make([]byte, chacha20poly1305.KeySize)
+	if _, err := io.ReadFull(hkdfReader, symmetricKey); err != nil {
+		return nil, nil, err
+	}
+
+	// Create AEAD cipher
+	aead, err := chacha20poly1305.NewX(symmetricKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Generate random nonce
+	nonce = make([]byte, aead.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, nil, err
+	}
+
+	// Encrypt
+	ciphertext = aead.Seal(nil, nonce, plaintext, nil)
+	return nonce, ciphertext, nil
+}
+
+// Open decrypts ciphertext using XChaCha20-Poly1305.
+func (k *MockKeypair) Open(nonce, ciphertext []byte) ([]byte, error) {
+	// Derive the same symmetric key from the Ed25519 seed
+	seed := k.priv.Seed()
+	hkdfReader := hkdf.New(sha256.New, seed, nil, []byte("nara-self-encryption"))
+	symmetricKey := make([]byte, chacha20poly1305.KeySize)
+	if _, err := io.ReadFull(hkdfReader, symmetricKey); err != nil {
+		return nil, err
+	}
+
+	// Create AEAD cipher
+	aead, err := chacha20poly1305.NewX(symmetricKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// Decrypt
+	plaintext, err := aead.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return plaintext, nil
 }
