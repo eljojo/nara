@@ -30,7 +30,8 @@ type Service struct {
 	stored map[string]*EncryptedStash // ownerID -> stash
 
 	// Our confidants (peers who hold our stash)
-	confidants []string // List of nara IDs
+	confidants       []string // List of nara IDs
+	targetConfidants int      // Target number of confidants (default: 3)
 
 	// Our own stash data (to be encrypted and distributed to confidants)
 	myStashData      []byte // Arbitrary JSON payload
@@ -58,6 +59,7 @@ func NewService() *Service {
 	return &Service{
 		stored:            make(map[string]*EncryptedStash),
 		confidants:        make([]string, 0),
+		targetConfidants:  3, // Default: 3 confidants for redundancy
 		storeCorrelator:   utilities.NewCorrelator[messages.StashStoreAck](30 * time.Second),
 		requestCorrelator: utilities.NewCorrelator[messages.StashResponsePayload](30 * time.Second),
 	}
@@ -88,8 +90,12 @@ func (s *Service) Start() error {
 }
 
 func (s *Service) Stop() error {
-	s.cancel()
-	s.log.Info("stash service stopped")
+	if s.cancel != nil {
+		s.cancel()
+	}
+	if s.log != nil {
+		s.log.Info("stash service stopped")
+	}
 	return nil
 }
 
@@ -194,7 +200,108 @@ func (s *Service) SetConfidants(confidantIDs []string) {
 	s.log.Info("configured %d confidants", len(confidantIDs))
 }
 
+// SelectConfidantsAutomatically picks 3 confidants automatically:
+// - First: peer with highest uptime
+// - Second and third: random peers
+// Returns error if unable to find 3 willing peers.
+func (s *Service) SelectConfidantsAutomatically() error {
+	s.log.Info("selecting confidants automatically...")
+
+	// Get list of online peers from runtime
+	peers := s.rt.OnlinePeers()
+	if len(peers) < 3 {
+		return fmt.Errorf("need at least 3 online peers, only found %d", len(peers))
+	}
+
+	s.log.Info("found %d online peers", len(peers))
+
+	// Sort peers by uptime (highest first)
+	sortedPeers := make([]*runtime.PeerInfo, len(peers))
+	copy(sortedPeers, peers)
+
+	// Simple bubble sort by uptime
+	for i := 0; i < len(sortedPeers)-1; i++ {
+		for j := 0; j < len(sortedPeers)-i-1; j++ {
+			if sortedPeers[j].Uptime < sortedPeers[j+1].Uptime {
+				sortedPeers[j], sortedPeers[j+1] = sortedPeers[j+1], sortedPeers[j]
+			}
+		}
+	}
+
+	selected := make([]string, 0, 3)
+	used := make(map[string]bool)
+
+	// Try to get first confidant (highest uptime)
+	for _, peer := range sortedPeers {
+		if len(selected) >= 1 {
+			break
+		}
+
+		// Skip if already used or is ourselves
+		if used[peer.ID] || peer.ID == s.rt.MeID() {
+			continue
+		}
+
+		// Try to store with this peer
+		testData := []byte(fmt.Sprintf(`{"test":"probe","timestamp":%d}`, time.Now().Unix()))
+		if err := s.StoreWith(peer.ID, testData); err != nil {
+			s.log.Warn("peer %s (uptime: %s) declined: %v", peer.ID, peer.Uptime, err)
+			continue
+		}
+
+		s.log.Info("selected confidant 1/3: %s (uptime: %s)", peer.ID, peer.Uptime)
+		selected = append(selected, peer.ID)
+		used[peer.ID] = true
+	}
+
+	if len(selected) == 0 {
+		return fmt.Errorf("no peer accepted to be first confidant")
+	}
+
+	// Shuffle remaining peers for random selection
+	remainingPeers := make([]*runtime.PeerInfo, 0, len(peers)-1)
+	for _, peer := range peers {
+		if !used[peer.ID] && peer.ID != s.rt.MeID() {
+			remainingPeers = append(remainingPeers, peer)
+		}
+	}
+
+	// Try random peers for second and third confidants
+	for len(selected) < 3 && len(remainingPeers) > 0 {
+		// Pick random index
+		idx := time.Now().UnixNano() % int64(len(remainingPeers))
+		peer := remainingPeers[idx]
+
+		// Try to store with this peer
+		testData := []byte(fmt.Sprintf(`{"test":"probe","timestamp":%d}`, time.Now().Unix()))
+		if err := s.StoreWith(peer.ID, testData); err != nil {
+			s.log.Warn("peer %s declined: %v", peer.ID, err)
+			// Remove from candidates and try next
+			remainingPeers = append(remainingPeers[:idx], remainingPeers[idx+1:]...)
+			continue
+		}
+
+		s.log.Info("selected confidant %d/3: %s", len(selected)+1, peer.ID)
+		selected = append(selected, peer.ID)
+		used[peer.ID] = true
+
+		// Remove from candidates
+		remainingPeers = append(remainingPeers[:idx], remainingPeers[idx+1:]...)
+	}
+
+	if len(selected) < 3 {
+		return fmt.Errorf("only found %d willing confidants, need 3", len(selected))
+	}
+
+	// Store the selected confidants
+	s.SetConfidants(selected)
+	s.log.Info("automatically selected 3 confidants")
+
+	return nil
+}
+
 // SetStashData updates the stash data and distributes it to all confidants.
+// If no confidants are configured, it automatically selects 3 peers.
 func (s *Service) SetStashData(data []byte) error {
 	s.mu.Lock()
 	s.myStashData = data
@@ -202,6 +309,14 @@ func (s *Service) SetStashData(data []byte) error {
 	s.mu.Unlock()
 
 	s.log.Info("stash data updated (%d bytes)", len(data))
+
+	// If no confidants configured, select them automatically
+	if len(s.confidants) == 0 {
+		s.log.Info("no confidants configured, selecting automatically...")
+		if err := s.SelectConfidantsAutomatically(); err != nil {
+			return fmt.Errorf("failed to auto-select confidants: %w", err)
+		}
+	}
 
 	// Distribute to all configured confidants
 	return s.DistributeToConfidants()

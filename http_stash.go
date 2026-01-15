@@ -10,6 +10,12 @@ import (
 
 // GET /api/stash/status - Get current stash data, confidants, and metrics
 func (network *Network) httpStashStatusHandler(w http.ResponseWriter, r *http.Request) {
+	// Get storage limit from runtime (based on memory mode)
+	storageLimit := 5 // Default
+	if network.runtime != nil {
+		storageLimit = network.runtime.StorageLimit()
+	}
+
 	response := map[string]interface{}{
 		"has_stash":  false,
 		"my_stash":   nil,
@@ -17,6 +23,7 @@ func (network *Network) httpStashStatusHandler(w http.ResponseWriter, r *http.Re
 		"metrics": map[string]interface{}{
 			"stashes_stored": 0,
 			"total_bytes":    0,
+			"storage_limit":  storageLimit,
 		},
 	}
 
@@ -86,6 +93,7 @@ func (network *Network) httpStashStatusHandler(w http.ResponseWriter, r *http.Re
 			response["metrics"] = map[string]interface{}{
 				"stashes_stored": len(state.Stored),
 				"total_bytes":    totalBytes,
+				"storage_limit":  storageLimit,
 			}
 		}
 	}
