@@ -110,19 +110,13 @@ type Network struct {
 	mqttReconnectMu     sync.Mutex
 	mqttReconnectActive bool
 
-	// Stash: distributed encrypted storage (OLD - replaced by runtime/services/stash in Chapter 1)
-	// stashManager     *StashManager        // Owner side: manages our arbitrary JSON stash on confidants
-	// confidantStore   *ConfidantStashStore // Confidant side: stores others' stash for them
-	// stashSyncTracker *StashSyncTracker    // Memory-only tracker for last sync time with each peer
-	// stashService     *StashService        // Unified stash service layer
-
 	// Logging service
 	logService *LogService
 
 	// Checkpoint service: consensus-based checkpointing
 	checkpointService *CheckpointService
 
-	// Runtime: new message-based runtime (Chapter 1+)
+	// Runtime: new message-based runtime
 	runtime *runtime.Runtime
 }
 
@@ -175,15 +169,6 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	network.ctx, network.cancelFunc = context.WithCancel(context.Background())
 	// Initialize startup sequencing channels
 	network.bootRecoveryDone = make(chan struct{})
-
-	// Stash storage (OLD - replaced by runtime/services/stash in Chapter 1)
-	// network.confidantStore = NewConfidantStashStore()
-	// network.stashSyncTracker = NewStashSyncTracker() // Memory-only, never persisted
-	// // Configure stash storage limit based on memory mode
-	// stashLimit := StashStorageForMemoryMode(localNara.MemoryProfile.Mode)
-	// network.confidantStore.SetMaxStashes(stashLimit)
-	// logrus.Infof("📦 Stash storage limit: %d (memory mode: %s)", stashLimit, localNara.MemoryProfile.Mode)
-	// // stashManager initialized after keypair is available
 
 	// Initialize log service
 	network.logService = NewLogService(localNara.Me.Name)
@@ -580,19 +565,7 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 		}
 	}
 
-	// Initialize stash manager if we have a keypair (OLD - replaced by runtime/services/stash in Chapter 1)
-	// if network.local.Keypair.PrivateKey != nil {
-	// 	network.stashManager = NewStashManager(
-	// 		network.meName(),
-	// 		network.local.Keypair,
-	// 		3, // target 3 confidants
-	// 	)
-	// }
-
-	// Initialize unified stash service (OLD - replaced by initRuntime() below)
-	// network.initStashService()
-
-	// Initialize runtime with adapters and services (Chapter 1+)
+	// Initialize runtime with adapters and services
 	if err := network.initRuntime(); err != nil {
 		logrus.Errorf("Failed to initialize runtime: %v", err)
 	}
@@ -755,7 +728,7 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 	// 	go network.stashMaintenance()
 	// }
 
-	// Start runtime services (Chapter 1+)
+	// Start runtime services
 	if network.runtime != nil {
 		if err := network.startRuntime(); err != nil {
 			logrus.Errorf("Failed to start runtime: %v", err)

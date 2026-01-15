@@ -86,7 +86,6 @@ func (c *networkContext) GetOnlineMeshPeers() []string {
 }
 
 func (c *networkContext) GetPeerInfo(names []string) []PeerInfo {
-	// OLD - getPeerInfo removed in Chapter 1 (was part of old stash system)
 	return []PeerInfo{}
 }
 
@@ -117,6 +116,6 @@ func (c *networkContext) Context() context.Context {
 	return c.network.ctx
 }
 
-// Stub types for old stash implementation (removed in Chapter 1)
+// Stub types for old stash implementation
 type PeerInfo struct{}
 type StashServiceDeps interface{}

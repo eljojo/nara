@@ -515,7 +515,7 @@ func (r *CallRegistry) Cancel(id string)
 func (r *CallRegistry) Register(id string, ch chan CallResult, timeout time.Duration)
 ```
 
-Stub methods for Chapter 1 compatibility
+Stub methods for compatibility (to be implemented later)
 
 <a name="CallRegistry.Resolve"></a>
 ### func \(\*CallRegistry\) [Resolve](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L163>)
@@ -647,7 +647,7 @@ func (s *DefaultSignStage) Process(msg *Message, ctx *PipelineContext) StageResu
 
 DefaultStoreStage stores the message in the ledger with a GC priority.
 
-Not used by stash in Chapter 1, but needed for Chapter 2.
+Not currently used by stash, but available for other services.
 
 ```go
 type DefaultStoreStage struct {
@@ -1229,7 +1229,7 @@ Subscribe registers a handler for a message kind.
 
 Nara represents a network participant.
 
-This is a minimal stub for Chapter 1 \- just what stash needs. The full Nara struct will be migrated in Chapter 2.
+This is a minimal stub \- the full Nara struct will be migrated in Chapter 2.
 
 ```go
 type Nara struct {

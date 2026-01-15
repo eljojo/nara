@@ -65,7 +65,6 @@ type Personality struct {
 
 // Nara represents a network participant.
 //
-// This is a minimal stub for Chapter 1 - just what stash needs.
 // The full Nara struct will be migrated in Chapter 2.
 type Nara struct {
 	ID   string
@@ -155,7 +154,6 @@ type pendingCall struct {
 	expires time.Time       //nolint:unused // Will be used in Chapter 3
 }
 
-// Stub methods for Chapter 1 compatibility
 func (r *CallRegistry) Register(id string, ch chan CallResult, timeout time.Duration) {
 	// Implementation in Chapter 3
 }

@@ -50,7 +50,7 @@ func (s *NoStoreStage) Process(msg *Message, ctx *PipelineContext) StageResult {
 
 // DefaultStoreStage stores the message in the ledger with a GC priority.
 //
-// Not used by stash in Chapter 1, but needed for Chapter 2.
+// Needed for Chapter 2.
 type DefaultStoreStage struct {
 	Priority int // 0 = never prune, higher = prune sooner
 }

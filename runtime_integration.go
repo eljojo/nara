@@ -104,19 +104,16 @@ type LedgerAdapter struct {
 
 func (a *LedgerAdapter) Add(msg *runtime.Message, priority int) error {
 	// Convert runtime.Message to SyncEvent for legacy ledger
-	// For Chapter 1, we'll just return nil since stash doesn't use stored events
 	// In Chapter 2, we'll properly integrate this
 	return nil
 }
 
 func (a *LedgerAdapter) HasID(id string) bool {
-	// For Chapter 1, return false (stash doesn't check ledger)
 	// In Chapter 2, we'll properly integrate this
 	return false
 }
 
 func (a *LedgerAdapter) HasContentKey(contentKey string) bool {
-	// For Chapter 1, return false (stash doesn't check ledger)
 	// In Chapter 2, we'll properly integrate this
 	return false
 }
@@ -127,6 +124,5 @@ type GossipQueueAdapter struct {
 }
 
 func (a *GossipQueueAdapter) Add(msg *runtime.Message) {
-	// For Chapter 1, no-op (stash uses direct mesh, not gossip)
 	// In Chapter 2, we'll properly integrate with zine exchange
 }

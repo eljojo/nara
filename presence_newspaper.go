@@ -71,14 +71,6 @@ func (network *Network) announce() {
 		slimStatus.EventStoreCritical = 0
 	}
 
-	// Populate stash metrics (OLD - removed in Chapter 1)
-	// if network.stashService != nil {
-	// 	metrics := network.stashService.GetStorageMetrics()
-	// 	slimStatus.StashStored = metrics.StashesStored
-	// 	slimStatus.StashBytes = metrics.TotalStashBytes
-	// 	slimStatus.StashConfidants = network.stashService.ConfidantCount()
-	// }
-
 	signedEvent := network.SignNewspaper(slimStatus)
 	network.postEvent(topic, signedEvent)
 }
