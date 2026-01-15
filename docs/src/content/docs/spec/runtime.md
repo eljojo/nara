@@ -113,5 +113,5 @@ flowchart LR
 
 ## 10. Open Questions / TODO
 - `runtime.LookupPublicKey`, `RegisterPublicKey`, and the `IdentityAdapter` are hooked but not fully wired; public keys still rely on the legacy network map until Chapter 2 completes.
-- `LedgerAdapter` and `GossipQueueAdapter` are stubbed to no-op in Chapter 1; the runtime currently skips persistent storage and gossip queueing for stash. Full ledger tracking will be added later.
+- `LedgerAdapter` and `GossipQueueAdapter` are stubbed to no-op; the runtime currently skips persistent storage and gossip queueing for stash. Full ledger tracking will be added later.
 - `CallRegistry.Register`/`Resolve` are placeholders supported in interfaces but not implemented; Chapter 3 will resume request/response semantics beyond the current correlator-based work.

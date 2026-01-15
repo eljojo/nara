@@ -3,7 +3,7 @@ title: Stash
 description: The first runtime service that demonstrates how encrypted blobs are stored with confidants, request/response flows, and correlator patterns.
 ---
 
-Stash used to be a collection of HTTP handlers. Chapter 1 reimagines it as a runtime service—the reference implementation for every service that will follow. It runs completely on the runtime, emits typed `Messages`, and never talks to HTTP or MQTT directly: the runtime handles transport, signing, deduplication, and delivery.
+Stash used to be a collection of HTTP handlers. It has been reimagined as a runtime service—the reference implementation for every service that will follow. It runs completely on the runtime, emits typed `Messages`, and never talks to HTTP or MQTT directly: the runtime handles transport, signing, deduplication, and delivery.
 
 ## 1. Purpose
 - Provide encrypted, memory-only persistence for critical blobs by delegating storage to trusted confidants.
@@ -123,5 +123,5 @@ Confidants also subscribe to `stash-refresh`; `handleRefreshV1` checks `stored[p
 ## 10. Open Questions / TODO
 - The encryptor seed is currently a 32-byte zero slice; future work must derive it from the owner’s Ed25519 key so that the stash follows the owner’s soul.
 - Confidant selection remains manual via `SetConfidants`; the runtime does not yet surface automatic heuristics (memory mode, uptime, etc.).
-- The runtime’s `LedgerAdapter` and `GossipQueueAdapter` are placeholders, so stash data is never recorded in the sync ledger or gossip zines in Chapter 1.
+- The runtime's `LedgerAdapter` and `GossipQueueAdapter` are placeholders, so stash data is never recorded in the sync ledger or gossip zines.
 - `stash-refresh` Recovery currently relies on manual MQTT messages; hooking it into startup/recovery workflows requires MQTT plumbing and is noted by the disabled test.

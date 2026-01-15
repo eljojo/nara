@@ -70,7 +70,6 @@ func (s *Service) Init(rt runtime.RuntimeInterface) error {
 	s.log = rt.Log("stash")
 
 	// Get seed from keypair for encryption
-	// For Chapter 1, we'll use a placeholder - this will be properly integrated in production
 	seed := make([]byte, 32) // TODO: Get from keypair in Phase 4
 	s.encryptor = utilities.NewEncryptor(seed)
 

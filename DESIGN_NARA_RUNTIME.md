@@ -2296,7 +2296,7 @@ build-web: docs
 
 ## Implementation Status
 
-### Chapter 1: Foundation & Stash Service ✅ COMPLETE
+### Foundation & Stash Service ✅ COMPLETE
 
 **Completed: January 15, 2026**
 

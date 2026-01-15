@@ -60,12 +60,12 @@ Code is organized by **domain prefix** in a flat directory structure. All Go fil
 | `flair_` | Personality flair | `flair.go` |
 | `memory_` | Memory management | `memory.go` |
 | `runtime/` | Runtime system (NEW) | `runtime.go`, `message.go`, `behavior.go`, `pipeline.go`, `interfaces.go`, `mock_runtime.go` |
-| `services/` | Runtime-based services | `services/stash/` (Chapter 1 complete) |
+| `services/` | Runtime-based services | `services/stash/` |
 | `utilities/` | Service utilities | `utilities/encryptor.go`, `utilities/correlator.go`, `utilities/id.go` |
 | `messages/` | Message payloads | `messages/stash.go` |
 | `runtime_*.go` | Runtime integration | `runtime_integration.go`, `runtime_adapters.go` |
 
-### Runtime Architecture (Chapter 1 Complete ✅)
+### Runtime Architecture
 
 **New in 2026:** Nara is being restructured into a runtime with pluggable services. The stash service has been fully migrated to this new architecture.
 

@@ -81,8 +81,7 @@ func (a *KeypairAdapter) PublicKey() []byte {
 
 // EventBusAdapter implements runtime.EventBusInterface.
 //
-// This is a simple implementation for Chapter 1. Services can subscribe
-// to message kinds and get notified when they're emitted/received.
+// Services can subscribe to message kinds and get notified when they're emitted/received.
 type EventBusAdapter struct {
 	handlers map[string][]func(*runtime.Message)
 }

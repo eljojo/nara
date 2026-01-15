@@ -166,14 +166,6 @@ func (network *Network) runOpinionPass(pass int, total int, fetchBlueJay bool, f
 		logrus.Infof("👀 opinions formed - %d naras online", onlineCount)
 	}
 
-	// Stash recovery check on second-to-last pass (OLD - removed in Chapter 1)
-	// if pass == total-1 && total > 1 {
-	// 	if network.stashService != nil && !network.stashService.HasStashData() {
-	// 		logrus.Debugf("📦 Second-to-last opinion pass: no stash recovered yet, broadcasting stash-refresh")
-	// 		network.broadcastStashRefresh()
-	// 	}
-	// }
-
 	if finalPass {
 		// Garbage collect ghost naras only after opinions are fully formed
 		deleted := network.garbageCollectGhostNaras()
@@ -190,15 +182,6 @@ func (network *Network) runOpinionPass(pass int, total int, fetchBlueJay bool, f
 		// Prune inactive naras once after backfill completes
 		// Backfill data helps inform whether a nara is truly missing or just a ghost
 		network.pruneInactiveNaras()
-
-		// Check if stash was recovered (OLD - removed in Chapter 1)
-		// if network.stashService != nil {
-		// 	if !network.stashService.HasStashData() {
-		// 		logrus.Warnf("📦 Could not retrieve stash from confidants (maybe never had one?)")
-		// 	} else if network.stashService.ConfidantCount() == 0 {
-		// 		logrus.Warnf("📦 Stash data present but no confidants found to store it")
-		// 	}
-		// }
 	}
 }
 
@@ -595,8 +578,6 @@ func (network *Network) observationMaintenanceOnce() {
 				if previousState == "ONLINE" && derivedStatus == "MISSING" {
 					network.Buzz.increase(10)
 					go network.reportMissingWithDelay(name)
-					// React immediately if this is one of our confidants (OLD - removed in Chapter 1)
-					// network.reactToConfidantOffline(name)
 				}
 			}
 
