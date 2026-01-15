@@ -708,96 +708,160 @@ func (a *EventBusAdapter) Emit(msg *runtime.Message) {
 
 ## Phase 5: Migrate First Service
 
-**Goal:** Migrate one simple service to validate the architecture.
+**Goal:** Migrate one service to validate the architecture.
 
 ### Step 5.1: Choose Target Service
 
-Start with **social** service - it's relatively simple:
-- One message kind (`social`)
-- Uses personality filtering
-- Uses gossip and MQTT transport
-- Good test case for the full pipeline
+Start with **stash** service:
+- Not used in production yet — no backwards compatibility needed
+- Can port completely in one go
+- Multiple message kinds to test (`stash:store`, `stash:request`, `stash:response`, `stash-refresh`)
+- Uses mesh transport (direct HTTP) — tests DirectFirst pattern
+- Good proving ground for the new architecture
 
-### Step 5.2: Register Behavior
+### Step 5.2: Register Behaviors
 
-Create behavior registration in `social/behaviors.go`:
+Create behavior registrations in `stash/behaviors.go`:
 
 ```go
-package social
+package stash
 
 import (
     "nara/runtime"
 )
 
 func init() {
+    // Ephemeral: trigger stash recovery from confidants
     runtime.Register(&runtime.Behavior{
-        Kind:        "social",
-        Description: "Social interactions (teases, trends, etc.)",
-        PayloadType: runtime.PayloadTypeOf[SocialPayload](),
-        Store:       runtime.DefaultStore(2),
-        Gossip:      runtime.Gossip(),
-        Transport:   runtime.DirectFirst("nara/plaza/social"),
-        Verify:      runtime.DefaultVerify(),
-        Filter:      runtime.Casual(socialFilter),
-        OnTransportError: runtime.ErrorLog,
+        Kind:        "stash-refresh",
+        Description: "Request stash recovery from confidants",
+        PayloadType: runtime.PayloadTypeOf[StashRefreshPayload](),
+        Store:       runtime.NoStore(),
+        Gossip:      runtime.NoGossip(),
+        Transport:   runtime.MQTT("nara/plaza/stash_refresh"),
+        Verify:      runtime.NoVerify(),
+        Filter:      runtime.Critical(),
     })
-}
 
-func socialFilter(msg *runtime.Message, p *runtime.Personality) bool {
-    // Implementation
+    // Store request (peer wants to store their stash with us)
+    runtime.Register(&runtime.Behavior{
+        Kind:        "stash:store",
+        Description: "Request to store encrypted stash",
+        PayloadType: runtime.PayloadTypeOf[StashStorePayload](),
+        Store:       runtime.NoStore(),  // Don't store the request itself
+        Gossip:      runtime.NoGossip(),
+        Transport:   runtime.DirectFirst(""),  // Mesh only, no MQTT fallback
+        Verify:      runtime.DefaultVerify(),
+        Filter:      runtime.Critical(),
+    })
+
+    // Retrieve request (peer wants their stash back)
+    runtime.Register(&runtime.Behavior{
+        Kind:        "stash:request",
+        Description: "Request to retrieve stored stash",
+        PayloadType: runtime.PayloadTypeOf[StashRequestPayload](),
+        Store:       runtime.NoStore(),
+        Gossip:      runtime.NoGossip(),
+        Transport:   runtime.DirectFirst(""),
+        Verify:      runtime.DefaultVerify(),
+        Filter:      runtime.Critical(),
+    })
+
+    // Response with encrypted stash data
+    runtime.Register(&runtime.Behavior{
+        Kind:        "stash:response",
+        Description: "Response containing encrypted stash",
+        PayloadType: runtime.PayloadTypeOf[StashResponsePayload](),
+        Store:       runtime.NoStore(),
+        Gossip:      runtime.NoGossip(),
+        Transport:   runtime.DirectFirst(""),
+        Verify:      runtime.DefaultVerify(),
+        Filter:      runtime.Critical(),
+    })
 }
 ```
 
 ### Step 5.3: Update Service to Use Runtime
 
 ```go
-type SocialService struct {
-    rt *runtime.Runtime
+type StashService struct {
+    rt         *runtime.Runtime
+    stored     map[string]*EncryptedStash  // Stashes we hold for others
+    confidants []string                     // Peers holding our stash
 }
 
-func (s *SocialService) Name() string { return "social" }
+func (s *StashService) Name() string { return "stash" }
 
-func (s *SocialService) Init(rt *runtime.Runtime) error {
+func (s *StashService) Init(rt *runtime.Runtime) error {
     s.rt = rt
+    s.stored = make(map[string]*EncryptedStash)
     return nil
 }
 
-func (s *SocialService) Kinds() []string {
-    return []string{"social"}
+func (s *StashService) Kinds() []string {
+    return []string{"stash-refresh", "stash:store", "stash:request", "stash:response"}
 }
 
-func (s *SocialService) Handle(msg *runtime.Message) {
-    // Handle incoming social messages
+func (s *StashService) Handle(msg *runtime.Message) {
+    switch msg.Kind {
+    case "stash-refresh":
+        s.handleRefresh(msg)
+    case "stash:store":
+        s.handleStore(msg)
+    case "stash:request":
+        s.handleRequest(msg)
+    case "stash:response":
+        s.handleResponse(msg)
+    }
 }
 
-// Emit a social event
-func (s *SocialService) Tease(target string, reason TeaseReason) {
+// Request stash recovery from all confidants
+func (s *StashService) RequestRecovery() {
     s.rt.Emit(&runtime.Message{
-        Kind: "social",
+        Kind:    "stash-refresh",
+        From:    s.rt.Me().Name,
+        Payload: &StashRefreshPayload{},
+    })
+}
+
+// Store our stash with a confidant
+func (s *StashService) StoreWith(confidant string, encrypted []byte) {
+    s.rt.Emit(&runtime.Message{
+        Kind: "stash:store",
         From: s.rt.Me().Name,
-        Payload: &SocialPayload{
-            Target: target,
-            Reason: reason,
+        Payload: &StashStorePayload{
+            Target:    confidant,
+            Encrypted: encrypted,
         },
     })
 }
 ```
 
-### Step 5.4: Dual-Mode Testing
+### Step 5.4: Testing
 
-Run both old and new paths, compare results:
+Since stash isn't in production, no dual-mode testing needed. Just test the new implementation:
 
 ```go
-func TestSocialMigration(t *testing.T) {
-    // Create old-style social event
-    oldResult := oldSocialService.Tease(target, reason)
+func TestStashRoundTrip(t *testing.T) {
+    // Create two test naras with runtime
+    alice := testRuntimeNara(t, "alice")
+    bob := testRuntimeNara(t, "bob")
 
-    // Create new-style message
-    newResult := newSocialService.Tease(target, reason)
+    // Alice stores with Bob
+    alice.StashService().StoreWith("bob", []byte("encrypted-data"))
 
-    // Compare: same storage, same transport, same filtering
-    assert.Equal(t, oldResult.ID, newResult.ID)
-    // ...
+    // Verify Bob received and stored it
+    assert.Eventually(t, func() bool {
+        return bob.StashService().HasStashFor("alice")
+    }, 5*time.Second, 100*time.Millisecond)
+
+    // Alice requests recovery
+    alice.StashService().RequestRecovery()
+
+    // Verify Alice gets her stash back
+    assert.Eventually(t, func() bool {
+        return alice.StashService().HasRecovered()
+    }, 5*time.Second, 100*time.Millisecond)
 }
 ```
 
@@ -807,12 +871,12 @@ func TestSocialMigration(t *testing.T) {
 
 **Order by complexity:**
 
-1. **world** (self-contained journeys)
-2. **presence** (hey-there, chau, newspaper, howdy)
-3. **neighbourhood** (observations)
-4. **gossip** (reads from GossipQueue now)
-5. **stash** (confidant management)
-6. **checkpoint** (complex multi-sig)
+1. **social** (simple, one message kind, good validation of personality filtering)
+2. **world** (self-contained journeys)
+3. **presence** (hey-there, chau, newspaper, howdy)
+4. **neighbourhood** (observations with ContentKey dedup)
+5. **gossip** (reads from GossipQueue now)
+6. **checkpoint** (complex multi-sig, versioning already proven useful)
 
 ### For each service:
 
@@ -890,9 +954,10 @@ Network becomes a thin wrapper or is removed entirely:
 - [ ] No changes to existing code required
 
 ### After Phase 5:
-- [ ] Social service migrated
-- [ ] Dual-mode tests pass
-- [ ] Old code still works
+- [ ] Stash service migrated to new runtime
+- [ ] All stash message kinds working (`stash-refresh`, `stash:store`, `stash:request`, `stash:response`)
+- [ ] Round-trip tests pass (store → request → response)
+- [ ] No backwards compatibility needed — clean slate
 
 ### After Phase 6:
 - [ ] All services migrated
