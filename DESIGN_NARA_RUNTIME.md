@@ -1765,6 +1765,47 @@ func (s *PresenceService) announceIdentity() {
 }
 ```
 
+### Service Example: Stash Message Flow
+
+The stash service demonstrates how the runtime abstracts transport. Services emit messages without knowing the underlying protocol—the runtime handles routing to HTTP, MQTT, or other transports.
+
+```mermaid
+sequenceDiagram
+    participant Alice as Alice's Stash Service
+    participant ART as Alice's Runtime
+    participant HTTP as HTTP Transport
+    participant BRT as Bob's Runtime
+    participant Bob as Bob's Stash Service
+
+    Note over Alice,Bob: Store Request Flow
+
+    Alice->>ART: rt.Emit(stash:store)
+    ART->>ART: Compute message ID
+    ART->>ART: Sign message
+    ART->>ART: Lookup behavior → MeshOnly()
+    ART->>HTTP: POST /mesh/message
+    HTTP->>BRT: Receive message
+    BRT->>BRT: Verify signature
+    BRT->>BRT: Lookup handler
+    BRT->>Bob: handleStoreV1(msg, payload)
+    Bob->>Bob: Store encrypted stash
+    Bob->>BRT: rt.Emit(stash:ack)
+    BRT->>HTTP: POST /mesh/message
+    HTTP->>ART: Receive ack
+    ART->>ART: Match InReplyTo → correlator
+    ART->>Alice: Resolve pending request
+    Alice->>Alice: StoreWith() returns success
+```
+
+**Key points:**
+
+1. **Service layer** — Stash calls `rt.Emit()`, doesn't know about HTTP
+2. **Runtime layer** — Handles signing, ID generation, transport routing
+3. **Transport layer** — Same HTTP mesh underneath, just abstracted
+4. **Correlation** — Runtime matches responses via `InReplyTo` field
+
+The wire protocol is unchanged (HTTP POST to mesh endpoint), but services are now decoupled from transport details.
+
 ---
 
 ## Runtime Implementation
