@@ -384,6 +384,22 @@ When the user reports something is broken: **STOP. Do not immediately edit code.
 
 **After ANY fix:** Run tests and verify with the user before making additional changes.
 
+### Understand Before Fixing
+
+**Don't fix what you don't understand.**
+
+Before implementing any fix, step back and understand the bigger picture:
+- How is this supposed to work?
+- Where does this value/behavior come from in the system?
+- What's the source of truth?
+
+**Red flag:** If you find yourself hardcoding a value to make output look correct, STOP. That's a sign you don't understand the system. The value exists somewhere - find it.
+
+**Bad:** "The UI should show 3, so I'll write `target_count = 3`"
+**Good:** "The UI should show the target count. Where is that defined? Let me search... found `s.targetConfidants`. I'll expose that."
+
+When you're rushing to make something "just work", you're probably missing context. Slow down, search the codebase, understand the design.
+
 ---
 
 ## Documentation
