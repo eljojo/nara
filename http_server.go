@@ -92,11 +92,6 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 	mux.HandleFunc("/ping", network.loggingMiddleware("/ping", network.httpPingHandler)) // No auth - latency critical
 	mux.HandleFunc("/coordinates", network.loggingMiddleware("/coordinates", network.httpCoordinatesHandler))
 
-	// Stash endpoints
-	mux.HandleFunc("/stash/store", network.loggingMiddleware("/stash/store", network.meshAuthMiddleware("/stash/store", network.httpStashHandler)))
-	mux.HandleFunc("/stash/retrieve", network.loggingMiddleware("/stash/retrieve", network.meshAuthMiddleware("/stash/retrieve", network.httpStashRetrieveHandler)))
-	mux.HandleFunc("/stash/push", network.loggingMiddleware("/stash/push", network.meshAuthMiddleware("/stash/push", network.httpStashPushHandler)))
-
 	// Checkpoint sync endpoint - serves all checkpoints for boot recovery
 	// Available on mesh for distributed timeline recovery
 	mux.HandleFunc("/api/checkpoints/all", network.httpCheckpointsAllHandler)
@@ -137,10 +132,6 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 		mux.HandleFunc("/world/journeys", network.httpWorldJourneysHandler)
 		mux.HandleFunc("/network/map", network.httpNetworkMapHandler)
 		mux.HandleFunc("/proximity", network.httpProximityHandler)
-		mux.HandleFunc("/api/stash/status", network.httpStashStatusHandler)
-		mux.HandleFunc("/api/stash/update", network.httpStashUpdateHandler)
-		mux.HandleFunc("/api/stash/recover", network.httpStashRecoverHandler)
-		mux.HandleFunc("/api/stash/confidants", network.httpStashConfidantsHandler)
 
 		// Inspector API endpoints
 		mux.HandleFunc("/api/inspector/events", network.local.inspectorEventsHandler)

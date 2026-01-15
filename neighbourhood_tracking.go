@@ -82,7 +82,6 @@ func (network *Network) getNaraByID(id string) *Nara {
 	return nil
 }
 
-
 // getAllNarasSnapshot returns a snapshot of all naras in the neighbourhood.
 //
 // ✅ SAFE for iteration - The slice is built atomically while holding the lock,

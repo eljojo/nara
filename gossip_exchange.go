@@ -193,4 +193,3 @@ func (network *Network) selectGossipTargets() []string {
 
 	return shuffled[:targetCount]
 }
-

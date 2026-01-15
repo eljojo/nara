@@ -307,37 +307,3 @@ func (network *Network) httpCoordinatesHandler(w http.ResponseWriter, r *http.Re
 //
 // Request structs can still include a "From" field for logging/debugging,
 // but handlers should verify it matches getVerifiedSender() if used.
-
-
-// POST /stash/store - Owner stores stash with confidant
-// DELETE /stash/store - Owner requests deletion of stash
-func (network *Network) httpStashHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "POST" {
-		network.httpStashStoreHandler(w, r)
-	} else if r.Method == "DELETE" {
-		network.httpStashDeleteHandler(w, r)
-	} else {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	}
-}
-
-func (network *Network) httpStashStoreHandler(w http.ResponseWriter, r *http.Request) {
-	// OLD stash implementation removed - replaced by runtime/services/stash in Chapter 1
-	// This endpoint is no longer used by the new stash service
-	http.Error(w, "Old stash API deprecated", http.StatusGone)
-}
-
-func (network *Network) httpStashDeleteHandler(w http.ResponseWriter, r *http.Request) {
-	// OLD stash implementation removed - replaced by runtime/services/stash in Chapter 1
-	http.Error(w, "Old stash API deprecated", http.StatusGone)
-}
-
-func (network *Network) httpStashRetrieveHandler(w http.ResponseWriter, r *http.Request) {
-	// OLD stash implementation removed - replaced by runtime/services/stash in Chapter 1
-	http.Error(w, "Old stash API deprecated", http.StatusGone)
-}
-
-func (network *Network) httpStashPushHandler(w http.ResponseWriter, r *http.Request) {
-	// OLD stash implementation removed - replaced by runtime/services/stash in Chapter 1
-	http.Error(w, "Old stash API deprecated", http.StatusGone)
-}

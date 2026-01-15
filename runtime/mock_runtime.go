@@ -113,11 +113,11 @@ func (m *MockRuntime) Env() Environment {
 //
 // Use this to test how a service reacts to incoming messages.
 func (m *MockRuntime) Deliver(msg *Message) {
-	// Check global registry first (services register there)
-	behavior := Lookup(msg.Kind)
+	// Check local registry first (per-runtime registrations take precedence)
+	behavior := m.behaviors[msg.Kind]
 	if behavior == nil {
-		// Fall back to local registry (for manually registered behaviors)
-		behavior = m.behaviors[msg.Kind]
+		// Fall back to global registry
+		behavior = Lookup(msg.Kind)
 	}
 	if behavior == nil {
 		m.t.Fatalf("no behavior registered for kind %s", msg.Kind)

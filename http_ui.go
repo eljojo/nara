@@ -310,43 +310,6 @@ func (network *Network) httpWorldJourneysHandler(w http.ResponseWriter, r *http.
 	}
 }
 
-// GET /api/stash/status - Get current stash status, confidants, and metrics
-func (network *Network) httpStashStatusHandler(w http.ResponseWriter, r *http.Request) {
-	// OLD stash implementation removed - replaced by runtime/services/stash in Chapter 1
-	response := map[string]interface{}{
-		"error":      "Old stash API deprecated",
-		"has_stash":  false,
-		"my_stash":   nil,
-		"confidants": []map[string]interface{}{},
-		"metrics":    map[string]interface{}{},
-	}
-
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_ = json.NewEncoder(w).Encode(response)
-}
-
-// POST /api/stash/update - Update my stash with new JSON data
-func (network *Network) httpStashUpdateHandler(w http.ResponseWriter, r *http.Request) {
-	// OLD stash implementation removed - replaced by runtime/services/stash in Chapter 1
-	http.Error(w, "Old stash API deprecated", http.StatusGone)
-}
-
-// POST /api/stash/recover - Trigger manual stash recovery
-func (network *Network) httpStashRecoverHandler(w http.ResponseWriter, r *http.Request) {
-	// OLD stash implementation removed - replaced by runtime/services/stash in Chapter 1
-	http.Error(w, "Old stash API deprecated", http.StatusGone)
-}
-
-// GET /api/stash/confidants - List all confidants with details
-func (network *Network) httpStashConfidantsHandler(w http.ResponseWriter, r *http.Request) {
-	// OLD stash implementation removed - replaced by runtime/services/stash in Chapter 1
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"error":      "Old stash API deprecated",
-		"confidants": []map[string]interface{}{},
-	})
-}
-
 // GET /network/map - All known nodes with coordinates for visualization
 func (network *Network) httpNetworkMapHandler(w http.ResponseWriter, r *http.Request) {
 	network.local.mu.Lock()

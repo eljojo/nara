@@ -62,6 +62,12 @@ func NewCorrelator[Resp any](timeout time.Duration) *Correlator[Resp] {
 func (c *Correlator[Resp]) Send(rt runtime.RuntimeInterface, msg *runtime.Message) <-chan Result[Resp] {
 	ch := make(chan Result[Resp], 1)
 
+	// Ensure message has an ID before storing in pending map
+	// (Emit() will compute one if empty, but we need it NOW for correlation)
+	if msg.ID == "" {
+		msg.ID = runtime.ComputeID(msg)
+	}
+
 	c.mu.Lock()
 	c.pending[msg.ID] = &pendingRequest[Resp]{
 		ch:      ch,

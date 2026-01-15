@@ -117,7 +117,6 @@ func (c *networkContext) Context() context.Context {
 	return c.network.ctx
 }
 
-
 // Stub types for old stash implementation (removed in Chapter 1)
 type PeerInfo struct{}
 type StashServiceDeps interface{}
