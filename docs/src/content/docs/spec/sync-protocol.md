@@ -1,87 +1,107 @@
 ---
 title: Sync Protocol
+description: P2P reconciliation and event exchange in the Nara Network.
 ---
 
 # Sync Protocol
 
-The Sync protocol allows naras to reconcile ledger state ("what did I miss?") through peer-to-peer event exchange.
+The Sync Protocol enables naras to reconcile their hazy memories by exchanging events from their local ledgers. It is designed to handle partial connectivity and memory constraints.
+
+## Purpose
+- Reconcile missed events after downtime or network partitions.
+- Distribute historical state (checkpoints) to new nodes.
+- Maintain a "hazy" but consistent shared history across the network.
+- Support different synchronization strategies (full deep sync vs. casual catch-up).
 
 ## Conceptual Model
+- **SyncLedger**: A unified, in-memory store for all syncable events.
+- **Deduplication**: Events are uniquely identified by a hash of their timestamp and content.
+- **Pruning**: Ledgers have a `MaxEvents` limit. When full, events are removed based on priority and age.
+- **Critical History**: Certain events (checkpoints, restarts, first-seen) are never pruned to preserve the network's skeletal history.
+- **Hazy Memory**: Personality affects which social events are stored, making each Nara's memory unique and subjective.
 
-| Concept | Rule |
-| :--- | :--- |
-| **Best Effort** | Completeness is not guaranteed; gossip fills gaps. |
-| **Hazy Memory** | Peers may return weighted samples of history based on memory limits. |
-| **Idempotency** | Ledger merging is deduplicated by Event ID. |
-| **Transport** | Primary: HTTP-over-Mesh. Fallback: MQTT gossip. |
+### Invariants
+- **Content-based ID**: Modifying an event after ID computation is forbidden.
+- **Deduplication**: The same event (by ID) is never stored twice in the same ledger.
+- **Priority Pruning**: Critical events are preserved over ephemeral ones (pings, casual teases).
+- **Rate Limiting**: Observations are limited to 10 per subject per 5 minutes to prevent ledger spam.
 
-## Sync Modes
-
-| Mode | Purpose | Ordering | Behavior |
-| :--- | :--- | :--- | :--- |
-| `recent` | UI/Catch-up | Descending | Returns the `limit` newest events. |
-| `page` | Deep History | Ascending | Returns `page_size` events where `ts > cursor`. |
-| `sample` | Hazy Boot | Weighted | Random sampling; prioritizes critical events + recent context. |
+## External Behavior
+- **Boot Sync**: On startup, a Nara attempts to sync deep history (often using `page` or `sample` mode) from multiple neighbors.
+- **Steady State**: Naras periodically fetch `recent` events from peers to fill gaps.
+- **Gossip Integration**: Events received via sync are often re-gossiped via zines.
 
 ## Interfaces
 
-### POST `/api/sync`
-**Request Payload**:
-```json
-{
-  "from": "requester-name",
-  "mode": "sample | page | recent",
-  "services": ["svc1"], "subjects": ["nara1"], // Filters
-  "sample_size": 5000, "limit": 100, "cursor": "nanos", "page_size": 5000
-}
-```
+### HTTP API: `POST /api/sync`
+Used for peer-to-peer reconciliation.
 
-**Response Payload**:
-```json
-{
-  "from": "responder-name",
-  "events": [ ... ],
-  "next_cursor": "nanos",
-  "sig": "base64-sig"
-}
-```
-*Signature covers: `SHA256("{from}:{ts}:" + list_of_event_ids)`.*
+**SyncRequest Fields**:
+- `from`: Requester name.
+- `mode`: "sample", "page", or "recent".
+- `services`: Filter to specific services (e.g., ["social", "checkpoint"]).
+- `subjects`: Filter to events involving specific naras.
+- `limit`: (Recent mode) Max events to return.
+- `cursor`: (Page mode) Timestamp to start from.
+- `page_size`: (Page mode) Max events per page.
+- `sample_size`: (Sample mode) Desired number of sampled events.
+
+**SyncResponse Fields**:
+- `from`: Responder name.
+- `events`: Array of `SyncEvent` objects.
+- `next_cursor`: Timestamp for the next page of results.
+- `ts`: Unix seconds when the response was generated.
+- `sig`: Base64 Ed25519 signature of the response metadata and event IDs.
+
+### SyncEvent Structure
+- `id`: 16-character hex hash.
+- `ts`: Unix timestamp in **nanoseconds**.
+- `svc`: Service type ("social", "ping", "observation", "hey-there", "chau", "seen", "checkpoint").
+- `emitter`: Name of the Nara that created the event.
+- `emitter_id`: Nara ID of the emitter (for signature verification).
+- `sig`: Base64 Ed25519 signature of the event content.
 
 ## Algorithms
 
-### 1. Weighted Sampling
-Prioritizes events for `sample` mode:
-1. **Critical (Mandatory)**: `checkpoint`, `hey-there`, `chau`, and importance=3 `observation`s.
-2. **Relevance**: Higher weight if `from` or `to` matches request/responder.
-3. **Recency**: 30-day half-life decay.
-4. **Importance**: `normal` > `casual`.
+### 1. ID Computation
+`ID = hex(SHA256(timestamp_nanos + ":" + service + ":" + payload_content_string)[0:16])`
 
-### 2. Merge & Ingestion
-```mermaid
-sequenceDiagram
-    participant L as SyncLedger
-    participant P as Projections
-    Note over L: Receive SyncResponse
-    L->>L: Verify Event Signatures
-    L->>L: Check Deduplication (ID)
-    L->>L: Filter: Checkpoint Cutoff
-    L->>L: Filter: Personality (Chill/Sociability)
-    alt New Events Added
-        L->>P: Trigger Projections
-    end
-```
+### 2. Priority-Based Pruning
+When `len(ledger) > MaxEvents`, events are removed in this order:
+1. Unknown nara events (naras with no known public key).
+2. Priority 4: Ping observations (ephemeral).
+3. Priority 3: Seen events (secondary status signals).
+4. Priority 2: Social events (teases, gossip).
+5. Priority 1: `status-change` observations, `hey-there`, `chau`.
+6. **NEVER PRUNED** (Priority 0): `checkpoint`, `restart`, `first-seen`.
 
-## Lifecycle
+### 3. Observation Compaction
+Per (Observer, Subject) pair, only `MaxObservationsPerPair` (default 20) are kept.
+- Prefers pruning `status-change` over `restart`.
+- If only restarts remain, they are only pruned if a `checkpoint` exists for that subject (to ensure data isn't lost before being anchored).
 
-- **Boot**: Parallel sync from up to 10 neighbors in `sample` or `page` mode.
-- **Background**: Every ~30m (jittered), nodes fetch `recent` events from 1-2 neighbors.
+### 4. Personality-Aware Weighting
+Social events are weighted based on:
+- **Sociability**: High sociability increases weight of social events.
+- **Chill**: High chill decreases weight of drama/teases.
+- **Time Decay**: Half-life modified by personality (Chill naras forget faster).
+- **Meaningfulness**: Events with weight < threshold are ignored by the ledger.
 
-## Security
-- **Authentication**: Response signatures verify the peer served the batch.
-- **Transport**: Mesh-level encryption (WireGuard).
-- **Integrity**: Every event is self-verifying via its own signature.
+## Failure Modes
+- **Ledger Saturation**: If too many "never-pruned" events accumulate, the ledger grows beyond `MaxEvents`.
+- **Clock Skew**: Events with future timestamps are treated as very old (subject to immediate decay) or rejected.
+- **Signature Failure**: Events with invalid signatures are discarded during ingestion.
+- **Checkpoint Cutoff**: Checkpoints created before `1768271051` are filtered out due to legacy schema bugs.
+
+## Security / Trust Model
+- **Authenticity**: Every `SyncEvent` is signed by its emitter.
+- **Reputation**: Responses are signed by the responder, allowing peers to hold each other accountable for the data they serve.
+- **Filtering**: Nodes filter "junk" or "inauthentic" events before storage.
 
 ## Test Oracle
-- **Pagination**: Verify contiguous history slices in `page` mode. (`sync_test.go`)
-- **Sampling**: Ensure critical events are always present. (`sync_sampling_test.go`)
-- **Merging**: Verify deduplication and projection triggers. (`integration_events_test.go`)
+- `TestSyncLedger_Deduplication`: Ensures the same event ID isn't added twice.
+- `TestSyncLedger_Pruning`: Verifies that low-priority events are removed first.
+- `TestSyncLedger_ObservationCompaction`: Confirms that restart history is preserved until checkpointed.
+- `TestSyncLedger_GetEventsPage`: Validates deterministic pagination in deep sync.
+- `TestObservationRateLimit`: Ensures the 10-per-5-min limit is enforced.
+- `TestSyncLedger_PersonalityFilter`: Checks that very chill naras ignore casual social events.

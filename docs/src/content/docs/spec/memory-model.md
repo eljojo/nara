@@ -1,60 +1,78 @@
 ---
 title: Memory Model
+description: Hazy memory, event-sourced state, and priority-based forgetting in Nara.
 ---
 
 # Memory Model
 
-Nara's memory is event-based, in-memory only, and intentionally bounded. Knowledge survives only through social replication and peer overlap.
+Nara implements a "hazy memory" model where state is entirely in-memory and derived from a stream of signed events. Memory is intentionally bounded to mimic human-like forgetting and to ensure the system remains lightweight.
+
+## Purpose
+- Provide a consistent but subjective view of the network state.
+- Ensure the system can run on resource-constrained hardware (e.g., Raspberry Pi Zero).
+- Model social forgetting: information that is no longer "meaningful" or "critical" is eventually lost.
+- Drive eventual consistency through social replication rather than traditional database persistence.
 
 ## Conceptual Model
+- **SyncLedger**: The primary in-memory store for all events.
+- **Hazy Memory**: State is not persisted to disk. Upon restart, a Nara is "blank" and must recover its memory from peers.
+- **Subjectivity**: Each Nara's memory is unique, shaped by its personality and the specific peers it has synced with.
+- **Forgetting**: Information is lost permanently if it is pruned by every Nara in the network.
 
-| Concept | Rule |
-| :--- | :--- |
-| **No Persistence** | All state is lost on process termination; recovered via sync. |
-| **Bounded** | Ledger capacity is strictly capped by the selected Memory Mode. |
-| **Priority-Based**| Pruning favors critical consensus over casual social noise. |
-| **Social Forgetting**| Information is lost permanently if all nodes prune it. |
+### Invariants
+- **No Disk Persistence**: Beyond basic configuration, all network state lives only in RAM.
+- **Bounded Capacity**: The ledger is strictly capped by `MaxEvents`.
+- **Integrity**: Every event in memory is cryptographically signed and verified.
+- **Social Reliability**: The network's collective memory is more reliable than any single node's memory.
+
+## External Behavior
+- **Boot Recovery**: On startup, a Nara aggressively syncs with neighbors to fill its "memory capacity".
+- **Opinion Shifts**: As new events are synced or pruned, a Nara's opinion of its peers (e.g., their uptime or clout) may shift.
+- **Resource Awareness**: Naras report their memory mode and budget to peers, which influences how others interact with them (e.g., for [Stash](./stash.md) selection).
 
 ## Memory Modes
+Memory profiles are automatically determined based on available system RAM or cgroup limits.
 
-| Mode | Capacity (Max Events) | Behavior |
-| :--- | :--- | :--- |
-| **`short`** | 20,000 | Background sync disabled; aggressive pruning. |
-| **`medium`**| 80,000 | Standard operational history. |
-| **`hog`** | 320,000 | Deep historical retention. |
+| Mode | Budget | Max Events | Behavior |
+| :--- | :--- | :--- | :--- |
+| **`short`** | 256MB | 20,000 | Background sync disabled; stores only the most essential history. |
+| **`medium`**| 512MB | 80,000 | Standard profile; balanced retention and resource usage. |
+| **`hog`** | 2GB+ | 320,000 | High retention; acts as a "historian" for the network. |
 
-## Pruning Algorithms
+## Algorithms
 
-### 1. Ledger Pruning
-When `MaxEvents` is reached, events are removed by **Priority** (high value = prune first), then by **Age**:
-- **Priority 4**: `ping` (Aggressively trimmed to most recent 5 per target).
-- **Priority 3**: `seen` (Ephemeral contact proofs).
-- **Priority 2**: `social` (Teases and casual observations).
-- **Priority 1**: `hey-there`, `chau`, `status-change`.
-- **Priority 0**: `checkpoint`, `restart`, `first-seen` (Never pruned).
+### 1. Priority-Based Pruning
+When the ledger reaches its capacity, events are removed using a **high-value-first** priority scheme:
+1. **Unknown Naras**: Events involving naras with no known public key are pruned first.
+2. **Priority 4 (Lowest)**: `ping` observations (ephemeral latency data).
+3. **Priority 3**: `seen` events (secondary status proofs).
+4. **Priority 2**: `social` events (teases, gossip).
+5. **Priority 1**: `status-change`, `hey-there`, `chau`.
+6. **Priority 0 (Critical)**: `checkpoint`, `restart`, `first-seen`. **These are never pruned.**
 
 ### 2. Observation Compaction
-Limits to 20 events per observer-subject pair:
-- Prefer pruning non-restart events.
-- Never prune `restart` events unless a `checkpoint` exists for the subject.
+Per (Observer, Subject) pair, the ledger maintains a maximum of 20 events.
+- To preserve the "Trinity" (Restarts, Uptime, StartTime), non-restart events are pruned before restart events.
+- Restart events are only pruned if a verified [Checkpoint](./checkpoints.md) exists for that subject, ensuring history is never lost before it is anchored.
 
-### 3. Neighbourhood Pruning (Peer Memory)
-- **Zombies**: Never seen; pruned immediately.
-- **Newcomers** (<2 days old): Pruned after 24h offline.
-- **Established** (2-30 days): Pruned after 7 days offline.
-- **Veterans** (>=30 days): Never auto-pruned.
-*Pruning a peer removes their identity, observations, and all associated events.*
+### 3. Peer Pruning (Neighbourhood)
+Naras also "forget" peers they haven't seen in a long time to keep the neighborhood list manageable:
+- **Zombies**: Naras seen once briefly and never again are pruned during boot opinion passes.
+- **Newcomers** (Known < 2 days): Pruned after 24h of being `MISSING`.
+- **Established** (Known < 30 days): Pruned after 7 days of being `MISSING`.
+- **Veterans** (Known >= 30 days): **Never auto-pruned** from memory.
 
-## Lifecycle: Boot Recovery
-1. **Mesh Sync**: Request weighted random samples from peers (see [Sync Protocol](./sync-protocol.md)).
-2. **Replay**: Apply re-acquired events to projections.
-3. **Checkpoint Anchor**: Reconstruct historical uptime baseline.
+## Failure Modes
+- **Memory Pressure**: If too many "never-pruned" events accumulate (e.g., thousands of naras joining), the ledger will exceed its budget, potentially leading to OOM (Out of Memory).
+- **Consensus Drift**: If a Nara's `MaxEvents` is too small, it may prune events necessary for accurate [Trinity](./observations.md#conceptual-model) derivation.
+- **Total Network Wipe**: If every Nara in a cluster restarts at the same time, all social history is lost.
 
-## Security
-- **Integrity**: Pruning does not affect the authenticity of remaining events.
-- **Availability**: Reliability emerges from the high overlap of Priority 0 events across the network.
+## Security / Trust Model
+- **Authenticity Over Completeness**: Nara prioritizes knowing that an event is *true* (signed) over knowing *every* event that happened.
+- **Historians**: High-memory naras (`hog` mode) provide the "long-term memory" for the network, acting as trusted sources for deep sync.
 
 ## Test Oracle
-- **Priority**: Verify `ping` is pruned before `social`. (`sync_test.go`)
-- **Retention**: Ensure `checkpoint` survives full-ledger cycles. (`checkpoint_test.go`)
-- **Peer Pruning**: Threshold enforcement for newcomers vs veterans. (`network_prune_test.go`)
+- `TestMemoryMode_BudgetSelection`: Verifies that the correct mode is chosen based on system RAM.
+- `TestSyncLedger_PriorityPruning`: Ensures that pings are pruned before social events when the ledger is full.
+- `TestNeighbourhood_VeteranRetention`: Checks that veteran naras are never pruned regardless of their online status.
+- `TestObservation_RestartPreservation`: Confirms that restarts are not pruned without a corresponding checkpoint.

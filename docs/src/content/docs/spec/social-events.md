@@ -1,75 +1,82 @@
 ---
 title: Social Events
+description: Teasing, trends, and buzz in the Nara Network.
 ---
 
 # Social Events
 
-Social events capture teasing, gossip, and lightweight observations, driving the UI timeline and subjective reputation (clout).
+Social events drive the "living" aspect of the Nara Network, enabling naras to interact, judge each other, and participate in collective behaviors like trends and "buzz".
+
+## Purpose
+- Provide human-readable activity for the UI and logs.
+- Drive subjective reputation (Clout) through interactions.
+- Enable collective behaviors like trends (mainstream vs. underground).
+- Model network activity levels through the "Buzz" metric.
 
 ## Conceptual Model
+- **SocialEvent**: A `SyncEvent` payload capturing an interaction.
+- **Teasing**: A subjective interaction where one Nara comments on another's state.
+- **Buzz**: A metric representing the "energy" or activity level of a Nara and the network.
+- **Trends**: Collective behaviors where naras join or start shared movements (e.g., a specific emoji or style).
 
-| Concept | Rule |
-| :--- | :--- |
-| **Immutability** | Stored in `SyncLedger` with `svc: social`. |
-| **Gating** | Local heuristics (personality + state changes) trigger events. |
-| **Spam Protection** | 5-minute cooldown per actor-target pair. |
-| **Personality Filter** | Observers drop "unmeaningful" events based on personality (e.g., high Chill). |
+### Invariants
+- **Subjective Resonance**: A tease only matters if it "resonates" with the observer (personality-dependent).
+- **Anti-Pile-On**: Naras wait a random interval and check for existing comments before teasing to prevent everyone from saying the same thing.
+- **Cooldown**: A 5-minute cooldown prevents a Nara from spamming the same target.
+- **Deterministic Personality**: Teasing and trend behaviors are deterministic based on the Nara's soul-derived personality.
 
-## Event Payload (`svc: social`)
+## External Behavior
+- **Teasing**: Triggered by specific conditions (high restarts, coming back from MISSING, abandoning a popular trend).
+- **Direct Delivery**: Teases are DM'd directly to the target via Mesh HTTP for speed, but also spread via gossip/sync.
+- **Trend Participation**: Naras periodically evaluate whether to join a mainstream trend, start an underground one, or remain independent.
 
-```json
-{
-  "type": "tease | observed | gossip | observation | service",
-  "actor": "nara-name",
-  "target": "target-name",
-  "reason": "reason-code",
-  "witness": "witness-name"
-}
-```
+## Interfaces
 
-### Common Reasons
-- **Tease**: `high-restarts`, `comeback`, `trend-abandon`, `random`, `nice-number`.
-- **Observation**: `online`, `offline`, `journey-pass`, `journey-complete`.
-- **Service**: `stash-stored`.
+### SocialEvent (SyncEvent Payload)
+- `type`: "tease", "observed", "gossip", "observation", "service".
+- `actor`: Who initiated the event.
+- `target`: Who the event is about.
+- `reason`: Why the event happened (e.g., `high-restarts`, `comeback`, `trend-abandon`, `random`, `nice-number`).
+- `witness`: Who reported it (optional).
+
+### Tease Reasons
+- `high-restarts`: Triggered if restarts per day > threshold.
+- `comeback`: Triggered when a Nara returns from `MISSING` to `ONLINE`.
+- `trend-abandon`: Triggered when leaving a trend that has >30% popularity.
+- `nice-number`: Triggered when a count (like restarts) hits a meme or aesthetically pleasing number (42, 69, 420, etc.).
+- `random`: A rare, probabilistic "poke" or "boop".
 
 ## Algorithms
 
-### 1. Tease Triggering (Deterministic)
-- **Restarts**: Triggered if rate > 2/day (adjusted by Sociability).
-- **Nice Number**: Count matches 42, 69, 100, etc. (Probabilistic).
-- **Comeback**: `MISSING` → `ONLINE` and `Sociability > 40`.
-- **Random**: Seeded hash of `soul + target + ts`. Base 1% chance.
+### 1. Anti-Pile-On Mechanism
+When a tease trigger is detected:
+1. Wait a random jitter delay (0-5 seconds).
+2. Check the local ledger for any social event about the same target and reason within the last 30 seconds.
+3. If a recent event exists, **abort** (someone else said it first).
+4. Otherwise, emit the tease.
 
-### 2. Anti-Pile-On
-```mermaid
-sequenceDiagram
-    participant N as Nara
-    participant L as Ledger
-    Note over N: Local Trigger Meta
-    N->>N: Wait 0-5s (Random)
-    N->>L: Check for similar teases in Ledger
-    alt No similar tease found
-        N->>L: Add & Broadcast SocialEvent
-    else Duplicate detected
-        N->>N: Abort Tease
-    end
-```
+### 2. Buzz Calculation
+Buzz represents the local and network activity level (0-182):
+- **Local Buzz**: Increases with events (+3 for sending a tease, +5 for receiving one, etc.); decreases by 3 per second.
+- **Weighted Buzz**: `(Local * 0.5) + (NetworkAverage * 0.2) + (HighestBuzzInNetwork * 0.3)`.
+- This creates a "vibe" that spreads across the network.
 
-### 3. Personality Filtering (`socialEventIsMeaningful`)
-Incoming events are evaluated against the receiver's personality:
-- **High Chill**: Filters `random` teases and routine `online`/`offline` logs.
-- **High Agreeableness**: Filters conflict-heavy teases.
+### 3. Trend Logic
+Naras evaluate trends every 30 seconds:
+- **Joining**: Chance based on `Agreeableness` and how many "same vibe" naras are already in it.
+- **Starting**: Chance based on `Sociability`. Higher chance if no trends exist; rebels (low `Agreeableness`) might start an "underground" trend if the top trend is too mainstream (>50%).
+- **Leaving**: Chance based on `100 - Chill`. Higher chance if no one else is in the trend.
 
-## Interfaces
-- **SSE**: `GET /events` stream for UI.
-- **DM**: `POST /dm` for direct mesh-based delivery (signed `SyncEvent`).
-- **MQTT**: `nara/plaza/social` broadcast.
+## Failure Modes
+- **Divergent Timelines**: Because naras filter events based on personality, no two naras see the exact same social history.
+- **Cooldown Lag**: The 5-minute cooldown is local; if a Nara restarts, their cooldown state is reset unless recovered from a stash.
 
-## Security
-- **Authentication**: All events require Ed25519 signatures.
-- **Divergence**: Peers may disagree on what is "meaningful," leading to non-global timelines.
+## Security / Trust Model
+- **Authenticity**: All social events are signed by the actor.
+- **No Global Truth**: Social events are "hazy" by design; they don't represent hard network state but subjective opinions.
 
 ## Test Oracle
-- **Determinism**: Tease logic yields consistent results for identical inputs. (`teasing_test.go`)
-- **Cooldown**: `TeaseState` enforces silence intervals. (`teasing_test.go`)
-- **Filtering**: Verify event dropping based on personality profiles. (`sync_test.go`)
+- `TestTeaseCooldown`: Verifies that `TryTease` correctly enforces the 5-minute limit.
+- `TestAntiPileOn`: Ensures that multiple naras don't trigger the same tease for the same event.
+- `TestNiceNumbers`: Checks that the aesthetic number detector works (palindromes, meme numbers).
+- `TestTrendTransition`: Validates that naras join/leave trends according to their personality traits.

@@ -1,6 +1,6 @@
 ---
 title: Nara Network Specification
-description: Re-implementation-grade specification for the Nara Network.
+description: Authoritative specification for the Nara Network Go implementation.
 ---
 
 # Nara Network Specification
@@ -19,6 +19,7 @@ This folder contains the **authoritative** specification for the Nara Network. I
 ## Spec Index
 
 ### 1. Identity & Being
+- **[Overview](./overview.md)**: Core principles and the network myth.
 - **[Identity](./identity.md)**: Names, souls, Ed25519 bonds, and portability.
 - **[Personality](./personality.md)**: Agreeableness, Sociability, and Chill.
 - **[Aura & Avatar](./aura-and-avatar.md)**: Deterministic visual identity.
@@ -48,7 +49,6 @@ This folder contains the **authoritative** specification for the Nara Network. I
 
 ### 6. Operations & UI
 - **[HTTP API](./http-api.md)**: Public and private endpoints.
-- **[Web UI](./web-ui.md)**: Dashboards and visualizations.
 - **[Boot Sequence](./boot-sequence.md)**: Startup, recovery, and steady-state loops.
 - **[Configuration](./configuration.md)**: Flags, environment variables, and defaults.
 - **[Deployment](./deployment.md)**: Production environments and runtime requirements.

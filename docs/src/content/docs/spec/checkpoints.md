@@ -1,79 +1,82 @@
 ---
 title: Checkpoints
+description: Multi-party attestation and historical anchors in the Nara Network.
 ---
 
 # Checkpoints
 
-Multi-signature snapshots of historical uptime and restart data. They anchor consensus for long-term state derivation.
+Checkpoints provide a multi-party consensus mechanism for anchoring historical state (restarts, uptime, first-seen). They solve the problem of "hazy memory" by creating trusted snapshots that survive network-wide restarts and ledger pruning.
+
+## Purpose
+- Anchor historical facts that predated the event-sourced system.
+- Provide a trusted baseline for calculating lifetime statistics (total restarts, lifetime uptime).
+- Enable new naras to join the network and quickly synchronize deep history through a few verified snapshots.
+- Prevent historical drift or "revisionist history" by requiring multi-party signatures.
 
 ## Conceptual Model
+- **Proposal**: A Nara proposes a snapshot of its own current state (`Restarts`, `TotalUptime`, `StartTime`).
+- **Vote**: Other naras compare the proposal against their own local ledgers and "vote" by signing the values they believe are correct.
+- **Round-based Consensus**:
+  - **Round 1**: Direct approval of the proposed values.
+  - **Round 2**: If Round 1 fails, a "trimmed mean" of all votes is proposed to find a compromise.
+- **Finalized Checkpoint**: A multi-sig bundle of a verified state snapshot.
 
-| Term | Rule |
-| :--- | :--- |
-| **Consensus** | Requires ≥ 5 signatures for creation; ≥ 2 for local trust. |
-| **Anchor** | State calculation starts from latest checkpoint + replayed events. |
-| **Permanence** | Critical priority; never pruned. |
-| **Uniqueness** | One per subject per `as_of_time`. |
+### Invariants
+- **Multi-sig Trust**: A checkpoint is only valid if it has at least 2 valid signatures from known peers (minimum of 5 voters is required for creation).
+- **Subject-Initiated**: Only the Nara the checkpoint is about can propose it.
+- **As-Of Stability**: All voters sign the exact same `AsOfTime` and values to create a valid attestation.
+- **Critical Importance**: Checkpoints are never pruned from the ledger.
 
-## Lifecycle
-
-```mermaid
-sequenceDiagram
-    participant S as Subject
-    participant P as Peers
-    S->>P: CheckpointProposal (Topic: nara/checkpoint/propose)
-    Note over P: Compare vs Local View
-    alt Agreement (within tolerance)
-        P-->>S: CheckpointVote (Signed Proposal)
-    else Disagreement
-        P-->>S: CheckpointVote (My Values)
-    end
-    Note over S: Collect Votes
-    alt Round 1 (>= 5 Agree)
-        S->>P: Final SyncEvent (Topic: nara/checkpoint/final)
-    else Round 2 (Trimmed Mean)
-        S->>S: Outlier Removal + Average
-        S->>P: New Proposal
-        P-->>S: Final SyncEvent
-    end
-```
-
-## Consensus Algorithm: Trimmed Mean (Round 2)
-1. Collect all values from votes (agree + disagree).
-2. **Filter**: Remove values outside `[median * 0.2, median * 5.0]`.
-3. **Average**: Use mean of remaining values for final proposal.
-
-## State Derivation
-To calculate current state (e.g., restarts):
-1. **Locate Anchor**: Find latest valid checkpoint (`as_of_time`). Fallback: Backfill event.
-2. **Base**: `Restarts = Checkpoint.Restarts`.
-3. **Replay**: `CurrentRestarts = Base + Count(RestartEvents where ts > as_of_time)`.
+## External Behavior
+- **Periodic Proposals**: Naras attempt to checkpoint themselves every 24 hours.
+- **Consensus Loop**: When a Nara joins, or after 24h of uptime, it proposes its state on MQTT. Peers respond with votes within a 1-minute window.
+- **Storage**: Finalized checkpoints are broadcast via MQTT and merged into the `SyncLedger` of all observing naras.
 
 ## Interfaces
 
-### Signing Format (Attestation)
-Canonical string for voters:
-`checkpoint:{subject_id}:{as_of_time}:{start_time}:{restarts}:{total_uptime}`
+### MQTT Topics
+- `nara/checkpoint/propose`: Proposer broadcasts their state.
+- `nara/checkpoint/vote`: Peers broadcast their attestations.
+- `nara/checkpoint/final`: The proposer broadcasts the multi-sig finalized checkpoint.
 
-### Payload (`svc: checkpoint`)
-```json
-{
-  "subject_id": "nara-id",
-  "as_of_time": 1700000000,
-  "observation": { "restarts": 42, "total_uptime": 123456, "start_time": 1690000000 },
-  "voter_ids": ["id1", "id2"],
-  "signatures": ["sig1", "sig2"]
-}
-```
+### Attestation Structure
+- `Subject` / `SubjectID`: Who the checkpoint is about.
+- `Observation`: The state values (`Restarts`, `TotalUptime`, `StartTime`).
+- `Attester` / `AttesterID`: Who is signing.
+- `AsOfTime`: Unix seconds timestamp of the snapshot.
+- `Signature`: Ed25519 signature of the attestation string.
 
-## Logic & Constraints
-- **Schedule**: Every 24h if ≥ 5 online peers.
-- **Tolerances**: Restarts (±5), Uptime/StartTime (±60s).
-- **Finalization**: Cap at 10 signatures; prefer high-uptime voters.
-- **Filtering**: Drop if `ts < 1768271051` (prevents historical bug ingestion).
+## Algorithms
+
+### 1. Consensus Finding (Round 1)
+1. Proposer derives state from its local ledger and broadcasts a proposal.
+2. Voters derive their own opinion of the proposer's state.
+3. If the proposer's values match the voter's (within tolerance: 5 restarts, 60s uptime), the voter signs the **proposed** values.
+4. If they don't match, the voter signs **their own** derived values.
+5. Proposer collects votes for 60s. If any set of identical values (including the proposal) has >= 5 voters, a checkpoint is created.
+
+### 2. Trimmed Mean (Round 2)
+If Round 1 fails (no group of 5 naras agreed on the exact same values):
+1. Proposer collects all Round 1 votes.
+2. For each field (Restarts, Uptime, StartTime), the proposer calculates a **trimmed mean** (removing the top and bottom 20% of outliers).
+3. The proposer initiates Round 2 with these calculated consensus values.
+
+### 3. Verification
+Peers only accept a checkpoint if:
+- It has >= 5 signatures in total.
+- At least 2 of those signatures are verifiable using known public keys in the observer's neighborhood.
+
+## Failure Modes
+- **Insufficient Voters**: If < 6 naras (proposer + 5 voters) are online, a checkpoint cannot be created.
+- **No Consensus**: If even Round 2 fails to reach a group of 5 naras, the checkpoint attempt is aborted and retried in 24h.
+- **Clock Skew**: While `AsOfTime` is fixed by the proposer, large clock skew can cause voters to reject proposals as "too old" or "in the future".
+
+## Security / Trust Model
+- **Byzantine Tolerance**: By requiring multiple signatures and using a trimmed mean, the network resists single-actor manipulation of history.
+- **Voter Weighting**: When multiple signatures are available, naras prioritize storing signatures from peers with higher uptime/reputation (Clout).
 
 ## Test Oracle
-- **Derivation**: Checkpoint + Events = Correct state. (`checkpoint_test.go`)
-- **Voting**: Tolerance enforcement. (`checkpoint_test.go`)
-- **Security**: Ignore invalid signatures; verify threshold. (`checkpoint_signature_bug_test.go`)
-- **Ingestion**: Filter old checkpoints. (`sync_checkpoint_filter_test.go`)
+- `TestCheckpoint_Consensus`: Verifies that identical votes correctly trigger checkpoint creation.
+- `TestCheckpoint_Round2TrimmedMean`: Validates that outliers are removed and a compromise value is proposed in Round 2.
+- `TestCheckpoint_VerificationThreshold`: Ensures that checkpoints with fewer than 2 verifiable signatures are rejected.
+- `TestCheckpoint_DeriveStats`: Checks that `SyncLedger` correctly uses checkpoints as a baseline for lifetime restart and uptime counts.

@@ -1,64 +1,70 @@
 ---
 title: Boot Sequence
+description: Orchestrating the transition from startup to steady-state in the Nara Network.
 ---
 
 # Boot Sequence
 
-Orchestrates the transition from startup to steady-state by initializing identity, transport, and historical recovery before activating social loops.
+The Boot Sequence orchestrates a Nara's transition from an empty process to a fully integrated participant in the network. It prioritizes identity resolution and historical reconciliation (Sync) before activating social and observation loops.
+
+## Purpose
+- Resolve the Nara's cryptographic identity (Soul, ID, Keypair).
+- Establish connectivity via Mesh (WireGuard) and Plaza (MQTT).
+- Reconcile "hazy memory" by fetching historical events and checkpoints from peers.
+- Suppress social triggers and "opinions" until a consistent baseline is reached.
 
 ## Conceptual Model
+- **Phases**: A series of ordered steps (Identity → Transport → Recovery → Steady State).
+- **Gating**: The `bootRecoveryDone` channel prevents social behaviors from firing until history is synced.
+- **Recovery Target**: The Nara attempts to fill its ledger capacity based on its [Memory Model](./memory-model.md).
 
-| Phase | Purpose |
-| :--- | :--- |
-| **Identity & HTTP** | Initialize Soul, Nara ID, and the local UI/API server. |
-| **Transport** | Start Mesh (tsnet) and MQTT. Mesh precedes MQTT to ensure IP is available for presence. |
-| **Boot Recovery** | Reconcile ledger state from peers. Social opinions are suppressed until this completes. |
-| **Steady State** | Activate background maintenance loops (Gossip, Sync, Trends, Buzz). |
+### Invariants
+- **Identity First**: No network communication occurs until the Soul and Nara ID are resolved.
+- **Mesh Before MQTT**: The Mesh IP must be known before the initial `hey_there` broadcast so peers know how to reach the node.
+- **Silent Boot**: Event logging and social teases are suppressed during the recovery phase to avoid spamming the network with "stale" observations.
 
-## Lifecycle
+## External Behavior
+- **Join Announcement**: Peers observe a `hey_there` message followed by a spike in sync requests from the new node.
+- **Opinion Formation**: A Nara's reported metrics (Restarts, Uptime) may fluctuate during boot as it merges divergent views from peers, eventually converging.
 
-```mermaid
-graph TD
-    A[Start] --> B[Identity & Keypair]
-    B --> C[HTTP Server & UI]
-    C --> D[Mesh Transport & World Handler]
-    D --> E[MQTT Connection]
-    E --> F[Broadcast hey-there / announce]
-    F --> G[Boot Recovery: Sync Ledger]
-    G --> H[Finalize Projections & Opinions]
-    H --> I[Start Maintenance Loops]
-```
+## Interfaces
+- `ln.Start()` / `network.Start()`: The primary entry points for the boot sequence.
+- `bootRecoveryDone`: A coordination channel used to unblock dependent services like `formOpinion`.
 
 ## Algorithms
 
-### 1. Boot Recovery (`boot_recovery.go`)
-1. **Silence**: Suppress ledger event logging to avoid startup spam.
-2. **Sync**: Parallel fetch from neighbors (see [Sync Protocol](./sync-protocol.md)).
-3. **Checkpoint**: Fetch multi-sig anchors to establish baseline history.
-4. **Signal**: Close `bootRecoveryDone` channel to unblock social triggers.
+### 1. Boot Recovery (`bootRecovery`)
+1. **Wait for Neighbors**: Wait up to 30s (or 3 retries) for initial peer discovery via MQTT or Mesh.
+2. **Parallel Sync**: 
+   - Identify all online, mesh-enabled neighbors.
+   - Use **Sample Mode** (preferred) or **Legacy Slicing** to fetch events in parallel.
+   - **Target**: Attempt to fetch up to 50,000 events (adjusted by memory mode).
+3. **Checkpoint Sync**: Explicitly fetch verified [Checkpoints](./checkpoints.md) to anchor historical stats.
+4. **Signal Completion**: Close the `bootRecoveryDone` channel.
 
-### 2. Maintenance Loops (Steady State)
-Long-running routines activated post-recovery:
-- **Presence**: Heartbeats (600s jittered).
-- **Gossip**: Periodic zine exchange.
-- **Sync**: Background catch-up (Mode: `recent`).
-- **Observations**: Uptime monitoring and restart detection (1s).
-- **Social**: Tease cleanup and trend tracking.
-- **Coordinates**: Vivaldi ping cycles.
+### 2. Opinion Formation Pass
+Once recovery is complete, the Nara runs 6-30 "opinion passes":
+1. **Seed Opinions**: Optionally fetch baseline data from Blue Jay (nara.network).
+2. **Derive Trinity**: Calculate `StartTime`, `Restarts`, and `TotalUptime` from the merged ledger.
+3. **Ghost GC**: Prune "ghost" naras that have no meaningful data after sync.
 
-## Interfaces
-- `Network.Start()`: Main entry point.
-- `bootRecoveryDone`: Coordination channel for opinion formation.
+### 3. Steady-State Activation
+Long-running background loops are started:
+- **Gossip**: Hand-to-hand zine exchange (30-300s).
+- **Background Sync**: Periodic "recent" mode catch-up (30m).
+- **Maintenance**: Observations (1s), Trends (30s), Buzz (10s).
+- **Vivaldi**: Network coordinate updates.
 
 ## Failure Modes
-- **Mesh Failure**: Falls back to mock local mesh; world journeys are disabled.
-- **MQTT Failure**: Fatal unless `-transport gossip` is specified.
-- **Recovery Skip**: Node starts with "empty" memory; opinions drift until sync converges.
+- **Isolaton**: If no neighbors respond during the 30s window, the Nara starts with an empty ledger and must rely on slow background sync to recover history.
+- **Sync Failure**: If mesh sync fails, the Nara falls back to MQTT-based ledger requests, which are slower and less reliable.
+- **Identity Clash**: If a Nara boots with a soul that clashes with an existing name, it may be rejected by peers.
 
-## Security
-- **Mesh Auth**: Initialized before any peer-to-peer data exchange.
-- **Read-Only Mode**: Skips all presence broadcasts and emitters for passive monitoring.
+## Security / Trust Model
+- **Mesh Auth**: Initialized immediately to ensure all P2P sync traffic is authenticated.
+- **Attestation**: During boot, the Nara relies on the signatures of peers to verify the historical events it receives.
 
 ## Test Oracle
-- **Sequencing**: Verify services start in dependency order. (`network_test.go`)
-- **Gating**: Ensure opinions do not form before recovery completes. (`boot_recovery_test.go`)
+- `TestBootRecovery_Gating`: Ensures that `formOpinion` does not run until the recovery signal is sent.
+- `TestBootRecovery_ParallelSync`: Verifies that sync requests are correctly distributed across multiple neighbors.
+- `TestBootRecovery_CheckpointBaseline`: Confirms that checkpoints correctly anchor the initial Trinity derivation.
