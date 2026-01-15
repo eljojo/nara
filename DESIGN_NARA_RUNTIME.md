@@ -18,6 +18,9 @@ A comprehensive design for restructuring Nara into a runtime with pluggable serv
 10. [Complete Behavior Catalog](#complete-behavior-catalog)
 11. [Services](#services)
 12. [Runtime Implementation](#runtime-implementation)
+    - [Runtime Structure](#runtime-structure)
+    - [Runtime Primitives](#runtime-primitives) (Logger)
+    - [Service-to-Service Communication](#service-to-service-communication) (Local messages)
 13. [Auto-Generated Documentation](#auto-generated-documentation)
 
 ---
@@ -1228,6 +1231,13 @@ var StoredDefaults = Behavior{
     Receive: ReceiveBehavior{Verify: DefaultVerify(), Dedupe: IDDedupe(), Store: DefaultStore(2)},
 }
 
+// LocalDefaults - for service-to-service communication within a nara
+// No signing, no verification, no network transport, no storage
+var LocalDefaults = Behavior{
+    Emit:    EmitBehavior{Sign: NoSign(), Store: NoStore(), Gossip: NoGossip(), Transport: NoTransport()},
+    Receive: ReceiveBehavior{Verify: NoVerify(), Dedupe: IDDedupe(), Store: NoStore()},
+}
+
 // === Template Functions (copy defaults, override differences) ===
 
 // Ephemeral broadcasts - no storage, MQTT only
@@ -1284,6 +1294,15 @@ func BroadcastEvent(kind, desc string, priority int, topic string) *Behavior {
     b.Emit.Store = DefaultStore(priority)
     b.Emit.Transport = MQTT(topic)
     b.Receive.Store = DefaultStore(priority)
+    return &b
+}
+
+// Local - for service-to-service communication within a nara
+// No network transport, no signing, no storage - just internal routing
+func Local(kind, desc string) *Behavior {
+    b := LocalDefaults
+    b.Kind = kind
+    b.Description = desc
     return &b
 }
 
@@ -1785,11 +1804,172 @@ type Runtime struct {
     // Personality (for filtering)
     personality *Personality
 
+    // Logging
+    logger *Logger  // Base logger for the runtime
+
     // Lifecycle
     ctx    context.Context
     cancel context.CancelFunc
 }
 ```
+
+### Runtime Primitives
+
+The runtime exposes **primitives** that services use. Primitives are fundamentally different from Services:
+
+| Aspect | Service | Primitive |
+|--------|---------|-----------|
+| Lifecycle | `Init()`, `Start()`, `Stop()` | None — always available |
+| Registration | Registers with runtime | Built into runtime |
+| Behavior | Registers message handlers | No message handlers |
+| Example | PresenceService, StashService | Logger, RateLimiter, Metrics |
+
+Primitives are part of the runtime itself. They don't have their own lifecycle — they exist as long as the runtime exists.
+
+#### Logger Primitive
+
+**Logger is NOT a Service.** It has no Init/Start/Stop lifecycle. It's a primitive that the runtime provides to services.
+
+Structured logging with service-scoped loggers. Services get a logger via `rt.Log("service")`:
+
+```go
+// Logger wraps structured logging with nara context
+type Logger struct {
+    base    *logrus.Logger
+    naraID  string
+    fields  logrus.Fields
+}
+
+// ServiceLog is a logger scoped to a service
+type ServiceLog struct {
+    logger  *Logger
+    service string
+}
+
+// Runtime exposes logging
+func (rt *Runtime) Log(service string) *ServiceLog {
+    return &ServiceLog{
+        logger:  rt.logger,
+        service: service,
+    }
+}
+
+// ServiceLog methods
+func (l *ServiceLog) Info(msg string, fields ...any) {
+    l.logger.base.WithFields(l.fields(fields...)).Info(msg)
+}
+
+func (l *ServiceLog) Warn(msg string, fields ...any) {
+    l.logger.base.WithFields(l.fields(fields...)).Warn(msg)
+}
+
+func (l *ServiceLog) Error(msg string, fields ...any) {
+    l.logger.base.WithFields(l.fields(fields...)).Error(msg)
+}
+
+func (l *ServiceLog) Debug(msg string, fields ...any) {
+    l.logger.base.WithFields(l.fields(fields...)).Debug(msg)
+}
+
+func (l *ServiceLog) fields(extra ...any) logrus.Fields {
+    f := logrus.Fields{
+        "nara":    l.logger.naraID,
+        "service": l.service,
+    }
+    // Merge extra fields as key-value pairs
+    for i := 0; i < len(extra)-1; i += 2 {
+        if key, ok := extra[i].(string); ok {
+            f[key] = extra[i+1]
+        }
+    }
+    return f
+}
+```
+
+**Usage in services:**
+
+```go
+type StashService struct {
+    rt  *Runtime
+    log *ServiceLog
+}
+
+func (s *StashService) Init(rt *Runtime) error {
+    s.rt = rt
+    s.log = rt.Log("stash")  // Get service-scoped logger
+    return nil
+}
+
+func (s *StashService) handleStoreV1(msg *Message, p *StashStorePayload) {
+    s.log.Info("storing stash", "owner", p.OwnerID, "size", len(p.Ciphertext))
+    // ...
+    s.log.Debug("stash stored successfully", "owner", p.OwnerID)
+}
+```
+
+### Service-to-Service Communication
+
+Services can communicate with each other using `Local()` messages. These messages:
+- Don't leave the nara (no network transport)
+- Don't require signing or verification
+- Don't get stored in the ledger
+- Route through the same pipeline for consistency
+
+**Example: Stash recovery notification**
+
+When stash recovery completes, the stash service notifies other services:
+
+```go
+// messages/stash.go
+type StashRecoveredPayload struct {
+    RecoveredAt time.Time `json:"recovered_at"`
+    ItemCount   int       `json:"item_count"`
+}
+
+// stash_service.go
+func (s *StashService) RegisterBehaviors(rt *Runtime) {
+    // ... other behaviors ...
+
+    // Local message for notifying other services
+    rt.Register(Local("stash:recovered", "Stash recovery completed").
+        WithPayload[StashRecoveredPayload]().
+        WithHandler(1, nil))  // No handler in stash service itself
+}
+
+func (s *StashService) completeRecovery(items int) {
+    s.log.Info("recovery complete", "items", items)
+
+    // Notify other services
+    s.rt.Emit(&Message{
+        Kind: "stash:recovered",
+        Payload: &StashRecoveredPayload{
+            RecoveredAt: time.Now(),
+            ItemCount:   items,
+        },
+    })
+}
+
+// presence_service.go - listens for stash recovery
+func (p *PresenceService) RegisterBehaviors(rt *Runtime) {
+    // Subscribe to stash recovery events
+    rt.Register(Local("stash:recovered", "Stash recovery completed").
+        WithPayload[StashRecoveredPayload]().
+        WithHandler(1, p.handleStashRecovered))
+}
+
+func (p *PresenceService) handleStashRecovered(msg *Message, payload *StashRecoveredPayload) {
+    p.log.Info("stash recovered, updating presence",
+        "items", payload.ItemCount,
+        "at", payload.RecoveredAt)
+    // Update presence state, etc.
+}
+```
+
+**Key properties of Local messages:**
+- Same `Message` primitive as network messages
+- Same pipeline execution (just with NoTransport, NoSign, NoVerify)
+- Multiple services can subscribe to the same local message kind
+- Useful for decoupling services while maintaining the message-based architecture
 
 ### Emit Implementation
 
@@ -2039,7 +2219,7 @@ build-web: docs
 | **StageResult** | Explicit outcomes — Continue/Drop/Error, no silent failures |
 | **Behavior** | Declares how a message kind is handled |
 | **EmitBehavior / ReceiveBehavior** | Split pipelines — clear what runs on send vs receive |
-| **Pattern Templates** | `Ephemeral()`, `MeshRequest()`, `StoredEvent()` — reduce boilerplate |
+| **Pattern Templates** | `Ephemeral()`, `MeshRequest()`, `StoredEvent()`, `Local()` — reduce boilerplate |
 | **Pipeline** | Chains stages, returns StageResult |
 | **Stages** | Pluggable units: ID, ContentKey, Sign, Store, Gossip, Transport, Verify, Filter |
 | **GossipQueue** | Explicit gossip, decoupled from ledger |
@@ -2047,20 +2227,24 @@ build-web: docs
 | **Registry** | Central catalog of all behaviors |
 | **Runtime** | The OS that runs pipelines and manages services |
 | **Services** | Programs that emit and handle messages |
+| **Primitives** | Runtime-provided utilities (Logger, RateLimiter, Metrics) — NOT Services |
+| **Local Messages** | Service-to-service communication without network transport |
 
 ### Key Benefits
 
-1. **Everything is a Message** — unified model for events, ephemerals, protocols
+1. **Everything is a Message** — unified model for events, ephemerals, protocols, AND internal communication
 2. **ID vs ContentKey split** — envelope identity vs semantic identity, no more confusion
 3. **Versioning built-in** — evolve message schemas without breaking old naras
 4. **Explicit outcomes** — StageResult replaces error-prone `next()` callback
 5. **Emit/Receive split** — crystal clear which stages run on send vs receive
-6. **Pattern templates** — `MeshRequest()`, `Ephemeral()`, etc. reduce 40 lines to 1
+6. **Pattern templates** — `MeshRequest()`, `Ephemeral()`, `Local()` reduce 40 lines to 1
 7. **Gossip decoupled from Store** — independent concerns
 8. **Error strategies** — configurable per-direction error handling
 9. **OS handles serialization** — services provide structs, runtime handles wire format
 10. **Auto-documented** — registry generates docs from PayloadType reflection
 11. **Testable** — each stage testable in isolation
+12. **Local messages** — service-to-service communication using the same Message primitive
+13. **Primitives vs Services** — clear distinction between runtime utilities and service lifecycle
 
 ### The 80/20 Split
 
