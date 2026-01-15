@@ -105,7 +105,8 @@ func (q *GossipQueue) Add(msg *Message) {
 type Behavior struct {
     CurrentVersion int
     MinVersion     int
-    PayloadTypes   map[int]reflect.Type  // Always use this, no shorthand
+    PayloadTypes   map[int]reflect.Type  // Payload type per version
+    Handlers       map[int]any           // Version-specific typed handlers
 }
 ```
 
@@ -113,12 +114,22 @@ type Behavior struct {
 
 **Solution:** Removed `PayloadType` shorthand. Always use `PayloadTypes` map - it's explicit about versioning from day one, and the runtime deserializes for you.
 
+**Additional decision:** Version-specific handlers. Each version routes to its own typed handler:
+
 ```go
-// Even for v1-only services, use the map:
+// Even for v1-only services, use the maps:
 PayloadTypes: map[int]reflect.Type{
     1: PayloadTypeOf[StashStorePayload](),
-}
+},
+Handlers: map[int]any{
+    1: TypedHandler(s.handleStoreV1),  // func(*Message, *StashStorePayload)
+},
 ```
+
+**Benefits:**
+- **Type-safe** — each handler receives correctly typed payload, no type switches
+- **Migration as a pattern** — V1 handler can migrate payload and delegate to V2 handler
+- **Easy deprecation** — when dropping V1 support, just delete the handler
 
 **Risk:** None. One way to do things = no confusion.
 
@@ -447,7 +458,7 @@ func handleMeshMessage(w, r) {
 ### Low (defer to later phases)
 - **#1 PipelineContext size** — discipline, not architecture
 - **#3 GossipQueue backpressure** — fix before Phase 6
-- **#4 Versioning complexity** — ✅ SOLVED (removed PayloadType shorthand)
+- **#4 Versioning complexity** — ✅ SOLVED (PayloadTypes + version-specific Handlers)
 
 ---
 
@@ -462,6 +473,7 @@ Before writing stash service code:
 - [x] Write MockRuntime for service testing → **Phase 3.3**
 - [x] Add error strategy defaults → **Environment-aware** (Panic/LogWarn/Log)
 - [x] PayloadTypes validation → **Removed PayloadType shorthand, only PayloadTypes exists**
+- [x] Version-specific handlers → **Each version gets typed handler, no type switches**
 
 ---
 
@@ -473,7 +485,7 @@ Stash will teach us:
 2. **Is MeshOnly the right abstraction?** — stash is mesh-only, fails if unreachable
 3. **Does Correlator utility work well?** — first real consumer of the utility pattern
 4. **Are the interfaces right?** — first real consumer of RuntimeInterface
-5. **Does the service lifecycle work?** — Init/Start/Stop/Handle pattern
+5. **Do version-specific handlers work?** — typed handlers, no type switches
 6. **Does MockRuntime enable fast iteration?** — test services without MQTT
 
 If stash works cleanly, we have confidence for the rest. If it's painful, we learn what to fix before migrating production services.

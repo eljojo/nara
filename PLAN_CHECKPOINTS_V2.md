@@ -345,6 +345,10 @@ type Behavior struct {
     MinVersion     int                    // Oldest version still accepted (default 1)
     PayloadTypes   map[int]reflect.Type   // Payload type per version (required)
 
+    // Version-specific handlers (typed via TypedHandler helper)
+    // Each handler has signature: func(*Message, *PayloadType)
+    Handlers map[int]any
+
     // ContentKey derivation (nil = no content key)
     ContentKey func(payload any) string
 
@@ -372,17 +376,35 @@ type ReceiveBehavior struct {
     OnError   ErrorStrategy // What to do on failure
 }
 
-// Pattern templates for common cases
-func Ephemeral(kind, desc, topic string) *Behavior { /* ... */ }
-func MeshRequest(kind, desc string) *Behavior { /* ... */ }
+// === Base Defaults (copy and override) ===
+
+var EphemeralDefaults = Behavior{
+    Emit:    EmitBehavior{Sign: NoSign(), Store: NoStore(), Gossip: NoGossip()},
+    Receive: ReceiveBehavior{Verify: NoVerify(), Dedupe: IDDedupe(), Store: NoStore()},
+}
+
+var ProtocolDefaults = Behavior{
+    Emit:    EmitBehavior{Sign: DefaultSign(), Store: NoStore(), Gossip: NoGossip()},
+    Receive: ReceiveBehavior{Verify: DefaultVerify(), Dedupe: IDDedupe(), Store: NoStore(), Filter: Critical()},
+}
+
+// === Template functions (copy defaults, override differences) ===
+
+func Ephemeral(kind, desc, topic string) *Behavior { /* copy EphemeralDefaults, set Kind/Desc/Transport */ }
+func Protocol(kind, desc, topic string) *Behavior { /* copy ProtocolDefaults, set Kind/Desc/Transport */ }
+func MeshRequest(kind, desc string) *Behavior { /* copy ProtocolDefaults, set Transport: MeshOnly() */ }
 func StoredEvent(kind, desc string, priority int) *Behavior { /* ... */ }
 func BroadcastEvent(kind, desc string, priority int, topic string) *Behavior { /* ... */ }
 
 // Chainable modifiers
 func (b *Behavior) WithPayload[T any]() *Behavior { /* ... */ }
+func (b *Behavior) WithHandler[T any](version int, fn func(*Message, *T)) *Behavior { /* ... */ }
 func (b *Behavior) WithContentKey(fn func(any) string) *Behavior { /* ... */ }
 func (b *Behavior) WithFilter(stage Stage) *Behavior { /* ... */ }
 func (b *Behavior) WithRateLimit(stage Stage) *Behavior { /* ... */ }
+
+// TypedHandler wraps a typed handler function for the registry
+func TypedHandler[T any](fn func(*Message, *T)) any { return fn }
 
 // Registry
 var (
@@ -823,20 +845,63 @@ import (
     "nara/messages"
 )
 
-func init() {
+// RegisterBehaviors registers stash message behaviors with version-specific handlers
+func (s *StashService) RegisterBehaviors(runtime *rt.Runtime) {
     // Ephemeral broadcast: trigger stash recovery from confidants
-    rt.Register(rt.Ephemeral("stash-refresh", "Request stash recovery", "nara/plaza/stash_refresh").
-        WithPayload[messages.StashRefreshPayload]())
+    runtime.Register(
+        rt.Ephemeral("stash-refresh", "Request stash recovery", "nara/plaza/stash_refresh").
+            WithPayload[messages.StashRefreshPayload]().
+            WithHandler(1, s.handleRefreshV1),
+    )
 
-    // Mesh-only request/response messages
-    rt.Register(rt.MeshRequest("stash:store", "Store encrypted stash").
-        WithPayload[messages.StashStorePayload]())
-    rt.Register(rt.MeshRequest("stash:ack", "Acknowledge stash storage").
-        WithPayload[messages.StashStoreAck]())
-    rt.Register(rt.MeshRequest("stash:request", "Request stored stash").
-        WithPayload[messages.StashRequestPayload]())
-    rt.Register(rt.MeshRequest("stash:response", "Return stored stash").
-        WithPayload[messages.StashResponsePayload]())
+    // Mesh-only request/response messages with typed handlers
+    runtime.Register(
+        rt.MeshRequest("stash:store", "Store encrypted stash").
+            WithPayload[messages.StashStorePayload]().
+            WithHandler(1, s.handleStoreV1),
+    )
+    runtime.Register(
+        rt.MeshRequest("stash:ack", "Acknowledge stash storage").
+            WithPayload[messages.StashStoreAck]().
+            WithHandler(1, s.handleStoreAckV1),
+    )
+    runtime.Register(
+        rt.MeshRequest("stash:request", "Request stored stash").
+            WithPayload[messages.StashRequestPayload]().
+            WithHandler(1, s.handleRequestV1),
+    )
+    runtime.Register(
+        rt.MeshRequest("stash:response", "Return stored stash").
+            WithPayload[messages.StashResponsePayload]().
+            WithHandler(1, s.handleResponseV1),
+    )
+}
+
+// Version-specific typed handlers - no type switches needed
+func (s *StashService) handleStoreV1(msg *rt.Message, p *messages.StashStorePayload) {
+    // Store the encrypted data
+    s.mu.Lock()
+    s.stored[p.OwnerID] = &EncryptedStash{
+        Nonce:      p.Nonce,
+        Ciphertext: p.Ciphertext,
+        StoredAt:   time.Now().Unix(),
+    }
+    s.mu.Unlock()
+
+    // Send ack
+    s.rt.Emit(&rt.Message{
+        Kind: "stash:ack",
+        ToID: msg.FromID,
+        Payload: &messages.StashStoreAck{
+            OwnerID:  p.OwnerID,
+            StoredAt: time.Now().Unix(),
+        },
+    })
+}
+
+func (s *StashService) handleStoreAckV1(msg *rt.Message, p *messages.StashStoreAck) {
+    // Match to pending request via correlator
+    s.storeCorrelator.Receive(msg.InReplyTo, *p)
 }
 ```
 
@@ -845,6 +910,7 @@ func init() {
 ```go
 type StashService struct {
     rt               *runtime.Runtime
+    mu               sync.Mutex
     stored           map[string]*EncryptedStash  // Stashes we hold for others (keyed by owner ID)
     confidants       []string                     // Peer IDs holding our stash
     storeCorrelator  *utilities.Correlator[messages.StashStoreAck]
@@ -860,27 +926,14 @@ func (s *StashService) Init(rt *runtime.Runtime) error {
     s.storeCorrelator = utilities.NewCorrelator[messages.StashStoreAck](10 * time.Second)
     s.requestCorrelator = utilities.NewCorrelator[messages.StashResponsePayload](10 * time.Second)
     s.encryptor = utilities.NewEncryptor(rt.Keypair().Seed())
+
+    // Register behaviors with version-specific handlers (see Step 5.1)
+    s.RegisterBehaviors(rt)
+
     return nil
 }
 
-func (s *StashService) Kinds() []string {
-    return []string{"stash-refresh", "stash:store", "stash:ack", "stash:request", "stash:response"}
-}
-
-func (s *StashService) Handle(msg *runtime.Message) {
-    switch msg.Kind {
-    case "stash-refresh":
-        s.handleRefresh(msg)
-    case "stash:store":
-        s.handleStore(msg)
-    case "stash:ack":
-        s.handleStoreAck(msg)
-    case "stash:request":
-        s.handleRequest(msg)
-    case "stash:response":
-        s.handleResponse(msg)
-    }
-}
+// No more Kinds() or Handle() - version-specific handlers are registered in RegisterBehaviors()
 
 // Store our stash with a confidant (uses correlator for request/response)
 func (s *StashService) StoreWith(confidantID string, data []byte) error {
