@@ -1,7 +1,6 @@
 package nara
 
 import (
-	"github.com/eljojo/nara/services/stash"
 	"context"
 	"math/rand"
 	"net/http"
@@ -12,6 +11,8 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/eljojo/nara/runtime"
+	"github.com/eljojo/nara/services/stash"
+	"github.com/eljojo/nara/utilities/keyring"
 )
 
 // TransportMode determines how events spread through the network
@@ -41,9 +42,9 @@ func (t TransportMode) String() string {
 }
 
 type Network struct {
-	Neighbourhood          map[string]*Nara  // Index by name (legacy, to be deprecated)
-	NeighbourhoodByID      map[string]*Nara  // Primary index: by nara ID
-	nameToID               map[string]string // Secondary index: name → ID for quick lookup
+	Neighbourhood          map[NaraName]*Nara // Index by name (legacy, to be deprecated)
+	NeighbourhoodByID      map[NaraID]*Nara   // Primary index: by nara ID
+	nameToID               map[NaraName]NaraID // Secondary index: name → ID for quick lookup
 	Buzz                   *Buzz
 	LastHeyThere           int64
 	skippingEvents         bool
@@ -120,6 +121,11 @@ type Network struct {
 	// Runtime: new message-based runtime
 	runtime      *runtime.Runtime
 	stashService *stash.Service
+
+	// Keyring: unified cryptographic identity management.
+	// INVARIANT: Always non-nil in production (initialized in NewNetwork()).
+	// Nil checks exist only for unit tests that create minimal Network{} structs.
+	keyring *keyring.Keyring
 }
 
 // PendingJourney tracks a journey we participated in, waiting for completion
@@ -149,9 +155,9 @@ type PeerResponse struct {
 
 func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Network {
 	network := &Network{local: localNara}
-	network.Neighbourhood = make(map[string]*Nara)
-	network.NeighbourhoodByID = make(map[string]*Nara)
-	network.nameToID = make(map[string]string)
+	network.Neighbourhood = make(map[NaraName]*Nara)
+	network.NeighbourhoodByID = make(map[NaraID]*Nara)
+	network.nameToID = make(map[NaraName]NaraID)
 	network.heyThereInbox = make(chan SyncEvent, 50)
 	network.chauInbox = make(chan SyncEvent, 50)
 	network.howdyInbox = make(chan HowdyEvent, 50)
@@ -179,6 +185,9 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	// Initialize checkpoint service
 	network.checkpointService = NewCheckpointService(network, localNara.SyncLedger, localNara)
 
+	// Initialize keyring with our identity
+	network.keyring = keyring.New(localNara.Keypair.PrivateKey, localNara.Me.Status.ID.String())
+
 	network.Mqtt = network.initializeMQTT(network.mqttOnConnectHandler(), network.meName(), host, user, pass)
 
 	// Set up pruning priority for unknown naras (events from naras without public keys are pruned first)
@@ -194,6 +203,11 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 // Context returns the network's context, which is canceled when the network shuts down.
 func (network *Network) Context() context.Context {
 	return network.ctx
+}
+
+// Keyring returns the network's keyring for cryptographic operations.
+func (network *Network) Keyring() *keyring.Keyring {
+	return network.keyring
 }
 
 // IsBootRecoveryComplete returns true if boot recovery has finished and opinions are formed.
@@ -343,37 +357,34 @@ func (network *Network) hasPublicKeyFor(name string) bool {
 	return network.getPublicKeyForNara(name) != nil
 }
 
-// getPublicKeyForNaraID looks up a public key by nara ID instead of name.
-// Uses getNaraByID for the lookup (which handles O(1) vs O(N) fallback).
-func (network *Network) getPublicKeyForNaraID(naraID string) []byte {
+// getPublicKeyForNaraID looks up a public key by nara ID.
+// Uses the keyring as the single source of truth.
+func (network *Network) getPublicKeyForNaraID(naraID NaraID) []byte {
 	if naraID == "" {
 		return nil
 	}
+	return network.keyring.Lookup(naraID.String())
+}
 
-	// Check self first
-	if naraID == network.local.Me.Status.ID {
-		return network.local.Keypair.PublicKey
+// RegisterKey registers a public key for a nara ID.
+// Writes to keyring (source of truth) and nara's Status.PublicKey (for serialization).
+func (network *Network) RegisterKey(naraID NaraID, pubkeyBase64 string) {
+	if naraID == "" || pubkeyBase64 == "" {
+		return
 	}
 
-	// Use centralized lookup
+	// Register in keyring (source of truth)
+	_ = network.keyring.RegisterBase64(naraID.String(), pubkeyBase64)
+
+	// Also store in nara's Status.PublicKey for JSON serialization
 	nara := network.getNaraByID(naraID)
-	if nara == nil {
-		return nil
+	if nara != nil {
+		nara.mu.Lock()
+		if nara.Status.PublicKey == "" {
+			nara.Status.PublicKey = pubkeyBase64
+		}
+		nara.mu.Unlock()
 	}
-
-	nara.mu.Lock()
-	publicKey := nara.Status.PublicKey
-	nara.mu.Unlock()
-
-	if publicKey == "" {
-		return nil
-	}
-
-	pubKey, err := ParsePublicKey(publicKey)
-	if err != nil {
-		return nil
-	}
-	return pubKey
 }
 
 // VerifySyncEvent verifies a sync event's signature and logs warnings
@@ -461,7 +472,7 @@ func (network *Network) discoverNarasFromEvents(events []SyncEvent) {
 			if !known {
 				isRecent := (time.Now().Unix() - e.Timestamp/1e9) < MissingThresholdSeconds
 				if isRecent || network.local.isBooting() || e.Service == ServiceHeyThere {
-					network.importNara(NewNara(name))
+					network.importNara(NewNara(NaraName(name)))
 					logrus.Debugf("📖 Discovered nara %s from event stream", name)
 				}
 			}
@@ -724,7 +735,7 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 	}
 }
 
-func (network *Network) meName() string {
+func (network *Network) meName() NaraName {
 	return network.local.Me.Name
 }
 

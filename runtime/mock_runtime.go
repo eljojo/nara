@@ -2,8 +2,15 @@ package runtime
 
 import (
 	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
+	"errors"
+	"io"
 	"reflect"
 	"testing"
+
+	"golang.org/x/crypto/chacha20poly1305"
+	"golang.org/x/crypto/hkdf"
 )
 
 // MockRuntime implements RuntimeInterface for testing services.
@@ -105,6 +112,28 @@ func (m *MockRuntime) Log(service string) *ServiceLog {
 
 func (m *MockRuntime) Env() Environment {
 	return m.env
+}
+
+func (m *MockRuntime) OnlinePeers() []*PeerInfo {
+	return nil // Mock returns no peers by default
+}
+
+func (m *MockRuntime) MemoryMode() string {
+	return "normal" // Mock returns normal mode
+}
+
+func (m *MockRuntime) StorageLimit() int {
+	return 20 // Default storage limit for normal mode
+}
+
+// Seal encrypts plaintext using the mock keypair.
+func (m *MockRuntime) Seal(plaintext []byte) (nonce, ciphertext []byte, err error) {
+	return m.keypair.Seal(plaintext)
+}
+
+// Open decrypts ciphertext using the mock keypair.
+func (m *MockRuntime) Open(nonce, ciphertext []byte) ([]byte, error) {
+	return m.keypair.Open(nonce, ciphertext)
 }
 
 // === Test helpers ===

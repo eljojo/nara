@@ -577,13 +577,15 @@ func TestCheckpointV2NodeIgnoresV1Votes(t *testing.T) {
 	}
 
 	// Add voter's public key to the network
+	voterPubKey := pubKeyToBase64(voterKeypair.PublicKey)
 	ln.Network.Neighbourhood[voterName] = &Nara{
 		Name: voterName,
 		Status: NaraStatus{
 			ID:        voterID,
-			PublicKey: pubKeyToBase64(voterKeypair.PublicKey),
+			PublicKey: voterPubKey,
 		},
 	}
+	ln.Network.RegisterKey(voterID, voterPubKey)
 
 	// Handle the v1 vote (should be ignored)
 	cs.HandleVote(v1Vote)

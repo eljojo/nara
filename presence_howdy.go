@@ -15,7 +15,7 @@ type NeighborInfo struct {
 	Name        string
 	PublicKey   string
 	MeshIP      string
-	ID          string          // Nara ID: deterministic hash of soul+name
+	ID          NaraID          // Nara ID: deterministic hash of soul+name
 	Observation NaraObservation // What I know about this neighbor
 }
 

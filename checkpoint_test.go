@@ -635,33 +635,37 @@ func TestCheckpoint_Round2SignatureVerification(t *testing.T) {
 	// Create a CheckpointService with a mock network that returns public keys
 	ledger := NewSyncLedger(1000)
 	local := testLocalNara(t, "verifier")
+	network := local.Network
 
-	// Create a minimal network with public key lookup
-	network := &Network{
-		Neighbourhood: make(map[string]*Nara),
-		local:         local,
-	}
+	// Add naras to neighbourhood and register their keys
+	proposerPubKey := pubKeyToBase64(proposerKeypair.PublicKey)
+	voter1PubKey := pubKeyToBase64(voter1Keypair.PublicKey)
+	voter2PubKey := pubKeyToBase64(voter2Keypair.PublicKey)
+
 	network.Neighbourhood["proposer"] = &Nara{
 		Name: "proposer",
 		Status: NaraStatus{
 			ID:        proposerID,
-			PublicKey: pubKeyToBase64(proposerKeypair.PublicKey),
+			PublicKey: proposerPubKey,
 		},
 	}
 	network.Neighbourhood["voter1"] = &Nara{
 		Name: "voter1",
 		Status: NaraStatus{
 			ID:        voter1ID,
-			PublicKey: pubKeyToBase64(voter1Keypair.PublicKey),
+			PublicKey: voter1PubKey,
 		},
 	}
 	network.Neighbourhood["voter2"] = &Nara{
 		Name: "voter2",
 		Status: NaraStatus{
 			ID:        voter2ID,
-			PublicKey: pubKeyToBase64(voter2Keypair.PublicKey),
+			PublicKey: voter2PubKey,
 		},
 	}
+	network.RegisterKey(proposerID, proposerPubKey)
+	network.RegisterKey(voter1ID, voter1PubKey)
+	network.RegisterKey(voter2ID, voter2PubKey)
 
 	service := NewCheckpointService(network, ledger, local)
 
@@ -756,19 +760,18 @@ func TestCheckpoint_PartialSignatureVerification(t *testing.T) {
 	// Create a CheckpointService with a network that only knows voter1
 	ledger := NewSyncLedger(1000)
 	local := testLocalNara(t, "verifier")
+	network := local.Network
 
-	network := &Network{
-		Neighbourhood: make(map[string]*Nara),
-		local:         local,
-	}
 	// Only add voter1 - proposer and voter2 are "unknown"
+	voter1PubKey := pubKeyToBase64(voter1Keypair.PublicKey)
 	network.Neighbourhood["voter1"] = &Nara{
 		Name: "voter1",
 		Status: NaraStatus{
 			ID:        voter1ID,
-			PublicKey: pubKeyToBase64(voter1Keypair.PublicKey),
+			PublicKey: voter1PubKey,
 		},
 	}
+	network.RegisterKey(voter1ID, voter1PubKey)
 
 	service := NewCheckpointService(network, ledger, local)
 

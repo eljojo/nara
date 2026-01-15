@@ -10,7 +10,7 @@ import (
 type ChauEvent struct {
 	From      string
 	PublicKey string // Base64-encoded Ed25519 public key
-	ID        string // Nara ID: deterministic hash of soul+name
+	ID        NaraID // Nara ID: deterministic hash of soul+name
 	Signature string // Base64-encoded signature of "chau:{From}:{PublicKey}:{ID}"
 }
 
@@ -223,11 +223,19 @@ func (network *Network) handleChauEvent(syncEvent SyncEvent) {
 
 	// Update the nara's public key and ID if provided
 	if present && chau.PublicKey != "" {
+		existingNara.mu.Lock()
 		existingNara.Status.PublicKey = chau.PublicKey
+		existingNara.mu.Unlock()
 	}
 	if present && chau.ID != "" {
+		existingNara.mu.Lock()
 		existingNara.Status.ID = chau.ID
 		existingNara.ID = chau.ID
+		existingNara.mu.Unlock()
+	}
+	// Register key in keyring (use chau.ID since it may have just been set)
+	if present && chau.PublicKey != "" && chau.ID != "" {
+		network.RegisterKey(chau.ID, chau.PublicKey)
 	}
 
 	// Add to ledger for gossip propagation

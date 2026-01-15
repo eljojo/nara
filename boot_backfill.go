@@ -13,7 +13,7 @@ func (network *Network) backfillObservations() {
 
 	// Lock Me.mu to safely read Me.Status.Observations
 	network.local.Me.mu.Lock()
-	observations := make(map[string]NaraObservation)
+	observations := make(map[NaraName]NaraObservation)
 	for name, obs := range network.local.Me.Status.Observations {
 		observations[name] = obs
 	}
@@ -109,7 +109,7 @@ func (network *Network) seedAvgPingRTTFromHistory() {
 			avg := sum / float64(len(rtts))
 
 			obs.AvgPingRTT = avg
-			network.local.setObservation(target, obs)
+			network.local.setObservation(naraName, obs)
 			seededCount++
 		}
 	}

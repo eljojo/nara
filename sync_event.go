@@ -43,7 +43,7 @@ type SyncEvent struct {
 
 	// Provenance - who created this event (optional but recommended)
 	Emitter   string `json:"emitter,omitempty"`    // nara name who created this event
-	EmitterID string `json:"emitter_id,omitempty"` // nara ID (public key hash) for signature verification
+	EmitterID NaraID `json:"emitter_id,omitempty"` // nara ID (public key hash) for signature verification
 	Signature string `json:"sig,omitempty"`        // base64 Ed25519 signature (optional)
 
 	// Payloads - only one is set based on Service
@@ -129,7 +129,7 @@ func (s *SeenEvent) ToLogEvent() *LogEvent {
 }
 
 // PublicKeyLookup is a function that resolves a public key by nara ID or name
-type PublicKeyLookup func(id, name string) ed25519.PublicKey
+type PublicKeyLookup func(id NaraID, name string) ed25519.PublicKey
 
 // Payload is the interface for service-specific event data
 type Payload interface {
@@ -368,9 +368,9 @@ func (p *PingObservation) ToLogEvent() *LogEvent {
 // =============================================================================
 type ObservationEventPayload struct {
 	Observer   string `json:"observer,omitempty"`    // who made the observation (name, for display - legacy)
-	ObserverID string `json:"observer_id,omitempty"` // who made the observation (ID, for verification)
+	ObserverID NaraID `json:"observer_id,omitempty"` // who made the observation (ID, for verification)
 	Subject    string `json:"subject,omitempty"`     // who is being observed (name, for display - legacy)
-	SubjectID  string `json:"subject_id,omitempty"`  // who is being observed (ID, for verification)
+	SubjectID  NaraID `json:"subject_id,omitempty"`  // who is being observed (ID, for verification)
 	Type       string `json:"type"`                  // "restart", "first-seen", "status-change"
 	Importance int    `json:"importance"`            // 1=casual, 2=normal, 3=critical
 	IsBackfill bool   `json:"is_backfill,omitempty"` // true if grandfathering existing data
@@ -671,13 +671,13 @@ func NewSocialSyncEvent(eventType, actor, target, reason, witness string) SyncEv
 }
 
 // NewPingSyncEvent creates a SyncEvent from a ping observation
-func NewPingSyncEvent(observer, target string, rtt float64) SyncEvent {
+func NewPingSyncEvent(observer, target NaraName, rtt float64) SyncEvent {
 	e := SyncEvent{
 		Timestamp: time.Now().UnixNano(),
 		Service:   ServicePing,
 		Ping: &PingObservation{
-			Observer: observer,
-			Target:   target,
+			Observer: observer.String(),
+			Target:   target.String(),
 			RTT:      rtt,
 		},
 	}

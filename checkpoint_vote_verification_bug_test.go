@@ -44,17 +44,18 @@ func TestCheckpoint_VoteSignatureVerificationBug(t *testing.T) {
 	// Setup network with voter's public key
 	ledger := NewSyncLedger(1000)
 	local := testLocalNara(t, "verifier")
-	network := &Network{
-		Neighbourhood: make(map[string]*Nara),
-		local:         local,
-	}
-	network.Neighbourhood[voterName] = &Nara{
+	network := local.Network
+	// Add voter to neighbourhood
+	voterNara := &Nara{
 		Name: voterName,
 		Status: NaraStatus{
 			ID:        voterID,
 			PublicKey: pubKeyToBase64(voterKeypair.PublicKey),
 		},
 	}
+	network.Neighbourhood[voterName] = voterNara
+	// Register key in keyring (required since keyring is source of truth)
+	network.RegisterKey(voterID, pubKeyToBase64(voterKeypair.PublicKey))
 
 	service := NewCheckpointService(network, ledger, local)
 
@@ -114,17 +115,16 @@ func TestCheckpoint_VoteSignatureNameSpoofing(t *testing.T) {
 	// Setup network: both victim and attacker are known
 	ledger := NewSyncLedger(1000)
 	local := testLocalNara(t, "verifier")
-	network := &Network{
-		Neighbourhood: make(map[string]*Nara),
-		local:         local,
-	}
-	network.Neighbourhood[victimName] = &Nara{
+	network := local.Network
+	victimNara := &Nara{
 		Name: victimName,
 		Status: NaraStatus{
 			ID:        victimID,
 			PublicKey: pubKeyToBase64(victimKeypair.PublicKey),
 		},
 	}
+	network.Neighbourhood[victimName] = victimNara
+	network.RegisterKey(victimID, pubKeyToBase64(victimKeypair.PublicKey))
 	// Note: attacker is NOT in neighbourhood, or has different key
 
 	service := NewCheckpointService(network, ledger, local)
@@ -193,17 +193,16 @@ func TestCheckpoint_VoteNameVsIDLookup(t *testing.T) {
 	// Our network knows her by new name and ID
 	ledger := NewSyncLedger(1000)
 	local := testLocalNara(t, "verifier")
-	network := &Network{
-		Neighbourhood: make(map[string]*Nara),
-		local:         local,
-	}
-	network.Neighbourhood[newName] = &Nara{
+	network := local.Network
+	voterNara := &Nara{
 		Name: newName, // We know her as "alice-renamed"
 		Status: NaraStatus{
 			ID:        voterID, // Same ID
 			PublicKey: pubKeyToBase64(voterKeypair.PublicKey),
 		},
 	}
+	network.Neighbourhood[newName] = voterNara
+	network.RegisterKey(voterID, pubKeyToBase64(voterKeypair.PublicKey))
 
 	service := NewCheckpointService(network, ledger, local)
 
@@ -252,17 +251,16 @@ func TestCheckpoint_ProposalSignatureVerification(t *testing.T) {
 	// Setup network
 	ledger := NewSyncLedger(1000)
 	local := testLocalNara(t, "verifier")
-	network := &Network{
-		Neighbourhood: make(map[string]*Nara),
-		local:         local,
-	}
-	network.Neighbourhood[proposerName] = &Nara{
+	network := local.Network
+	proposerNara := &Nara{
 		Name: proposerName,
 		Status: NaraStatus{
 			ID:        proposerID,
 			PublicKey: pubKeyToBase64(proposerKeypair.PublicKey),
 		},
 	}
+	network.Neighbourhood[proposerName] = proposerNara
+	network.RegisterKey(proposerID, pubKeyToBase64(proposerKeypair.PublicKey))
 
 	service := NewCheckpointService(network, ledger, local)
 

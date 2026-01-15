@@ -2,6 +2,7 @@ package nara
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"fmt"
 	"net/http"
 
@@ -77,6 +78,16 @@ func (a *KeypairAdapter) PublicKey() []byte {
 	return a.keypair.PublicKey
 }
 
+// Seal encrypts plaintext using XChaCha20-Poly1305.
+func (a *KeypairAdapter) Seal(plaintext []byte) (nonce, ciphertext []byte, err error) {
+	return a.keypair.Seal(plaintext)
+}
+
+// Open decrypts ciphertext using XChaCha20-Poly1305.
+func (a *KeypairAdapter) Open(nonce, ciphertext []byte) ([]byte, error) {
+	return a.keypair.Open(nonce, ciphertext)
+}
+
 // === EventBus Adapter ===
 
 // EventBusAdapter implements runtime.EventBusInterface.
@@ -118,7 +129,7 @@ func NewIdentityAdapter(network *Network) *IdentityAdapter {
 }
 
 // LookupPublicKey looks up a public key by nara ID.
-func (a *IdentityAdapter) LookupPublicKey(id string) []byte {
+func (a *IdentityAdapter) LookupPublicKey(id NaraID) []byte {
 	return a.network.getPublicKeyForNaraID(id)
 }
 

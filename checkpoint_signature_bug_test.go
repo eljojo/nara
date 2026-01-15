@@ -82,24 +82,27 @@ func TestCheckpoint_VoteAsOfTimeMismatch(t *testing.T) {
 	// Setup network for verification
 	ledger := NewSyncLedger(1000)
 	local := testLocalNara(t, "verifier")
-	network := &Network{
-		Neighbourhood: make(map[string]*Nara),
-		local:         local,
-	}
+	network := local.Network
+
+	// Add naras to neighbourhood and register their keys
+	proposerPubKey := pubKeyToBase64(proposerKeypair.PublicKey)
+	voterPubKey := pubKeyToBase64(voterKeypair.PublicKey)
 	network.Neighbourhood["proposer"] = &Nara{
 		Name: "proposer",
 		Status: NaraStatus{
 			ID:        proposerID,
-			PublicKey: pubKeyToBase64(proposerKeypair.PublicKey),
+			PublicKey: proposerPubKey,
 		},
 	}
 	network.Neighbourhood["voter"] = &Nara{
 		Name: "voter",
 		Status: NaraStatus{
 			ID:        voterID,
-			PublicKey: pubKeyToBase64(voterKeypair.PublicKey),
+			PublicKey: voterPubKey,
 		},
 	}
+	network.RegisterKey(proposerID, proposerPubKey)
+	network.RegisterKey(voterID, voterPubKey)
 
 	service := NewCheckpointService(network, ledger, local)
 
@@ -203,24 +206,27 @@ func TestCheckpoint_SignatureFormatMismatch(t *testing.T) {
 	// Setup network
 	ledger := NewSyncLedger(1000)
 	local := testLocalNara(t, "verifier")
-	network := &Network{
-		Neighbourhood: make(map[string]*Nara),
-		local:         local,
-	}
+	network := local.Network
+
+	// Add naras to neighbourhood and register their keys
+	proposerPubKey := pubKeyToBase64(proposerKeypair.PublicKey)
+	voterPubKey := pubKeyToBase64(voterKeypair.PublicKey)
 	network.Neighbourhood["proposer"] = &Nara{
 		Name: "proposer",
 		Status: NaraStatus{
 			ID:        proposerID,
-			PublicKey: pubKeyToBase64(proposerKeypair.PublicKey),
+			PublicKey: proposerPubKey,
 		},
 	}
 	network.Neighbourhood["voter"] = &Nara{
 		Name: "voter",
 		Status: NaraStatus{
 			ID:        voterID,
-			PublicKey: pubKeyToBase64(voterKeypair.PublicKey),
+			PublicKey: voterPubKey,
 		},
 	}
+	network.RegisterKey(proposerID, proposerPubKey)
+	network.RegisterKey(voterID, voterPubKey)
 
 	service := NewCheckpointService(network, ledger, local)
 

@@ -29,7 +29,7 @@ func (network *Network) httpStashStatusHandler(w http.ResponseWriter, r *http.Re
 
 	if network.stashService == nil {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 		return
 	}
 
@@ -37,7 +37,7 @@ func (network *Network) httpStashStatusHandler(w http.ResponseWriter, r *http.Re
 	myStashData, timestamp := network.stashService.GetStashData()
 	if len(myStashData) > 0 {
 		var dataMap map[string]interface{}
-		json.Unmarshal(myStashData, &dataMap)
+		_ = json.Unmarshal(myStashData, &dataMap)
 		response["has_stash"] = true
 		response["my_stash"] = map[string]interface{}{
 			"timestamp": timestamp,
@@ -48,7 +48,7 @@ func (network *Network) httpStashStatusHandler(w http.ResponseWriter, r *http.Re
 	// Get current stash state
 	if stateBytes, err := network.stashService.MarshalState(); err == nil && len(stateBytes) > 0 {
 		var state struct {
-			Confidants []string                   `json:"confidants"`
+			Confidants []string               `json:"confidants"`
 			Stored     map[string]interface{} `json:"stored"`
 		}
 
@@ -63,20 +63,22 @@ func (network *Network) httpStashStatusHandler(w http.ResponseWriter, r *http.Re
 					"status": "confirmed",
 				}
 
-				// Try to get peer details from Neighbourhood (with short locks)
+				// Try to get peer details from NeighbourhoodByID (confidantID is a NaraID, not a name!)
+				naraID := NaraID(confidantID)
 				network.local.mu.Lock()
-				nara, exists := network.Neighbourhood[confidantID]
+				nara, exists := network.NeighbourhoodByID[naraID]
 				network.local.mu.Unlock()
 
 				if exists {
 					nara.mu.Lock()
-					info["name"] = nara.Name
+					naraName := nara.Name
+					info["name"] = naraName
 					info["memory_mode"] = nara.Status.MemoryMode
 					nara.mu.Unlock()
 
-					// Check if online via observation
+					// Check if online via observation (using name, not ID)
 					network.local.mu.Lock()
-					if obs, ok := network.local.Me.Status.Observations[confidantID]; ok {
+					if obs, ok := network.local.Me.Status.Observations[naraName]; ok {
 						info["online"] = obs.isOnline()
 					}
 					network.local.mu.Unlock()
@@ -106,7 +108,7 @@ func (network *Network) httpStashStatusHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 // POST /api/stash/update - Update stash data and distribute to confidants
@@ -132,7 +134,7 @@ func (network *Network) httpStashUpdateHandler(w http.ResponseWriter, r *http.Re
 	if err := network.stashService.SetStashData(data); err != nil {
 		logrus.Errorf("📦 Failed to update stash: %v", err)
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": fmt.Sprintf("Failed to distribute stash: %v", err),
 		})
@@ -140,7 +142,7 @@ func (network *Network) httpStashUpdateHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"message": "Stash updated and distributed to confidants",
 	})
@@ -169,7 +171,7 @@ func (network *Network) httpStashRecoverHandler(w http.ResponseWriter, r *http.R
 	}()
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"message": "Stash recovery initiated from confidants",
 	})
@@ -192,20 +194,22 @@ func (network *Network) httpStashConfidantsHandler(w http.ResponseWriter, r *htt
 						"status": "confirmed",
 					}
 
-					// Get peer details if available (with short locks)
+					// Get peer details if available (confidantID is a NaraID, not a name!)
+					naraID := NaraID(confidantID)
 					network.local.mu.Lock()
-					nara, exists := network.Neighbourhood[confidantID]
+					nara, exists := network.NeighbourhoodByID[naraID]
 					network.local.mu.Unlock()
 
 					if exists {
 						nara.mu.Lock()
-						info["name"] = nara.Name
+						naraName := nara.Name
+						info["name"] = naraName
 						info["memory_mode"] = nara.Status.MemoryMode
 						nara.mu.Unlock()
 
-						// Check if online via observation
+						// Check if online via observation (using name, not ID)
 						network.local.mu.Lock()
-						if obs, ok := network.local.Me.Status.Observations[confidantID]; ok {
+						if obs, ok := network.local.Me.Status.Observations[naraName]; ok {
 							info["online"] = obs.isOnline()
 						}
 						network.local.mu.Unlock()
@@ -218,7 +222,7 @@ func (network *Network) httpStashConfidantsHandler(w http.ResponseWriter, r *htt
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"confidants": confidants,
 	})
 }

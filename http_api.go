@@ -61,7 +61,7 @@ func (network *Network) httpProfileJsonHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	network.local.mu.Lock()
-	nara, exists := network.Neighbourhood[name]
+	nara, exists := network.Neighbourhood[NaraName(name)]
 	network.local.mu.Unlock()
 	if !exists {
 		http.NotFound(w, r)
@@ -72,7 +72,7 @@ func (network *Network) httpProfileJsonHandler(w http.ResponseWriter, r *http.Re
 	status := nara.Status
 	nara.mu.Unlock()
 
-	obs := network.local.getObservation(name)
+	obs := network.local.getObservation(NaraName(name))
 
 	// Event store stats
 	var eventStoreByService map[string]int
@@ -129,7 +129,7 @@ func (network *Network) httpProfileJsonHandler(w http.ResponseWriter, r *http.Re
 	observations := make(map[string]NaraObservation)
 	if status.Observations != nil {
 		for k, v := range status.Observations {
-			observations[k] = v
+			observations[k.String()] = v
 		}
 	}
 
@@ -224,7 +224,7 @@ func (network *Network) httpNaraeJsonHandler(w http.ResponseWriter, r *http.Requ
 			"event_store_total":      nara.Status.EventStoreTotal,
 			"event_store_by_service": nara.Status.EventStoreByService,
 			"event_store_critical":   nara.Status.EventStoreCritical,
-			"Clout":                  cloutScores[nara.Name],
+			"Clout":                  cloutScores[nara.Name.String()],
 		}
 		nara.mu.Unlock()
 		naras = append(naras, naraMap)
@@ -244,7 +244,7 @@ func (network *Network) httpNaraeJsonHandler(w http.ResponseWriter, r *http.Requ
 func (network *Network) httpStatusJsonHandler(w http.ResponseWriter, r *http.Request) {
 	name := r.URL.Path[len("/status/") : len(r.URL.Path)-len(".json")]
 	network.local.mu.Lock()
-	nara, exists := network.Neighbourhood[name]
+	nara, exists := network.Neighbourhood[NaraName(name)]
 	network.local.mu.Unlock()
 
 	if !exists {

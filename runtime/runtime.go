@@ -166,6 +166,22 @@ func (rt *Runtime) StorageLimit() int {
 	return rt.networkInfo.StorageLimit()
 }
 
+// Seal encrypts plaintext using the runtime's keypair.
+func (rt *Runtime) Seal(plaintext []byte) (nonce, ciphertext []byte, err error) {
+	if rt.keypair == nil {
+		return nil, nil, fmt.Errorf("keypair not configured")
+	}
+	return rt.keypair.Seal(plaintext)
+}
+
+// Open decrypts ciphertext using the runtime's keypair.
+func (rt *Runtime) Open(nonce, ciphertext []byte) ([]byte, error) {
+	if rt.keypair == nil {
+		return nil, fmt.Errorf("keypair not configured")
+	}
+	return rt.keypair.Open(nonce, ciphertext)
+}
+
 // === Message handling ===
 
 // Emit sends a message through the emit pipeline.
