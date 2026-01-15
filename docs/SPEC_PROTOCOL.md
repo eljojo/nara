@@ -116,19 +116,33 @@ Every spec file MUST follow this structure (in this order), even if some section
 
 ## Spec Style Rules
 
+### Token-efficient documentation
+- **Assume a senior programmer audience** familiar with distributed systems and cryptography.
+- **Reference industry standards** and note deviations rather than explaining basics.
+  - Example: "Uses Ed25519 signatures (RFC 8032) with custom nonce generation" instead of explaining digital signatures.
+- **Be succinct**: Document behaviors unique to Nara, not Go internals or standard patterns.
+- **Target Rust-level portability**: Document what matters for re-implementation in any language, not Go-specific details.
+
+### Visual aids
+- **Encourage Mermaid diagrams** for complex flows, state machines, and protocol sequences.
+- Diagrams should complement text, not duplicate it.
+- Keep diagrams focused on one concept each.
+
 ### English requirements
-- Use plain English.
+- Use plain English with technical precision.
 - Be specific and concrete.
-- Avoid hand-wavy phrases like “should probably”.
-- Prefer “MUST / MUST NOT / SHOULD / MAY” language for invariants and guarantees.
+- Avoid hand-wavy phrases like "should probably".
+- Prefer "MUST / MUST NOT / SHOULD / MAY" language for invariants and guarantees.
 
 ### Keep it re-implementable
-- The spec should include enough detail to rebuild behavior without reading code.
+- Include enough detail to rebuild behavior without reading code.
+- Focus on protocols, wire formats, and observable behavior.
 - Avoid copying large code blocks; instead describe behavior and list names.
+- Document deviations from standard implementations.
 
-### Don’t lie
+### Don't lie
 - If behavior is unclear, identify the ambiguity and resolve it by reading tests/code.
-- If tests don’t cover it, document current behavior and optionally add a TODO.
+- If tests don't cover it, document current behavior and optionally add a TODO.
 
 ---
 
