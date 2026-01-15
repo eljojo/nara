@@ -6,10 +6,11 @@ A step-by-step guide for implementing the runtime architecture defined in `DESIG
 
 ## Overview
 
-This plan is divided into two chapters:
+This plan is divided into three chapters:
 
 - **Chapter 1: Stash Service** — Build the minimum runtime needed for stash to work _really well_. Full-fledged for stash, but just for stash.
 - **Chapter 2: Everything After Stash** — Migrate remaining services, complete the runtime, cleanup.
+- **Chapter 3: Remote Communication (Elixir-style)** — Add Call/Cast primitives for nara-to-nara communication. Our own little BEAM.
 
 **Why this split?** Stash is the perfect first target:
 - Not in production yet — no backwards compatibility baggage
@@ -41,6 +42,63 @@ Before starting, ensure you understand:
 
 ---
 
+## New Package Structure
+
+```
+nara/
+├── main.go                    # Entry point (stays in root)
+├── network.go                 # Core network (stays for now, migrates in Chapter 2)
+├── ... existing files ...     # Other services stay until Chapter 2
+│
+├── messages/                  # NEW: All message payload types
+│   ├── doc.go
+│   └── stash.go              # Stash payloads (Chapter 1)
+│                              # social.go, presence.go, etc. (Chapter 2)
+│
+├── runtime/                   # NEW: Runtime infrastructure
+│   ├── message.go            # Message struct
+│   ├── stage.go              # Stage, StageResult, Pipeline
+│   ├── behavior.go           # Behavior, Registry
+│   ├── runtime.go            # Runtime struct
+│   ├── mock_runtime.go       # MockRuntime for testing
+│   └── ... stages, helpers ...
+│
+├── utilities/                 # NEW: Opt-in service utilities
+│   ├── correlator.go         # Request/response correlation
+│   └── encryptor.go          # XChaCha20-Poly1305 encryption
+│
+└── services/                  # NEW: Services as packages
+    └── stash/                 # Stash service (Chapter 1)
+        ├── service.go        # StashService implementation
+        ├── behaviors.go      # Behavior registrations
+        ├── handlers.go       # Message handlers
+        └── service_test.go   # Tests
+```
+
+---
+
+## Existing Stash Files — What Happens to Them
+
+The old `stash_*.go` files in the root package get **migrated and deleted by the end of Chapter 1**:
+
+| Old File | Fate | New Location |
+|----------|------|--------------|
+| `stash_types.go` | **MIGRATE → DELETE** | `messages/stash.go` |
+| `stash_service.go` | **MIGRATE → DELETE** | `services/stash/service.go` |
+| `stash_manager.go` | **MIGRATE → DELETE** | Merged into `services/stash/service.go` |
+| `stash_confidant.go` | **MIGRATE → DELETE** | Merged into `services/stash/service.go` |
+| `stash_tracker.go` | **MIGRATE → DELETE** | Replaced by `utilities/correlator.go` |
+| `stash_network.go` | **MIGRATE → DELETE** | Replaced by runtime adapters |
+| `stash_test.go` | **MIGRATE → DELETE** | `services/stash/service_test.go` |
+
+**By the end of Chapter 1:**
+- All `stash_*.go` files in root are **deleted**
+- Stash lives cleanly in its own package: `services/stash/`
+- Payload types in `messages/stash.go`
+- No orphaned code
+
+---
+
 ## Phase 1: Core Types (Stash-Scoped)
 
 **Goal:** Create the foundational types needed for stash.
@@ -57,7 +115,7 @@ messages/
 
 **Note:** Other message types (checkpoint.go, social.go, presence.go, etc.) are added in Chapter 2.
 
-**stash.go contents:**
+**messages/stash.go contents:**
 ```go
 package messages
 
@@ -1178,9 +1236,16 @@ func TestStashRoundTrip(t *testing.T) {
 - [ ] Stash service fully migrated to new runtime
 - [ ] All stash message kinds working
 - [ ] Round-trip tests pass (store → ack, request → response)
-- [ ] No backwards compatibility needed — clean slate
+- [ ] **Old stash files deleted** — no orphaned code in root:
+  - [ ] `stash_types.go` → deleted (moved to `messages/stash.go`)
+  - [ ] `stash_service.go` → deleted (moved to `services/stash/`)
+  - [ ] `stash_manager.go` → deleted (merged into new service)
+  - [ ] `stash_confidant.go` → deleted (merged into new service)
+  - [ ] `stash_tracker.go` → deleted (replaced by Correlator)
+  - [ ] `stash_network.go` → deleted (replaced by adapters)
+  - [ ] `stash_test.go` → deleted (moved to `services/stash/`)
 
-**Once Chapter 1 is complete:** Stash works beautifully on the new architecture. The rest of the system continues on the existing architecture until Chapter 2.
+**Once Chapter 1 is complete:** Stash works beautifully on the new architecture. Old stash code is gone. The rest of the system continues on the existing architecture until Chapter 2.
 
 ---
 
@@ -1418,5 +1483,533 @@ Network becomes a thin wrapper:
 | Phase 8: Migrate Services | 2 | High | Phase 7 |
 | Phase 9: Gossip Update | 2 | Low | Phase 8 |
 | Phase 10: Cleanup | 2 | Medium | Phase 9 |
+| Phase 11: Call/Cast Primitives | 3 | Medium | Chapter 1 |
+| Phase 12: Service Patterns | 3 | Low | Phase 11 |
+| Phase 13: Advanced Patterns | 3 | Low | Phase 12 (optional) |
 
-**Recommended approach:** Complete Chapter 1, deploy stash, evaluate. Then proceed with Chapter 2 incrementally.
+**Recommended approach:** Complete Chapter 1, deploy stash, evaluate. Then proceed with Chapter 2 or Chapter 3 — they're independent. Chapter 3 can be done anytime after Chapter 1.
+
+---
+
+# Chapter 3: Remote Communication (Elixir-style)
+
+**Goal:** Add Call/Cast primitives for nara-to-nara communication. Our own little BEAM.
+
+This chapter can be started **after Chapter 1** (it uses the same Message primitive and transport). It's independent of Chapter 2.
+
+---
+
+## The Vision: Location Transparency
+
+In Elixir/OTP, you can send messages to processes without caring if they're local or remote:
+
+```elixir
+# Same syntax, different locations
+GenServer.call(local_pid, :get_state)           # Local process
+GenServer.call({:server, :"node@host"}, :get)   # Remote node
+```
+
+For Nara, we want the same thing at the nara level:
+
+```go
+// Same Message primitive, different transports
+rt.Emit(Local("stash:recovered", ...))      // Stays in this nara
+rt.Call("bob-id", "stash:get", payload)     // Goes to Bob, waits for response
+rt.Cast("bob-id", "stash:store", payload)   // Goes to Bob, fire-and-forget
+```
+
+**The insight:** Local, Call, Cast, and Broadcast are all just Messages with different transport stages.
+
+---
+
+## Phase 11: Call/Cast Primitives
+
+### Step 11.1: Extend RuntimeInterface
+
+Add Call and Cast to the runtime interface:
+
+```go
+// runtime/interfaces.go
+
+type RuntimeInterface interface {
+    // ... existing from Chapter 1 ...
+
+    // === Elixir-style remote communication ===
+
+    // Call sends a message and waits for response (like GenServer.call)
+    // - Blocks until response or timeout
+    // - Uses Correlator internally
+    // - Returns the response message or error
+    Call(targetID string, msg *Message, timeout time.Duration) (*Message, error)
+
+    // CallAsync is non-blocking Call - returns channel for response
+    CallAsync(targetID string, msg *Message, timeout time.Duration) <-chan CallResult
+
+    // Cast sends a message without waiting (like GenServer.cast)
+    // - Fire and forget
+    // - Returns error only if send fails immediately
+    Cast(targetID string, msg *Message) error
+}
+
+// CallResult is returned by CallAsync
+type CallResult struct {
+    Response *Message
+    Error    error  // ErrTimeout, ErrUnreachable, etc.
+}
+
+// Standard errors
+var (
+    ErrTimeout     = errors.New("call timed out")
+    ErrUnreachable = errors.New("target unreachable")
+    ErrNoHandler   = errors.New("no handler for response kind")
+)
+```
+
+### Step 11.2: Implement Call
+
+Call is synchronous request/response built on Correlator:
+
+```go
+// runtime/call.go
+
+func (rt *Runtime) Call(targetID string, msg *Message, timeout time.Duration) (*Message, error) {
+    result := <-rt.CallAsync(targetID, msg, timeout)
+    return result.Response, result.Error
+}
+
+func (rt *Runtime) CallAsync(targetID string, msg *Message, timeout time.Duration) <-chan CallResult {
+    ch := make(chan CallResult, 1)
+
+    // Ensure message has ID for correlation
+    if msg.ID == "" {
+        msg.ID = DefaultComputeID(msg)
+    }
+    msg.ToID = targetID
+    msg.FromID = rt.MeID()
+
+    // Register pending call
+    rt.calls.Register(msg.ID, ch, timeout)
+
+    // Send via mesh
+    if err := rt.transport.TrySendDirect(targetID, msg); err != nil {
+        rt.calls.Cancel(msg.ID)
+        ch <- CallResult{Error: fmt.Errorf("%w: %v", ErrUnreachable, err)}
+        return ch
+    }
+
+    return ch
+}
+
+// CallRegistry manages pending calls (similar to Correlator but runtime-owned)
+type CallRegistry struct {
+    mu      sync.Mutex
+    pending map[string]*pendingCall
+}
+
+type pendingCall struct {
+    ch      chan CallResult
+    expires time.Time
+}
+
+func (r *CallRegistry) Register(id string, ch chan CallResult, timeout time.Duration) {
+    r.mu.Lock()
+    r.pending[id] = &pendingCall{ch: ch, expires: time.Now().Add(timeout)}
+    r.mu.Unlock()
+}
+
+func (r *CallRegistry) Resolve(inReplyTo string, response *Message) bool {
+    r.mu.Lock()
+    pending, ok := r.pending[inReplyTo]
+    if ok {
+        delete(r.pending, inReplyTo)
+    }
+    r.mu.Unlock()
+
+    if ok {
+        pending.ch <- CallResult{Response: response}
+        return true
+    }
+    return false
+}
+
+// Background reaper for timeouts
+func (r *CallRegistry) reapLoop() {
+    ticker := time.NewTicker(time.Second)
+    for range ticker.C {
+        r.mu.Lock()
+        now := time.Now()
+        for id, pending := range r.pending {
+            if now.After(pending.expires) {
+                pending.ch <- CallResult{Error: ErrTimeout}
+                delete(r.pending, id)
+            }
+        }
+        r.mu.Unlock()
+    }
+}
+```
+
+### Step 11.3: Implement Cast
+
+Cast is fire-and-forget:
+
+```go
+// runtime/cast.go
+
+func (rt *Runtime) Cast(targetID string, msg *Message) error {
+    // Ensure message has required fields
+    if msg.ID == "" {
+        msg.ID = DefaultComputeID(msg)
+    }
+    msg.ToID = targetID
+    msg.FromID = rt.MeID()
+
+    // Send via mesh - don't wait for response
+    if err := rt.transport.TrySendDirect(targetID, msg); err != nil {
+        return fmt.Errorf("%w: %v", ErrUnreachable, err)
+    }
+
+    return nil
+}
+```
+
+### Step 11.4: Response Handling
+
+When a response arrives, the runtime checks if it's a reply to a pending Call:
+
+```go
+// In runtime/runtime.go Receive()
+
+func (rt *Runtime) Receive(raw []byte) error {
+    msg, err := rt.deserialize(raw)
+    if err != nil {
+        return err
+    }
+
+    // Check if this is a response to a pending Call
+    if msg.InReplyTo != "" {
+        if rt.calls.Resolve(msg.InReplyTo, msg) {
+            return nil  // Handled as call response
+        }
+        // Not a pending call - fall through to normal handling
+    }
+
+    // Normal receive pipeline...
+    behavior := Lookup(msg.Kind)
+    // ...
+}
+```
+
+### Step 11.5: Message.InReplyTo Field
+
+Add correlation field to Message:
+
+```go
+// runtime/message.go
+
+type Message struct {
+    // ... existing fields ...
+
+    // InReplyTo links response to request (for Call/response pattern)
+    // Set automatically when replying to a Call
+    InReplyTo string `json:"in_reply_to,omitempty"`
+}
+
+// Reply creates a response message linked to the original
+func (m *Message) Reply(kind string, payload any) *Message {
+    return &Message{
+        Kind:      kind,
+        InReplyTo: m.ID,  // Link to original
+        ToID:      m.FromID,
+        Payload:   payload,
+    }
+}
+```
+
+---
+
+## Phase 12: Service Patterns
+
+### Step 12.1: Refactor Stash to Use Call
+
+Stash's request/response becomes much cleaner:
+
+```go
+// Before (Chapter 1 - manual Correlator)
+func (s *StashService) StoreWith(confidantID string, data []byte) error {
+    msg := &Message{Kind: "stash:store", ...}
+    result := <-s.storeCorrelator.Send(s.rt, msg)
+    return result.Err
+}
+
+// After (Chapter 3 - built-in Call)
+func (s *StashService) StoreWith(confidantID string, data []byte) error {
+    msg := &Message{
+        Kind:    "stash:store",
+        Payload: &StashStorePayload{...},
+    }
+
+    resp, err := s.rt.Call(confidantID, msg, 10*time.Second)
+    if err != nil {
+        return err  // Timeout or unreachable
+    }
+
+    ack := resp.Payload.(*StashStoreAck)
+    if !ack.Success {
+        return errors.New(ack.Reason)
+    }
+    return nil
+}
+
+// Handler uses Reply helper
+func (s *StashService) handleStoreV1(msg *Message, p *StashStorePayload) {
+    s.store(p)
+
+    // Reply automatically sets InReplyTo and ToID
+    s.rt.Emit(msg.Reply("stash:ack", &StashStoreAck{
+        Success:  true,
+        StoredAt: time.Now().Unix(),
+    }))
+}
+```
+
+### Step 12.2: Fire-and-Forget Patterns
+
+Some interactions don't need responses:
+
+```go
+// Social tease - fire and forget
+func (s *SocialService) Tease(targetID string, reason TeaseReason) {
+    s.rt.Cast(targetID, &Message{
+        Kind:    "social:tease",
+        Payload: &TeasePayload{Reason: reason},
+    })
+    // Don't wait for response - they'll tease back if they want
+}
+
+// Gossip exchange initiation
+func (g *GossipService) OfferZine(peerID string, zine *Zine) {
+    g.rt.Cast(peerID, &Message{
+        Kind:    "gossip:offer",
+        Payload: &GossipOfferPayload{ZineHash: zine.Hash()},
+    })
+}
+```
+
+### Step 12.3: Async Patterns
+
+For non-blocking calls:
+
+```go
+// Check multiple confidants in parallel
+func (s *StashService) RecoverFromAny(confidantIDs []string) ([]byte, error) {
+    // Start all requests
+    results := make([]<-chan CallResult, len(confidantIDs))
+    for i, id := range confidantIDs {
+        results[i] = s.rt.CallAsync(id, &Message{
+            Kind:    "stash:request",
+            Payload: &StashRequestPayload{OwnerID: s.rt.MeID()},
+        }, 10*time.Second)
+    }
+
+    // Return first successful response
+    for _, ch := range results {
+        result := <-ch
+        if result.Error == nil {
+            resp := result.Response.Payload.(*StashResponsePayload)
+            if resp.Found {
+                return s.decrypt(resp.Nonce, resp.Ciphertext)
+            }
+        }
+    }
+
+    return nil, errors.New("no confidant had our stash")
+}
+```
+
+---
+
+## Phase 13: Advanced Patterns
+
+### Step 13.1: Supervision-like Monitoring
+
+Track peer health like Erlang monitors:
+
+```go
+// runtime/monitor.go
+
+type PeerMonitor struct {
+    rt       *Runtime
+    watching map[string][]chan PeerEvent
+}
+
+type PeerEvent struct {
+    PeerID string
+    Event  PeerEventType  // Online, Offline, Unreachable
+}
+
+// Watch a peer - get notified of state changes
+func (m *PeerMonitor) Watch(peerID string) <-chan PeerEvent {
+    ch := make(chan PeerEvent, 1)
+    m.watching[peerID] = append(m.watching[peerID], ch)
+    return ch
+}
+
+// Usage
+func (s *StashService) watchConfidants() {
+    for _, id := range s.confidants {
+        go func(peerID string) {
+            for event := range s.rt.Monitor().Watch(peerID) {
+                if event.Event == Offline {
+                    s.log.Warn("confidant %s went offline", peerID)
+                    s.findReplacementConfidant(peerID)
+                }
+            }
+        }(id)
+    }
+}
+```
+
+### Step 13.2: Timeouts as First-Class
+
+Make timeouts explicit and configurable:
+
+```go
+// Default timeouts by environment
+func (rt *Runtime) DefaultCallTimeout() time.Duration {
+    switch rt.env {
+    case EnvTest:
+        return 1 * time.Second
+    case EnvDevelopment:
+        return 10 * time.Second
+    default:
+        return 30 * time.Second
+    }
+}
+
+// Convenience method with default timeout
+func (rt *Runtime) CallDefault(targetID string, msg *Message) (*Message, error) {
+    return rt.Call(targetID, msg, rt.DefaultCallTimeout())
+}
+```
+
+### Step 13.3: Location-Transparent Services
+
+Services don't need to know if target is local or remote:
+
+```go
+// ServiceProxy wraps remote services to look local
+type ServiceProxy[Req, Resp any] struct {
+    rt       *Runtime
+    targetID string
+    kind     string
+}
+
+func (p *ServiceProxy[Req, Resp]) Call(req Req) (Resp, error) {
+    resp, err := p.rt.Call(p.targetID, &Message{
+        Kind:    p.kind,
+        Payload: req,
+    }, p.rt.DefaultCallTimeout())
+
+    if err != nil {
+        var zero Resp
+        return zero, err
+    }
+
+    return resp.Payload.(Resp), nil
+}
+
+// Usage - feels like calling a local service
+stashProxy := ServiceProxy[StashRequestPayload, StashResponsePayload]{
+    rt:       rt,
+    targetID: confidantID,
+    kind:     "stash:request",
+}
+
+response, err := stashProxy.Call(StashRequestPayload{OwnerID: myID})
+```
+
+---
+
+## The Unified Communication Model
+
+After Chapter 3, all communication flows through the same primitive:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Communication Patterns                        │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌─────────┐ │
+│  │   Local()    │  │    Call()    │  │    Cast()    │  │ Emit()  │ │
+│  │  service-to- │  │   sync req/  │  │  fire-and-   │  │broadcast│ │
+│  │   service    │  │   response   │  │   forget     │  │  (MQTT) │ │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └────┬────┘ │
+│         │                 │                 │               │       │
+│         └─────────────────┴────────┬────────┴───────────────┘       │
+│                                    │                                 │
+│                                    ▼                                 │
+│                          ┌─────────────────┐                        │
+│                          │     Message     │                        │
+│                          │    Primitive    │                        │
+│                          └────────┬────────┘                        │
+│                                   │                                  │
+│                                   ▼                                  │
+│                          ┌─────────────────┐                        │
+│                          │    Pipeline     │                        │
+│                          │ [Sign]→[Store]→ │                        │
+│                          │ [Gossip]→[Send] │                        │
+│                          └────────┬────────┘                        │
+│                                   │                                  │
+│         ┌─────────────────────────┼─────────────────────────┐       │
+│         │                         │                         │       │
+│         ▼                         ▼                         ▼       │
+│   ┌───────────┐           ┌───────────┐            ┌───────────┐   │
+│   │NoTransport│           │ MeshOnly  │            │   MQTT    │   │
+│   │ (local)   │           │ (direct)  │            │(broadcast)│   │
+│   └───────────┘           └───────────┘            └───────────┘   │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Like BEAM, but for naras:**
+
+| BEAM/Elixir | Nara Runtime | Purpose |
+|-------------|--------------|---------|
+| Process | Nara | Unit of computation |
+| GenServer | Service | Stateful service with handlers |
+| `send/2` | `Cast()` | Fire-and-forget message |
+| `GenServer.call/2` | `Call()` | Sync request/response |
+| Process mailbox | Message pipeline | Message handling |
+| Node | Nara (on mesh) | Network participant |
+| `:global` | MQTT broadcast | Cluster-wide messaging |
+| Monitor | PeerMonitor | Health tracking |
+
+---
+
+## Chapter 3 Checkpoints
+
+### After Phase 11:
+- [ ] RuntimeInterface extended with Call, CallAsync, Cast
+- [ ] CallRegistry implemented with timeout reaping
+- [ ] Message.InReplyTo field added
+- [ ] Message.Reply() helper works
+
+### After Phase 12:
+- [ ] Stash refactored to use Call (cleaner than Correlator)
+- [ ] Cast used for fire-and-forget patterns
+- [ ] Async patterns documented and working
+
+### After Phase 13:
+- [ ] PeerMonitor for health tracking (optional)
+- [ ] Default timeouts by environment
+- [ ] ServiceProxy for location transparency (optional)
+
+---
+
+## Notes
+
+1. **Chapter 3 is optional** — The Correlator from Chapter 1 works fine. Chapter 3 just makes it nicer.
+2. **Can start after Chapter 1** — Uses same Message primitive, doesn't depend on Chapter 2.
+3. **Incremental adoption** — Services can use Call/Cast or stick with manual Correlator.
+4. **Familiar patterns** — Anyone who knows Elixir/Erlang will feel at home.
