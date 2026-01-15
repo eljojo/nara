@@ -286,9 +286,247 @@ func (s *StashService) HandleRequest(msg *Message) {
 
 ---
 
+### 4. Logger (Revamped LogService)
+
+**Purpose:** Unified logging for the runtime with service-awareness, smart batching, and per-service control built in from the start.
+
+**Current Problems with `logservice.go`:**
+1. **30+ `BatchXxx()` methods** - Each event type has its own method (`BatchGossipMerge`, `BatchDMReceived`, etc.)
+2. **Hardcoded formatting** - `formatTeases()`, `formatWelcomes()` etc. baked into LogService
+3. **No service awareness** - Logs don't know which service emitted them
+4. **Global verbose flag** - Can't debug one service without flooding console
+5. **Tightly coupled to Network** - `network.logService.BatchXxx()` calls everywhere
+
+**New Design: Service-First Logger**
+
+The runtime provides a `Logger` that services request by name. Each service gets its own logger with independent controls.
+
+```go
+// runtime/logger.go
+package runtime
+
+// Logger is the central logging coordinator
+type Logger struct {
+    services     map[string]*ServiceLog  // Per-service loggers
+    output       chan LogEntry           // Single output channel
+    batchWindow  time.Duration           // How long to batch (default 3s)
+    mu           sync.RWMutex
+
+    // Global controls
+    globalVerbose bool
+    disabledServices map[string]bool
+}
+
+// ServiceLog is what each service gets
+type ServiceLog struct {
+    name     string
+    emoji    string           // Service emoji (📦 for stash, 😈 for social, etc.)
+    logger   *Logger          // Back-reference to parent
+    verbose  bool             // Per-service verbose override
+    enabled  bool             // Per-service enable/disable
+}
+
+// LogEntry is the universal log structure
+type LogEntry struct {
+    Service   string          // "stash", "social", "presence"
+    Level     LogLevel        // Debug, Info, Warn, Error
+    EventType string          // "store", "tease", "howdy" - for smart grouping
+    Actor     string          // Who did it (for grouping: "alice and bob did X")
+    Target    string          // Optional: who it was done to
+    Message   string          // Human-readable message
+    Count     int             // For pre-aggregated events
+    Instant   bool            // Bypass batching
+    Time      time.Time
+}
+
+type LogLevel int
+const (
+    LevelDebug LogLevel = iota
+    LevelInfo
+    LevelWarn
+    LevelError
+)
+```
+
+**Service API - Clean and Simple:**
+
+```go
+// Get a logger for your service
+func (rt *Runtime) Log(service string) *ServiceLog
+
+// ServiceLog methods - no more BatchXxx() explosion
+func (l *ServiceLog) Debug(format string, args ...any)
+func (l *ServiceLog) Info(format string, args ...any)
+func (l *ServiceLog) Warn(format string, args ...any)
+func (l *ServiceLog) Error(format string, args ...any)
+
+// Structured events with smart batching
+func (l *ServiceLog) Event(eventType, actor string, opts ...LogOption)
+
+// Options for structured events
+func WithTarget(t string) LogOption
+func WithMessage(m string) LogOption
+func WithCount(n int) LogOption
+func Instant() LogOption  // Skip batching
+```
+
+**Smart Batching (Keep What Works):**
+
+The current batching logic is good - keep it but make it generic:
+
+```go
+// Batching groups events by (service, eventType, target) and aggregates actors
+// After batchWindow with no new events, flush and format
+
+// Input over 3 seconds:
+//   {Service: "social", EventType: "tease", Actor: "alice", Target: "bob"}
+//   {Service: "social", EventType: "tease", Actor: "carol", Target: "bob"}
+//   {Service: "social", EventType: "tease", Actor: "dave", Target: "bob"}
+
+// Output (single line):
+//   😈 [social] alice, carol, and dave teased bob
+
+// The formatting is now pluggable per event type, not hardcoded
+```
+
+**Pluggable Formatters:**
+
+```go
+// Services register how their events should be formatted
+type EventFormatter func(entries []LogEntry) string
+
+func (l *Logger) RegisterFormatter(service, eventType string, f EventFormatter)
+
+// Built-in default: "actor1, actor2, and actor3 did eventType to target"
+// Services can override for custom formatting
+```
+
+**Runtime Integration:**
+
+```go
+func NewRuntime(cfg RuntimeConfig) *Runtime {
+    rt := &Runtime{
+        logger: NewLogger(LoggerConfig{
+            BatchWindow:      3 * time.Second,
+            DisabledServices: cfg.DisabledLoggers,
+            Verbose:          cfg.Verbose,
+        }),
+    }
+    return rt
+}
+
+// Services get their logger on init
+func (s *StashService) Init(rt *Runtime) {
+    s.log = rt.Log("stash")  // Returns *ServiceLog for "stash"
+}
+```
+
+**Per-Service Control:**
+
+```go
+// Disable a noisy service
+rt.Logger().SetServiceEnabled("presence", false)
+
+// Enable verbose for one service (debug it without flooding)
+rt.Logger().SetServiceVerbose("stash", true)
+
+// Or via config
+RuntimeConfig{
+    DisabledLoggers: []string{"presence", "social"},
+    VerboseLoggers:  []string{"stash"},
+}
+```
+
+**Stash Usage:**
+
+```go
+type StashService struct {
+    rt  *Runtime
+    log *ServiceLog
+}
+
+func (s *StashService) Init(rt *Runtime) {
+    s.rt = rt
+    s.log = rt.Log("stash")  // Gets or creates ServiceLog for "stash"
+}
+
+func (s *StashService) handleStore(msg *Message) {
+    s.log.Debug("received store request from %s", msg.From)
+
+    // ... process ...
+
+    // Structured event - will be batched and grouped with other stores
+    s.log.Event("store", msg.From, WithMessage("stored 2.3KB"))
+}
+
+func (s *StashService) handleRequest(msg *Message) {
+    s.log.Event("request", msg.From)
+    // If alice and bob both request within 3s:
+    // Output: "📦 [stash] alice and bob requested stash"
+}
+```
+
+**What Gets Deleted from Current LogService:**
+
+```go
+// DELETE all these - replaced by generic Event()
+func (ls *LogService) BatchGossipMerge(from string, eventCount int)
+func (ls *LogService) BatchMeshSync(from string, eventCount int)
+func (ls *LogService) BatchHowdyForMe(from string)
+func (ls *LogService) BatchDMReceived(from string)
+func (ls *LogService) BatchDiscovery(name string)
+func (ls *LogService) BatchObservedHowdy(observer, target string)
+func (ls *LogService) BatchPeerResolutionFailed(name string)
+func (ls *LogService) BatchBootSyncRequest(name string, eventsRequested int)
+func (ls *LogService) BatchMeshVerified(name string)
+func (ls *LogService) BatchConsensus(subject, consensusType string, observers int, result int64)
+func (ls *LogService) BatchNewspaper(from string, changes string)
+func (ls *LogService) BatchPingsReceived(from string)
+func (ls *LogService) BatchBootInfo(key, value string)
+func (ls *LogService) BatchBarrioMovement(name, oldCluster, newCluster, emoji, method string, gridSize float64)
+
+// DELETE all these - replaced by pluggable formatters
+func (ls *LogService) formatWelcomes(events []LogEvent) []string
+func (ls *LogService) formatGoodbyes(events []LogEvent) string
+func (ls *LogService) formatGossipMerges(events []LogEvent) string
+func (ls *LogService) formatMeshSyncs(events []LogEvent) string
+func (ls *LogService) formatHowdysForMe(events []LogEvent) string
+func (ls *LogService) formatDMsReceived(events []LogEvent) string
+func (ls *LogService) formatDiscoveries(events []LogEvent) string
+func (ls *LogService) formatPeerResolutionFailed(events []LogEvent) string
+func (ls *LogService) formatConsensus(events []LogEvent) string
+func (ls *LogService) formatNewspapers(events []LogEvent) string
+func (ls *LogService) formatPingsReceived(events []LogEvent) string
+func (ls *LogService) formatBootInfo(events []LogEvent) []string
+func (ls *LogService) formatObserved(events []LogEvent) string
+func (ls *LogService) formatSocialGossip(events []LogEvent) string
+func (ls *LogService) formatTeases(events []LogEvent) string
+func (ls *LogService) formatBarrioMovements(events []LogEvent) string
+```
+
+**What Gets Kept:**
+
+- Batching window logic (3s default)
+- Actor aggregation ("alice, bob, and carol")
+- Emoji per category
+- Instant bypass for important logs
+- Verbose mode auto-grouping
+
+**Benefits:**
+
+| Before | After |
+|--------|-------|
+| 30+ `BatchXxx()` methods | Single `Event()` method |
+| Hardcoded formatters | Pluggable per event type |
+| Global verbose only | Per-service verbose |
+| No service tracking | Service name on every log |
+| `network.logService.BatchXxx()` | `s.log.Event()` |
+
+---
+
 ## Phase 6+ Utilities (Future)
 
-### 4. RetryWithBackoff
+### 6. RetryWithBackoff
 
 **Purpose:** Retry failed operations with exponential backoff.
 
@@ -346,7 +584,7 @@ err := retrier.Do(func() error {
 
 ---
 
-### 5. CircuitBreaker
+### 6. CircuitBreaker
 
 **Purpose:** Fail fast when a peer is consistently unreachable.
 
@@ -398,7 +636,7 @@ func (s *StashService) storeWithConfidant(name string, data []byte) error {
 
 ---
 
-### 6. ConsensusHelper (Trimmed Mean)
+### 7. ConsensusHelper (Trimmed Mean)
 
 **Purpose:** Aggregate values from multiple sources with outlier removal.
 
@@ -460,7 +698,7 @@ func (s *CheckpointService) HandleVote(vote *CheckpointVote) {
 
 ---
 
-### 7. DedupCache
+### 8. DedupCache
 
 **Purpose:** Track seen items to prevent duplicates.
 
@@ -496,7 +734,7 @@ func (dc *DedupCache) Cleanup()
 
 ---
 
-### 8. BatchCollector
+### 9. BatchCollector
 
 **Purpose:** Accumulate items and flush on size or time.
 
@@ -532,6 +770,7 @@ func (bc *BatchCollector[T]) Stop()   // Stop timer, flush remaining
 | Correlator | checkpoint_service.go, stash_types.go | 5 | High |
 | Encryptor | identity_crypto.go | 5 | High |
 | RateLimiter | sync_ledger.go, observations.go | 5 | High |
+| Logger | logservice.go → **runtime/logger.go** | 5 | High |
 | RetryWithBackoff | stash_types.go, boot_recovery.go | 6 | Medium |
 | CircuitBreaker | (not implemented) | 6 | Medium |
 | ConsensusHelper | math_helpers.go, checkpoint_service.go | 7 | Medium |
@@ -543,6 +782,10 @@ func (bc *BatchCollector[T]) Stop()   // Stop timer, flush remaining
 ## Package Structure
 
 ```
+runtime/
+├── logger.go           // Revamped LogService (service-aware, per-service control)
+└── ...                 // Other runtime files
+
 utilities/
 ├── correlator.go       // Request/response correlation
 ├── encryptor.go        // XChaCha20-Poly1305 encryption

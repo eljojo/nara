@@ -478,21 +478,39 @@ Create `runtime/mock_runtime.go` for testing services without MQTT:
 ```go
 package runtime
 
+import "testing"
+
 // MockRuntime implements RuntimeInterface for testing services
 type MockRuntime struct {
+    t           *testing.T           // For auto-cleanup and assertions
     name        string
     Emitted     []*Message           // Captured Emit() calls
     handlers    map[string][]func(*Message)
     keypair     *MockKeypair
 }
 
-func NewMockRuntime(name string) *MockRuntime {
-    return &MockRuntime{
+// NewMockRuntime creates a mock runtime with auto-cleanup via t.Cleanup()
+func NewMockRuntime(t *testing.T, name string) *MockRuntime {
+    t.Helper()
+    mock := &MockRuntime{
+        t:        t,
         name:     name,
         Emitted:  make([]*Message, 0),
         handlers: make(map[string][]func(*Message)),
         keypair:  NewMockKeypair(),
     }
+
+    // Auto-cleanup when test finishes
+    t.Cleanup(func() {
+        mock.Stop()
+    })
+
+    return mock
+}
+
+func (m *MockRuntime) Stop() {
+    // Clean up any resources (channels, timers, etc.)
+    m.handlers = nil
 }
 
 // Emit captures messages for test assertions
@@ -542,7 +560,8 @@ func (m *MockRuntime) Clear() { m.Emitted = make([]*Message, 0) }
 **Usage in service tests:**
 ```go
 func TestStashStoreAndAck(t *testing.T) {
-    mock := NewMockRuntime("alice")
+    // Auto-cleanup via t.Cleanup() - no manual cleanup needed!
+    mock := NewMockRuntime(t, "alice")
     stash := NewStashService()
     stash.Init(mock)
 
@@ -556,6 +575,8 @@ func TestStashStoreAndAck(t *testing.T) {
     // Verify stash emitted an ack
     assert.Equal(t, 1, mock.EmittedCount())
     assert.Equal(t, "stash:ack", mock.LastEmitted().Kind)
+
+    // No cleanup code needed - t.Cleanup() handles it
 }
 ```
 
@@ -823,6 +844,10 @@ func (a *EventBusAdapter) Emit(msg *runtime.Message) {
 Before migrating stash, create the opt-in utilities it needs (see `DESIGN_SERVICE_UTILITIES.md`):
 
 ```
+runtime/
+├── logger.go           // Revamped LogService (replaces logservice.go)
+└── ...
+
 utilities/
 ├── correlator.go       // Request/response correlation (stash needs this)
 ├── encryptor.go        // XChaCha20-Poly1305 encryption (stash needs this)
@@ -852,6 +877,19 @@ type RateLimiter struct { ... }
 func NewRateLimiter(window time.Duration, maxCount int) *RateLimiter
 func (rl *RateLimiter) Allow(key string) bool
 func (rl *RateLimiter) AllowOrCached(key string) (allowed bool, cached any, hasCached bool)
+```
+
+**Logger** - Revamped LogService built into runtime (replaces `logservice.go`):
+```go
+// runtime/logger.go - NOT in utilities/, it's core runtime
+type Logger struct { ... }           // Central coordinator
+type ServiceLog struct { ... }       // Per-service logger
+
+func (rt *Runtime) Log(service string) *ServiceLog  // Services get their logger
+
+func (l *ServiceLog) Debug(format string, args ...any)
+func (l *ServiceLog) Info(format string, args ...any)
+func (l *ServiceLog) Event(eventType, actor string, opts ...LogOption)  // Batched
 ```
 
 **Test each utility in isolation** before using in stash service.
@@ -1063,10 +1101,12 @@ Network becomes a thin wrapper or is removed entirely:
 ### After Phase 5:
 - [ ] Service utilities package created (`utilities/`)
 - [ ] Correlator, Encryptor, RateLimiter implemented and tested
+- [ ] Logger revamped in `runtime/logger.go` (replaces logservice.go)
 - [ ] Stash service migrated to new runtime
 - [ ] All stash message kinds working (`stash-refresh`, `stash:store`, `stash:request`, `stash:response`)
 - [ ] Stash uses Correlator for request/response tracking
 - [ ] Stash uses Encryptor for payload encryption
+- [ ] Stash uses `rt.Log("stash")` for structured logging
 - [ ] Round-trip tests pass (store → request → response)
 - [ ] No backwards compatibility needed — clean slate
 
