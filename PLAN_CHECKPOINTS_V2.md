@@ -6,50 +6,63 @@ A step-by-step guide for implementing the runtime architecture defined in `DESIG
 
 ## Overview
 
-This plan transforms Nara from a monolithic `Network` god-object into a modular runtime with:
-- **Message** as the universal primitive
-- **Pipeline** pattern with **StageResult** (explicit outcomes)
-- **Behavior** registry for declarative message handling
-- **Services** as independent programs running on the runtime
-- **Opt-in utilities** for cross-cutting concerns (correlation, encryption, rate limiting)
+This plan is divided into two chapters:
+
+- **Chapter 1: Stash Service** — Build the minimum runtime needed for stash to work _really well_. Full-fledged for stash, but just for stash.
+- **Chapter 2: Everything After Stash** — Migrate remaining services, complete the runtime, cleanup.
+
+**Why this split?** Stash is the perfect first target:
+- Not in production yet — no backwards compatibility baggage
+- Self-contained — doesn't depend on other services
+- Tests the new architecture end-to-end (mesh transport, request/response, encryption)
+- Validates the design before committing to migrate everything else
 
 **References:**
 - `DESIGN_NARA_RUNTIME.md` — Full runtime design details
 - `DESIGN_SERVICE_UTILITIES.md` — Opt-in utility patterns
+- `DESIGN_CRITIQUE.md` — Risks and mitigations
+
+---
+
+# Chapter 1: Stash Service
+
+**Goal:** Get stash working beautifully on the new runtime architecture.
+
+Everything in Chapter 1 is scoped to what stash needs. Other services stay on the existing architecture until Chapter 2.
 
 ---
 
 ## Prerequisites
 
 Before starting, ensure you understand:
-1. The current `Network` struct and its methods
-2. The `SyncLedger` and how events are stored
-3. The MQTT transport layer
-4. The existing service patterns (presence, social, checkpoint, etc.)
+1. The current stash implementation (`stash_*.go` files)
+2. The mesh transport layer (`transport_mesh.go`, `http_mesh.go`)
+3. The existing identity/crypto code (`identity_crypto.go`)
 
 ---
 
-## Phase 1: Core Types
+## Phase 1: Core Types (Stash-Scoped)
 
-**Goal:** Create the foundational types without breaking existing code.
+**Goal:** Create the foundational types needed for stash.
 
-### Step 1.0: Create `messages/` package — The Monorepo
+### Step 1.0: Create `messages/` package — Stash Types Only
 
-Create the central package for all message payload types. This is the single source of truth for Nara's wire protocol.
+Create the central package for message payload types. For Chapter 1, we only add stash-related types.
 
 ```
 messages/
 ├── doc.go           # Package overview, how to add new messages
-├── stash.go         # StashStorePayload, StashRequestPayload, StashStoreAck
-├── social.go        # SocialPayload, TeasePayload
-├── presence.go      # HeyTherePayload, ChauPayload, NewspaperPayload
-├── checkpoint.go    # CheckpointProposal, CheckpointVote
-├── observation.go   # RestartObservation, StatusChangeObservation
-└── gossip.go        # ZinePayload, DMPayload
+└── stash.go         # StashStorePayload, StashRequestPayload, StashStoreAck, etc.
 ```
 
-**Every payload struct includes:**
+**Note:** Other message types (checkpoint.go, social.go, presence.go, etc.) are added in Chapter 2.
+
+**stash.go contents:**
 ```go
+package messages
+
+import "errors"
+
 // StashStorePayload is sent when storing encrypted data with a confidant.
 //
 // Kind: stash:store
@@ -61,17 +74,72 @@ messages/
 //   v1 (2024-01): Initial version
 type StashStorePayload struct {
     Owner      string `json:"owner"`      // Who the stash belongs to
+    OwnerID    string `json:"owner_id"`   // Owner's nara ID (primary identifier)
     Nonce      []byte `json:"nonce"`      // 24-byte XChaCha20 nonce
     Ciphertext []byte `json:"ciphertext"` // Encrypted stash data
     Timestamp  int64  `json:"ts"`         // When created
 }
 
-func (p *StashStorePayload) Validate() error { /* ... */ }
-```
+func (p *StashStorePayload) Validate() error {
+    if p.OwnerID == "" && p.Owner == "" {
+        return errors.New("owner_id or owner required")
+    }
+    if len(p.Nonce) != 24 {
+        return errors.New("nonce must be 24 bytes")
+    }
+    if len(p.Ciphertext) == 0 {
+        return errors.New("ciphertext required")
+    }
+    return nil
+}
 
-**Documentation from code:**
-```bash
-nara docs --messages  # Generate message catalog from godoc comments
+// StashStoreAck acknowledges successful storage.
+//
+// Kind: stash:ack
+// Flow: Confidant → Owner (response to stash:store)
+type StashStoreAck struct {
+    StoredAt int64  `json:"stored_at"` // When the confidant stored the data
+    OwnerID  string `json:"owner_id"`  // Echoed back for correlation
+}
+
+// StashRequestPayload requests stored data from a confidant.
+//
+// Kind: stash:request
+// Flow: Owner → Confidant
+// Response: StashResponsePayload
+type StashRequestPayload struct {
+    OwnerID   string `json:"owner_id"`   // Who is requesting their stash
+    RequestID string `json:"request_id"` // For correlation
+}
+
+func (p *StashRequestPayload) Validate() error {
+    if p.OwnerID == "" {
+        return errors.New("owner_id required")
+    }
+    return nil
+}
+
+// StashResponsePayload returns stored data to the owner.
+//
+// Kind: stash:response
+// Flow: Confidant → Owner (response to stash:request)
+type StashResponsePayload struct {
+    OwnerID    string `json:"owner_id"`
+    RequestID  string `json:"request_id"` // Echoed from request
+    Nonce      []byte `json:"nonce"`
+    Ciphertext []byte `json:"ciphertext"`
+    StoredAt   int64  `json:"stored_at"`
+    Found      bool   `json:"found"` // False if confidant has no stash for this owner
+}
+
+// StashRefreshPayload triggers stash recovery from confidants.
+//
+// Kind: stash-refresh
+// Flow: Broadcast via MQTT
+// Transport: MQTT (ephemeral, not stored)
+type StashRefreshPayload struct {
+    OwnerID string `json:"owner_id"` // Who wants their stash back
+}
 ```
 
 **Import rules:**
@@ -138,7 +206,10 @@ type Message struct {
     ContentKey string    // Semantic identity for dedup (optional)
     Kind       string
     Version    int       // Schema version (default 1, increment on breaking changes)
-    From       string
+    From       string    // Sender name (for display)
+    FromID     string    // Sender nara ID (primary identifier)
+    To         string    // Target name (for direct messages)
+    ToID       string    // Target nara ID (primary identifier)
     Timestamp  time.Time
     Payload    any
     Signature  []byte
@@ -148,7 +219,7 @@ type Message struct {
 func DefaultComputeID(msg *Message) string {
     h := sha256.New()
     h.Write([]byte(msg.Kind))
-    h.Write([]byte(msg.From))
+    h.Write([]byte(msg.FromID))
     h.Write([]byte(msg.Timestamp.Format(time.RFC3339Nano)))
     h.Write(payloadHash(msg.Payload))
     return base58.Encode(h.Sum(nil))[:16]
@@ -156,7 +227,7 @@ func DefaultComputeID(msg *Message) string {
 
 // SignableContent returns the content to be signed
 func (m *Message) SignableContent() []byte {
-    // Implementation: serialize ID, Kind, From, Timestamp, Payload
+    // Implementation: serialize ID, Kind, FromID, ToID, Timestamp, Payload
 }
 
 // VerifySignature checks if the signature is valid
@@ -364,71 +435,55 @@ func PayloadTypeOf[T any]() reflect.Type {
 
 **Test:** Write unit tests for `Register`, `Lookup`, duplicate registration.
 
-### Step 1.5: Implement Helper Constructors
+### Step 1.5: Implement Helper Constructors (Stash-Relevant Only)
 
-Create `runtime/helpers.go` with all DSL helpers:
+Create `runtime/helpers.go` with helpers needed for stash:
 - `DefaultSign()`, `NoSign()`
-- `DefaultStore(priority)`, `NoStore()`, `ContentKeyStore(priority)`
-- `Gossip()`, `NoGossip()`
-- `MQTT(topic)`, `MQTTPerNara(pattern)`, `MeshOnly()`, `NoTransport()`
-- `DefaultVerify()`, `SelfAttesting(f)`, `CustomVerify(f)`, `NoVerify()`
-- `IDDedupe()`, `ContentKeyDedupe()`
-- `RateLimit(window, max, keyFunc)`
-- `Critical()`, `Normal()`, `Casual(f)`
+- `NoStore()` (stash doesn't need ledger storage)
+- `NoGossip()` (stash doesn't use gossip)
+- `MeshOnly()` (stash is mesh-only)
+- `DefaultVerify()`
+- `IDDedupe()`
 
-Note: No `ID` helpers needed — ID is always computed the same way (unique envelope). `ContentKey` is a function in `Behavior`, not a stage.
-
-Each helper returns a stage. Implement the stage structs as well.
+**Note:** Other helpers (MQTT, Gossip, personality filters, etc.) are added in Chapter 2.
 
 **Test:** Write unit tests for each stage type in isolation.
 
 ---
 
-## Phase 2: Individual Stages
+## Phase 2: Stash-Relevant Stages
 
-**Goal:** Implement all stage types with full functionality.
+**Goal:** Implement only the stages stash needs.
 
-### Step 2.1: Emit Stages
+### Step 2.1: Emit Stages for Stash
 
-Create `runtime/stages_emit.go`:
+Create `runtime/stages_emit.go` with:
 
-1. **IDStage** - always computes unique envelope ID from (kind, from, timestamp, payload)
-2. **ContentKeyStage** - computes semantic identity from payload (if behavior.ContentKey defined)
-3. **DefaultSignStage** - signs with keypair from context
-4. **NoSignStage** - no-op
-5. **DefaultStoreStage** - adds to ledger with priority
-6. **NoStoreStage** - no-op
-7. **ContentKeyStoreStage** - stores with ContentKey-based deduplication
-8. **GossipStage** - adds to gossip queue
-9. **NoGossipStage** - no-op
-10. **MQTTStage** - publishes to MQTT topic
-11. **MQTTPerNaraStage** - publishes to per-nara topic
-12. **MeshOnlyStage** - sends directly via mesh, fails if unreachable
-13. **NoTransportStage** - no-op
-14. **NotifyStage** - emits to event bus
+1. **IDStage** - computes unique envelope ID
+2. **DefaultSignStage** - signs with keypair from context
+3. **NoStoreStage** - no-op (stash messages aren't stored in ledger)
+4. **NoGossipStage** - no-op (stash doesn't use gossip)
+5. **MeshOnlyStage** - sends directly via mesh, fails if unreachable
+6. **NotifyStage** - emits to event bus for internal handlers
 
 **Test each stage individually** with mock dependencies.
 
-### Step 2.2: Receive Stages
+### Step 2.2: Receive Stages for Stash
 
-Create `runtime/stages_receive.go`:
+Create `runtime/stages_receive.go` with:
 
-1. **DefaultVerifyStage** - verifies signature against known public key
-2. **SelfAttestingVerifyStage** - extracts key from payload, verifies
-3. **CustomVerifyStage** - calls custom verification function
-4. **NoVerifyStage** - no-op
-5. **IDDedupeStage** - rejects messages with duplicate ID (exact same message)
-6. **ContentKeyDedupeStage** - rejects messages with duplicate ContentKey (same fact)
-7. **RateLimitStage** - checks rate limiter
-8. **ImportanceFilterStage** - filters by importance level
+1. **DefaultVerifyStage** - verifies signature against known public key (by ID)
+2. **IDDedupeStage** - rejects messages with duplicate ID
+
+**Note:** Personality filtering, rate limiting, content-key dedup — not needed for stash. Added in Chapter 2.
 
 **Test each stage individually** with mock dependencies.
 
 ---
 
-## Phase 3: Runtime Core
+## Phase 3: Runtime Core (Minimal)
 
-**Goal:** Implement the Runtime that ties everything together.
+**Goal:** Implement the minimum Runtime for stash.
 
 ### Step 3.1: Define Interfaces
 
@@ -440,9 +495,10 @@ package runtime
 // RuntimeInterface is what stages can access
 type RuntimeInterface interface {
     Me() *Nara
-    LookupPublicKey(name string) []byte
-    RegisterPublicKey(name string, key []byte)
-    RateLimiter() RateLimiterInterface
+    MeID() string
+    LookupPublicKey(id string) []byte       // Primary: by ID
+    LookupPublicKeyByName(name string) []byte // Fallback: by name
+    RegisterPublicKey(id string, key []byte)
 }
 
 // LedgerInterface is what store stages use
@@ -450,16 +506,15 @@ type LedgerInterface interface {
     Add(msg *Message, priority int) error
     HasID(id string) bool
     HasContentKey(contentKey string) bool
-    HasMatching(kind string, matcher func(*Message) bool) bool
 }
 
 // TransportInterface is what transport stages use
 type TransportInterface interface {
     PublishMQTT(topic string, data []byte) error
-    TrySendDirect(target string, msg *Message) error
+    TrySendDirect(targetID string, msg *Message) error
 }
 
-// GossipQueueInterface is what gossip stages use
+// GossipQueueInterface is what gossip stages use (Chapter 2)
 type GossipQueueInterface interface {
     Add(msg *Message)
 }
@@ -473,81 +528,11 @@ type KeypairInterface interface {
 type EventBusInterface interface {
     Emit(msg *Message)
 }
-
-// RateLimiterInterface is what rate limit stages use
-type RateLimiterInterface interface {
-    Allow(key string, window time.Duration, max int) bool
-}
 ```
 
-### Step 3.2: Implement GossipQueue
+### Step 3.2: Implement MockRuntime (for service tests)
 
-Create `runtime/gossip_queue.go`:
-
-```go
-package runtime
-
-import (
-    "sync"
-    "time"
-)
-
-// GossipQueue holds messages for gossip propagation
-type GossipQueue struct {
-    mu       sync.RWMutex
-    messages []*Message
-    maxAge   time.Duration
-}
-
-func NewGossipQueue(maxAge time.Duration) *GossipQueue {
-    return &GossipQueue{
-        messages: make([]*Message, 0),
-        maxAge:   maxAge,
-    }
-}
-
-func (q *GossipQueue) Add(msg *Message) {
-    q.mu.Lock()
-    defer q.mu.Unlock()
-    q.messages = append(q.messages, msg)
-}
-
-// Recent returns messages from the last duration
-func (q *GossipQueue) Recent(d time.Duration) []*Message {
-    q.mu.RLock()
-    defer q.mu.RUnlock()
-
-    cutoff := time.Now().Add(-d)
-    result := make([]*Message, 0)
-    for _, msg := range q.messages {
-        if msg.Timestamp.After(cutoff) {
-            result = append(result, msg)
-        }
-    }
-    return result
-}
-
-// Prune removes old messages
-func (q *GossipQueue) Prune() {
-    q.mu.Lock()
-    defer q.mu.Unlock()
-
-    cutoff := time.Now().Add(-q.maxAge)
-    newMessages := make([]*Message, 0)
-    for _, msg := range q.messages {
-        if msg.Timestamp.After(cutoff) {
-            newMessages = append(newMessages, msg)
-        }
-    }
-    q.messages = newMessages
-}
-```
-
-**Test:** Write tests for Add, Recent, Prune.
-
-### Step 3.3: Implement MockRuntime (for service tests)
-
-Create `runtime/mock_runtime.go` for testing services without MQTT:
+Create `runtime/mock_runtime.go` for testing stash service without MQTT/mesh:
 
 ```go
 package runtime
@@ -558,23 +543,24 @@ import "testing"
 type MockRuntime struct {
     t           *testing.T           // For auto-cleanup and assertions
     name        string
+    id          string
     Emitted     []*Message           // Captured Emit() calls
     handlers    map[string][]func(*Message)
     keypair     *MockKeypair
 }
 
 // NewMockRuntime creates a mock runtime with auto-cleanup via t.Cleanup()
-func NewMockRuntime(t *testing.T, name string) *MockRuntime {
+func NewMockRuntime(t *testing.T, name, id string) *MockRuntime {
     t.Helper()
     mock := &MockRuntime{
         t:        t,
         name:     name,
+        id:       id,
         Emitted:  make([]*Message, 0),
         handlers: make(map[string][]func(*Message)),
         keypair:  NewMockKeypair(),
     }
 
-    // Auto-cleanup when test finishes
     t.Cleanup(func() {
         mock.Stop()
     })
@@ -583,14 +569,18 @@ func NewMockRuntime(t *testing.T, name string) *MockRuntime {
 }
 
 func (m *MockRuntime) Stop() {
-    // Clean up any resources (channels, timers, etc.)
     m.handlers = nil
 }
+
+func (m *MockRuntime) MeID() string { return m.id }
 
 // Emit captures messages for test assertions
 func (m *MockRuntime) Emit(msg *Message) error {
     if msg.ID == "" {
-        msg.ID = ComputeID(msg)
+        msg.ID = DefaultComputeID(msg)
+    }
+    if msg.FromID == "" {
+        msg.FromID = m.id
     }
     m.Emitted = append(m.Emitted, msg)
     return nil
@@ -610,7 +600,7 @@ func (m *MockRuntime) Subscribe(kind string, handler func(*Message)) {
 
 // Me returns a fake Nara for the mock
 func (m *MockRuntime) Me() *Nara {
-    return &Nara{Name: m.name}
+    return &Nara{Name: m.name, ID: m.id}
 }
 
 // Test helpers
@@ -631,32 +621,9 @@ func (m *MockRuntime) EmittedOfKind(kind string) []*Message {
 func (m *MockRuntime) Clear() { m.Emitted = make([]*Message, 0) }
 ```
 
-**Usage in service tests:**
-```go
-func TestStashStoreAndAck(t *testing.T) {
-    // Auto-cleanup via t.Cleanup() - no manual cleanup needed!
-    mock := NewMockRuntime(t, "alice")
-    stash := NewStashService()
-    stash.Init(mock)
+### Step 3.3: Implement Runtime (Minimal)
 
-    // Simulate Bob sending a store request
-    mock.Deliver(&Message{
-        Kind: "stash:store",
-        From: "bob",
-        Payload: &StashStorePayload{Data: []byte("encrypted")},
-    })
-
-    // Verify stash emitted an ack
-    assert.Equal(t, 1, mock.EmittedCount())
-    assert.Equal(t, "stash:ack", mock.LastEmitted().Kind)
-
-    // No cleanup code needed - t.Cleanup() handles it
-}
-```
-
-### Step 3.4: Implement Runtime
-
-Create `runtime/runtime.go`:
+Create `runtime/runtime.go` with only what stash needs:
 
 ```go
 package runtime
@@ -669,13 +636,10 @@ import (
 type Runtime struct {
     me          *Nara
     keypair     KeypairInterface
-    ledger      LedgerInterface
+    ledger      LedgerInterface    // May be nil for stash
     transport   TransportInterface
-    gossipQueue *GossipQueue
     eventBus    EventBusInterface
-    rateLimiter RateLimiterInterface
     personality *Personality
-    metrics     *Metrics
 
     services []Service
     handlers map[string][]MessageHandler
@@ -687,10 +651,9 @@ type Runtime struct {
 type RuntimeConfig struct {
     Me          *Nara
     Keypair     KeypairInterface
-    Ledger      LedgerInterface
+    Ledger      LedgerInterface    // Optional for stash
     Transport   TransportInterface
     EventBus    EventBusInterface
-    RateLimiter RateLimiterInterface
     Personality *Personality
 }
 
@@ -700,17 +663,25 @@ func NewRuntime(cfg RuntimeConfig) *Runtime {
         keypair:     cfg.Keypair,
         ledger:      cfg.Ledger,
         transport:   cfg.Transport,
-        gossipQueue: NewGossipQueue(10 * time.Minute),
         eventBus:    cfg.EventBus,
-        rateLimiter: cfg.RateLimiter,
         personality: cfg.Personality,
         handlers:    make(map[string][]MessageHandler),
     }
 }
 
+func (rt *Runtime) MeID() string {
+    if rt.me != nil {
+        return rt.me.ID
+    }
+    return ""
+}
+
 func (rt *Runtime) Emit(msg *Message) error {
     if msg.Timestamp.IsZero() {
         msg.Timestamp = time.Now()
+    }
+    if msg.FromID == "" {
+        msg.FromID = rt.MeID()
     }
 
     behavior := Lookup(msg.Kind)
@@ -722,7 +693,7 @@ func (rt *Runtime) Emit(msg *Message) error {
     if msg.Version == 0 {
         msg.Version = behavior.CurrentVersion
         if msg.Version == 0 {
-            msg.Version = 1  // Default to v1
+            msg.Version = 1
         }
     }
 
@@ -732,13 +703,8 @@ func (rt *Runtime) Emit(msg *Message) error {
     result := pipeline.Run(msg, ctx)
 
     if result.Error != nil {
-        rt.applyErrorStrategy(msg, "emit", result.Error, behavior.OnTransportError)
         return result.Error
     }
-    if result.Message == nil {
-        rt.recordDrop(msg.Kind, result.Reason)
-    }
-
     return nil
 }
 
@@ -759,174 +725,72 @@ func (rt *Runtime) Receive(raw []byte) error {
     result := pipeline.Run(msg, ctx)
 
     if result.Error != nil {
-        rt.applyErrorStrategy(msg, "receive", result.Error, behavior.OnVerifyError)
         return result.Error
     }
-    if result.Message == nil {
-        rt.recordDrop(msg.Kind, result.Reason)
-    }
-
     return nil
 }
 
-func (rt *Runtime) newPipelineContext() *PipelineContext {
-    return &PipelineContext{
-        Runtime:     rt,
-        Ledger:      rt.ledger,
-        Transport:   rt.transport,
-        GossipQueue: rt.gossipQueue,
-        Keypair:     rt.keypair,
-        Personality: rt.personality,
-        EventBus:    rt.eventBus,
-    }
-}
-
-func (rt *Runtime) buildEmitPipeline(b *Behavior) Pipeline {
-    stages := []Stage{}
-
-    // ID stage - always computes unique envelope ID
-    stages = append(stages, &IDStage{})
-
-    // ContentKey stage - if behavior defines ContentKey function
-    if b.ContentKey != nil {
-        stages = append(stages, &ContentKeyStage{KeyFunc: b.ContentKey})
-    }
-
-    // Emit-specific stages
-    stages = append(stages, orDefault(b.Emit.Sign, DefaultSign()))
-    stages = append(stages, orDefault(b.Emit.Store, DefaultStore(2)))
-    stages = append(stages, orDefault(b.Emit.Gossip, NoGossip()))
-    if b.Emit.Transport != nil {
-        stages = append(stages, b.Emit.Transport)
-    }
-    stages = append(stages, &NotifyStage{})
-    return Pipeline(stages)
-}
-
-func (rt *Runtime) buildReceivePipeline(b *Behavior) Pipeline {
-    stages := []Stage{}
-
-    // Receive-specific stages
-    stages = append(stages, orDefault(b.Receive.Verify, DefaultVerify()))
-    stages = append(stages, orDefault(b.Receive.Dedupe, IDDedupe()))
-    if b.Receive.RateLimit != nil {
-        stages = append(stages, b.Receive.RateLimit)
-    }
-    if b.Receive.Filter != nil {
-        stages = append(stages, b.Receive.Filter)
-    }
-    if b.Receive.Store != nil && !isNoStore(b.Receive.Store) {
-        stages = append(stages, b.Receive.Store)
-    }
-    stages = append(stages, &NotifyStage{})
-    return Pipeline(stages)
-}
-
-func orDefault(stage Stage, def Stage) Stage {
-    if stage != nil {
-        return stage
-    }
-    return def
-}
-
-func (rt *Runtime) applyErrorStrategy(msg *Message, stage string, err error, strategy ErrorStrategy) {
-    // Implementation as per design doc
-}
-
-func (rt *Runtime) recordDrop(kind, reason string) {
-    // Metrics recording
-}
+// ... pipeline building methods ...
 ```
 
-**Test:** Integration tests for Emit and Receive with mock dependencies.
+**Test:** Integration tests for Emit and Receive.
 
 ---
 
-## Phase 4: Adapter Layer
+## Phase 4: Adapter Layer (Stash-Relevant)
 
-**Goal:** Create adapters to bridge existing code with new runtime.
+**Goal:** Create adapters to bridge existing mesh code with new runtime.
 
-### Step 4.1: Create Ledger Adapter
+### Step 4.1: Create Transport Adapter
 
-Wrap existing `SyncLedger` to implement `LedgerInterface`:
-
-```go
-// In nara package (not runtime)
-type LedgerAdapter struct {
-    ledger *SyncLedger
-}
-
-func (a *LedgerAdapter) Add(msg *runtime.Message, priority int) error {
-    // Convert runtime.Message to SyncEvent
-    event := convertMessageToEvent(msg)
-    a.ledger.Add(event, priority)
-    return nil
-}
-
-func (a *LedgerAdapter) HasID(id string) bool {
-    return a.ledger.HasID(id)
-}
-
-func (a *LedgerAdapter) HasContentKey(contentKey string) bool {
-    return a.ledger.HasContentKey(contentKey)
-}
-
-func (a *LedgerAdapter) HasMatching(kind string, matcher func(*runtime.Message) bool) bool {
-    // Implementation
-}
-```
-
-### Step 4.2: Create Transport Adapter
-
-Wrap existing MQTT/mesh transport:
+Wrap existing mesh transport for stash:
 
 ```go
-type TransportAdapter struct {
-    mqtt *MQTTClient
+type MeshTransportAdapter struct {
     mesh *MeshClient
+    network *Network  // For peer resolution by ID
 }
 
-func (a *TransportAdapter) PublishMQTT(topic string, data []byte) error {
-    return a.mqtt.Publish(topic, data)
-}
-
-func (a *TransportAdapter) TrySendDirect(target string, msg *runtime.Message) error {
-    // Use mesh client
+func (a *MeshTransportAdapter) TrySendDirect(targetID string, msg *runtime.Message) error {
+    // Resolve targetID to mesh address
+    addr := a.network.getMeshAddressByID(targetID)
+    if addr == "" {
+        return fmt.Errorf("no mesh address for nara ID %s", targetID)
+    }
+    // Send via mesh
+    return a.mesh.Send(addr, msg.Marshal())
 }
 ```
 
-### Step 4.3: Create EventBus Adapter
+### Step 4.2: Create Identity Adapter
+
+Wrap existing identity code for public key lookups by ID:
 
 ```go
-type EventBusAdapter struct {
-    bus *InternalEventBus
+type IdentityAdapter struct {
+    network *Network
 }
 
-func (a *EventBusAdapter) Emit(msg *runtime.Message) {
-    // Convert and emit
+func (a *IdentityAdapter) LookupPublicKey(id string) []byte {
+    return a.network.getPublicKeyForNaraID(id)
 }
 ```
 
 ---
 
-## Phase 5: Migrate First Service
+## Phase 5: Migrate Stash Service
 
-**Goal:** Migrate one service to validate the architecture.
+**Goal:** Port stash to the new runtime architecture.
 
-### Step 5.0: Create Service Utilities Package
+### Step 5.0: Create Service Utilities
 
-Before migrating stash, create the opt-in utilities it needs (see `DESIGN_SERVICE_UTILITIES.md`):
+Create utilities stash needs (see `DESIGN_SERVICE_UTILITIES.md`):
 
 ```
-runtime/
-├── logger.go           // Revamped LogService (replaces logservice.go)
-└── ...
-
 utilities/
-├── correlator.go       // Request/response correlation (stash needs this)
-├── encryptor.go        // XChaCha20-Poly1305 encryption (stash needs this)
-├── ratelimiter.go      // Per-key rate limiting (stash needs this)
-└── utilities_test.go   // Tests for all utilities
+├── correlator.go       # Request/response correlation
+├── encryptor.go        # XChaCha20-Poly1305 encryption (extract from identity_crypto.go)
+└── utilities_test.go   # Tests
 ```
 
 **Correlator** - Generic request/response correlation:
@@ -945,67 +809,47 @@ func (e *Encryptor) Seal(plaintext []byte) (nonce, ciphertext []byte, err error)
 func (e *Encryptor) Open(nonce, ciphertext []byte) ([]byte, error)
 ```
 
-**RateLimiter** - Per-key throttling with cached results (extracted from `sync_ledger.go` and `observations.go`):
-```go
-type RateLimiter struct { ... }
-func NewRateLimiter(window time.Duration, maxCount int) *RateLimiter
-func (rl *RateLimiter) Allow(key string) bool
-func (rl *RateLimiter) AllowOrCached(key string) (allowed bool, cached any, hasCached bool)
-```
-
-**Logger** - Revamped LogService built into runtime (replaces `logservice.go`):
-```go
-// runtime/logger.go - NOT in utilities/, it's core runtime
-type Logger struct { ... }           // Central coordinator
-type ServiceLog struct { ... }       // Per-service logger
-
-func (rt *Runtime) Log(service string) *ServiceLog  // Services get their logger
-
-func (l *ServiceLog) Debug(format string, args ...any)
-func (l *ServiceLog) Info(format string, args ...any)
-func (l *ServiceLog) Event(eventType, actor string, opts ...LogOption)  // Batched
-```
-
 **Test each utility in isolation** before using in stash service.
 
-### Step 5.1: Choose Target Service
+### Step 5.1: Register Stash Behaviors
 
-Start with **stash** service:
-- Not used in production yet — no backwards compatibility needed
-- Can port completely in one go
-- Multiple message kinds to test (`stash:store`, `stash:request`, `stash:response`, `stash-refresh`)
-- Uses mesh transport (direct HTTP) — tests MeshOnly pattern
-- Good proving ground for the new architecture
-
-### Step 5.2: Register Behaviors
-
-Create behavior registrations in `stash/behaviors.go`:
+Create behavior registrations in new `stash/behaviors.go`:
 
 ```go
 package stash
 
-import rt "nara/runtime"
+import (
+    rt "nara/runtime"
+    "nara/messages"
+)
 
 func init() {
     // Ephemeral broadcast: trigger stash recovery from confidants
-    rt.Register(rt.Ephemeral("stash-refresh", "Request stash recovery", "nara/plaza/stash_refresh"))
+    rt.Register(rt.Ephemeral("stash-refresh", "Request stash recovery", "nara/plaza/stash_refresh").
+        WithPayload[messages.StashRefreshPayload]())
 
     // Mesh-only request/response messages
-    rt.Register(rt.MeshRequest("stash:store", "Store encrypted stash").WithPayload[StashStorePayload]())
-    rt.Register(rt.MeshRequest("stash:request", "Request stored stash").WithPayload[StashRequestPayload]())
-    rt.Register(rt.MeshRequest("stash:response", "Return stored stash").WithPayload[StashResponsePayload]())
+    rt.Register(rt.MeshRequest("stash:store", "Store encrypted stash").
+        WithPayload[messages.StashStorePayload]())
+    rt.Register(rt.MeshRequest("stash:ack", "Acknowledge stash storage").
+        WithPayload[messages.StashStoreAck]())
+    rt.Register(rt.MeshRequest("stash:request", "Request stored stash").
+        WithPayload[messages.StashRequestPayload]())
+    rt.Register(rt.MeshRequest("stash:response", "Return stored stash").
+        WithPayload[messages.StashResponsePayload]())
 }
 ```
 
-That's it! Four lines instead of 40+. The pattern templates handle all the boilerplate.
-
-### Step 5.3: Update Service to Use Runtime
+### Step 5.2: Update Stash Service to Use Runtime
 
 ```go
 type StashService struct {
-    rt         *runtime.Runtime
-    stored     map[string]*EncryptedStash  // Stashes we hold for others
-    confidants []string                     // Peers holding our stash
+    rt               *runtime.Runtime
+    stored           map[string]*EncryptedStash  // Stashes we hold for others (keyed by owner ID)
+    confidants       []string                     // Peer IDs holding our stash
+    storeCorrelator  *utilities.Correlator[messages.StashStoreAck]
+    requestCorrelator *utilities.Correlator[messages.StashResponsePayload]
+    encryptor        *utilities.Encryptor
 }
 
 func (s *StashService) Name() string { return "stash" }
@@ -1013,11 +857,14 @@ func (s *StashService) Name() string { return "stash" }
 func (s *StashService) Init(rt *runtime.Runtime) error {
     s.rt = rt
     s.stored = make(map[string]*EncryptedStash)
+    s.storeCorrelator = utilities.NewCorrelator[messages.StashStoreAck](10 * time.Second)
+    s.requestCorrelator = utilities.NewCorrelator[messages.StashResponsePayload](10 * time.Second)
+    s.encryptor = utilities.NewEncryptor(rt.Keypair().Seed())
     return nil
 }
 
 func (s *StashService) Kinds() []string {
-    return []string{"stash-refresh", "stash:store", "stash:request", "stash:response"}
+    return []string{"stash-refresh", "stash:store", "stash:ack", "stash:request", "stash:response"}
 }
 
 func (s *StashService) Handle(msg *runtime.Message) {
@@ -1026,6 +873,8 @@ func (s *StashService) Handle(msg *runtime.Message) {
         s.handleRefresh(msg)
     case "stash:store":
         s.handleStore(msg)
+    case "stash:ack":
+        s.handleStoreAck(msg)
     case "stash:request":
         s.handleRequest(msg)
     case "stash:response":
@@ -1033,80 +882,246 @@ func (s *StashService) Handle(msg *runtime.Message) {
     }
 }
 
-// Request stash recovery from all confidants
-func (s *StashService) RequestRecovery() {
-    s.rt.Emit(&runtime.Message{
-        Kind:    "stash-refresh",
-        From:    s.rt.Me().Name,
-        Payload: &StashRefreshPayload{},
-    })
-}
+// Store our stash with a confidant (uses correlator for request/response)
+func (s *StashService) StoreWith(confidantID string, data []byte) error {
+    nonce, ciphertext, err := s.encryptor.Seal(data)
+    if err != nil {
+        return err
+    }
 
-// Store our stash with a confidant
-func (s *StashService) StoreWith(confidant string, encrypted []byte) {
-    s.rt.Emit(&runtime.Message{
+    msg := &runtime.Message{
         Kind: "stash:store",
-        From: s.rt.Me().Name,
-        Payload: &StashStorePayload{
-            Target:    confidant,
-            Encrypted: encrypted,
+        ToID: confidantID,
+        Payload: &messages.StashStorePayload{
+            OwnerID:    s.rt.MeID(),
+            Nonce:      nonce,
+            Ciphertext: ciphertext,
+            Timestamp:  time.Now().Unix(),
         },
-    })
+    }
+
+    result := <-s.storeCorrelator.Send(s.rt, msg)
+    if result.Err != nil {
+        return result.Err  // Timeout or send failure
+    }
+    // Ack received successfully
+    return nil
 }
 ```
 
-### Step 5.4: Testing
+### Step 5.3: Testing Stash
 
-Since stash isn't in production, no dual-mode testing needed. Just test the new implementation:
+Since stash isn't in production, no dual-mode testing needed. Test the new implementation directly:
 
 ```go
+func TestStashStoreAndAck(t *testing.T) {
+    // Auto-cleanup via t.Cleanup()
+    aliceMock := runtime.NewMockRuntime(t, "alice", "alice-id-123")
+    bobMock := runtime.NewMockRuntime(t, "bob", "bob-id-456")
+
+    aliceStash := stash.NewStashService()
+    aliceStash.Init(aliceMock)
+
+    bobStash := stash.NewStashService()
+    bobStash.Init(bobMock)
+
+    // Simulate Alice sending a store request to Bob
+    bobMock.Deliver(&runtime.Message{
+        Kind:   "stash:store",
+        FromID: "alice-id-123",
+        Payload: &messages.StashStorePayload{
+            OwnerID:    "alice-id-123",
+            Nonce:      make([]byte, 24),
+            Ciphertext: []byte("encrypted-data"),
+        },
+    })
+
+    // Verify Bob stored it
+    assert.True(t, bobStash.HasStashFor("alice-id-123"))
+
+    // Verify Bob emitted an ack
+    assert.Equal(t, 1, bobMock.EmittedCount())
+    assert.Equal(t, "stash:ack", bobMock.LastEmitted().Kind)
+}
+
 func TestStashRoundTrip(t *testing.T) {
-    // Create two test naras with runtime
+    // Integration test with real mesh transport
     alice := testRuntimeNara(t, "alice")
     bob := testRuntimeNara(t, "bob")
 
     // Alice stores with Bob
-    alice.StashService().StoreWith("bob", []byte("encrypted-data"))
+    err := alice.StashService().StoreWith(bob.ID(), []byte("secret-data"))
+    require.NoError(t, err)
 
-    // Verify Bob received and stored it
+    // Verify Bob has it
     assert.Eventually(t, func() bool {
-        return bob.StashService().HasStashFor("alice")
+        return bob.StashService().HasStashFor(alice.ID())
     }, 5*time.Second, 100*time.Millisecond)
 
     // Alice requests recovery
-    alice.StashService().RequestRecovery()
-
-    // Verify Alice gets her stash back
-    assert.Eventually(t, func() bool {
-        return alice.StashService().HasRecovered()
-    }, 5*time.Second, 100*time.Millisecond)
+    data, err := alice.StashService().RequestFrom(bob.ID())
+    require.NoError(t, err)
+    assert.Equal(t, []byte("secret-data"), data)
 }
 ```
 
 ---
 
-## Phase 6: Migrate Remaining Services
+## Chapter 1 Checkpoints
 
-**Order by complexity:**
+### After Phase 1:
+- [ ] `messages/stash.go` created with all stash payload structs
+- [ ] Each payload has godoc comments and `Validate()` method
+- [ ] Core runtime types compile (Message, StageResult, Pipeline, Behavior)
+- [ ] Unit tests pass
 
-1. **social** (simple, one message kind, good validation of personality filtering)
-2. **world** (self-contained journeys)
-3. **presence** (hey-there, chau, newspaper, howdy)
-4. **neighbourhood** (observations with ContentKey dedup)
-5. **gossip** (reads from GossipQueue now)
-6. **checkpoint** (complex multi-sig, versioning already proven useful)
+### After Phase 2:
+- [ ] Stash-relevant stages implemented (Sign, NoStore, NoGossip, MeshOnly, Verify, Dedupe)
+- [ ] Each stage has unit tests
 
-### For each service:
+### After Phase 3:
+- [ ] Runtime compiles with minimal implementation
+- [ ] MockRuntime works for service testing
+- [ ] Emit/Receive work for mesh messages
 
-1. Create behavior registrations
-2. Update service struct to use Runtime
-3. Implement MessageHandler interface
-4. Run dual-mode tests
-5. Remove old code paths once validated
+### After Phase 4:
+- [ ] MeshTransportAdapter bridges existing mesh code
+- [ ] IdentityAdapter provides public key lookup by ID
+
+### After Phase 5:
+- [ ] Service utilities created (Correlator, Encryptor)
+- [ ] Stash service fully migrated to new runtime
+- [ ] All stash message kinds working
+- [ ] Round-trip tests pass (store → ack, request → response)
+- [ ] No backwards compatibility needed — clean slate
+
+**Once Chapter 1 is complete:** Stash works beautifully on the new architecture. The rest of the system continues on the existing architecture until Chapter 2.
 
 ---
 
-## Phase 7: Update Gossip Service
+# Chapter 2: Everything After Stash
+
+**Goal:** Migrate remaining services to the new runtime and clean up.
+
+This chapter is executed **after Chapter 1 is complete and validated**.
+
+---
+
+## Phase 6: Complete the messages/ Package
+
+Add remaining payload types to `messages/`:
+
+```
+messages/
+├── doc.go           # (from Chapter 1)
+├── stash.go         # (from Chapter 1)
+├── social.go        # NEW: SocialPayload, TeasePayload
+├── presence.go      # NEW: HeyTherePayload, ChauPayload, NewspaperPayload
+├── checkpoint.go    # NEW: CheckpointProposal, CheckpointVote
+├── observation.go   # NEW: RestartObservation, StatusChangeObservation
+└── gossip.go        # NEW: ZinePayload, DMPayload
+```
+
+Each file follows the same pattern established in `stash.go`:
+- Godoc comments with Kind, Flow, Response, Transport, Version History
+- `Validate()` method
+- ID fields as primary identifiers, name fields with `omitempty` for legacy support
+
+---
+
+## Phase 7: Complete Runtime Infrastructure
+
+### Step 7.1: Add Remaining Stages
+
+Add to `runtime/stages_emit.go`:
+- **DefaultStoreStage** - adds to ledger with priority
+- **ContentKeyStoreStage** - stores with ContentKey-based deduplication
+- **GossipStage** - adds to gossip queue
+- **MQTTStage** - publishes to MQTT topic
+- **MQTTPerNaraStage** - publishes to per-nara topic
+
+Add to `runtime/stages_receive.go`:
+- **SelfAttestingVerifyStage** - extracts key from payload, verifies
+- **CustomVerifyStage** - calls custom verification function
+- **ContentKeyDedupeStage** - rejects messages with duplicate ContentKey
+- **RateLimitStage** - checks rate limiter
+- **ImportanceFilterStage** - filters by importance level
+
+### Step 7.2: Add Remaining Helpers
+
+Add to `runtime/helpers.go`:
+- `DefaultStore(priority)`, `ContentKeyStore(priority)`
+- `Gossip()`
+- `MQTT(topic)`, `MQTTPerNara(pattern)`
+- `SelfAttesting(f)`, `CustomVerify(f)`, `NoVerify()`
+- `ContentKeyDedupe()`
+- `RateLimit(window, max, keyFunc)`
+- `Critical()`, `Normal()`, `Casual(f)`
+
+### Step 7.3: Implement GossipQueue
+
+Create `runtime/gossip_queue.go`:
+
+```go
+type GossipQueue struct {
+    mu       sync.RWMutex
+    messages []*Message
+    maxAge   time.Duration
+    maxSize  int  // Backpressure: drop oldest when full
+}
+
+func NewGossipQueue(maxAge time.Duration, maxSize int) *GossipQueue
+func (q *GossipQueue) Add(msg *Message)
+func (q *GossipQueue) Recent(d time.Duration) []*Message
+func (q *GossipQueue) Prune()
+```
+
+### Step 7.4: Complete Adapter Layer
+
+- **LedgerAdapter** - wraps SyncLedger for LedgerInterface
+- **EventBusAdapter** - wraps internal event bus
+- **Complete TransportAdapter** - add MQTT alongside mesh
+
+### Step 7.5: Add Logger to Runtime
+
+Create `runtime/logger.go` (replaces `logservice.go`):
+
+```go
+type Logger struct { ... }           // Central coordinator
+type ServiceLog struct { ... }       // Per-service logger
+
+func (rt *Runtime) Log(service string) *ServiceLog
+
+func (l *ServiceLog) Debug(format string, args ...any)
+func (l *ServiceLog) Info(format string, args ...any)
+func (l *ServiceLog) Event(eventType, actor string, opts ...LogOption)  // Batched
+```
+
+---
+
+## Phase 8: Migrate Remaining Services
+
+**Order by complexity:**
+
+1. **social** (simple, one message kind, validates personality filtering)
+2. **world** (self-contained journeys)
+3. **presence** (hey-there, chau, newspaper, howdy)
+4. **neighbourhood** (observations with ContentKey dedup)
+5. **gossip** (reads from GossipQueue)
+6. **checkpoint** (complex multi-sig, versioning)
+
+### For each service:
+
+1. Add payload types to `messages/` package (if not done in Phase 6)
+2. Create behavior registrations
+3. Update service struct to use Runtime
+4. Implement MessageHandler interface
+5. Run dual-mode tests (old and new paths)
+6. Remove old code paths once validated
+
+---
+
+## Phase 9: Update Gossip Service
 
 **Goal:** Make gossip service read from GossipQueue instead of Ledger.
 
@@ -1122,80 +1137,56 @@ func (g *GossipService) createZine() *Zine {
 
 ---
 
-## Phase 8: Cleanup
+## Phase 10: Cleanup
 
-### Step 8.1: Remove Old Network Methods
+### Step 10.1: Remove Old Network Methods
 
 Once all services are migrated:
 - Remove emit-related methods from Network
 - Remove receive handling from Network
 - Remove event bus from Network
 
-### Step 8.2: Simplify Network
+### Step 10.2: Simplify Network
 
-Network becomes a thin wrapper or is removed entirely:
+Network becomes a thin wrapper:
 - Services talk directly to Runtime
 - Network only holds configuration
 
-### Step 8.3: Update Tests
+### Step 10.3: Update Tests
 
 - Remove tests for old paths
 - Ensure all new paths have coverage
 - Add integration tests
 
-### Step 8.4: Update Documentation
+### Step 10.4: Update Documentation
 
-- Run `nara docs` to generate message catalog
-- Update CLAUDE.md with new architecture
+- Run `nara docs --messages` to generate message catalog
+- Update AGENTS.md with new architecture
 - Remove obsolete design docs
 
 ---
 
-## Checkpoints
-
-### After Phase 1:
-- [ ] `messages/` package created with all payload structs
-- [ ] Each payload has godoc comments (Kind, Flow, Response, Transport, Version History)
-- [ ] Each payload has `Validate()` method
-- [ ] All core types compile (Message, StageResult, Pipeline, Behavior)
-- [ ] Unit tests pass for Message, StageResult, Pipeline, Behavior
-
-### After Phase 2:
-- [ ] All stages implemented
-- [ ] Each stage has unit tests
-- [ ] Stages are testable in isolation
-
-### After Phase 3:
-- [ ] Runtime compiles
-- [ ] Emit/Receive work with real MQTT (integration tests)
-- [ ] GossipQueue works
-- [ ] MockRuntime works for service testing (no MQTT needed)
-
-### After Phase 4:
-- [ ] Adapters wrap existing code
-- [ ] No changes to existing code required
-
-### After Phase 5:
-- [ ] Service utilities package created (`utilities/`)
-- [ ] Correlator, Encryptor, RateLimiter implemented and tested
-- [ ] Logger revamped in `runtime/logger.go` (replaces logservice.go)
-- [ ] Stash service migrated to new runtime
-- [ ] All stash message kinds working (`stash-refresh`, `stash:store`, `stash:request`, `stash:response`)
-- [ ] Stash uses Correlator for request/response tracking
-- [ ] Stash uses Encryptor for payload encryption
-- [ ] Stash uses `rt.Log("stash")` for structured logging
-- [ ] Round-trip tests pass (store → request → response)
-- [ ] No backwards compatibility needed — clean slate
+## Chapter 2 Checkpoints
 
 ### After Phase 6:
-- [ ] All services migrated
-- [ ] All dual-mode tests pass
+- [ ] All payload types in `messages/` package
+- [ ] Each has godoc, Validate(), ID fields
 
 ### After Phase 7:
+- [ ] All stages implemented and tested
+- [ ] GossipQueue with backpressure
+- [ ] All adapters complete
+- [ ] Logger integrated
+
+### After Phase 8:
+- [ ] All services migrated
+- [ ] Dual-mode tests pass for each
+
+### After Phase 9:
 - [ ] Gossip uses GossipQueue
 - [ ] Gossip-only messages work without storage
 
-### After Phase 8:
+### After Phase 10:
 - [ ] Old code removed
 - [ ] Tests updated
 - [ ] Docs generated
@@ -1205,7 +1196,7 @@ Network becomes a thin wrapper or is removed entirely:
 ## Risk Mitigation
 
 ### Risk: Breaking existing functionality
-**Mitigation:** Dual-mode testing at each step. Keep old paths until new ones validated.
+**Mitigation:** Dual-mode testing during Chapter 2. Keep old paths until new ones validated. Chapter 1 (stash) has no backwards compatibility risk.
 
 ### Risk: Circular imports
 **Mitigation:** Use interfaces extensively. runtime package has no dependencies on nara package.
@@ -1220,25 +1211,27 @@ Network becomes a thin wrapper or is removed entirely:
 
 ## Notes for Implementation
 
-1. **Keep the old code working** until the new code is proven
-2. **One service at a time** - don't try to migrate everything at once
+1. **Complete Chapter 1 before starting Chapter 2** — validate the architecture with stash first
+2. **One service at a time in Chapter 2** — don't try to migrate everything at once
 3. **Test each stage in isolation** before integrating
 4. **Interfaces everywhere** to avoid circular dependencies
-5. **Measure twice, cut once** - validate design with simple cases before complex ones
+5. **Measure twice, cut once** — validate design with simple cases before complex ones
 
 ---
 
-## Estimated Effort
+## Effort Summary
 
-| Phase | Complexity | Dependencies |
-|-------|------------|--------------|
-| Phase 1: Core Types | Low | None |
-| Phase 2: Stages | Medium | Phase 1 |
-| Phase 3: Runtime | Medium | Phase 1, 2 |
-| Phase 4: Adapters | Low | Phase 3 |
-| Phase 5: First Service | Medium | Phase 4 |
-| Phase 6: Remaining Services | High | Phase 5 |
-| Phase 7: Gossip Update | Low | Phase 6 |
-| Phase 8: Cleanup | Medium | Phase 7 |
+| Phase | Chapter | Complexity | Dependencies |
+|-------|---------|------------|--------------|
+| Phase 1: Core Types (Stash) | 1 | Low | None |
+| Phase 2: Stash Stages | 1 | Low | Phase 1 |
+| Phase 3: Runtime (Minimal) | 1 | Medium | Phase 1, 2 |
+| Phase 4: Adapters (Stash) | 1 | Low | Phase 3 |
+| Phase 5: Migrate Stash | 1 | Medium | Phase 4 |
+| Phase 6: Complete messages/ | 2 | Low | Chapter 1 |
+| Phase 7: Complete Runtime | 2 | Medium | Phase 6 |
+| Phase 8: Migrate Services | 2 | High | Phase 7 |
+| Phase 9: Gossip Update | 2 | Low | Phase 8 |
+| Phase 10: Cleanup | 2 | Medium | Phase 9 |
 
-**Recommended approach:** Complete phases 1-5 first, then evaluate. Phases 6-8 can be done incrementally.
+**Recommended approach:** Complete Chapter 1, deploy stash, evaluate. Then proceed with Chapter 2 incrementally.
