@@ -133,6 +133,12 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 		mux.HandleFunc("/network/map", network.httpNetworkMapHandler)
 		mux.HandleFunc("/proximity", network.httpProximityHandler)
 
+		// Stash API endpoints
+		mux.HandleFunc("/api/stash/status", network.httpStashStatusHandler)
+		mux.HandleFunc("/api/stash/update", network.httpStashUpdateHandler)
+		mux.HandleFunc("/api/stash/recover", network.httpStashRecoverHandler)
+		mux.HandleFunc("/api/stash/confidants", network.httpStashConfidantsHandler)
+
 		// Inspector API endpoints
 		mux.HandleFunc("/api/inspector/events", network.local.inspectorEventsHandler)
 		mux.HandleFunc("/api/inspector/checkpoints", network.local.inspectorCheckpointsHandler)

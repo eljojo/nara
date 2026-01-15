@@ -467,7 +467,7 @@ func (b *Behavior) WithRateLimit(stage Stage) *Behavior
 WithRateLimit adds rate limiting to the receive pipeline.
 
 <a name="BehaviorRegistrar"></a>
-## type [BehaviorRegistrar](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L136-L138>)
+## type [BehaviorRegistrar](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L135-L137>)
 
 BehaviorRegistrar is optionally implemented by services that register behaviors.
 
@@ -478,7 +478,7 @@ type BehaviorRegistrar interface {
 ```
 
 <a name="BehaviorRegistry"></a>
-## type [BehaviorRegistry](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L143-L145>)
+## type [BehaviorRegistry](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L142-L144>)
 
 BehaviorRegistry is optionally implemented by runtimes that support local behavior registration. The mock runtime implements this to allow per\-runtime behavior registration \(for tests\). The real runtime may delegate to the global registry.
 
@@ -489,7 +489,7 @@ type BehaviorRegistry interface {
 ```
 
 <a name="CallRegistry"></a>
-## type [CallRegistry](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L148-L151>)
+## type [CallRegistry](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L147-L150>)
 
 CallRegistry manages pending Call requests \(Chapter 3\).
 
@@ -500,7 +500,7 @@ type CallRegistry struct {
 ```
 
 <a name="CallRegistry.Cancel"></a>
-### func \(\*CallRegistry\) [Cancel](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L168>)
+### func \(\*CallRegistry\) [Cancel](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L166>)
 
 ```go
 func (r *CallRegistry) Cancel(id string)
@@ -509,16 +509,16 @@ func (r *CallRegistry) Cancel(id string)
 
 
 <a name="CallRegistry.Register"></a>
-### func \(\*CallRegistry\) [Register](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L159>)
+### func \(\*CallRegistry\) [Register](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L157>)
 
 ```go
 func (r *CallRegistry) Register(id string, ch chan CallResult, timeout time.Duration)
 ```
 
-Stub methods for compatibility (to be implemented later)
+
 
 <a name="CallRegistry.Resolve"></a>
-### func \(\*CallRegistry\) [Resolve](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L163>)
+### func \(\*CallRegistry\) [Resolve](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L161>)
 
 ```go
 func (r *CallRegistry) Resolve(inReplyTo string, response *Message) bool
@@ -527,7 +527,7 @@ func (r *CallRegistry) Resolve(inReplyTo string, response *Message) bool
 
 
 <a name="CallResult"></a>
-## type [CallResult](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L117-L120>)
+## type [CallResult](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L116-L119>)
 
 CallResult is returned by CallAsync \(Chapter 3\).
 
@@ -647,7 +647,7 @@ func (s *DefaultSignStage) Process(msg *Message, ctx *PipelineContext) StageResu
 
 DefaultStoreStage stores the message in the ledger with a GC priority.
 
-Not currently used by stash, but available for other services.
+Needed for Chapter 2.
 
 ```go
 type DefaultStoreStage struct {
@@ -700,7 +700,7 @@ type EmitBehavior struct {
 ```
 
 <a name="Environment"></a>
-## type [Environment](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L78>)
+## type [Environment](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L77>)
 
 Environment enum for runtime behavior.
 
@@ -877,7 +877,7 @@ type LedgerInterface interface {
 ```
 
 <a name="Logger"></a>
-## type [Logger](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L112-L114>)
+## type [Logger](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L111-L113>)
 
 Logger is the central logging coordinator \(owned by Runtime\).
 
@@ -1225,11 +1225,11 @@ func (m *MockRuntime) Subscribe(kind string, handler func(*Message))
 Subscribe registers a handler for a message kind.
 
 <a name="Nara"></a>
-## type [Nara](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L70-L73>)
+## type [Nara](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L69-L72>)
 
 Nara represents a network participant.
 
-This is a minimal stub \- the full Nara struct will be migrated in Chapter 2.
+The full Nara struct will be migrated in Chapter 2.
 
 ```go
 type Nara struct {
@@ -1682,7 +1682,7 @@ func (s *SelfAttestingVerifyStage) Process(msg *Message, ctx *PipelineContext) S
 
 
 <a name="Service"></a>
-## type [Service](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L125-L133>)
+## type [Service](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L124-L132>)
 
 Service is what all services implement.
 
@@ -1701,7 +1701,7 @@ type Service interface {
 ```
 
 <a name="ServiceLog"></a>
-## type [ServiceLog](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L89-L92>)
+## type [ServiceLog](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L88-L91>)
 
 ServiceLog is a logger scoped to a specific service.
 
@@ -1714,7 +1714,7 @@ type ServiceLog struct {
 ```
 
 <a name="ServiceLog.Debug"></a>
-### func \(\*ServiceLog\) [Debug](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L95>)
+### func \(\*ServiceLog\) [Debug](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L94>)
 
 ```go
 func (l *ServiceLog) Debug(format string, args ...any)
@@ -1723,7 +1723,7 @@ func (l *ServiceLog) Debug(format string, args ...any)
 Logger methods
 
 <a name="ServiceLog.Error"></a>
-### func \(\*ServiceLog\) [Error](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L107>)
+### func \(\*ServiceLog\) [Error](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L106>)
 
 ```go
 func (l *ServiceLog) Error(format string, args ...any)
@@ -1732,7 +1732,7 @@ func (l *ServiceLog) Error(format string, args ...any)
 
 
 <a name="ServiceLog.Info"></a>
-### func \(\*ServiceLog\) [Info](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L99>)
+### func \(\*ServiceLog\) [Info](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L98>)
 
 ```go
 func (l *ServiceLog) Info(format string, args ...any)
@@ -1741,7 +1741,7 @@ func (l *ServiceLog) Info(format string, args ...any)
 
 
 <a name="ServiceLog.Warn"></a>
-### func \(\*ServiceLog\) [Warn](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L103>)
+### func \(\*ServiceLog\) [Warn](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L102>)
 
 ```go
 func (l *ServiceLog) Warn(format string, args ...any)

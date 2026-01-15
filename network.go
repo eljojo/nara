@@ -1,6 +1,7 @@
 package nara
 
 import (
+	"github.com/eljojo/nara/services/stash"
 	"context"
 	"math/rand"
 	"net/http"
@@ -117,7 +118,8 @@ type Network struct {
 	checkpointService *CheckpointService
 
 	// Runtime: new message-based runtime
-	runtime *runtime.Runtime
+	runtime      *runtime.Runtime
+	stashService *stash.Service
 }
 
 // PendingJourney tracks a journey we participated in, waiting for completion

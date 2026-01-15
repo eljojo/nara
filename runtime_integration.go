@@ -59,8 +59,9 @@ func (network *Network) initRuntime() error {
 	// Add service to runtime
 	_ = rt.AddService(stashService)
 
-	// Store runtime in network
+	// Store runtime and stash service in network
 	network.runtime = rt
+	network.stashService = stashService
 
 	logrus.Info("🎯 Runtime initialized with stash service")
 
