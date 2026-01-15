@@ -3,14 +3,12 @@ title: Projections
 description: Deterministic, event-sourced views of network state in Nara.
 ---
 
-# Projections
-
 Projections are deterministic, read-only views derived from the event ledger, representing a Nara's subjective "Opinion" of replayed facts.
 
 ## 1. Purpose
 - Transform event streams into actionable state (e.g., liveness).
 - Reach consensus on peer metrics (Trinity) without central coordination.
-- Compute complex metrics like [Clout](./clout.md) on-the-fly.
+- Compute complex metrics like [Clout](/docs/spec/clout/) on-the-fly.
 - Decouple interpretation logic from event storage.
 
 ## 2. Conceptual Model
@@ -33,7 +31,7 @@ Projections are deterministic, read-only views derived from the event ledger, re
 
 ### Opinion Consensus
 - **Trinity**: Derives consensus `StartTime`, `Restarts`, and `TotalUptime`.
-- **Anchoring**: Uses [Checkpoints](./checkpoints.md) as trusted baselines.
+- **Anchoring**: Uses [Checkpoints](/docs/spec/checkpoints/) as trusted baselines.
 
 ### Clout
 - **Resonance**: Filters interactions via personality-based algorithms.

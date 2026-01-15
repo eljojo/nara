@@ -3,8 +3,6 @@ title: Sync Protocol
 description: P2P reconciliation and event exchange in the Nara Network.
 ---
 
-# Sync Protocol
-
 The Sync Protocol enables naras to reconcile "hazy memories" by exchanging events from local ledgers, handling partial connectivity and memory constraints.
 
 ## 1. Purpose

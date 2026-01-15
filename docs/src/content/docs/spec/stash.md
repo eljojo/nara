@@ -3,8 +3,6 @@ title: Stash
 description: Distributed encrypted storage and redundancy in the Nara Network.
 ---
 
-# Stash
-
 Stash is Nara's distributed, encrypted, memory-only storage system. It enables persistence for small (max 10KB) state blobs by storing them with "confidants"—other naras—without local disk use.
 
 ## 1. Purpose

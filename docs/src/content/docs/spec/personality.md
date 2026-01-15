@@ -3,8 +3,6 @@ title: Personality
 description: Deterministic traits and subjective behavior in the Nara Network.
 ---
 
-# Personality
-
 Personality defines a Nara's "character," driving subjectivity by determining event filtering, clout weighting, and interaction frequency.
 
 ## 1. Purpose

@@ -3,13 +3,11 @@ title: HTTP API
 description: Public and private HTTP endpoints for state, projections, and control.
 ---
 
-# HTTP API
-
 The Nara HTTP API provides interfaces for network state retrieval, opinion inspection, and local control. It is divided into **Public UI/API** and **Inspector API**.
 
 ## 1. Servers
 - **Local Server** (Default `:8080`): Serves Web UI and general API.
-- **Mesh Server** (Default `:7433`): Serves peer-authenticated endpoints (see [Mesh HTTP](./mesh-http.md)).
+- **Mesh Server** (Default `:7433`): Serves peer-authenticated endpoints (see [Mesh HTTP](/docs/spec/mesh-http/)).
 
 ## 2. Interfaces
 
@@ -33,7 +31,7 @@ The Nara HTTP API provides interfaces for network state retrieval, opinion inspe
 ### Control & Stash
 | Endpoint | Method | Purpose |
 | :--- | :--- | :--- |
-| `/world/start` | POST | Initiate a [World Postcard](./world-postcards.md). |
+| `/world/start` | POST | Initiate a [World Postcard](/docs/spec/world-postcards/). |
 | `/api/stash/update`| POST | Update and distribute local stash. |
 | `/api/events/import`| POST | Signed batch event import. |
 

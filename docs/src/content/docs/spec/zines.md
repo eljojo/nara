@@ -3,8 +3,6 @@ title: Zines
 description: Peer-to-peer gossip and editorial memory in the Nara Network.
 ---
 
-# Zines
-
 Zines are compact, signed bundles of recent events exchanged P2P over Mesh HTTP. They propagate history "hand-to-hand" across the network.
 
 ## 1. Purpose

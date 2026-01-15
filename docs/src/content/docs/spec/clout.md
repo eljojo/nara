@@ -3,8 +3,6 @@ title: Clout
 description: Subjective reputation and ranking in the Nara Network.
 ---
 
-# Clout
-
 Clout is a subjective reputation score derived from observed actions. It is an observer-dependent opinion, not a global value.
 
 ## 1. Purpose
@@ -43,7 +41,7 @@ Observer-side adjustments:
 ### Weighting & Decay
 `Adjustment = BaseWeight * TimeDecay`.
 - **BaseWeight**: `1.0 + (Sociability/200) - (Chill/400)`.
-- **TimeDecay**: `1 / (1 + age/halfLife)`. (See [Personality](./personality.md) for half-life).
+- **TimeDecay**: `1 / (1 + age/halfLife)`. (See [Personality](/docs/spec/personality/) for half-life).
 
 ## 4. Failure Modes
 - **Asymmetry**: Missing events (e.g., service logs) leads to unfairly low opinions.

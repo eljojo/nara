@@ -3,8 +3,6 @@ title: Social Events
 description: Teasing, trends, and buzz in the Nara Network.
 ---
 
-# Social Events
-
 Social events enable naras to interact, judge, and participate in collective behaviors like trends and "buzz."
 
 ## 1. Purpose

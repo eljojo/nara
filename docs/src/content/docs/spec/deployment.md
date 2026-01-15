@@ -3,8 +3,6 @@ title: Deployment
 description: Build and runtime orchestration for Nara binaries and assets.
 ---
 
-# Deployment
-
 Build and runtime orchestration for Nara binaries, UI assets, and documentation.
 
 ## 1. Conceptual Model

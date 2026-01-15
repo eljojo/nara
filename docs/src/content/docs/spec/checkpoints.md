@@ -3,8 +3,6 @@ title: Checkpoints
 description: Multi-party attestation and historical anchors in the Nara Network.
 ---
 
-# Checkpoints
-
 Checkpoints provide multi-party consensus for anchoring historical state (restarts, uptime, first-seen). They create trusted snapshots that survive network restarts and ledger pruning.
 
 ## 1. Purpose

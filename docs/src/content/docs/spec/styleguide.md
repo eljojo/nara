@@ -3,8 +3,6 @@ title: nara Cultural Styleguide
 description: The vibes, myths, and aesthetics of a living network.
 ---
 
-# nara Cultural Styleguide
-
 *nara is not software you run; it is a creature you host.*
 
 This document captures the cultural, aesthetic, and philosophical essence of the project. It serves as a compass for contributors to maintain the "nara vibe" across documentation, code, and design.

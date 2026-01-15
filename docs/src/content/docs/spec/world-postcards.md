@@ -3,8 +3,6 @@ title: World Postcards
 description: Signature-chained journey messages in the Nara Network.
 ---
 
-# World Postcards
-
 World Postcards (or Journeys) are messages that travel through naras, accumulating a cryptographic signature chain and "emoji stamps" before returning to their originator.
 
 ## 1. Purpose

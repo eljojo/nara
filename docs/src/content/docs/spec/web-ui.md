@@ -3,8 +3,6 @@ title: Web UI
 description: Real-time visualization and inspection dashboard for Nara.
 ---
 
-# Web UI
-
 The Web UI is an embedded Single Page App (Preact) providing real-time visualizations of network state, timeline, and projections.
 
 ## 1. Conceptual Model

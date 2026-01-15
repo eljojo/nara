@@ -3,8 +3,6 @@ title: Identity
 description: Cryptographic identity and bonding in the Nara Network.
 ---
 
-# Identity
-
 Nara binds human-readable names to cryptographic "souls," enabling decentralized verification and stable identifiers.
 
 ## 1. Purpose

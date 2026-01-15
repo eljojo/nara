@@ -3,8 +3,6 @@ title: Events
 description: Immutable, signed facts in the Nara Network ledger.
 ---
 
-# Events
-
 Events are the fundamental unit of information in Nara, representing immutable facts from which all state (status, reputation, uptime) is derived.
 
 ## 1. Purpose

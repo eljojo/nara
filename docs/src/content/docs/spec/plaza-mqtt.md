@@ -3,15 +3,13 @@ title: Plaza MQTT
 description: Public broadcast and heartbeat layer for the Nara Network.
 ---
 
-# Plaza MQTT
-
 Plaza MQTT is the public square of the network, providing best-effort broadcast for presence, heartbeats, and real-time social events.
 
 ## 1. Purpose
 - Low-latency discovery via `hey_there`.
 - Periodic status heartbeats ([Newspapers](#newspaper-heartbeats)).
 - Real-time social signaling (teasing, buzz).
-- Coordination for [Checkpoint](./checkpoints.md) consensus.
+- Coordination for [Checkpoint](/docs/spec/checkpoints/) consensus.
 
 ## 2. Conceptual Model
 - **Pub/Sub**: Standard MQTT (default `tls://mqtt.nara.network:8883`).
@@ -21,7 +19,7 @@ Plaza MQTT is the public square of the network, providing best-effort broadcast 
 ### Invariants
 - **Signed Payloads**: Every message must be signed with the sender's soul.
 - **Jittered Join**: 0-5s delay before initial `hey_there`.
-- **Hybrid-Resilient**: Falls back to [Mesh HTTP](./mesh-http.md) gossip if MQTT is down.
+- **Hybrid-Resilient**: Falls back to [Mesh HTTP](/docs/spec/mesh-http/) gossip if MQTT is down.
 
 ## 3. Interfaces
 
@@ -38,7 +36,7 @@ Plaza MQTT is the public square of the network, providing best-effort broadcast 
 ### Newspaper Heartbeats
 Published every 10-300s (per `Chattiness`).
 - **Signature**: Covers raw JSON of the `Status` field.
-- **Content**: [Identity](./identity.md), [Personality](./personality.md), [Observations](./observations.md), and [Buzz](./social-events.md#buzz-calculation).
+- **Content**: [Identity](/docs/spec/identity/), [Personality](/docs/spec/personality/), [Observations](/docs/spec/observations/), and [Buzz](/docs/spec/social-events/#buzz-calculation).
 
 ## 4. Algorithms
 
@@ -52,7 +50,7 @@ Published every 10-300s (per `Chattiness`).
 Randomized backoff (5-35s) on connection loss.
 
 ## 5. Failure Modes
-- **Broker Outage**: Loss of real-time heartbeats; fallback to [Zines](./zines.md).
+- **Broker Outage**: Loss of real-time heartbeats; fallback to [Zines](/docs/spec/zines/).
 - **Spoofing**: Unprotected topics require **mandatory** signature verification by subscribers.
 - **Message Loss**: State derivation must be resilient to dropped QoS 0 broadcasts.
 

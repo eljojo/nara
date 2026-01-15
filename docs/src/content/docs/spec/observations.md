@@ -3,8 +3,6 @@ title: Observations
 description: Monitoring uptime, restarts, and network state consensus in the Nara Network.
 ---
 
-# Observations
-
 Observations allow naras to monitor and agree on peer state (restarts, first-seen, status changes) to derive a collective "opinion" without a central registry.
 
 ## 1. Purpose

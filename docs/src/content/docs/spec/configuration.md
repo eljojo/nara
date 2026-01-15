@@ -3,8 +3,6 @@ title: Configuration
 description: CLI flags, environment variables, and memory profiles in Nara.
 ---
 
-# Configuration
-
 Nara uses CLI flags and environment variables for identity, transport, and resource tuning.
 
 ## 1. Purpose
@@ -58,7 +56,7 @@ If `-memory-mode` is `auto`:
 - **`hybrid`**: Standard dual-transport.
 
 ## 5. Security
-- **Soul Sovereignty**: The soul is the root of identity and [Stash](./stash.md) decryption.
+- **Soul Sovereignty**: The soul is the root of identity and [Stash](/docs/spec/stash/) decryption.
 - **Environment Gating**: Use env vars to override embedded credentials in production.
 
 ## 6. Test Oracle

@@ -3,14 +3,12 @@ title: Coordinates
 description: Vivaldi network coordinates and proximity-based influence in Nara.
 ---
 
-# Coordinates
-
 Coordinates use the Vivaldi algorithm to estimate P2P latency, creating a scalable "map" of network topology in virtual space.
 
 ## 1. Purpose
 - Estimate RTT between naras without full-mesh pinging.
 - Drive proximity-based social behaviors and "best friends."
-- Optimize [World Postcard](./world-postcards.md) routing.
+- Optimize [World Postcard](/docs/spec/world-postcards/) routing.
 - Network visualization in the web UI.
 
 ## 2. Conceptual Model
@@ -25,7 +23,7 @@ Coordinates use the Vivaldi algorithm to estimate P2P latency, creating a scalab
 ## 3. External Behavior
 - **Automatic Updates**: Triggered by Mesh HTTP `/ping` or `PingObservation` events.
 - **Influence Bonus**: 30% boost to opinions for nearby naras.
-- **Barrios**: Latency clustering into neighborhoods (see [Aura & Avatar](./aura-and-avatar.md)).
+- **Barrios**: Latency clustering into neighborhoods (see [Aura & Avatar](/docs/spec/aura-and-avatar/)).
 
 ## 4. Interfaces
 

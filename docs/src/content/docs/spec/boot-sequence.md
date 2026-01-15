@@ -3,8 +3,6 @@ title: Boot Sequence
 description: Transition from startup to steady-state in the Nara Network.
 ---
 
-# Boot Sequence
-
 The Boot Sequence orchestrates a Nara's transition from startup to full network participation, prioritizing identity and historical reconciliation (Sync).
 
 ## 1. Purpose
@@ -49,7 +47,7 @@ sequenceDiagram
 2. **Parallel Sync**: Fetch events from mesh neighbors.
    - **Sample Mode**: Distributed subset retrieval.
    - **Capacity**: 5k (Short) to 80k (Hog) events.
-3. **Anchor Sync**: Fetch [Checkpoints](./checkpoints.md) from ≤ 5 neighbors.
+3. **Anchor Sync**: Fetch [Checkpoints](/docs/spec/checkpoints/) from ≤ 5 neighbors.
 4. **Completion**: Close `bootRecoveryDone`.
 
 ### Initial Opinion Pass

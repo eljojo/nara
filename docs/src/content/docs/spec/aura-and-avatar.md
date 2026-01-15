@@ -3,8 +3,6 @@ title: Aura and Avatar
 description: Deterministic visual identity and flair in the Nara Network.
 ---
 
-# Aura and Avatar
-
 Aura and Avatar provide every Nara with a unique visual identity derived from its soul and personality, enabling recognizable UI characters without central registries.
 
 ## 1. Purpose
@@ -38,10 +36,10 @@ String built from:
 - **Identity**: 💎 (Valid bond) or ⚪ (Generic).
 - **Platform**: 🍓 (RPi), ❄️ (NixOS), ☸️ (K8s), 🐧 (Linux).
 - **Awards**: 👑 (Oldest), 👶 (Newest), 🌀 (Most restarts).
-- **Social**: Current [Trend](./social-events.md#trend-logic) emoji.
+- **Social**: Current [Trend](/docs/spec/social-events/#trend-logic) emoji.
 
 ### License Plate (Barrio)
-1. Map [Coordinate](./coordinates.md) position to a grid cell.
+1. Map [Coordinate](/docs/spec/coordinates/) position to a grid cell.
 2. Assign cell-specific emoji as the "License Plate."
 3. Peers in the same cell share a plate, forming a local neighborhood.
 

@@ -3,8 +3,6 @@ title: Overview
 description: Core principles, conceptual model, and behavior of the Nara Network.
 ---
 
-# Overview
-
 Nara is a distributed system where computers gossip, remember imperfectly, and form subjective opinions. It treats network constraints as aesthetic features.
 
 ## 1. Core Principles

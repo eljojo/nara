@@ -31,18 +31,6 @@ export default defineConfig({
           ]
         },
         {
-          label: 'Concepts',
-          items: [
-            { label: 'Events', link: '/concepts/events/' },
-            { label: 'Sync', link: '/concepts/sync/' },
-            { label: 'Observations', link: '/concepts/observations/' },
-            { label: 'Stash', link: '/concepts/stash/' },
-            { label: 'World Journeys', link: '/concepts/world/' },
-            { label: 'Coordinates', link: '/concepts/coordinates/' }
-          ]
-        }
-        ,
-        {
           label: 'Specification',
           items: [
             { label: 'Living Spec Home', link: '/spec/' },
@@ -62,7 +50,6 @@ export default defineConfig({
             { label: 'Checkpoints', link: '/spec/checkpoints/' },
             { label: 'Stash', link: '/spec/stash/' },
             { label: 'Social Events', link: '/spec/social-events/' },
-            { label: 'Styleguide', link: '/spec/styleguide/' },
             { label: 'Clout', link: '/spec/clout/' },
             { label: 'World Postcards', link: '/spec/world-postcards/' },
             { label: 'Coordinates (Spec)', link: '/spec/coordinates/' },
@@ -71,6 +58,18 @@ export default defineConfig({
             { label: 'Boot Sequence', link: '/spec/boot-sequence/' },
             { label: 'Configuration', link: '/spec/configuration/' },
             { label: 'Deployment', link: '/spec/deployment/' }
+            { label: 'Styleguide', link: '/spec/styleguide/' },
+          ]
+        },
+        {
+          label: 'Concepts',
+          items: [
+            { label: 'Events', link: '/concepts/events/' },
+            { label: 'Sync', link: '/concepts/sync/' },
+            { label: 'Observations', link: '/concepts/observations/' },
+            { label: 'Stash', link: '/concepts/stash/' },
+            { label: 'World Journeys', link: '/concepts/world/' },
+            { label: 'Coordinates', link: '/concepts/coordinates/' }
           ]
         }
 			],

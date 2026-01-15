@@ -3,8 +3,6 @@ title: Memory Model
 description: Hazy memory, event-sourced state, and priority-based forgetting in Nara.
 ---
 
-# Memory Model
-
 Nara uses a "hazy memory" model: state is in-memory and derived from signed events. Memory is strictly bounded to mimic human-like forgetting and maintain a lightweight footprint.
 
 ## 1. Purpose
@@ -48,7 +46,7 @@ When `len(ledger) > MaxEvents`, remove by priority (lowest first):
 ### Observation Compaction
 - Max 20 events per (Observer, Subject) pair.
 - Prune non-restart events first.
-- Restart events pruned only if a subject [Checkpoint](./checkpoints.md) exists.
+- Restart events pruned only if a subject [Checkpoint](/docs/spec/checkpoints/) exists.
 
 ### Peer Pruning (Neighbourhood)
 - **Zombies**: Seen briefly once; pruned during boot.

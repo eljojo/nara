@@ -3,8 +3,6 @@ title: Presence
 description: Real-time liveness and discovery protocol in the Nara Network.
 ---
 
-# Presence
-
 Presence signals enable discovery, liveness tracking, and graceful departures via hybrid MQTT and gossip.
 
 ## 1. Purpose

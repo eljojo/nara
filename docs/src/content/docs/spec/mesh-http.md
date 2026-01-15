@@ -3,15 +3,13 @@ title: Mesh HTTP
 description: Authenticated point-to-point communication over WireGuard.
 ---
 
-# Mesh HTTP
-
 Mesh HTTP is the transport for sensitive and bulk data exchange, running over an encrypted WireGuard mesh (tsnet/Headscale). It provides authenticated point-to-point links.
 
 ## 1. Purpose
 - Encrypted/authenticated alternative to MQTT.
-- Large data transfers: [Zines](./zines.md) and [Sync](./sync-protocol.md).
-- Distributed storage: [Stash](./stash.md).
-- Low-latency routing: [World Postcards](./world-postcards.md).
+- Large data transfers: [Zines](/docs/spec/zines/) and [Sync](/docs/spec/sync-protocol/).
+- Distributed storage: [Stash](/docs/spec/stash/).
+- Low-latency routing: [World Postcards](/docs/spec/world-postcards/).
 
 ## 2. Conceptual Model
 - **Auth**: Mandatory soul-based signatures for all requests except `/ping`.
@@ -36,8 +34,8 @@ Mesh HTTP is the transport for sensitive and bulk data exchange, running over an
 | `/gossip/zine` | POST | Bidirectional event exchange. |
 | `/dm` | POST | Single `SyncEvent` delivery. |
 | `/events/sync` | POST | Ledger reconciliation. |
-| `/world/relay` | POST | [World Postcard](./world-postcards.md) forwarding. |
-| `/stash/*` | POST/DEL| [Stash](./stash.md) operations. |
+| `/world/relay` | POST | [World Postcard](/docs/spec/world-postcards/) forwarding. |
+| `/stash/*` | POST/DEL| [Stash](/docs/spec/stash/) operations. |
 
 ## 4. Algorithms
 
