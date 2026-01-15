@@ -60,9 +60,11 @@ type SyncEvent struct {
 // This is a lightweight event for "I received something from this nara"
 // that proves they're reachable/online without creating heavier events.
 type SeenEvent struct {
-	Observer string `json:"observer"` // who saw them
-	Subject  string `json:"subject"`  // who was seen
-	Via      string `json:"via"`      // how: "zine", "mesh", "ping", "sync"
+	Observer   string `json:"observer,omitempty"`    // who saw them (name, for display - legacy)
+	ObserverID string `json:"observer_id,omitempty"` // who saw them (ID, for verification)
+	Subject    string `json:"subject,omitempty"`     // who was seen (name, for display - legacy)
+	SubjectID  string `json:"subject_id,omitempty"`  // who was seen (ID, for verification)
+	Via        string `json:"via"`                   // how: "zine", "mesh", "ping", "sync"
 }
 
 // ContentString returns canonical string for hashing/signing
@@ -147,11 +149,13 @@ type Payload interface {
 // SocialEventPayload is the social event data within a SyncEvent
 // This replaces the standalone SocialEvent for sync purposes
 type SocialEventPayload struct {
-	Type    string `json:"type"`    // "tease", "observed", "gossip", "observation"
-	Actor   string `json:"actor"`   // who did it
-	Target  string `json:"target"`  // who it was about
-	Reason  string `json:"reason"`  // why (e.g., "high-restarts", "trend-abandon")
-	Witness string `json:"witness"` // who reported it (empty if self-reported)
+	Type     string `json:"type"`                 // "tease", "observed", "gossip", "observation"
+	Actor    string `json:"actor,omitempty"`      // who did it (name, for display - legacy)
+	ActorID  string `json:"actor_id,omitempty"`   // who did it (ID, for verification)
+	Target   string `json:"target,omitempty"`     // who it was about (name, for display - legacy)
+	TargetID string `json:"target_id,omitempty"`  // who it was about (ID, for verification)
+	Reason   string `json:"reason,omitempty"`     // why (e.g., "high-restarts", "trend-abandon")
+	Witness  string `json:"witness,omitempty"`    // who reported it (empty if self-reported)
 }
 
 // ContentString returns canonical string for hashing/signing
@@ -254,9 +258,11 @@ func (p *SocialEventPayload) ToLogEvent() *LogEvent {
 
 // PingObservation records a latency measurement between two naras
 type PingObservation struct {
-	Observer string  `json:"observer"` // who took the measurement
-	Target   string  `json:"target"`   // who was measured
-	RTT      float64 `json:"rtt"`      // round-trip time in milliseconds
+	Observer   string  `json:"observer,omitempty"`    // who took the measurement (name, for display - legacy)
+	ObserverID string  `json:"observer_id,omitempty"` // who took the measurement (ID, for verification)
+	Target     string  `json:"target,omitempty"`      // who was measured (name, for display - legacy)
+	TargetID   string  `json:"target_id,omitempty"`   // who was measured (ID, for verification)
+	RTT        float64 `json:"rtt"`                   // round-trip time in milliseconds
 }
 
 // ContentString returns canonical string for hashing/signing
@@ -361,11 +367,13 @@ func (p *PingObservation) ToLogEvent() *LogEvent {
 //
 // =============================================================================
 type ObservationEventPayload struct {
-	Observer   string `json:"observer"`              // who made the observation
-	Subject    string `json:"subject"`               // who is being observed
-	Type       string `json:"type"`                  // "restart", "first-seen", "status-change"
-	Importance int    `json:"importance"`            // 1=casual, 2=normal, 3=critical
-	IsBackfill bool   `json:"is_backfill,omitempty"` // true if grandfathering existing data
+	Observer   string `json:"observer,omitempty"`      // who made the observation (name, for display - legacy)
+	ObserverID string `json:"observer_id,omitempty"`   // who made the observation (ID, for verification)
+	Subject    string `json:"subject,omitempty"`       // who is being observed (name, for display - legacy)
+	SubjectID  string `json:"subject_id,omitempty"`    // who is being observed (ID, for verification)
+	Type       string `json:"type"`                    // "restart", "first-seen", "status-change"
+	Importance int    `json:"importance"`              // 1=casual, 2=normal, 3=critical
+	IsBackfill bool   `json:"is_backfill,omitempty"`   // true if grandfathering existing data
 
 	// Data specific to observation type (all timestamps in SECONDS)
 	StartTime   int64  `json:"start_time,omitempty"`   // Unix timestamp in SECONDS when nara started
@@ -755,6 +763,106 @@ func NewStatusChangeObservationEvent(observer, subject, onlineState string) Sync
 		},
 	}
 	e.ComputeID()
+	return e
+}
+
+// --- ID-aware constructors ---
+// These constructors include both name (for display) and ID (for verification) fields.
+// Use these when creating events to ensure proper ID-based verification.
+
+// NewRestartObservationEventWithIDs creates a restart observation with explicit IDs
+func NewRestartObservationEventWithIDs(observer, observerID, subject, subjectID string, startTime, restartNum int64) SyncEvent {
+	e := SyncEvent{
+		Timestamp: time.Now().UnixNano(),
+		Service:   ServiceObservation,
+		Observation: &ObservationEventPayload{
+			Observer:    observer,
+			ObserverID:  observerID,
+			Subject:     subject,
+			SubjectID:   subjectID,
+			Type:        "restart",
+			Importance:  ImportanceCritical,
+			StartTime:   startTime,
+			RestartNum:  restartNum,
+			LastRestart: time.Now().Unix(),
+		},
+	}
+	e.ComputeID()
+	return e
+}
+
+// NewFirstSeenObservationEventWithIDs creates a first-seen observation with explicit IDs
+func NewFirstSeenObservationEventWithIDs(observer, observerID, subject, subjectID string, startTime int64) SyncEvent {
+	e := SyncEvent{
+		Timestamp: time.Now().UnixNano(),
+		Service:   ServiceObservation,
+		Observation: &ObservationEventPayload{
+			Observer:   observer,
+			ObserverID: observerID,
+			Subject:    subject,
+			SubjectID:  subjectID,
+			Type:       "first-seen",
+			Importance: ImportanceCritical,
+			StartTime:  startTime,
+		},
+	}
+	e.ComputeID()
+	return e
+}
+
+// NewStatusChangeObservationEventWithIDs creates a status change observation with explicit IDs
+func NewStatusChangeObservationEventWithIDs(observer, observerID, subject, subjectID, onlineState string) SyncEvent {
+	e := SyncEvent{
+		Timestamp: time.Now().UnixNano(),
+		Service:   ServiceObservation,
+		Observation: &ObservationEventPayload{
+			Observer:    observer,
+			ObserverID:  observerID,
+			Subject:     subject,
+			SubjectID:   subjectID,
+			Type:        "status-change",
+			Importance:  ImportanceNormal,
+			OnlineState: onlineState,
+		},
+	}
+	e.ComputeID()
+	return e
+}
+
+// NewSeenSyncEventWithIDs creates a signed seen event with explicit IDs
+func NewSeenSyncEventWithIDs(observer, observerID, subject, subjectID, via string, keypair NaraKeypair) SyncEvent {
+	e := SyncEvent{
+		Timestamp: time.Now().UnixNano(),
+		Service:   ServiceSeen,
+		Seen: &SeenEvent{
+			Observer:   observer,
+			ObserverID: observerID,
+			Subject:    subject,
+			SubjectID:  subjectID,
+			Via:        via,
+		},
+	}
+	e.ComputeID()
+	e.Sign(observer, keypair)
+	return e
+}
+
+// NewTeaseSyncEventWithIDs creates a signed tease event with explicit IDs
+func NewTeaseSyncEventWithIDs(actor, actorID, target, targetID, reason string, keypair NaraKeypair) SyncEvent {
+	e := SyncEvent{
+		Timestamp: time.Now().UnixNano(),
+		Service:   ServiceSocial,
+		Social: &SocialEventPayload{
+			Type:     "tease",
+			Actor:    actor,
+			ActorID:  actorID,
+			Target:   target,
+			TargetID: targetID,
+			Reason:   reason,
+		},
+	}
+	e.ComputeID()
+	e.Sign(actor, keypair)
 	return e
 }
 
