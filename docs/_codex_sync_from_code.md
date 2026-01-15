@@ -35,6 +35,7 @@ You are Codex syncing Nara's spec with Go implementation.
 - Deviations from industry standards
 - Unique Nara patterns and invariants
 - Test-enforced guarantees
+- **Adding diagrams**: Replace complex text flows with Mermaid diagrams
 
 **What NOT to document**:
 - Go-specific implementation details

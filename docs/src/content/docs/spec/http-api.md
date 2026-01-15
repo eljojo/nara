@@ -6,17 +6,17 @@ description: Public and private HTTP endpoints for state, projections, and contr
 # HTTP API
 
 The Nara HTTP API provides a comprehensive interface for retrieving network state, inspecting derived opinions, and controlling the local Nara. It is divided into **Public UI/API** (serving the web dashboard) and **Inspector API** (providing deep visibility into the ledger and projections).
-
-## Purpose
+## 1. Purpose
 - Drive the web-based dashboard and visualization tools.
 - Provide introspection for debugging consensus and history.
 - Enable integration with external monitoring (Prometheus).
 - Support state recovery through event imports.
-
-## Servers
+## 2. Servers
 - **Local Server** (Default: `:8080`): Serves the Web UI and all API endpoints. Typically restricted to localhost or a private network.
 - **Mesh Server** (Default: `:7433`): Serves only the peer-to-peer authenticated endpoints (see [Mesh HTTP](./mesh-http.md)).
-
+## 3. Interfaces
+### 1. State & UI APIs
+| Endpoint | Method | Purpose |
 ## Interfaces
 
 ### 1. State & UI APIs
@@ -46,9 +46,9 @@ These endpoints provide deep access to the local Nara's hazy memory.
 | `/api/stash/status`| `GET` | Current storage metrics and confidant list. |
 | `/api/stash/update`| `POST` | Update the local Nara's stash data and trigger distribution. |
 | `/api/events/import`| `POST` | Authenticated batch import of events (e.g., from backup). |
-
-## Algorithms
-
+## 4. Algorithms
+### 1. Event UI Formatting
+Events in the `/events` SSE stream are enriched with a `ui_format` object:
 ### 1. Event UI Formatting
 Events in the `/events` SSE stream are enriched with a `ui_format` object:
 - `icon`: An emoji representing the event type (e.g., ✨ for first-seen, 🔄 for restart).
@@ -68,18 +68,19 @@ The `/api/events/import` endpoint requires proof of ownership:
 2. **Timestamp**: Must be within ±5 minutes of the server's clock to prevent replays.
 3. **Signature**: Must be a valid Ed25519 signature of `SHA256(timestamp + ":" + list_of_event_ids)` using the Nara's own private key.
 
-## Failure Modes
+2. **Timestamp**: Must be within ±5 minutes of the server's clock to prevent replays.
+3. **Signature**: Must be a valid Ed25519 signature of `SHA256(timestamp + ":" + list_of_event_ids)` using the Nara's own private key.
+## 5. Failure Modes
 - **SSE Connection Failure**: Clients should implement automatic reconnection; the server sends a `connected` event on join to confirm state.
 - **Import Conflicts**: Duplicate events (by ID) are silently ignored during import.
 - **Stale Inspector Data**: Projections may lag slightly behind the ledger; the Inspector API calls `RunOnce()` on projections to ensure data is fresh.
-
-## Security / Trust Model
+## 6. Security / Trust Model
 - **Authentication**: Destructive or private operations (Import, Stash Update) require soul-based authentication.
 - **Transparency**: The Inspector API allows full visibility into why a Nara holds a certain "opinion," making the consensus process auditable.
 - **Local Sovereignty**: The HTTP API only exposes the *local* Nara's subjective view of the world.
-
-## Test Oracle
+## 7. Test Oracle
 - `TestHTTP_ApiJson`: Verifies that the Nara list is correctly marshaled.
 - `TestHTTP_InspectorEvents`: Validates pagination and filtering logic for the event store.
 - `TestHTTP_EventImport`: Ensures that only signed, timestamp-valid imports are accepted.
 - `TestHTTP_UptimeTimeline`: Checks that checkpoints and events are correctly interleaved to form a timeline.
+- `TestHTTP_MeshAuthMiddleware`: Confirms the `meshAuthMiddleware` correctly gates endpoints.

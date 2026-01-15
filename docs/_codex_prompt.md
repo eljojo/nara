@@ -15,6 +15,7 @@ You are Codex maintaining Nara's living spec.
 - Target any-language re-implementation
 - Use Mermaid diagrams for complex flows
 - Be concise—avoid token bloat
+- **Adding diagrams**: Replace complex text flows with Mermaid diagrams
 
 **Deliverable**: Brief change report of spec updates.
 

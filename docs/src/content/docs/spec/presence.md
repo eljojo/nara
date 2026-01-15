@@ -7,13 +7,13 @@ description: Real-time liveness and discovery protocol in the Nara Network.
 
 Presence signals enable naras to discover each other, track liveness, and manage graceful departures. It uses a hybrid approach of direct broadcasts and gossip.
 
-## Purpose
+Presence signals enable naras to discover each other, track liveness, and manage graceful departures. It uses a hybrid approach of direct broadcasts and gossip.
+## 1. Purpose
 - Announce new nodes to the network (`hey_there`).
 - Provide bootstrap information to joining nodes (`howdy`).
 - Signal intentional departures to avoid "missing" timeouts (`chau`).
 - Track derived online status based on any observed activity.
-
-## Conceptual Model
+## 2. Conceptual Model
 - **`hey_there`**: A signed announcement sent on join (MQTT and Gossip). Includes identity (Public Key, ID) and connectivity (Mesh IP).
 - **`howdy`**: A coordination response to `hey_there`. Peers help the newcomer by sharing what they know about the network and the newcomer's own history.
 - **`chau`**: A signed announcement sent on graceful shutdown.
@@ -23,9 +23,9 @@ Presence signals enable naras to discover each other, track liveness, and manage
 ### Invariants
 - **Evidence-Based**: Activity in the ledger is the source of truth for presence projections.
 - **Graceful vs. Abrupt**: `chau` marks a node "OFFLINE"; silence marks it "MISSING".
+- **Graceful vs. Abrupt**: `chau` marks a node "OFFLINE"; silence marks it "MISSING".
 - **Self-Selection**: Up to 10 peers respond with `howdy` using random delays to prevent thundering herds.
-
-## External Behavior
+## 3. External Behavior
 - **Join**: New nodes broadcast `hey_there` and wait for `howdy` responses.
 - **Bootstrap**: Nodes learn about neighbors through `howdy` before having to discover them manually.
 - **Steady State**: Continuous activity (pings, heartbeats) maintains the "ONLINE" status.
@@ -52,10 +52,19 @@ Presence signals enable naras to discover each other, track liveness, and manage
 - `You`: `NaraObservation` of the newcomer (assists in StartTime recovery).
 - `Neighbors`: Up to 10 known peers (Name, PublicKey, MeshIP, ID, Observation).
 - `Me`: Responder's full `NaraStatus`.
+### NewspaperEvent (MQTT Only)
+Naras periodically broadcast their full state as a `NewspaperEvent` on `nara/plaza/newspaper/{name}`.
+- `Status`: Full `NaraStatus` object.
+- `Signature`: Ed25519 signature of the status content.
 
-## Algorithms
+**Invariants**:
+- Used as a heartbeat and for broadcasting complex local state.
+- Frequency decreases over time (fibonacci or exponential backoff) to reduce noise.
 
-### 1. Discovery & Howdy Coordination
+## 6. Algorithms
+### Discovery & Howdy Coordination
+```mermaid
+sequenceDiagram
 1. **Joiner** sends `hey_there`.
 2. **Peers** start a `howdyCoordinator`:
    - Wait 0-3 seconds (random jitter).

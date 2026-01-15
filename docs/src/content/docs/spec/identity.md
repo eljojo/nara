@@ -43,14 +43,34 @@ Identity in Nara binds human-readable names to cryptographic "souls". This allow
 
 ## Algorithms
 
+## Algorithms
+### Hardware Fingerprinting
+The hardware fingerprint (`hwFingerprint`) is a 32-byte hash (SHA256) of machine-specific data (typically the Machine ID or equivalent). It serves as the root of trust for native identity generation.
+
 ### Soul Generation
+Nara uses HKDF-SHA256 for deterministic soul derivation.
+
 - **Custom Name**:
-  - `Seed = HKDF-SHA256(salt="nara:soul:v2", info="seed:custom:" + name, key=HW_Fingerprint)`
+  - `Seed = HKDF-SHA256(salt="nara:soul:v2", info="seed:custom:" + name, secret=HW_Fingerprint)`
 - **Generated Name**:
-  - `Seed = HKDF-SHA256(salt="nara:soul:v2", info="seed:generated", key=HW_Fingerprint)`
+  - `Seed = HKDF-SHA256(salt="nara:soul:v2", info="seed:generated", secret=HW_Fingerprint)`
   - `Name = GenerateName(Hex(Seed))`
 - **Bonding Tag**:
   - `Tag = HMAC-SHA256(key=Seed, message="nara:name:v2:" + Name)[0:8]`
+### Identity Resolution Flow
+
+```mermaid
+graph TD
+    Start[DetermineIdentity] --> SoulArg{Soul Arg?}
+    SoulArg -- Yes --> ParseSoul[Parse Soul]
+    SoulArg -- No --> GeneratedMode{Generated Name Mode?}
+    GeneratedMode -- Yes --> NativeGenerated[NativeSoulGenerated]
+    GeneratedMode -- No --> NativeCustom[NativeSoulCustom]
+    ParseSoul --> ValidateBond[ValidateBond]
+    NativeGenerated --> ComputeID[ComputeNaraID]
+    NativeCustom --> ComputeID
+    ValidateBond --> ComputeID
+```
 
 ### Derivations
 - **Nara ID**: `Base58(SHA256(RawSoulBytes || NameBytes))`
@@ -59,8 +79,11 @@ Identity in Nara binds human-readable names to cryptographic "souls". This allow
 
 ### Attestation Signing
 - **Signable Content**: `attestation:v{version}:{attester_id}:{subject_id}:{as_of_time}:{restarts}:{total_uptime}:{first_seen}`
+  - `version`: defaults to 1
+  - `as_of_time`: Unix timestamp
+  - `observation`: includes Restarts, TotalUptime, and StartTime
 - **Signature**: Ed25519 signature of the signable content string.
-
+## Failure Modes
 ## Failure Modes
 - **Invalid Soul Format**: Startup fails or falls back to generating a native soul.
 - **Invalid Bond**: The node starts, but `IsValidBond` is false. Peers will see this in heartbeats and may reject events.
@@ -77,3 +100,4 @@ Identity in Nara binds human-readable names to cryptographic "souls". This allow
 - `TestComputeNaraID`: Checks that ID generation is stable and handles Base58 correctly.
 - `TestDeriveKeypair`: Verifies that Ed25519 keys are correctly derived from the soul seed.
 - `TestAttestationSigning`: Confirms that `Attestation.SignableContent` matches the expected format for verification.
+- `TestCrossHardwareValidity`: Verifies that a soul minted on one machine is valid on another (portability).

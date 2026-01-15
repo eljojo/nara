@@ -60,11 +60,14 @@ Used for peer-to-peer reconciliation.
 - `emitter`: Name of the Nara that created the event.
 - `emitter_id`: Nara ID of the emitter (for signature verification).
 - `sig`: Base64 Ed25519 signature of the event content.
-
+- **Payloads**: Exactly one of `social`, `ping`, `observation`, `hey_there`, `chau`, `seen`, `checkpoint`.
 ## Algorithms
-
 ### 1. ID Computation
-`ID = hex(SHA256(timestamp_nanos + ":" + service + ":" + payload_content_string)[0:16])`
+`ID = hex(SHA256(timestamp_nanos + ":" + service + ":" + payload_content_string)[0:16])`  
+Note: Restart observations use a special content string `subject:restart:restart_num:start_time` for cross-observer deduplication.
+
+### 2. Priority-Based Pruning
+When `len(ledger) > MaxEvents`, events are removed in this order:
 
 ### 2. Priority-Based Pruning
 When `len(ledger) > MaxEvents`, events are removed in this order:
@@ -85,7 +88,19 @@ Social events are weighted based on:
 - **Sociability**: High sociability increases weight of social events.
 - **Chill**: High chill decreases weight of drama/teases.
 - **Time Decay**: Half-life modified by personality (Chill naras forget faster).
+- **Time Decay**: Half-life modified by personality (Chill naras forget faster).
 - **Meaningfulness**: Events with weight < threshold are ignored by the ledger.
+### 5. Sampling (mode: "sample")
+Used to get a representative subset of history when full sync is too heavy.
+- **Critical Events**: Always included regardless of sample size.
+- **Decay-Weighted**: Newer events are more likely to be sampled.
+- **Self-Relevance**: Events involving the requester get a 2x weight boost.
+
+### 6. Interleaved Slicing
+Allows a Nara to fetch a complete dataset from N neighbors by requesting slice `i` of `N`.
+- `GetEventsForSync` applies `index % sliceTotal == sliceIndex`.
+- Combined with timestamp sorting, this ensures coverage without massive overlap.
+
 
 ## Failure Modes
 - **Ledger Saturation**: If too many "never-pruned" events accumulate, the ledger grows beyond `MaxEvents`.
@@ -105,3 +120,6 @@ Social events are weighted based on:
 - `TestSyncLedger_GetEventsPage`: Validates deterministic pagination in deep sync.
 - `TestObservationRateLimit`: Ensures the 10-per-5-min limit is enforced.
 - `TestSyncLedger_PersonalityFilter`: Checks that very chill naras ignore casual social events.
+- `TestSyncLedger_SampleMode`: Verifies decay-weighted sampling and critical event inclusion.
+- `TestSyncLedger_InterleavedSlicing`: Ensures non-overlapping coverage across slices.
+- `TestSyncEvent_SignAndVerify`: Confirms Ed25519 integrity of individual events.
