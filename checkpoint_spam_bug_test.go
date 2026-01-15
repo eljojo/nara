@@ -15,7 +15,7 @@ func TestCheckpointSpamBug_UninitializedLastCheckpointTime(t *testing.T) {
 	local := testNara(t, "test-nara")
 
 	network := &Network{
-		Neighbourhood: make(map[string]*Nara),
+		Neighbourhood: make(map[NaraName]*Nara),
 		local:         local,
 	}
 
@@ -75,7 +75,7 @@ func TestCheckpointSpamBug_ShouldInitializeFromLedger(t *testing.T) {
 
 	// Create checkpoint service
 	network := &Network{
-		Neighbourhood: make(map[string]*Nara),
+		Neighbourhood: make(map[NaraName]*Nara),
 		local:         local,
 	}
 	service := NewCheckpointService(network, ledger, local)
@@ -116,7 +116,7 @@ func TestCheckpointSpamBug_NotUpdatedOnFailure(t *testing.T) {
 	local := testNara(t, "test-nara")
 
 	network := &Network{
-		Neighbourhood: make(map[string]*Nara),
+		Neighbourhood: make(map[NaraName]*Nara),
 		local:         local,
 	}
 	service := NewCheckpointService(network, ledger, local)
@@ -195,7 +195,7 @@ func TestCheckpointSpamBug_Round1FailureAlsoNotUpdated(t *testing.T) {
 	local := testNara(t, "test-nara")
 
 	network := &Network{
-		Neighbourhood: make(map[string]*Nara),
+		Neighbourhood: make(map[NaraName]*Nara),
 		local:         local,
 	}
 	service := NewCheckpointService(network, ledger, local)

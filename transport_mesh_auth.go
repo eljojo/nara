@@ -219,7 +219,7 @@ func (network *Network) tryDiscoverUnknownSender(name, remoteAddr string) bool {
 	}
 
 	// Import the newly discovered nara
-	nara := NewNara(name)
+	nara := NewNara(NaraName(name))
 	nara.Status.PublicKey = pingResp.PublicKey
 	nara.Status.MeshIP = pingResp.MeshIP
 	nara.Status.MeshEnabled = true
@@ -227,7 +227,7 @@ func (network *Network) tryDiscoverUnknownSender(name, remoteAddr string) bool {
 
 	// Log via LogService (batched)
 	if network.logService != nil {
-		network.logService.BatchDiscovery(name)
+		network.logService.BatchDiscovery(NaraName(name))
 	}
 	return true
 }
@@ -243,14 +243,18 @@ func (network *Network) meshAuthMiddleware(path string, handler http.HandlerFunc
 		}
 
 		// Verify request signature
-		sender, err := VerifyMeshRequest(r, network.resolvePublicKeyForNara)
+		sender, err := VerifyMeshRequest(r, func(name string) []byte {
+			return network.resolvePublicKeyForNara(NaraName(name))
+		})
 
 		// If sender is unknown, try to discover them via /ping
 		if err != nil && strings.Contains(err.Error(), "unknown sender") {
 			senderName := r.Header.Get(HeaderNaraName)
 			if senderName != "" && network.tryDiscoverUnknownSender(senderName, r.RemoteAddr) {
 				// Retry verification with newly discovered key
-				sender, err = VerifyMeshRequest(r, network.resolvePublicKeyForNara)
+				sender, err = VerifyMeshRequest(r, func(name string) []byte {
+					return network.resolvePublicKeyForNara(NaraName(name))
+				})
 			}
 		}
 

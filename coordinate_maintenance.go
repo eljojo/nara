@@ -102,7 +102,7 @@ func (network *Network) selectPingTarget() string {
 		}
 
 		targets = append(targets, pingTarget{
-			name:     name,
+			name:     name.String(),
 			meshIP:   meshIP,
 			priority: priority,
 		})
@@ -121,7 +121,7 @@ func (network *Network) selectPingTarget() string {
 }
 
 // pingAndUpdateCoordinates pings a peer and updates our coordinates
-func (network *Network) pingAndUpdateCoordinates(targetName string, config VivaldiConfig) {
+func (network *Network) pingAndUpdateCoordinates(targetName NaraName, config VivaldiConfig) {
 	network.local.mu.Lock()
 	nara, exists := network.Neighbourhood[targetName]
 	network.local.mu.Unlock()
@@ -140,7 +140,7 @@ func (network *Network) pingAndUpdateCoordinates(targetName string, config Vival
 	}
 
 	// Ping the peer
-	rtt, err := network.tsnetMesh.Ping(meshIP, network.meName(), 5*time.Second)
+	rtt, err := network.tsnetMesh.Ping(meshIP, network.meName().String(), 5*time.Second)
 	if err != nil {
 		logrus.Infof("📍 Ping to %s failed: %v", targetName, err)
 		return
@@ -158,7 +158,8 @@ func (network *Network) pingAndUpdateCoordinates(targetName string, config Vival
 	network.local.Me.mu.Unlock()
 
 	// Update observation with RTT data
-	obs := network.local.getObservation(targetName)
+	naraName := NaraName(targetName)
+	obs := network.local.getObservation(naraName)
 	obs.LastPingRTT = rttMs
 	obs.LastPingTime = time.Now().Unix()
 
@@ -169,15 +170,15 @@ func (network *Network) pingAndUpdateCoordinates(targetName string, config Vival
 		obs.AvgPingRTT = 0.3*rttMs + 0.7*obs.AvgPingRTT
 	}
 
-	network.local.setObservation(targetName, obs)
+	network.local.setObservation(naraName, obs)
 
 	// Record to unified sync ledger for network-wide propagation
 	// Uses replace strategy: keeps last 5 pings per target
 	// Sign the event so others can verify it came from us
 	if network.local.SyncLedger != nil {
 		network.local.SyncLedger.AddSignedPingObservationWithReplace(
-			network.meName(), targetName, rttMs,
-			network.meName(), network.local.Keypair,
+			network.meName(), naraName, rttMs,
+			network.meName().String(), network.local.Keypair,
 		)
 	}
 }
@@ -188,7 +189,7 @@ func (network *Network) getCoordinatesForPeer(name string) *NetworkCoordinate {
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
 
-	nara, exists := network.Neighbourhood[name]
+	nara, exists := network.Neighbourhood[NaraName(name)]
 	if !exists {
 		return nil
 	}

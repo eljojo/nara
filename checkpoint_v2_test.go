@@ -17,10 +17,10 @@ func pubKeyFromBase64(encoded string) ed25519.PublicKey {
 // This ensures we haven't broken existing checkpoint verification
 func TestCheckpointV1BackwardsCompat(t *testing.T) {
 	subject := "lisa"
-	subjectID := "lisa-id-abc"
-	voterIDs := []string{"homer-id", "marge-id", "bart-id"}
+	subjectID := NaraID("lisa-id-abc")
+	voterIDs := []NaraID{NaraID("homer-id"), NaraID("marge-id"), NaraID("bart-id")}
 	keypairs := make([]NaraKeypair, 3)
-	publicKeys := make(map[string]string)
+	publicKeys := make(map[NaraID]string)
 
 	for i, voterID := range voterIDs {
 		keypairs[i] = generateTestKeypair()
@@ -45,9 +45,10 @@ func TestCheckpointV1BackwardsCompat(t *testing.T) {
 	for i, voterID := range voterIDs {
 		attestation := Attestation{
 			Version:     1,
-			Subject:     subject,
+			Subject:     NaraName(subject),
 			SubjectID:   subjectID,
 			Observation: checkpoint.Observation,
+			Attester:    NaraName("voter"),
 			AttesterID:  voterID,
 			AsOfTime:    checkpoint.AsOfTime,
 		}
@@ -58,7 +59,7 @@ func TestCheckpointV1BackwardsCompat(t *testing.T) {
 	}
 
 	// Verify v1 checkpoint with v1 signatures
-	lookup := PublicKeyLookup(func(id, name string) ed25519.PublicKey {
+	lookup := PublicKeyLookup(func(id NaraID, name string) ed25519.PublicKey {
 		if pubKeyStr, ok := publicKeys[id]; ok {
 			return pubKeyFromBase64(pubKeyStr)
 		}
@@ -78,7 +79,7 @@ func TestCheckpointV1BackwardsCompat(t *testing.T) {
 
 	// Test ContentString format for v1
 	contentStr := checkpoint.ContentString()
-	expectedPrefix := "checkpoint:" + subjectID
+	expectedPrefix := "checkpoint:" + string(subjectID)
 	if len(contentStr) < len(expectedPrefix) || contentStr[:len(expectedPrefix)] != expectedPrefix {
 		t.Errorf("V1 ContentString has wrong format: %s", contentStr)
 	}
@@ -92,8 +93,8 @@ func TestCheckpointV1BackwardsCompat(t *testing.T) {
 // TestCheckpointV1WithVersionZero tests that Version=0 is treated as v1
 func TestCheckpointV1WithVersionZero(t *testing.T) {
 	subject := "lisa"
-	subjectID := "lisa-id-abc"
-	voterIDs := []string{"homer-id", "marge-id"}
+	subjectID := NaraID("lisa-id-abc")
+	voterIDs := []NaraID{NaraID("homer-id"), NaraID("marge-id")}
 	keypairs := make([]NaraKeypair, 2)
 	for i := range keypairs {
 		keypairs[i] = generateTestKeypair()

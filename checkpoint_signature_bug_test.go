@@ -14,9 +14,9 @@ func TestCheckpoint_VoteAsOfTimeMismatch(t *testing.T) {
 	proposerKeypair := generateTestKeypair()
 	voterKeypair := generateTestKeypair()
 
-	proposerID := "proposer-id"
-	voterID := "voter-id"
-	subject := "proposer"
+	proposerID := NaraID("proposer-id")
+	voterID := NaraID("voter-id")
+	subject := NaraName("proposer")
 	proposalAsOfTime := time.Now().Unix() - 10 // 10 seconds ago
 
 	// Create proposal attestation (self-attestation)
@@ -51,7 +51,7 @@ func TestCheckpoint_VoteAsOfTimeMismatch(t *testing.T) {
 			TotalUptime: 50000,
 			StartTime:   1624066568,
 		},
-		Attester:   "voter",
+		Attester:   NaraName("voter"),
 		AttesterID: voterID,
 		AsOfTime:   voteAsOfTime, // BUG: Different timestamp!
 	}
@@ -66,7 +66,7 @@ func TestCheckpoint_VoteAsOfTimeMismatch(t *testing.T) {
 
 	// Now simulate storing the checkpoint with both signatures
 	checkpoint := &CheckpointEventPayload{
-		Subject:   subject,
+		Subject:   string(subject),
 		SubjectID: proposerID,
 		AsOfTime:  proposalAsOfTime, // Checkpoint uses proposal's AsOfTime
 		Observation: NaraObservation{
@@ -74,7 +74,7 @@ func TestCheckpoint_VoteAsOfTimeMismatch(t *testing.T) {
 			TotalUptime: 50000,
 			StartTime:   1624066568,
 		},
-		VoterIDs:   []string{proposerID, voterID},
+		VoterIDs:   []NaraID{proposerID, voterID},
 		Signatures: []string{proposal.Signature, vote.Signature},
 		Round:      1,
 	}
@@ -140,9 +140,9 @@ func TestCheckpoint_SignatureFormatMismatch(t *testing.T) {
 	proposerKeypair := generateTestKeypair()
 	voterKeypair := generateTestKeypair()
 
-	proposerID := "proposer-id"
-	voterID := "voter-id"
-	subject := "proposer"
+	proposerID := NaraID("proposer-id")
+	voterID := NaraID("voter-id")
+	subject := NaraName("proposer")
 	asOfTime := time.Now().Unix()
 
 	// Create proposal attestation - signs with Attestation.SignableContent()
@@ -175,7 +175,7 @@ func TestCheckpoint_SignatureFormatMismatch(t *testing.T) {
 			TotalUptime: 50000,
 			StartTime:   1624066568,
 		},
-		Attester:   "voter",
+		Attester:   NaraName("voter"),
 		AttesterID: voterID,
 		AsOfTime:   asOfTime, // Same as proposal for now
 	}
@@ -190,7 +190,7 @@ func TestCheckpoint_SignatureFormatMismatch(t *testing.T) {
 
 	// Store checkpoint
 	checkpoint := &CheckpointEventPayload{
-		Subject:   subject,
+		Subject:   string(subject),
 		SubjectID: proposerID,
 		AsOfTime:  asOfTime,
 		Observation: NaraObservation{
@@ -198,7 +198,7 @@ func TestCheckpoint_SignatureFormatMismatch(t *testing.T) {
 			TotalUptime: 50000,
 			StartTime:   1624066568,
 		},
-		VoterIDs:   []string{proposerID, voterID},
+		VoterIDs:   []NaraID{proposerID, voterID},
 		Signatures: []string{proposal.Signature, vote.Signature},
 		Round:      1,
 	}

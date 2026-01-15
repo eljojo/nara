@@ -41,23 +41,30 @@ func (network *Network) syncCheckpointsFromNetwork(online []string) {
 
 		attemptedNaras = append(attemptedNaras, naraName)
 
-		// Get the nara's IP address
+		// Get the nara's ID and IP address
+		var naraID NaraID
 		var ip string
 		network.local.mu.Lock()
 		if nara, exists := network.Neighbourhood[naraName]; exists {
 			nara.mu.Lock()
+			naraID = nara.Status.ID
 			ip = nara.Status.MeshIP
 			nara.mu.Unlock()
 		}
 		network.local.mu.Unlock()
 
-		if ip == "" {
-			logrus.Debugf("📸 %s: no mesh IP, skipping", naraName)
+		if ip == "" || naraID == "" {
+			logrus.Debugf("📸 %s: no mesh IP or nara ID, skipping", naraName)
 			continue
 		}
 
+		// Register peer for mesh client lookups
+		if network.meshClient != nil {
+			network.meshClient.RegisterPeerIP(naraID, ip)
+		}
+
 		// Fetch all checkpoints from this nara (handles pagination internally)
-		checkpoints := network.fetchAllCheckpointsFromNara(naraName, ip)
+		checkpoints := network.fetchAllCheckpointsFromNara(naraName, naraID)
 		if len(checkpoints) == 0 {
 			logrus.Debugf("📸 %s: no checkpoints returned, trying next nara", naraName)
 			continue
