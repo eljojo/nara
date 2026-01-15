@@ -82,29 +82,6 @@ func (network *Network) getNaraByID(id string) *Nara {
 	return nil
 }
 
-// getNaraByName returns a pointer to the nara with the given name, or nil if not found.
-// This is a convenience method that uses the nameToID index for O(1) lookup when available,
-// falls back to Neighbourhood map for backwards compatibility.
-//
-// Prefer getNaraByID when you have an ID available - names can be ambiguous or change.
-func (network *Network) getNaraByName(name string) *Nara {
-	if name == "" {
-		return nil
-	}
-	network.local.mu.Lock()
-	defer network.local.mu.Unlock()
-
-	// Try O(1) lookup via nameToID + NeighbourhoodByID if available
-	if network.nameToID != nil && network.NeighbourhoodByID != nil {
-		if id, ok := network.nameToID[name]; ok {
-			return network.NeighbourhoodByID[id]
-		}
-	}
-
-	// Fall back to Neighbourhood map (direct name lookup)
-	return network.Neighbourhood[name]
-}
-
 // getAllNarasSnapshot returns a snapshot of all naras in the neighbourhood.
 //
 // ✅ SAFE for iteration - The slice is built atomically while holding the lock,

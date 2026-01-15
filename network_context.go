@@ -86,7 +86,8 @@ func (c *networkContext) GetOnlineMeshPeers() []string {
 }
 
 func (c *networkContext) GetPeerInfo(names []string) []PeerInfo {
-	return c.network.getPeerInfo(names)
+	// OLD - getPeerInfo removed in Chapter 1 (was part of old stash system)
+	return []PeerInfo{}
 }
 
 func (c *networkContext) GetOnlineStatus(name string) *OnlineState {
@@ -116,23 +117,6 @@ func (c *networkContext) Context() context.Context {
 	return c.network.ctx
 }
 
-// stashServiceContext extends NetworkContext with stash-specific methods.
-// This implements StashServiceDeps.
-type stashServiceContext struct {
-	networkContext
-}
-
-func (c *stashServiceContext) EmitSocialEvent(event SyncEvent) {
-	select {
-	case c.network.socialInbox <- event:
-	default:
-		logrus.Debugf("Social inbox full, skipping stash event")
-	}
-}
-
-// newStashServiceContext creates a StashServiceDeps adapter for the given Network.
-func newStashServiceContext(network *Network) StashServiceDeps {
-	return &stashServiceContext{
-		networkContext: networkContext{network: network},
-	}
-}
+// Stub types for old stash implementation (removed in Chapter 1)
+type PeerInfo struct{}
+type StashServiceDeps interface{}

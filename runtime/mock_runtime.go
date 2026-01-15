@@ -1,0 +1,218 @@
+package runtime
+
+import (
+	"crypto/ed25519"
+	"reflect"
+	"testing"
+)
+
+// MockRuntime implements RuntimeInterface for testing services.
+//
+// It captures emitted messages, allows delivering messages to services,
+// and provides fake infrastructure without MQTT/mesh dependencies.
+type MockRuntime struct {
+	t       *testing.T
+	name    string
+	id      string
+	Emitted []*Message // Captured Emit() calls for assertions
+
+	handlers  map[string][]func(*Message)
+	keypair   *MockKeypair
+	pubKeys   map[string][]byte
+	env       Environment
+	behaviors map[string]*Behavior
+}
+
+// NewMockRuntime creates a mock runtime with auto-cleanup via t.Cleanup().
+func NewMockRuntime(t *testing.T, name, id string) *MockRuntime {
+	t.Helper()
+
+	mock := &MockRuntime{
+		t:         t,
+		name:      name,
+		id:        id,
+		Emitted:   make([]*Message, 0),
+		handlers:  make(map[string][]func(*Message)),
+		keypair:   NewMockKeypair(),
+		pubKeys:   make(map[string][]byte),
+		env:       EnvTest,
+		behaviors: make(map[string]*Behavior),
+	}
+
+	t.Cleanup(func() {
+		mock.Stop()
+	})
+
+	return mock
+}
+
+// === RuntimeInterface implementation ===
+
+func (m *MockRuntime) Me() *Nara {
+	return &Nara{
+		ID:   m.id,
+		Name: m.name,
+	}
+}
+
+func (m *MockRuntime) MeID() string {
+	return m.id
+}
+
+func (m *MockRuntime) LookupPublicKey(id string) []byte {
+	return m.pubKeys[id]
+}
+
+func (m *MockRuntime) LookupPublicKeyByName(name string) []byte {
+	// For mock, just use name as ID
+	return m.pubKeys[name]
+}
+
+func (m *MockRuntime) RegisterPublicKey(id string, key []byte) {
+	m.pubKeys[id] = key
+}
+
+// Emit captures messages for test assertions.
+func (m *MockRuntime) Emit(msg *Message) error {
+	// Set defaults like real runtime
+	if msg.ID == "" {
+		msg.ID = ComputeID(msg)
+	}
+	if msg.FromID == "" {
+		msg.FromID = m.id
+	}
+	if msg.From == "" {
+		msg.From = m.name
+	}
+
+	// Capture for assertions
+	m.Emitted = append(m.Emitted, msg)
+
+	// Notify handlers
+	for _, handler := range m.handlers[msg.Kind] {
+		handler(msg)
+	}
+
+	return nil
+}
+
+func (m *MockRuntime) Log(service string) *ServiceLog {
+	return &ServiceLog{
+		name:   service,
+		logger: &Logger{},
+	}
+}
+
+func (m *MockRuntime) Env() Environment {
+	return m.env
+}
+
+// === Test helpers ===
+
+// Deliver simulates receiving a message (calls behavior handlers).
+//
+// Use this to test how a service reacts to incoming messages.
+func (m *MockRuntime) Deliver(msg *Message) {
+	// Check local registry first (per-runtime registrations take precedence)
+	behavior := m.behaviors[msg.Kind]
+	if behavior == nil {
+		// Fall back to global registry
+		behavior = Lookup(msg.Kind)
+	}
+	if behavior == nil {
+		m.t.Fatalf("no behavior registered for kind %s", msg.Kind)
+		return
+	}
+
+	// Find version-specific handler
+	handler := behavior.Handlers[msg.Version]
+	if handler == nil {
+		m.t.Fatalf("no handler for %s v%d", msg.Kind, msg.Version)
+		return
+	}
+
+	// Invoke handler using reflection (same as real runtime)
+	// Handler signature: func(*Message, *PayloadType)
+	defer func() {
+		if r := recover(); r != nil {
+			m.t.Fatalf("handler panicked for %s: %v", msg.Kind, r)
+		}
+	}()
+	handlerVal := reflect.ValueOf(handler)
+	handlerVal.Call([]reflect.Value{
+		reflect.ValueOf(msg),
+		reflect.ValueOf(msg.Payload),
+	})
+}
+
+// Subscribe registers a handler for a message kind.
+func (m *MockRuntime) Subscribe(kind string, handler func(*Message)) {
+	m.handlers[kind] = append(m.handlers[kind], handler)
+}
+
+// RegisterBehavior allows tests to register behaviors manually.
+func (m *MockRuntime) RegisterBehavior(b *Behavior) {
+	m.behaviors[b.Kind] = b
+}
+
+// Stop cleans up the mock runtime.
+func (m *MockRuntime) Stop() {
+	m.handlers = nil
+	m.Emitted = nil
+}
+
+// === Assertion helpers ===
+
+// EmittedCount returns the number of emitted messages.
+func (m *MockRuntime) EmittedCount() int {
+	return len(m.Emitted)
+}
+
+// LastEmitted returns the most recently emitted message.
+func (m *MockRuntime) LastEmitted() *Message {
+	if len(m.Emitted) == 0 {
+		return nil
+	}
+	return m.Emitted[len(m.Emitted)-1]
+}
+
+// EmittedOfKind returns all emitted messages of a given kind.
+func (m *MockRuntime) EmittedOfKind(kind string) []*Message {
+	var result []*Message
+	for _, msg := range m.Emitted {
+		if msg.Kind == kind {
+			result = append(result, msg)
+		}
+	}
+	return result
+}
+
+// Clear clears all captured messages.
+func (m *MockRuntime) Clear() {
+	m.Emitted = make([]*Message, 0)
+}
+
+// === Mock Keypair ===
+
+// MockKeypair is a fake keypair for testing.
+type MockKeypair struct {
+	pub  ed25519.PublicKey
+	priv ed25519.PrivateKey
+}
+
+// NewMockKeypair creates a new mock keypair.
+func NewMockKeypair() *MockKeypair {
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	return &MockKeypair{
+		pub:  pub,
+		priv: priv,
+	}
+}
+
+func (k *MockKeypair) Sign(data []byte) []byte {
+	return ed25519.Sign(k.priv, data)
+}
+
+func (k *MockKeypair) PublicKey() []byte {
+	return k.pub
+}

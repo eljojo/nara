@@ -149,13 +149,13 @@ type Payload interface {
 // SocialEventPayload is the social event data within a SyncEvent
 // This replaces the standalone SocialEvent for sync purposes
 type SocialEventPayload struct {
-	Type     string `json:"type"`                 // "tease", "observed", "gossip", "observation"
-	Actor    string `json:"actor,omitempty"`      // who did it (name, for display - legacy)
-	ActorID  string `json:"actor_id,omitempty"`   // who did it (ID, for verification)
-	Target   string `json:"target,omitempty"`     // who it was about (name, for display - legacy)
-	TargetID string `json:"target_id,omitempty"`  // who it was about (ID, for verification)
-	Reason   string `json:"reason,omitempty"`     // why (e.g., "high-restarts", "trend-abandon")
-	Witness  string `json:"witness,omitempty"`    // who reported it (empty if self-reported)
+	Type     string `json:"type"`                // "tease", "observed", "gossip", "observation"
+	Actor    string `json:"actor,omitempty"`     // who did it (name, for display - legacy)
+	ActorID  string `json:"actor_id,omitempty"`  // who did it (ID, for verification)
+	Target   string `json:"target,omitempty"`    // who it was about (name, for display - legacy)
+	TargetID string `json:"target_id,omitempty"` // who it was about (ID, for verification)
+	Reason   string `json:"reason,omitempty"`    // why (e.g., "high-restarts", "trend-abandon")
+	Witness  string `json:"witness,omitempty"`   // who reported it (empty if self-reported)
 }
 
 // ContentString returns canonical string for hashing/signing
@@ -367,13 +367,13 @@ func (p *PingObservation) ToLogEvent() *LogEvent {
 //
 // =============================================================================
 type ObservationEventPayload struct {
-	Observer   string `json:"observer,omitempty"`      // who made the observation (name, for display - legacy)
-	ObserverID string `json:"observer_id,omitempty"`   // who made the observation (ID, for verification)
-	Subject    string `json:"subject,omitempty"`       // who is being observed (name, for display - legacy)
-	SubjectID  string `json:"subject_id,omitempty"`    // who is being observed (ID, for verification)
-	Type       string `json:"type"`                    // "restart", "first-seen", "status-change"
-	Importance int    `json:"importance"`              // 1=casual, 2=normal, 3=critical
-	IsBackfill bool   `json:"is_backfill,omitempty"`   // true if grandfathering existing data
+	Observer   string `json:"observer,omitempty"`    // who made the observation (name, for display - legacy)
+	ObserverID string `json:"observer_id,omitempty"` // who made the observation (ID, for verification)
+	Subject    string `json:"subject,omitempty"`     // who is being observed (name, for display - legacy)
+	SubjectID  string `json:"subject_id,omitempty"`  // who is being observed (ID, for verification)
+	Type       string `json:"type"`                  // "restart", "first-seen", "status-change"
+	Importance int    `json:"importance"`            // 1=casual, 2=normal, 3=critical
+	IsBackfill bool   `json:"is_backfill,omitempty"` // true if grandfathering existing data
 
 	// Data specific to observation type (all timestamps in SECONDS)
 	StartTime   int64  `json:"start_time,omitempty"`   // Unix timestamp in SECONDS when nara started

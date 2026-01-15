@@ -81,11 +81,6 @@ func (network *Network) performGossipRound() {
 		go func(name string) {
 			defer wg.Done()
 			network.exchangeZine(name, zine)
-			// Also exchange stashes (rate-limited via stashSyncTracker)
-			// Only if we have stash data to share
-			if network.stashService != nil && network.stashService.HasStashData() {
-				network.exchangeStashWithPeer(name)
-			}
 		}(targetName)
 	}
 	wg.Wait()
@@ -197,11 +192,4 @@ func (network *Network) selectGossipTargets() []string {
 	})
 
 	return shuffled[:targetCount]
-}
-
-// exchangeStashWithPeer performs stash operations with a peer (store or retrieve)
-func (network *Network) exchangeStashWithPeer(targetName string) {
-	if network.stashService != nil {
-		network.stashService.ExchangeStashWithPeer(targetName)
-	}
 }
