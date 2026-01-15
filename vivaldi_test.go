@@ -167,6 +167,8 @@ func TestNetworkCoordinate_Clone(t *testing.T) {
 	}
 }
 
+// NOTE: This test is flaky when run with other tests but passes in isolation.
+// The convergence algorithm uses random jitter which can cause intermittent failures.
 func TestVivaldi_Convergence(t *testing.T) {
 	t.Parallel()
 	// rand.Seed is no longer needed in Go 1.20+; global rand is automatically seeded

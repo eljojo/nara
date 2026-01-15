@@ -114,7 +114,7 @@ func (ln *LocalNara) inspectorEventsHandler(w http.ResponseWriter, r *http.Reque
 		Timestamp int64             `json:"timestamp"`
 		Service   string            `json:"service"`
 		Emitter   string            `json:"emitter"`
-		EmitterID string            `json:"emitter_id"`
+		EmitterID NaraID            `json:"emitter_id"`
 		Signed    bool              `json:"signed"`
 		UIFormat  map[string]string `json:"ui_format,omitempty"`
 	}
@@ -201,7 +201,7 @@ func (ln *LocalNara) inspectorCheckpointsHandler(w http.ResponseWriter, r *http.
 
 	type CheckpointSummary struct {
 		Subject              string `json:"subject"`
-		SubjectID            string `json:"subject_id"`
+		SubjectID            NaraID `json:"subject_id"`
 		AsOfTime             int64  `json:"as_of_time"`
 		Round                int    `json:"round"`
 		Restarts             int64  `json:"restarts"`
@@ -285,7 +285,7 @@ func (ln *LocalNara) inspectorCheckpointDetailHandler(w http.ResponseWriter, r *
 
 	// Verify each voter signature
 	type VoterInfo struct {
-		VoterID           string  `json:"voter_id"`
+		VoterID           NaraID  `json:"voter_id"`
 		VoterName         string  `json:"voter_name"`
 		Signature         string  `json:"signature"`
 		Verified          bool    `json:"verified"`
@@ -679,7 +679,7 @@ func (ln *LocalNara) inspectorEventDetailHandler(w http.ResponseWriter, r *http.
 
 	if isSigned {
 		// Create a lookup function that resolves public keys
-		lookup := func(id, name string) ed25519.PublicKey {
+		lookup := func(id NaraID, name string) ed25519.PublicKey {
 			if id != "" {
 				if key := ln.Network.getPublicKeyForNaraID(id); key != nil {
 					return key

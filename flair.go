@@ -59,12 +59,12 @@ func (nara *Nara) Flair(soul string, isRaspberryPi bool, isNixOs bool, isKuberne
 	awards := ""
 
 	if nara.IsInHarmony(soul) {
-		awards = Gemstone(nara.Name, soul)
+		awards = Gemstone(nara.Name.String(), soul)
 	} else {
 		awards = "👤"
 	}
 
-	if nara.Name == nara.Hostname {
+	if nara.Name.String() == nara.Hostname {
 		awards = awards + "🧑‍🚀"
 	}
 	if isRaspberryPi {

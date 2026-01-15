@@ -56,7 +56,7 @@ func (network *Network) getNara(name string) *Nara {
 // falls back to O(N) search for backwards compatibility with tests.
 //
 // ⚠️ Same race condition warnings as getNara() apply - see that function's docs.
-func (network *Network) getNaraByID(id string) *Nara {
+func (network *Network) getNaraByID(id NaraID) *Nara {
 	if id == "" {
 		return nil
 	}
@@ -177,14 +177,19 @@ func (network *Network) importNara(nara *Nara) {
 			network.NeighbourhoodByID[naraID] = nara
 		}
 		if network.nameToID != nil {
-			network.nameToID[nara.Name] = naraID
+			network.nameToID[nara.Name.String()] = naraID
+		}
+
+		// Register public key in keyring if available
+		if nara.Status.PublicKey != "" && network.keyring != nil {
+			_ = network.keyring.RegisterBase64(naraID.String(), nara.Status.PublicKey)
 		}
 	}
 }
 
 // getNaraIDByName returns the nara ID for a given name, or empty string if not found.
 // This is a quick O(1) lookup using the nameToID index.
-func (network *Network) getNaraIDByName(name string) string {
+func (network *Network) getNaraIDByName(name string) NaraID {
 	if name == "" {
 		return ""
 	}

@@ -19,7 +19,7 @@ type LocalNara struct {
 	Me              *Nara
 	Network         *Network
 	Soul            string
-	ID              string // Nara ID: deterministic hash of soul+name for unique identity
+	ID              NaraID // Nara ID: deterministic hash of soul+name for unique identity
 	Keypair         NaraKeypair
 	SyncLedger      *SyncLedger      // Unified event store for all syncable data (social + ping + future types)
 	Projections     *ProjectionStore // Event-sourced projections for derived state
@@ -32,11 +32,11 @@ type LocalNara struct {
 }
 
 type Nara struct {
-	Name     string
+	Name     NaraName
 	Hostname string `json:"-"`
 	Version  string
 	Status   NaraStatus
-	ID       string // Nara ID from other naras (redundant with Status.ID but convenient)
+	ID       NaraID // Nara ID from other naras (redundant with Status.ID but convenient)
 	mu       sync.Mutex
 	// remember to sync with setValuesFrom
 }
@@ -53,7 +53,7 @@ type NaraStatus struct {
 	HostStats           HostStats
 	Chattiness          int64
 	Buzz                int
-	Observations        map[string]NaraObservation
+	Observations        map[NaraName]NaraObservation
 	Trend               string
 	TrendEmoji          string
 	Personality         NaraPersonality
@@ -61,7 +61,7 @@ type NaraStatus struct {
 	Version             string
 	PublicUrl           string
 	PublicKey           string             // Base64-encoded Ed25519 public key
-	ID                  string             // Nara ID: deterministic hash of soul+name
+	ID                  NaraID             // Nara ID: deterministic hash of soul+name
 	MeshEnabled         bool               // True if this nara is connected to the Headscale mesh
 	MeshIP              string             // Tailscale IP for direct mesh communication (no DNS needed)
 	Coordinates         *NetworkCoordinate `json:"coordinates,omitempty"`    // Vivaldi network coordinates
@@ -146,9 +146,9 @@ func NewLocalNara(identity IdentityResult, mqtt_host string, mqtt_user string, m
 	return ln, nil
 }
 
-func NewNara(name string) *Nara {
+func NewNara(name NaraName) *Nara {
 	nara := &Nara{Name: name}
-	nara.Status.Observations = make(map[string]NaraObservation)
+	nara.Status.Observations = make(map[NaraName]NaraObservation)
 	return nara
 }
 

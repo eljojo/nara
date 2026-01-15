@@ -92,12 +92,17 @@ func (network *Network) recoverSelfStartTimeFromMesh() {
 	totalAdded := 0
 
 	for _, neighbor := range online[:targetCount] {
-		ip := network.getMeshIPForNara(neighbor)
-		if ip == "" {
+		ip, naraID := network.getMeshInfoForNara(neighbor)
+		if ip == "" || naraID == "" {
 			continue
 		}
 
-		events, respVerified := network.fetchSyncEventsFromMesh(ip, neighbor, subjects, 0, 1, 500)
+		// Register peer for mesh client lookups
+		if network.meshClient != nil {
+			network.meshClient.RegisterPeerIP(naraID, ip)
+		}
+
+		events, respVerified := network.fetchSyncEventsFromMesh(naraID, neighbor, subjects, 0, 1, 500)
 		if len(events) == 0 {
 			continue
 		}

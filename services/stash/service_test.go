@@ -6,7 +6,6 @@ import (
 
 	"github.com/eljojo/nara/messages"
 	"github.com/eljojo/nara/runtime"
-	"github.com/eljojo/nara/utilities"
 )
 
 // TestStashStoreAndAck tests the store request → ack flow.
@@ -155,9 +154,9 @@ func TestStashRequestAndResponse(t *testing.T) {
 	defer func() { _ = bobStash.Stop() }()
 
 	// Bob manually stores a stash for Alice (simulating previous store)
+	// Use Alice's runtime for encryption (since only Alice can decrypt)
 	testData := []byte("alice's secret data")
-	encryptor := utilities.NewEncryptor(make([]byte, 32)) // Same seed as service
-	nonce, ciphertext, err := encryptor.Seal(testData)
+	nonce, ciphertext, err := aliceRT.Seal(testData)
 	if err != nil {
 		t.Fatalf("failed to encrypt: %v", err)
 	}
@@ -374,19 +373,16 @@ func TestStashStateMarshaling(t *testing.T) {
 	}
 }
 
-// TestStashEncryptionDecryption tests the encryption/decryption flow.
+// TestStashEncryptionDecryption tests the encryption/decryption flow via runtime.
 func TestStashEncryptionDecryption(t *testing.T) {
-	seed := make([]byte, 32)
-	for i := range seed {
-		seed[i] = byte(i)
-	}
-
-	encryptor := utilities.NewEncryptor(seed)
+	// Create two runtimes with different keypairs
+	aliceRT := runtime.NewMockRuntime(t, "alice", "alice-id-123")
+	bobRT := runtime.NewMockRuntime(t, "bob", "bob-id-456")
 
 	plaintext := []byte("this is a secret message for encryption")
 
-	// Encrypt
-	nonce, ciphertext, err := encryptor.Seal(plaintext)
+	// Encrypt with Alice's keypair
+	nonce, ciphertext, err := aliceRT.Seal(plaintext)
 	if err != nil {
 		t.Fatalf("Seal failed: %v", err)
 	}
@@ -399,8 +395,8 @@ func TestStashEncryptionDecryption(t *testing.T) {
 		t.Fatalf("ciphertext too short (should include auth tag)")
 	}
 
-	// Decrypt
-	decrypted, err := encryptor.Open(nonce, ciphertext)
+	// Decrypt with Alice's keypair (owner can decrypt)
+	decrypted, err := aliceRT.Open(nonce, ciphertext)
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
@@ -411,14 +407,13 @@ func TestStashEncryptionDecryption(t *testing.T) {
 
 	// Test wrong nonce
 	wrongNonce := make([]byte, 24)
-	_, err = encryptor.Open(wrongNonce, ciphertext)
+	_, err = aliceRT.Open(wrongNonce, ciphertext)
 	if err == nil {
 		t.Fatal("expected decryption to fail with wrong nonce")
 	}
 
-	// Test wrong key
-	wrongEncryptor := utilities.NewEncryptor(make([]byte, 32))
-	_, err = wrongEncryptor.Open(nonce, ciphertext)
+	// Test wrong key (Bob can't decrypt Alice's data)
+	_, err = bobRT.Open(nonce, ciphertext)
 	if err == nil {
 		t.Fatal("expected decryption to fail with wrong key")
 	}

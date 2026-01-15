@@ -438,13 +438,13 @@ func (s *TeaseState) Cleanup() {
 
 // LedgerRequest is sent to request events from a neighbor
 type LedgerRequest struct {
-	From     string   // who is asking
+	From     NaraName // who is asking
 	Subjects []string // which subjects (naras) we want events about
 }
 
 // LedgerResponse contains events from a neighbor
 type LedgerResponse struct {
-	From   string        // who is responding
+	From   NaraName      // who is responding
 	Events []SocialEvent // events matching the request
 }
 

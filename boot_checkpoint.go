@@ -87,14 +87,14 @@ func (network *Network) syncCheckpointsFromNetwork(online []string) {
 
 // fetchAllCheckpointsFromNara fetches all checkpoint events from a remote nara via HTTP
 // Handles pagination automatically to retrieve the complete checkpoint history
-func (network *Network) fetchAllCheckpointsFromNara(naraName, ip string) []SyncEvent {
+func (network *Network) fetchAllCheckpointsFromNara(naraName string, naraID NaraID) []SyncEvent {
 	// Allow tests to work without tsnetMesh if testHTTPClient is set
 	if network.tsnetMesh == nil && network.testHTTPClient == nil {
 		return nil
 	}
 
 	// Try new unified API first (mode: "page" with service filter)
-	checkpoints := network.fetchCheckpointsViaUnifiedAPI(naraName, ip)
+	checkpoints := network.fetchCheckpointsViaUnifiedAPI(naraName, naraID)
 	if len(checkpoints) > 0 {
 		return checkpoints
 	}
@@ -102,11 +102,11 @@ func (network *Network) fetchAllCheckpointsFromNara(naraName, ip string) []SyncE
 	// TODO: Remove this fallback after ~6 months (2026-07) when all naras support Mode: "page"
 	// Fallback to legacy /api/checkpoints/all endpoint
 	logrus.Debugf("📸 %s: unified API returned no checkpoints, trying legacy endpoint", naraName)
-	return network.fetchCheckpointsViaLegacyAPI(naraName, ip)
+	return network.fetchCheckpointsViaLegacyAPI(naraName, naraID)
 }
 
 // fetchCheckpointsViaUnifiedAPI uses the new Mode: "page" API with checkpoint filter
-func (network *Network) fetchCheckpointsViaUnifiedAPI(naraName, ip string) []SyncEvent {
+func (network *Network) fetchCheckpointsViaUnifiedAPI(naraName string, naraID NaraID) []SyncEvent {
 	if network.meshClient == nil {
 		return nil
 	}
@@ -117,7 +117,7 @@ func (network *Network) fetchCheckpointsViaUnifiedAPI(naraName, ip string) []Syn
 
 	for {
 		ctx, cancel := context.WithTimeout(network.ctx, 10*time.Second)
-		resp, err := network.meshClient.FetchCheckpoints(ctx, ip, cursor, pageSize)
+		resp, err := network.meshClient.FetchCheckpoints(ctx, naraID, cursor, pageSize)
 		cancel()
 
 		if err != nil {
@@ -140,9 +140,16 @@ func (network *Network) fetchCheckpointsViaUnifiedAPI(naraName, ip string) []Syn
 
 // fetchCheckpointsViaLegacyAPI uses the old /api/checkpoints/all endpoint with offset/limit pagination
 // TODO: Remove after ~6 months (2026-07) when all naras support unified API
-func (network *Network) fetchCheckpointsViaLegacyAPI(naraName, ip string) []SyncEvent {
+func (network *Network) fetchCheckpointsViaLegacyAPI(naraName string, naraID NaraID) []SyncEvent {
 	client := network.getMeshHTTPClient()
 	if client == nil {
+		return nil
+	}
+
+	// Get base URL from mesh client (peer was registered by caller)
+	baseURL, ok := network.meshClient.GetPeerBaseURL(naraID)
+	if !ok {
+		logrus.Debugf("📸 %s: peer not registered for legacy API", naraName)
 		return nil
 	}
 
@@ -151,8 +158,8 @@ func (network *Network) fetchCheckpointsViaLegacyAPI(naraName, ip string) []Sync
 	limit := 1000 // fetch in batches of 1000
 
 	for {
-		// Build URL with pagination parameters using mesh helper (handles test vs production IPs)
-		url := network.buildMeshURLFromIP(ip, fmt.Sprintf("/api/checkpoints/all?limit=%d&offset=%d", limit, offset))
+		// Build URL with pagination parameters
+		url := fmt.Sprintf("%s/api/checkpoints/all?limit=%d&offset=%d", baseURL, limit, offset)
 
 		// Create request with timeout
 		ctx, cancel := context.WithTimeout(network.ctx, 10*time.Second)

@@ -29,6 +29,10 @@ type RuntimeInterface interface {
 	OnlinePeers() []*PeerInfo
 	MemoryMode() string
 	StorageLimit() int
+
+	// Self-encryption (only the owner can decrypt)
+	Seal(plaintext []byte) (nonce, ciphertext []byte, err error)
+	Open(nonce, ciphertext []byte) ([]byte, error)
 }
 
 // PeerInfo contains information about a network peer.
@@ -67,6 +71,9 @@ type NetworkInfoInterface interface {
 type KeypairInterface interface {
 	Sign(data []byte) []byte
 	PublicKey() []byte
+	// Encryption (self-encryption using XChaCha20-Poly1305)
+	Seal(plaintext []byte) (nonce, ciphertext []byte, err error)
+	Open(nonce, ciphertext []byte) ([]byte, error)
 }
 
 // EventBusInterface is what notification stages use.

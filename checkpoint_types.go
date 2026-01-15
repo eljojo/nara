@@ -26,7 +26,7 @@ type CheckpointEventPayload struct {
 
 	// Identity (who this checkpoint is about)
 	Subject   string `json:"subject"`    // Nara name
-	SubjectID string `json:"subject_id"` // Nara ID (for indexing)
+	SubjectID NaraID `json:"subject_id"` // Nara ID (for indexing)
 
 	// Chain of trust (v2+)
 	PreviousCheckpointID string `json:"previous_checkpoint_id,omitempty"` // ID of previous checkpoint for this subject (empty for first checkpoint or v1)
@@ -39,7 +39,7 @@ type CheckpointEventPayload struct {
 	Round    int   `json:"round"`      // Consensus round (1 or 2) - needed for signature verification
 
 	// Multi-party attestation - voters who participated in checkpoint creation
-	VoterIDs   []string `json:"voter_ids,omitempty"`  // Nara IDs who voted for these values
+	VoterIDs   []NaraID `json:"voter_ids,omitempty"`  // Nara IDs who voted for these values
 	Signatures []string `json:"signatures,omitempty"` // Base64 Ed25519 signatures (each verifies the values)
 }
 
@@ -222,7 +222,7 @@ func NewCheckpointEvent(subject string, asOfTime, firstSeen, restarts, totalUpti
 				TotalUptime: totalUptime,
 				StartTime:   firstSeen,
 			},
-			VoterIDs:   []string{},
+			VoterIDs:   []NaraID{},
 			Signatures: []string{},
 		},
 	}
@@ -249,7 +249,7 @@ func NewTestCheckpointEvent(subject string, asOfTime, firstSeen, restarts, total
 // Multiple naras can vote on the same checkpoint data,
 // making it a trusted anchor for historical state.
 // voterID is the nara's unique ID (not name).
-func (e *SyncEvent) AddCheckpointVoter(voterID string, keypair NaraKeypair) {
+func (e *SyncEvent) AddCheckpointVoter(voterID NaraID, keypair NaraKeypair) {
 	if e.Service != ServiceCheckpoint || e.Checkpoint == nil {
 		return
 	}
@@ -267,7 +267,7 @@ func (e *SyncEvent) AddCheckpointVoter(voterID string, keypair NaraKeypair) {
 // VerifyCheckpointSignatures verifies all signatures on a checkpoint event
 // Returns the number of valid signatures found
 // publicKeys maps voterID -> base64 public key string
-func (e *SyncEvent) VerifyCheckpointSignatures(publicKeys map[string]string) int {
+func (e *SyncEvent) VerifyCheckpointSignatures(publicKeys map[NaraID]string) int {
 	if e.Service != ServiceCheckpoint || e.Checkpoint == nil {
 		return 0
 	}

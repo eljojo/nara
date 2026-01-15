@@ -109,7 +109,7 @@ func isCriticalEvent(e SyncEvent) bool {
 // - Age decay: exponential decay with ~30-day half-life
 // - Importance boost: critical events weighted higher
 // - Self-relevance: events we emitted or are about us
-func calculateEventWeight(e SyncEvent, now time.Time, myName string) float64 {
+func calculateEventWeight(e SyncEvent, now time.Time, myName NaraName) float64 {
 	// Age decay (exponential with 30-day half-life)
 	eventTime := time.Unix(0, e.Timestamp)
 	age := now.Sub(eventTime)

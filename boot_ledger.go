@@ -34,9 +34,9 @@ func (network *Network) handleLedgerRequest(req LedgerRequest) {
 		Events: events,
 	}
 
-	topic := fmt.Sprintf("nara/ledger/%s/response", req.From)
+	topic := fmt.Sprintf("nara/ledger/%s/response", req.From.String())
 	network.postEvent(topic, response)
-	logrus.Infof("📤 sent %d events to %s", len(events), req.From)
+	logrus.Infof("📤 sent %d events to %s", len(events), req.From.String())
 }
 
 // processLedgerResponses processes incoming ledger sync responses

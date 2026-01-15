@@ -19,7 +19,7 @@ type HeyThereEvent struct {
 	From      string
 	PublicKey string // Base64-encoded Ed25519 public key
 	MeshIP    string // Tailscale IP for mesh communication
-	ID        string // Nara ID: deterministic hash of soul+name
+	ID        NaraID // Nara ID: deterministic hash of soul+name
 	Signature string // Base64-encoded signature of "hey_there:{From}:{PublicKey}:{MeshIP}:{ID}"
 }
 
@@ -161,6 +161,7 @@ func (network *Network) processHeyThereSyncEvents(events []SyncEvent) {
 			// Update existing nara with proper locking
 			nara.mu.Lock()
 			updated := false
+			naraID := nara.Status.ID
 			if nara.Status.PublicKey == "" && h.PublicKey != "" {
 				nara.Status.PublicKey = h.PublicKey
 				updated = true
@@ -171,12 +172,16 @@ func (network *Network) processHeyThereSyncEvents(events []SyncEvent) {
 				updated = true
 			}
 			nara.mu.Unlock()
+			// Register key in keyring (outside lock)
+			if updated && naraID != "" && h.PublicKey != "" {
+				network.RegisterKey(naraID, h.PublicKey)
+			}
 			if updated {
 				logrus.Infof("📡 Updated identity for %s via hey_there event (🔑)", h.From)
 			}
 		} else {
 			// Create new nara and import it
-			newNara := NewNara(h.From)
+			newNara := NewNara(NaraName(h.From))
 			newNara.Status.PublicKey = h.PublicKey
 			newNara.Status.MeshIP = h.MeshIP
 			newNara.Status.MeshEnabled = h.MeshIP != ""
@@ -285,7 +290,13 @@ func (network *Network) handleHeyThereEvent(event SyncEvent) {
 				nara.Status.ID = heyThere.ID
 				nara.ID = heyThere.ID
 			}
+			// Get final ID for keyring registration
+			naraID := nara.Status.ID
 			nara.mu.Unlock()
+			// Register key in keyring (outside lock)
+			if naraID != "" && heyThere.PublicKey != "" {
+				network.RegisterKey(naraID, heyThere.PublicKey)
+			}
 			logrus.Infof("📝 Updated %s: PublicKey=%s..., MeshIP=%s, ID=%s",
 				heyThere.From,
 				truncateKey(heyThere.PublicKey),

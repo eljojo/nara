@@ -378,7 +378,7 @@ func (network *Network) recordObservationOnlineNara(name string, timestamp int64
 	if !present && name != network.meName() {
 		// Only discovery-by-observation if recent or booting
 		if isRecent || network.local.isBooting() {
-			network.importNara(NewNara(name))
+			network.importNara(NewNara(NaraName(name)))
 		} else {
 			return
 		}

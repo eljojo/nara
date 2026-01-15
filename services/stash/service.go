@@ -14,6 +14,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// NOTE: Encryption is provided by runtime.Seal/Open which delegates to NaraKeypair.
+
 // Service implements distributed encrypted storage (stash).
 //
 // Naras store their encrypted state with trusted peers (confidants) instead
@@ -21,9 +23,6 @@ import (
 type Service struct {
 	rt  runtime.RuntimeInterface
 	log *runtime.ServiceLog
-
-	// Encryption
-	encryptor *utilities.Encryptor
 
 	// Stored stashes (we're a confidant for these owners)
 	mu     sync.RWMutex
@@ -75,10 +74,7 @@ func (s *Service) Init(rt runtime.RuntimeInterface) error {
 	s.rt = rt
 	s.log = rt.Log("stash")
 
-	// Get seed from keypair for encryption
-	seed := make([]byte, 32) // TODO: Get from keypair in Phase 4
-	s.encryptor = utilities.NewEncryptor(seed)
-
+	// Encryption is provided by runtime.Seal/Open (no local encryptor needed)
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 
 	logrus.Info("📦 Stash service initialized successfully")
@@ -107,8 +103,8 @@ func (s *Service) Stop() error {
 // This is a synchronous call that blocks until the confidant acknowledges
 // receipt or the request times out.
 func (s *Service) StoreWith(confidantID string, data []byte) error {
-	// Encrypt the data
-	nonce, ciphertext, err := s.encryptor.Seal(data)
+	// Encrypt the data using runtime's keypair
+	nonce, ciphertext, err := s.rt.Seal(data)
 	if err != nil {
 		return fmt.Errorf("encrypt: %w", err)
 	}
@@ -166,8 +162,8 @@ func (s *Service) RequestFrom(confidantID string) ([]byte, error) {
 		return nil, fmt.Errorf("confidant %s has no stash for us", confidantID)
 	}
 
-	// Decrypt
-	plaintext, err := s.encryptor.Open(result.Response.Nonce, result.Response.Ciphertext)
+	// Decrypt using runtime's keypair
+	plaintext, err := s.rt.Open(result.Response.Nonce, result.Response.Ciphertext)
 	if err != nil {
 		return nil, fmt.Errorf("decrypt: %w", err)
 	}

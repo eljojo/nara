@@ -336,7 +336,7 @@ func (network *Network) httpNetworkMapHandler(w http.ResponseWriter, r *http.Req
 		nara.mu.Unlock()
 
 		// Get our observation of this peer
-		myObs := network.local.getObservationLocked(name)
+		myObs := network.local.getObservationLocked(NaraName(name))
 
 		node := map[string]interface{}{
 			"name":        name,
@@ -375,8 +375,8 @@ func (network *Network) httpProximityHandler(w http.ResponseWriter, r *http.Requ
 	// Find all naras in my barrio
 	var barrioMembers []string
 	for name := range network.Neighbourhood {
-		if network.IsInMyBarrio(name) {
-			barrioMembers = append(barrioMembers, name)
+		if network.IsInMyBarrio(name.String()) {
+			barrioMembers = append(barrioMembers, name.String())
 		}
 	}
 

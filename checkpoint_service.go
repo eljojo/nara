@@ -378,8 +378,8 @@ func (s *CheckpointService) HandleProposal(proposal *CheckpointProposal) {
 		Subject:              proposal.Subject,
 		SubjectID:            proposal.SubjectID,
 		Observation:          observation,
-		Attester:             s.local.Me.Name,      // We are the attester (voter)
-		AttesterID:           s.local.Me.Status.ID, // Our ID
+		Attester:             s.local.Me.Name, // We are the attester (voter)
+		AttesterID:           s.local.Me.Status.ID,      // Our ID
 		AsOfTime:             proposal.AsOfTime,    // Sign the SAME timestamp as proposal
 		LastSeenCheckpointID: lastSeenCheckpointID, // v2: our reference point for this subject
 	}
@@ -665,7 +665,7 @@ func (s *CheckpointService) tryFindConsensus(proposal *CheckpointProposal, votes
 			TotalUptime: bestKey.TotalUptime,
 			StartTime:   bestKey.FirstSeen,
 		},
-		VoterIDs:   make([]string, 0, MaxCheckpointSignatures),
+		VoterIDs:   make([]NaraID, 0, MaxCheckpointSignatures),
 		Signatures: make([]string, 0, MaxCheckpointSignatures),
 		Round:      proposal.Round, // Needed for signature verification
 	}
@@ -698,7 +698,7 @@ func (s *CheckpointService) tryFindConsensus(proposal *CheckpointProposal, votes
 }
 
 // getVoterUptime looks up a voter's total uptime from the ledger
-func (s *CheckpointService) getVoterUptime(voterName string) int64 {
+func (s *CheckpointService) getVoterUptime(voterName NaraName) int64 {
 	if s.ledger == nil {
 		return 0
 	}
@@ -825,7 +825,7 @@ func (s *CheckpointService) HandleFinalCheckpoint(event *SyncEvent) {
 
 // verifyCheckpointSignatures verifies checkpoint signatures and returns detailed result
 func (s *CheckpointService) verifyCheckpointSignatures(checkpoint *CheckpointEventPayload) CheckpointVerificationResult {
-	lookup := PublicKeyLookup(func(id, name string) ed25519.PublicKey {
+	lookup := PublicKeyLookup(func(id NaraID, name string) ed25519.PublicKey {
 		return s.network.getPublicKeyForNaraID(id)
 	})
 	return checkpoint.VerifySignatureWithCounts(lookup)
