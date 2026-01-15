@@ -174,35 +174,91 @@ func TestStashStore(t *testing.T) {
 
 ---
 
-### 6. Where Do Payload Structs Live?
+### 6. Where Do Payload Structs Live? ✅ SOLVED
 
-**Current:** Payload types are defined... somewhere. Behaviors reference them.
+**Solution:** The `messages/` package — the "monorepo" of Nara message types.
 
-```go
-PayloadType: runtime.PayloadTypeOf[StashStorePayload]()
-```
-
-**But where is `StashStorePayload` defined?**
-
-Options:
-1. In `runtime/` package — runtime knows all payload types
-2. In service packages — `stash/payloads.go`
-3. In a shared `types/` package
-
-**Concern:** If payloads are in service packages, runtime can't deserialize without importing services. Circular dependency risk.
-
-**Risk for stash:** High. Need to solve this before writing any code.
-
-**Recommendation:** Shared `messages/` or `payloads/` package:
 ```
 messages/
-├── stash.go      // StashStorePayload, StashRequestPayload, etc.
-├── social.go     // SocialPayload
-├── presence.go   // HeyTherePayload, ChauPayload, etc.
-└── checkpoint.go // CheckpointPayload
+├── doc.go           // Package docs, overview of all message kinds
+├── stash.go         // StashStorePayload, StashRequestPayload, etc.
+├── social.go        // SocialPayload, TeasePayload
+├── presence.go      // HeyTherePayload, ChauPayload, NewspaperPayload
+├── checkpoint.go    // CheckpointProposal, CheckpointVote
+├── observation.go   // RestartObservation, StatusChangeObservation
+└── gossip.go        // ZinePayload, DMPayload
 ```
 
-Runtime imports `messages/`. Services import `messages/`. No cycles.
+**This package is the single source of truth:**
+
+1. **All payload structs** — Every message type defined here
+2. **Version history** — Old payload versions kept for backwards compat
+3. **Documentation** — Godoc comments are the spec
+4. **JSON tags** — Wire format defined by struct tags
+5. **Validation** — `Validate()` methods on payloads
+
+**Example: stash.go**
+```go
+package messages
+
+// StashStorePayload is sent when storing encrypted data with a confidant.
+//
+// Flow: Owner → Confidant
+// Response: StashStoreAck
+// Transport: MeshOnly (direct HTTP)
+//
+// Version History:
+//   v1 (2024-01): Initial version
+type StashStorePayload struct {
+    // Owner is who the stash belongs to (for retrieval)
+    Owner string `json:"owner"`
+
+    // Nonce for XChaCha20-Poly1305 decryption
+    Nonce []byte `json:"nonce"`
+
+    // Ciphertext is the encrypted stash data
+    Ciphertext []byte `json:"ciphertext"`
+
+    // Timestamp when the stash was created
+    Timestamp int64 `json:"ts"`
+}
+
+func (p *StashStorePayload) Validate() error {
+    if p.Owner == "" {
+        return errors.New("owner required")
+    }
+    if len(p.Nonce) != 24 {
+        return errors.New("nonce must be 24 bytes")
+    }
+    return nil
+}
+
+// StashStoreAck acknowledges successful storage.
+type StashStoreAck struct {
+    // StoredAt is when the confidant stored the data
+    StoredAt int64 `json:"stored_at"`
+}
+```
+
+**Auto-generated documentation:**
+
+The runtime can generate a message catalog from this package:
+```bash
+nara docs --messages
+```
+
+Outputs markdown or JSON with all message types, their fields, flows, and versions.
+
+**Import structure (no cycles):**
+```
+messages/     ← Pure data types, no dependencies
+    ↑
+runtime/      ← Imports messages/ for deserialization
+    ↑
+services/     ← Import both runtime/ and messages/
+```
+
+**Risk:** None. Clean separation, single source of truth.
 
 ---
 
@@ -267,7 +323,7 @@ HTTP request → http_mesh.go → rt.Receive() → pipeline → service.Handle()
 
 ### High (solve before implementing stash)
 - **#2 Request/Response correlation** — ✅ SOLVED with Correlator utility
-- **#6 Payload struct location** — create `messages/` package
+- **#6 Payload struct location** — ✅ SOLVED with `messages/` package (the "monorepo")
 - **#8 Mesh receive flow** — document and implement
 
 ### Medium (solve during implementation)
@@ -285,7 +341,7 @@ HTTP request → http_mesh.go → rt.Receive() → pipeline → service.Handle()
 
 Before writing stash service code:
 
-- [ ] Create `messages/` package with payload structs
+- [x] Create `messages/` package → **The monorepo of Nara message types**
 - [x] Decide request/response pattern → **Correlator utility** (see `DESIGN_SERVICE_UTILITIES.md`)
 - [ ] Create `utilities/` package with Correlator, Encryptor, RateLimiter
 - [ ] Document mesh receive flow (HTTP → Receive → pipeline → Handle)

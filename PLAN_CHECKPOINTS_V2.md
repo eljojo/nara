@@ -33,6 +33,52 @@ Before starting, ensure you understand:
 
 **Goal:** Create the foundational types without breaking existing code.
 
+### Step 1.0: Create `messages/` package — The Monorepo
+
+Create the central package for all message payload types. This is the single source of truth for Nara's wire protocol.
+
+```
+messages/
+├── doc.go           # Package overview, how to add new messages
+├── stash.go         # StashStorePayload, StashRequestPayload, StashStoreAck
+├── social.go        # SocialPayload, TeasePayload
+├── presence.go      # HeyTherePayload, ChauPayload, NewspaperPayload
+├── checkpoint.go    # CheckpointProposal, CheckpointVote
+├── observation.go   # RestartObservation, StatusChangeObservation
+└── gossip.go        # ZinePayload, DMPayload
+```
+
+**Every payload struct includes:**
+```go
+// StashStorePayload is sent when storing encrypted data with a confidant.
+//
+// Kind: stash:store
+// Flow: Owner → Confidant
+// Response: StashStoreAck
+// Transport: MeshOnly
+//
+// Version History:
+//   v1 (2024-01): Initial version
+type StashStorePayload struct {
+    Owner      string `json:"owner"`      // Who the stash belongs to
+    Nonce      []byte `json:"nonce"`      // 24-byte XChaCha20 nonce
+    Ciphertext []byte `json:"ciphertext"` // Encrypted stash data
+    Timestamp  int64  `json:"ts"`         // When created
+}
+
+func (p *StashStorePayload) Validate() error { /* ... */ }
+```
+
+**Documentation from code:**
+```bash
+nara docs --messages  # Generate message catalog from godoc comments
+```
+
+**Import rules:**
+- `messages/` has NO dependencies (pure data types)
+- `runtime/` imports `messages/`
+- Services import both
+
 ### Step 1.1: Create `runtime/` package structure
 
 Create the directory structure:
@@ -1080,7 +1126,10 @@ Network becomes a thin wrapper or is removed entirely:
 ## Checkpoints
 
 ### After Phase 1:
-- [ ] All core types compile
+- [ ] `messages/` package created with all payload structs
+- [ ] Each payload has godoc comments (Kind, Flow, Response, Transport, Version History)
+- [ ] Each payload has `Validate()` method
+- [ ] All core types compile (Message, StageResult, Pipeline, Behavior)
 - [ ] Unit tests pass for Message, StageResult, Pipeline, Behavior
 
 ### After Phase 2:
