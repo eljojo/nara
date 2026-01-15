@@ -24,30 +24,33 @@ This document is the **authoritative, re-implementation-grade** specification fo
 - **[Personality](/docs/spec/personality/)**: Deterministic character traits.
 - **[Aura & Avatar](/docs/spec/aura-and-avatar/)**: Visual representation.
 
-### 2. Event & Memory Model
+### 2. Runtime & Services
+- **[Runtime](/docs/spec/runtime/)**: Message primitives, behaviors, pipelines, and adapters for every service.
+- **[Stash](/docs/spec/stash/)**: Runtime service reference implementation for encrypted storage.
+
+### 3. Event & Memory Model
 - **[Events](/docs/spec/events/)**: Immutable signed facts and ledger.
 - **[Projections](/docs/spec/projections/)**: Deriving state from event streams.
 - **[Memory Model](/docs/spec/memory-model/)**: Pruning, recovery, and forgetting.
 
-### 3. Transport & Sync
+### 4. Transport & Sync
 - **[Plaza (MQTT)](/docs/spec/plaza-mqtt/)**: Public broadcasts.
 - **[Mesh (HTTP)](/docs/spec/mesh-http/)**: P2P WireGuard transport.
 - **[Zines](/docs/spec/zines/)**: Hand-to-hand gossip bundles.
 - **[Sync Protocol](/docs/spec/sync-protocol/)**: Historical reconciliation.
 
-### 4. Presence & Consensus
+### 5. Presence & Consensus
 - **[Presence](/docs/spec/presence/)**: Discovery and liveness.
 - **[Observations](/docs/spec/observations/)**: Uptime/restart monitoring.
 - **[Checkpoints](/docs/spec/checkpoints/)**: Multi-sig historical anchors.
 
-### 5. Social & World
-- **[Stash](/docs/spec/stash/)**: Distributed encrypted storage.
+### 6. Social & World
 - **[Social Events](/docs/spec/social-events/)**: Teasing, trends, and buzz.
 - **[Clout](/docs/spec/clout/)**: Subjective reputation ranking.
 - **[World Postcards](/docs/spec/world-postcards/)**: Signature-chained messages.
 - **[Coordinates](/docs/spec/coordinates/)**: Vivaldi network latency mapping.
 
-### 6. Operations & UI
+### 7. Operations & UI
 - **[HTTP API](/docs/spec/http-api/)**: Public and Inspector endpoints.
 - **[Boot Sequence](/docs/spec/boot-sequence/)**: Transition to steady-state.
 - **[Configuration](/docs/spec/configuration/)**: Flags and environment variables.
