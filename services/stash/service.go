@@ -201,6 +201,11 @@ func (s *Service) SetConfidants(confidantIDs []string) {
 	s.log.Info("configured %d confidants", len(confidantIDs))
 }
 
+// TargetConfidants returns the target number of confidants.
+func (s *Service) TargetConfidants() int {
+	return s.targetConfidants
+}
+
 // SelectConfidantsAutomatically picks 3 confidants automatically:
 // - First: peer with highest uptime
 // - Second and third: random peers
@@ -224,8 +229,8 @@ func (s *Service) SelectConfidantsAutomatically() error {
 		logrus.Infof("📦   Peer %d: %s (%s) uptime=%v", i+1, peer.Name, peer.ID, peer.Uptime)
 	}
 
-	if len(peers) < 3 {
-		return fmt.Errorf("need at least 3 online peers, only found %d", len(peers))
+	if len(peers) < s.targetConfidants {
+		return fmt.Errorf("need at least %d online peers, only found %d", s.targetConfidants, len(peers))
 	}
 
 	s.log.Info("found %d online peers", len(peers))
@@ -284,8 +289,8 @@ func (s *Service) SelectConfidantsAutomatically() error {
 		}
 	}
 
-	// Try random peers for second and third confidants
-	for len(selected) < 3 && len(remainingPeers) > 0 {
+	// Try random peers for remaining confidant slots
+	for len(selected) < s.targetConfidants && len(remainingPeers) > 0 {
 		// Pick random index
 		idx := time.Now().UnixNano() % int64(len(remainingPeers))
 		peer := remainingPeers[idx]
@@ -299,7 +304,7 @@ func (s *Service) SelectConfidantsAutomatically() error {
 			continue
 		}
 
-		s.log.Info("selected confidant %d/3: %s", len(selected)+1, peer.ID)
+		s.log.Info("selected confidant %d/%d: %s", len(selected)+1, s.targetConfidants, peer.ID)
 		selected = append(selected, peer.ID)
 		used[peer.ID] = true
 
@@ -307,19 +312,19 @@ func (s *Service) SelectConfidantsAutomatically() error {
 		remainingPeers = append(remainingPeers[:idx], remainingPeers[idx+1:]...)
 	}
 
-	if len(selected) < 3 {
-		return fmt.Errorf("only found %d willing confidants, need 3", len(selected))
+	if len(selected) < s.targetConfidants {
+		return fmt.Errorf("only found %d willing confidants, need %d", len(selected), s.targetConfidants)
 	}
 
 	// Store the selected confidants
 	s.SetConfidants(selected)
-	s.log.Info("automatically selected 3 confidants")
+	s.log.Info("automatically selected %d confidants", s.targetConfidants)
 
 	return nil
 }
 
 // SetStashData updates the stash data and distributes it to all confidants.
-// If no confidants are configured, it automatically selects 3 peers.
+// If fewer than targetConfidants are configured, it automatically selects peers.
 func (s *Service) SetStashData(data []byte) error {
 	s.mu.Lock()
 	s.myStashData = data
@@ -328,9 +333,9 @@ func (s *Service) SetStashData(data []byte) error {
 
 	s.log.Info("stash data updated (%d bytes)", len(data))
 
-	// If fewer than 3 confidants, try to auto-select
-	if len(s.confidants) < 3 {
-		s.log.Info("only %d confidants configured (need 3), selecting automatically...", len(s.confidants))
+	// If fewer than target confidants, try to auto-select
+	if len(s.confidants) < s.targetConfidants {
+		s.log.Info("only %d confidants configured (need %d), selecting automatically...", len(s.confidants), s.targetConfidants)
 		// Clear old confidants before auto-selecting
 		s.confidants = []string{}
 		if err := s.SelectConfidantsAutomatically(); err != nil {
@@ -372,8 +377,8 @@ func (s *Service) DistributeToConfidants() error {
 		return fmt.Errorf("no confidants configured")
 	}
 
-	if len(confidants) < 3 {
-		return fmt.Errorf("minimum 3 confidants required, only have %d", len(confidants))
+	if len(confidants) < s.targetConfidants {
+		return fmt.Errorf("minimum %d confidants required, only have %d", s.targetConfidants, len(confidants))
 	}
 
 	// Distribute to each confidant

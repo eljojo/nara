@@ -86,7 +86,7 @@ func (network *Network) httpStashStatusHandler(w http.ResponseWriter, r *http.Re
 			}
 
 			response["confidants"] = confidantList
-			response["target_count"] = 3 // Always target 3 confidants
+			response["target_count"] = network.stashService.TargetConfidants()
 
 			// Metrics from stored stashes (we're a confidant for these)
 			totalBytes := 0
