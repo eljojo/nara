@@ -62,6 +62,7 @@ export default defineConfig({
             { label: 'Checkpoints', link: '/spec/checkpoints/' },
             { label: 'Stash', link: '/spec/stash/' },
             { label: 'Social Events', link: '/spec/social-events/' },
+            { label: 'Styleguide', link: '/spec/styleguide/' },
             { label: 'Clout', link: '/spec/clout/' },
             { label: 'World Postcards', link: '/spec/world-postcards/' },
             { label: 'Coordinates (Spec)', link: '/spec/coordinates/' },
