@@ -18,10 +18,6 @@ import "github.com/eljojo/nara/utilities"
   - [func NewCorrelator\[Resp any\]\(timeout time.Duration\) \*Correlator\[Resp\]](<#NewCorrelator>)
   - [func \(c \*Correlator\[Resp\]\) Receive\(requestID string, resp Resp\) bool](<#Correlator[Resp].Receive>)
   - [func \(c \*Correlator\[Resp\]\) Send\(rt runtime.RuntimeInterface, msg \*runtime.Message\) \<\-chan Result\[Resp\]](<#Correlator[Resp].Send>)
-- [type Encryptor](<#Encryptor>)
-  - [func NewEncryptor\(seed \[\]byte\) \*Encryptor](<#NewEncryptor>)
-  - [func \(e \*Encryptor\) Open\(nonce, ciphertext \[\]byte\) \(\[\]byte, error\)](<#Encryptor.Open>)
-  - [func \(e \*Encryptor\) Seal\(plaintext \[\]byte\) \(nonce, ciphertext \[\]byte, err error\)](<#Encryptor.Seal>)
 - [type Result](<#Result>)
 
 
@@ -90,54 +86,6 @@ func (c *Correlator[Resp]) Send(rt runtime.RuntimeInterface, msg *runtime.Messag
 Send emits a request and returns a channel for the response.
 
 The message is emitted via runtime.Emit\(\), and a channel is returned that will receive either the response or a timeout error.
-
-<a name="Encryptor"></a>
-## type [Encryptor](<https://github.com/eljojo/nara/blob/main/utilities/encryptor.go#L21-L23>)
-
-Encryptor provides self\-encryption using XChaCha20\-Poly1305.
-
-Self\-encryption means encrypting data that only the owner can decrypt. The encryption key is derived deterministically from a seed, so the same seed always produces the same encryption key.
-
-This is used by stash to encrypt data before storing it with confidants. Only the owner can decrypt because only the owner has the seed.
-
-```go
-type Encryptor struct {
-    // contains filtered or unexported fields
-}
-```
-
-<a name="NewEncryptor"></a>
-### func [NewEncryptor](<https://github.com/eljojo/nara/blob/main/utilities/encryptor.go#L29>)
-
-```go
-func NewEncryptor(seed []byte) *Encryptor
-```
-
-NewEncryptor creates an encryptor from a 32\-byte seed.
-
-The seed is typically the Ed25519 private key seed. It's deterministically expanded into a symmetric encryption key using HKDF with domain separation.
-
-<a name="Encryptor.Open"></a>
-### func \(\*Encryptor\) [Open](<https://github.com/eljojo/nara/blob/main/utilities/encryptor.go#L77>)
-
-```go
-func (e *Encryptor) Open(nonce, ciphertext []byte) ([]byte, error)
-```
-
-Open decrypts ciphertext using XChaCha20\-Poly1305.
-
-The nonce must be the same nonce used during encryption. Returns an error if the ciphertext is invalid or if it was encrypted with a different key.
-
-<a name="Encryptor.Seal"></a>
-### func \(\*Encryptor\) [Seal](<https://github.com/eljojo/nara/blob/main/utilities/encryptor.go#L55>)
-
-```go
-func (e *Encryptor) Seal(plaintext []byte) (nonce, ciphertext []byte, err error)
-```
-
-Seal encrypts plaintext using XChaCha20\-Poly1305 with a random nonce.
-
-Returns the nonce and ciphertext separately so the nonce can be stored alongside the ciphertext. The nonce is 24 bytes, and the ciphertext includes a 16\-byte authentication tag.
 
 <a name="Result"></a>
 ## type [Result](<https://github.com/eljojo/nara/blob/main/utilities/correlator.go#L40-L43>)

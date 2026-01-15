@@ -271,10 +271,23 @@ go test -v -run Checkpoint -short -timeout 2m
 
 **The test suite is expensive.** Integration tests start MQTT brokers and wait for consensus (3-10s per test). Full suite takes 2-3 minutes.
 
-**Best practice:**
-- **During development:** Run ONLY the specific test (`-run TestSpecificName`)
-- **After a group of changes:** Run domain tests (`-run Checkpoint`)
-- **Before finishing:** Run full suite once (`/usr/bin/make all`)
+**ALWAYS prefer targeted tests. Full suite is a last resort.**
+
+```bash
+# PREFERRED: Run specific test (fast, <1s)
+go test -v -run TestSpecificName -timeout 30s
+
+# GOOD: Run domain tests after changes to that domain
+go test -v -run Checkpoint -short -timeout 1m
+
+# LAST RESORT: Full suite (only before finishing all work)
+/usr/bin/make all
+```
+
+**Test escalation strategy:**
+1. **First:** Run only the specific test you wrote or changed
+2. **Then:** Run related domain tests (`-run Checkpoint`, `-run Stash`, etc.)
+3. **Finally:** Run full suite once at the very end, before handing off to user
 
 ### Red → Green → Refactor
 
@@ -339,6 +352,8 @@ testSoul(name)                          // Generate valid test soul
 testIdentity(name)                      // Create valid identity result
 startTestNaras(t, port, names, ensureDiscovery)  // Start multiple MQTT naras
 ```
+
+**For tests needing Network with keyring:** Use `ln := testNara(t, "name")` then `ln.Network` - this gives you a properly initialized Network with keyring for signature verification. Don't create `&Network{}` directly.
 
 ### TestMain Setup
 
