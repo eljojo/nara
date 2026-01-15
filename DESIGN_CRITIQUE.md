@@ -12,7 +12,9 @@ Before the critique, acknowledging what's solid:
 2. **ID vs ContentKey split** — clean separation of envelope vs semantic identity
 3. **Versioning built-in** — can evolve schemas without breaking old naras
 4. **GossipQueue decoupled** — gossip and storage are independent
-5. **Stash as first target** — no backwards compatibility baggage
+5. **Emit/Receive split** — clear which stages run on send vs receive
+6. **Pattern templates** — `MeshRequest()`, `Ephemeral()` reduce boilerplate dramatically
+7. **Stash as first target** — no backwards compatibility baggage
 
 ---
 
@@ -42,45 +44,7 @@ type PipelineContext struct {
 
 ---
 
-### 2. The Behavior Struct Mixes Emit and Receive
-
-```go
-type Behavior struct {
-    // Emit stages
-    Sign      Stage
-    Store     Stage
-    Gossip    Stage
-    Transport Stage
-
-    // Receive stages
-    Verify    Stage
-    Dedupe    Stage
-    RateLimit Stage
-    Filter    Stage
-}
-```
-
-**Concern:** Not obvious which fields apply when. `Store` is used by both emit and receive pipelines.
-
-**Risk for stash:** Medium. Stash messages are mostly request/response — emit and receive are tightly coupled. Easy to get confused about which stage runs where.
-
-**Example confusion:**
-```go
-// stash:request — what does Store mean here?
-Register(&Behavior{
-    Kind:      "stash:request",
-    Store:     NoStore(),     // Don't store the request... on emit? receive? both?
-    Transport: DirectFirst(""),
-})
-```
-
-**Possible fix:** Be explicit in comments, or split into `EmitBehavior` / `ReceiveBehavior` structs. But that adds verbosity.
-
-**Decision:** Live with it for stash. Revisit if it causes real confusion.
-
----
-
-### 3. DirectFirst With Empty Topic Is Weird
+### 2. DirectFirst With Empty Topic Is Weird
 
 ```go
 Transport: runtime.DirectFirst("")  // Mesh only, no MQTT fallback
@@ -107,7 +71,7 @@ Transport: runtime.Direct()  // Always mesh, never broadcast
 
 ---
 
-### 4. No Request/Response Correlation
+### 3. No Request/Response Correlation
 
 Stash is request/response:
 1. Alice sends `stash:store` to Bob
@@ -139,7 +103,7 @@ func (s *StashService) StoreWith(confidant string, data []byte) error {
 
 ---
 
-### 5. No Backpressure on GossipQueue
+### 4. No Backpressure on GossipQueue
 
 ```go
 type GossipQueue struct {
@@ -162,7 +126,7 @@ func (q *GossipQueue) Add(msg *Message) {
 
 ---
 
-### 6. Versioning Complexity for Simple Cases
+### 5. Versioning Complexity for Simple Cases
 
 ```go
 type Behavior struct {
@@ -191,7 +155,7 @@ if b.PayloadTypes != nil && b.PayloadType != nil {
 
 ---
 
-### 7. Testing the Runtime Itself
+### 6. Testing the Runtime Itself
 
 **Concern:** How do we test the runtime without starting MQTT, mesh, ledger?
 
@@ -221,7 +185,7 @@ rt := NewRuntime(RuntimeConfig{Transport: transport})
 
 ---
 
-### 8. Where Do Payload Structs Live?
+### 7. Where Do Payload Structs Live?
 
 **Current:** Payload types are defined... somewhere. Behaviors reference them.
 
@@ -253,7 +217,7 @@ Runtime imports `messages/`. Services import `messages/`. No cycles.
 
 ---
 
-### 9. Error Strategy Defaults
+### 8. Error Strategy Defaults
 
 ```go
 type Behavior struct {
@@ -285,7 +249,7 @@ Or require all strategies in `Register()` validation.
 
 ---
 
-### 10. The "Receive" Pipeline for Direct Messages
+### 9. The "Receive" Pipeline for Direct Messages
 
 MQTT messages go through receive pipeline. But what about direct mesh messages?
 
@@ -313,20 +277,19 @@ HTTP request → http_mesh.go → rt.Receive() → pipeline → service.Handle()
 ## Summary: Risks by Severity
 
 ### High (solve before implementing stash)
-- **#4 Request/Response correlation** — decide on approach
-- **#8 Payload struct location** — create `messages/` package
-- **#10 Mesh receive flow** — document and implement
+- **#3 Request/Response correlation** — decide on approach
+- **#7 Payload struct location** — create `messages/` package
+- **#9 Mesh receive flow** — document and implement
 
 ### Medium (solve during implementation)
-- **#2 Emit/Receive confusion** — use clear comments
-- **#7 Testing mocks** — write mocks in Phase 3
-- **#9 Error strategy defaults** — add sensible defaults
+- **#6 Testing mocks** — write mocks in Phase 3
+- **#8 Error strategy defaults** — add sensible defaults
 
 ### Low (defer to later phases)
 - **#1 PipelineContext size** — discipline, not architecture
-- **#3 DirectFirst empty topic** — add `MeshOnly()` helper
-- **#5 GossipQueue backpressure** — fix before Phase 6
-- **#6 Versioning complexity** — add validation
+- **#2 DirectFirst empty topic** — add `MeshOnly()` helper
+- **#4 GossipQueue backpressure** — fix before Phase 6
+- **#5 Versioning complexity** — add validation
 
 ---
 

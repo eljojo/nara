@@ -201,23 +201,41 @@ type Behavior struct {
     // ContentKey derivation (nil = no content key)
     ContentKey func(payload any) string
 
-    // Emit stages
-    Sign      Stage
-    Store     Stage
-    Gossip    Stage
-    Transport Stage
-
-    // Receive stages
-    Verify    Stage
-    Dedupe    Stage
-    RateLimit Stage
-    Filter    Stage
-
-    // Error handling
-    OnTransportError ErrorStrategy
-    OnStoreError     ErrorStrategy
-    OnVerifyError    ErrorStrategy
+    // Pipeline stages - split by direction
+    Emit    EmitBehavior
+    Receive ReceiveBehavior
 }
+
+// EmitBehavior defines how outgoing messages are processed
+type EmitBehavior struct {
+    Sign      Stage         // How to sign (default: DefaultSign)
+    Store     Stage         // How to store (default: DefaultStore(2))
+    Gossip    Stage         // Whether to gossip (default: NoGossip)
+    Transport Stage         // How to send (required)
+    OnError   ErrorStrategy // What to do on failure
+}
+
+// ReceiveBehavior defines how incoming messages are processed
+type ReceiveBehavior struct {
+    Verify    Stage         // How to verify signature (default: DefaultVerify)
+    Dedupe    Stage         // How to deduplicate (default: IDDedupe)
+    RateLimit Stage         // Rate limiting (optional)
+    Filter    Stage         // Personality filter (optional)
+    Store     Stage         // How to store (can differ from emit!)
+    OnError   ErrorStrategy // What to do on failure
+}
+
+// Pattern templates for common cases
+func Ephemeral(kind, desc, topic string) *Behavior { /* ... */ }
+func MeshRequest(kind, desc string) *Behavior { /* ... */ }
+func StoredEvent(kind, desc string, priority int) *Behavior { /* ... */ }
+func BroadcastEvent(kind, desc string, priority int, topic string) *Behavior { /* ... */ }
+
+// Chainable modifiers
+func (b *Behavior) WithPayload[T any]() *Behavior { /* ... */ }
+func (b *Behavior) WithContentKey(fn func(any) string) *Behavior { /* ... */ }
+func (b *Behavior) WithFilter(stage Stage) *Behavior { /* ... */ }
+func (b *Behavior) WithRateLimit(stage Stage) *Behavior { /* ... */ }
 
 // Registry
 var (
@@ -589,11 +607,12 @@ func (rt *Runtime) buildEmitPipeline(b *Behavior) Pipeline {
         stages = append(stages, &ContentKeyStage{KeyFunc: b.ContentKey})
     }
 
-    stages = append(stages, orDefault(b.Sign, DefaultSign()))
-    stages = append(stages, orDefault(b.Store, DefaultStore(2)))
-    stages = append(stages, orDefault(b.Gossip, NoGossip()))
-    if b.Transport != nil {
-        stages = append(stages, b.Transport)
+    // Emit-specific stages
+    stages = append(stages, orDefault(b.Emit.Sign, DefaultSign()))
+    stages = append(stages, orDefault(b.Emit.Store, DefaultStore(2)))
+    stages = append(stages, orDefault(b.Emit.Gossip, NoGossip()))
+    if b.Emit.Transport != nil {
+        stages = append(stages, b.Emit.Transport)
     }
     stages = append(stages, &NotifyStage{})
     return Pipeline(stages)
@@ -601,19 +620,18 @@ func (rt *Runtime) buildEmitPipeline(b *Behavior) Pipeline {
 
 func (rt *Runtime) buildReceivePipeline(b *Behavior) Pipeline {
     stages := []Stage{}
-    stages = append(stages, orDefault(b.Verify, DefaultVerify()))
-    stages = append(stages, orDefault(b.Dedupe, IDDedupe()))
-    if b.RateLimit != nil {
-        stages = append(stages, b.RateLimit)
+
+    // Receive-specific stages
+    stages = append(stages, orDefault(b.Receive.Verify, DefaultVerify()))
+    stages = append(stages, orDefault(b.Receive.Dedupe, IDDedupe()))
+    if b.Receive.RateLimit != nil {
+        stages = append(stages, b.Receive.RateLimit)
     }
-    if b.Filter != nil {
-        stages = append(stages, b.Filter)
+    if b.Receive.Filter != nil {
+        stages = append(stages, b.Receive.Filter)
     }
-    if b.Store != nil && !isNoStore(b.Store) {
-        stages = append(stages, b.Store)
-    }
-    if b.Gossip != nil && !isNoGossip(b.Gossip) {
-        stages = append(stages, b.Gossip)
+    if b.Receive.Store != nil && !isNoStore(b.Receive.Store) {
+        stages = append(stages, b.Receive.Store)
     }
     stages = append(stages, &NotifyStage{})
     return Pipeline(stages)
@@ -726,60 +744,20 @@ Create behavior registrations in `stash/behaviors.go`:
 ```go
 package stash
 
-import (
-    "nara/runtime"
-)
+import rt "nara/runtime"
 
 func init() {
-    // Ephemeral: trigger stash recovery from confidants
-    runtime.Register(&runtime.Behavior{
-        Kind:        "stash-refresh",
-        Description: "Request stash recovery from confidants",
-        PayloadType: runtime.PayloadTypeOf[StashRefreshPayload](),
-        Store:       runtime.NoStore(),
-        Gossip:      runtime.NoGossip(),
-        Transport:   runtime.MQTT("nara/plaza/stash_refresh"),
-        Verify:      runtime.NoVerify(),
-        Filter:      runtime.Critical(),
-    })
+    // Ephemeral broadcast: trigger stash recovery from confidants
+    rt.Register(rt.Ephemeral("stash-refresh", "Request stash recovery", "nara/plaza/stash_refresh"))
 
-    // Store request (peer wants to store their stash with us)
-    runtime.Register(&runtime.Behavior{
-        Kind:        "stash:store",
-        Description: "Request to store encrypted stash",
-        PayloadType: runtime.PayloadTypeOf[StashStorePayload](),
-        Store:       runtime.NoStore(),  // Don't store the request itself
-        Gossip:      runtime.NoGossip(),
-        Transport:   runtime.DirectFirst(""),  // Mesh only, no MQTT fallback
-        Verify:      runtime.DefaultVerify(),
-        Filter:      runtime.Critical(),
-    })
-
-    // Retrieve request (peer wants their stash back)
-    runtime.Register(&runtime.Behavior{
-        Kind:        "stash:request",
-        Description: "Request to retrieve stored stash",
-        PayloadType: runtime.PayloadTypeOf[StashRequestPayload](),
-        Store:       runtime.NoStore(),
-        Gossip:      runtime.NoGossip(),
-        Transport:   runtime.DirectFirst(""),
-        Verify:      runtime.DefaultVerify(),
-        Filter:      runtime.Critical(),
-    })
-
-    // Response with encrypted stash data
-    runtime.Register(&runtime.Behavior{
-        Kind:        "stash:response",
-        Description: "Response containing encrypted stash",
-        PayloadType: runtime.PayloadTypeOf[StashResponsePayload](),
-        Store:       runtime.NoStore(),
-        Gossip:      runtime.NoGossip(),
-        Transport:   runtime.DirectFirst(""),
-        Verify:      runtime.DefaultVerify(),
-        Filter:      runtime.Critical(),
-    })
+    // Mesh-only request/response messages
+    rt.Register(rt.MeshRequest("stash:store", "Store encrypted stash").WithPayload[StashStorePayload]())
+    rt.Register(rt.MeshRequest("stash:request", "Request stored stash").WithPayload[StashRequestPayload]())
+    rt.Register(rt.MeshRequest("stash:response", "Return stored stash").WithPayload[StashResponsePayload]())
 }
 ```
+
+That's it! Four lines instead of 40+. The pattern templates handle all the boilerplate.
 
 ### Step 5.3: Update Service to Use Runtime
 

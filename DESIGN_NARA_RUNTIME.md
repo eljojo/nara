@@ -840,22 +840,28 @@ type Behavior struct {
     // ContentKey derivation (nil = no content key)
     ContentKey func(payload any) string
 
-    // Emit pipeline stages (nil = use default)
-    Sign      Stage  // SignStage
-    Store     Stage  // StoreStage
-    Gossip    Stage  // GossipStage (explicit, not coupled to Store)
-    Transport Stage  // TransportStage
+    // Pipeline stages - split by direction
+    Emit    EmitBehavior
+    Receive ReceiveBehavior
+}
 
-    // Receive pipeline stages (nil = use default or skip)
-    Verify    Stage  // VerifyStage
-    Dedupe    Stage  // DedupeStage
-    RateLimit Stage  // RateLimitStage
-    Filter    Stage  // FilterStage
+// EmitBehavior defines how outgoing messages are processed
+type EmitBehavior struct {
+    Sign      Stage         // How to sign (default: DefaultSign)
+    Store     Stage         // How to store (default: DefaultStore(2))
+    Gossip    Stage         // Whether to gossip (default: NoGossip)
+    Transport Stage         // How to send (required)
+    OnError   ErrorStrategy // What to do on failure
+}
 
-    // Error handling
-    OnTransportError ErrorStrategy
-    OnStoreError     ErrorStrategy
-    OnVerifyError    ErrorStrategy
+// ReceiveBehavior defines how incoming messages are processed
+type ReceiveBehavior struct {
+    Verify    Stage         // How to verify signature (default: DefaultVerify)
+    Dedupe    Stage         // How to deduplicate (default: IDDedupe)
+    RateLimit Stage         // Rate limiting (optional)
+    Filter    Stage         // Personality filter (optional)
+    Store     Stage         // How to store (can differ from emit!)
+    OnError   ErrorStrategy // What to do on failure
 }
 
 // PayloadTypeOf is a helper to get reflect.Type from a struct
@@ -936,6 +942,97 @@ func Casual(f func(*Message, *Personality) bool) Stage {
 ```
 
 Note: No `ID` helpers needed — ID is always computed the same way. `ContentKey` is defined as a function in `Behavior`, not a stage.
+
+### Pattern Templates
+
+Instead of configuring every field, use pattern templates for common cases:
+
+```go
+// Ephemeral broadcasts - no storage, MQTT only
+func Ephemeral(kind, desc, topic string) *Behavior {
+    return &Behavior{
+        Kind: kind, Description: desc,
+        Emit:    EmitBehavior{Sign: NoSign(), Store: NoStore(), Gossip: NoGossip(), Transport: MQTT(topic)},
+        Receive: ReceiveBehavior{Verify: NoVerify(), Dedupe: IDDedupe(), Store: NoStore()},
+    }
+}
+
+// Mesh-only request/response - no storage, direct transport
+func MeshRequest(kind, desc string) *Behavior {
+    return &Behavior{
+        Kind: kind, Description: desc,
+        Emit:    EmitBehavior{Sign: DefaultSign(), Store: NoStore(), Gossip: NoGossip(), Transport: MeshOnly()},
+        Receive: ReceiveBehavior{Verify: DefaultVerify(), Dedupe: IDDedupe(), Store: NoStore()},
+    }
+}
+
+// Stored events - persisted, gossiped
+func StoredEvent(kind, desc string, priority int) *Behavior {
+    return &Behavior{
+        Kind: kind, Description: desc,
+        Emit:    EmitBehavior{Sign: DefaultSign(), Store: DefaultStore(priority), Gossip: Gossip(), Transport: NoTransport()},
+        Receive: ReceiveBehavior{Verify: DefaultVerify(), Dedupe: IDDedupe(), Store: DefaultStore(priority)},
+    }
+}
+
+// Broadcast events - stored, gossiped, AND broadcast via MQTT
+func BroadcastEvent(kind, desc string, priority int, topic string) *Behavior {
+    return &Behavior{
+        Kind: kind, Description: desc,
+        Emit:    EmitBehavior{Sign: DefaultSign(), Store: DefaultStore(priority), Gossip: Gossip(), Transport: MQTT(topic)},
+        Receive: ReceiveBehavior{Verify: DefaultVerify(), Dedupe: IDDedupe(), Store: DefaultStore(priority)},
+    }
+}
+
+// Helper to set payload type on a template
+func (b *Behavior) WithPayload[T any]() *Behavior {
+    b.PayloadType = PayloadTypeOf[T]()
+    return b
+}
+
+// Helper to add ContentKey to a template
+func (b *Behavior) WithContentKey(fn func(any) string) *Behavior {
+    b.ContentKey = fn
+    return b
+}
+
+// Helper to customize receive filter
+func (b *Behavior) WithFilter(stage Stage) *Behavior {
+    b.Receive.Filter = stage
+    return b
+}
+
+// Helper to add rate limiting
+func (b *Behavior) WithRateLimit(stage Stage) *Behavior {
+    b.Receive.RateLimit = stage
+    return b
+}
+```
+
+**Usage - clean and readable:**
+
+```go
+// Stash messages
+Register(Ephemeral("stash-refresh", "Request stash recovery", "nara/plaza/stash_refresh"))
+Register(MeshRequest("stash:store", "Store encrypted stash").WithPayload[StashStorePayload]())
+Register(MeshRequest("stash:request", "Request stored stash").WithPayload[StashRequestPayload]())
+Register(MeshRequest("stash:response", "Return stored stash").WithPayload[StashResponsePayload]())
+
+// Social with personality filter
+Register(
+    BroadcastEvent("social", "Social interactions", 2, "nara/plaza/social").
+        WithPayload[SocialPayload]().
+        WithFilter(Casual(socialFilter)),
+)
+
+// Observations with ContentKey dedup
+Register(
+    StoredEvent("observation:restart", "Records nara restarts", 0).
+        WithPayload[ObservationRestartPayload]().
+        WithContentKey(restartContentKey).
+        WithRateLimit(RateLimit(5*time.Minute, 10, subjectKey)),
+)
+```
 
 ---
 
@@ -1623,10 +1720,12 @@ build-web: docs
 | **Version** | Schema version — enables backwards-compatible evolution |
 | **StageResult** | Explicit outcomes — Continue/Drop/Error, no silent failures |
 | **Behavior** | Declares how a message kind is handled |
+| **EmitBehavior / ReceiveBehavior** | Split pipelines — clear what runs on send vs receive |
+| **Pattern Templates** | `Ephemeral()`, `MeshRequest()`, `StoredEvent()` — reduce boilerplate |
 | **Pipeline** | Chains stages, returns StageResult |
 | **Stages** | Pluggable units: ID, ContentKey, Sign, Store, Gossip, Transport, Verify, Filter |
 | **GossipQueue** | Explicit gossip, decoupled from ledger |
-| **ErrorStrategy** | Per-behavior error handling |
+| **ErrorStrategy** | Per-direction error handling |
 | **Registry** | Central catalog of all behaviors |
 | **Runtime** | The OS that runs pipelines and manages services |
 | **Services** | Programs that emit and handle messages |
@@ -1637,11 +1736,13 @@ build-web: docs
 2. **ID vs ContentKey split** — envelope identity vs semantic identity, no more confusion
 3. **Versioning built-in** — evolve message schemas without breaking old naras
 4. **Explicit outcomes** — StageResult replaces error-prone `next()` callback
-5. **Gossip decoupled from Store** — independent concerns
-6. **Error strategies** — configurable per-behavior error handling
-7. **OS handles serialization** — services provide structs, runtime handles wire format
-8. **Auto-documented** — registry generates docs from PayloadType reflection
-9. **Testable** — each stage testable in isolation
+5. **Emit/Receive split** — crystal clear which stages run on send vs receive
+6. **Pattern templates** — `MeshRequest()`, `Ephemeral()`, etc. reduce 40 lines to 1
+7. **Gossip decoupled from Store** — independent concerns
+8. **Error strategies** — configurable per-direction error handling
+9. **OS handles serialization** — services provide structs, runtime handles wire format
+10. **Auto-documented** — registry generates docs from PayloadType reflection
+11. **Testable** — each stage testable in isolation
 
 ### The 80/20 Split
 
