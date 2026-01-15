@@ -71,6 +71,14 @@ export default defineConfig({
             { label: 'World Journeys', link: '/concepts/world/' },
             { label: 'Coordinates', link: '/concepts/coordinates/' }
           ]
+        },
+        {
+          label: 'API Reference',
+          items: [
+            { label: 'Messages', link: '/api/messages/' },
+            { label: 'Runtime', link: '/api/runtime/' },
+            { label: 'Utilities', link: '/api/utilities/' }
+          ]
         }
 			],
 		}),
