@@ -1,3 +1,7 @@
+---
+title: Clout
+---
+
 # Clout
 
 ## Purpose

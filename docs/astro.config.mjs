@@ -41,6 +41,37 @@ export default defineConfig({
             { label: 'Coordinates', link: '/concepts/coordinates/' }
           ]
         }
+        ,
+        {
+          label: 'Specification',
+          items: [
+            { label: 'Living Spec Home', link: '/spec/' },
+            { label: 'Overview & Philosophy', link: '/spec/overview/' },
+            { label: 'Identity', link: '/spec/identity/' },
+            { label: 'Personality', link: '/spec/personality/' },
+            { label: 'Aura & Avatar', link: '/spec/aura-and-avatar/' },
+            { label: 'Events', link: '/spec/events/' },
+            { label: 'Projections', link: '/spec/projections/' },
+            { label: 'Memory Model', link: '/spec/memory-model/' },
+            { label: 'Plaza MQTT', link: '/spec/plaza-mqtt/' },
+            { label: 'Mesh HTTP', link: '/spec/mesh-http/' },
+            { label: 'Zines', link: '/spec/zines/' },
+            { label: 'Sync Protocol', link: '/spec/sync-protocol/' },
+            { label: 'Presence', link: '/spec/presence/' },
+            { label: 'Observations', link: '/spec/observations/' },
+            { label: 'Checkpoints', link: '/spec/checkpoints/' },
+            { label: 'Stash', link: '/spec/stash/' },
+            { label: 'Social Events', link: '/spec/social-events/' },
+            { label: 'Clout', link: '/spec/clout/' },
+            { label: 'World Postcards', link: '/spec/world-postcards/' },
+            { label: 'Coordinates (Spec)', link: '/spec/coordinates/' },
+            { label: 'HTTP API', link: '/spec/http-api/' },
+            { label: 'Web UI', link: '/spec/web-ui/' },
+            { label: 'Boot Sequence', link: '/spec/boot-sequence/' },
+            { label: 'Configuration', link: '/spec/configuration/' },
+            { label: 'Deployment', link: '/spec/deployment/' }
+          ]
+        }
 			],
 		}),
     mdx(),

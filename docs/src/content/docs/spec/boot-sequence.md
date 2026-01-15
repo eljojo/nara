@@ -1,3 +1,7 @@
+---
+title: Boot Sequence
+---
+
 # Boot Sequence
 
 ## Purpose

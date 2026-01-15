@@ -1,3 +1,7 @@
+---
+title: Web UI
+---
+
 # Web UI
 
 ## Purpose

@@ -1,3 +1,7 @@
+---
+title: Aura and Avatar
+---
+
 # Aura and Avatar
 
 ## Purpose

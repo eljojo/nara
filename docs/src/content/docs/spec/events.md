@@ -1,3 +1,7 @@
+---
+title: Events
+---
+
 # Events
 
 ## Purpose

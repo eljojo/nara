@@ -1,3 +1,7 @@
+---
+title: Social Events
+---
+
 # Social Events
 
 ## Purpose

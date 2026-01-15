@@ -1,3 +1,7 @@
+---
+title: Coordinates
+---
+
 # Coordinates
 
 ## Purpose

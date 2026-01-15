@@ -1,3 +1,7 @@
+---
+title: HTTP API
+---
+
 # HTTP API
 
 ## Purpose

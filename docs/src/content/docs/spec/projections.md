@@ -1,3 +1,7 @@
+---
+title: Projections
+---
+
 # Projections
 
 ## Purpose

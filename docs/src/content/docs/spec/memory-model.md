@@ -1,3 +1,7 @@
+---
+title: Memory Model
+---
+
 # Memory Model
 
 ## Purpose

@@ -1,3 +1,7 @@
+---
+title: Plaza MQTT
+---
+
 # Plaza MQTT
 
 ## Purpose
