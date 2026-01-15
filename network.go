@@ -344,8 +344,7 @@ func (network *Network) hasPublicKeyFor(name string) bool {
 }
 
 // getPublicKeyForNaraID looks up a public key by nara ID instead of name.
-// Uses O(1) lookup via the NeighbourhoodByID index when available,
-// falls back to O(N) search of Neighbourhood for backwards compatibility.
+// Uses getNaraByID for the lookup (which handles O(1) vs O(N) fallback).
 func (network *Network) getPublicKeyForNaraID(naraID string) []byte {
 	if naraID == "" {
 		return nil
@@ -356,36 +355,15 @@ func (network *Network) getPublicKeyForNaraID(naraID string) []byte {
 		return network.local.Keypair.PublicKey
 	}
 
-	network.local.mu.Lock()
-	var matchedNara *Nara
-
-	// Try O(1) lookup via NeighbourhoodByID index if available
-	if network.NeighbourhoodByID != nil {
-		matchedNara = network.NeighbourhoodByID[naraID]
-	}
-
-	// Fall back to O(N) search of Neighbourhood for backwards compatibility
-	// (handles test cases that don't initialize NeighbourhoodByID)
-	if matchedNara == nil {
-		for _, nara := range network.Neighbourhood {
-			nara.mu.Lock()
-			if nara.Status.ID == naraID {
-				matchedNara = nara
-				nara.mu.Unlock()
-				break
-			}
-			nara.mu.Unlock()
-		}
-	}
-	network.local.mu.Unlock()
-
-	if matchedNara == nil {
+	// Use centralized lookup
+	nara := network.getNaraByID(naraID)
+	if nara == nil {
 		return nil
 	}
 
-	matchedNara.mu.Lock()
-	publicKey := matchedNara.Status.PublicKey
-	matchedNara.mu.Unlock()
+	nara.mu.Lock()
+	publicKey := nara.Status.PublicKey
+	nara.mu.Unlock()
 
 	if publicKey == "" {
 		return nil
