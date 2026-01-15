@@ -388,11 +388,19 @@ var ProtocolDefaults = Behavior{
     Receive: ReceiveBehavior{Verify: DefaultVerify(), Dedupe: IDDedupe(), Store: NoStore(), Filter: Critical()},
 }
 
+// LocalDefaults - for service-to-service communication within nara
+// No network transport, no signing, no storage - just internal event routing
+var LocalDefaults = Behavior{
+    Emit:    EmitBehavior{Sign: NoSign(), Store: NoStore(), Gossip: NoGossip(), Transport: NoTransport()},
+    Receive: ReceiveBehavior{Verify: NoVerify(), Dedupe: IDDedupe(), Store: NoStore()},
+}
+
 // === Template functions (copy defaults, override differences) ===
 
 func Ephemeral(kind, desc, topic string) *Behavior { /* copy EphemeralDefaults, set Kind/Desc/Transport */ }
 func Protocol(kind, desc, topic string) *Behavior { /* copy ProtocolDefaults, set Kind/Desc/Transport */ }
 func MeshRequest(kind, desc string) *Behavior { /* copy ProtocolDefaults, set Transport: MeshOnly() */ }
+func Local(kind, desc string) *Behavior { /* copy LocalDefaults, set Kind/Desc - no transport needed */ }
 func StoredEvent(kind, desc string, priority int) *Behavior { /* ... */ }
 func BroadcastEvent(kind, desc string, priority int, topic string) *Behavior { /* ... */ }
 
@@ -514,13 +522,22 @@ Create `runtime/interfaces.go`:
 ```go
 package runtime
 
-// RuntimeInterface is what stages can access
+// RuntimeInterface is what services and stages can access
 type RuntimeInterface interface {
+    // Identity
     Me() *Nara
     MeID() string
-    LookupPublicKey(id string) []byte       // Primary: by ID
-    LookupPublicKeyByName(name string) []byte // Fallback: by name
+
+    // Public key management
+    LookupPublicKey(id string) []byte
+    LookupPublicKeyByName(name string) []byte
     RegisterPublicKey(id string, key []byte)
+
+    // Messaging (including service-to-service via Local messages)
+    Emit(msg *Message) error
+
+    // Logging (runtime primitive, not a service)
+    Log(service string) *ServiceLog
 }
 
 // LedgerInterface is what store stages use
@@ -545,10 +562,125 @@ type GossipQueueInterface interface {
 type KeypairInterface interface {
     Sign(data []byte) []byte
 }
+```
 
-// EventBusInterface is what notify stages use
-type EventBusInterface interface {
-    Emit(msg *Message)
+### Step 3.1.1: Logger as Runtime Primitive
+
+Logger is a **runtime primitive**, not a Service. Services get a logger handle from the runtime:
+
+```go
+// runtime/logger.go
+
+// Logger is the central logging coordinator (owned by Runtime)
+type Logger struct {
+    services map[string]*ServiceLog
+    mu       sync.RWMutex
+}
+
+// ServiceLog is what each service gets
+type ServiceLog struct {
+    name   string
+    logger *Logger
+}
+
+func (l *Logger) For(service string) *ServiceLog {
+    l.mu.Lock()
+    defer l.mu.Unlock()
+    if log, ok := l.services[service]; ok {
+        return log
+    }
+    log := &ServiceLog{name: service, logger: l}
+    l.services[service] = log
+    return log
+}
+
+// ServiceLog methods
+func (l *ServiceLog) Debug(format string, args ...any) { /* ... */ }
+func (l *ServiceLog) Info(format string, args ...any)  { /* ... */ }
+func (l *ServiceLog) Warn(format string, args ...any)  { /* ... */ }
+func (l *ServiceLog) Error(format string, args ...any) { /* ... */ }
+
+// Structured events (batched)
+func (l *ServiceLog) Event(eventType, actor string, opts ...LogOption) { /* ... */ }
+```
+
+**Usage in services:**
+
+```go
+func (s *StashService) Init(rt *Runtime) error {
+    s.rt = rt
+    s.log = rt.Log("stash")  // Get logger from runtime
+    return nil
+}
+
+func (s *StashService) handleStoreV1(msg *Message, p *StashStorePayload) {
+    s.log.Debug("received store from %s", msg.FromID)
+    // ... do work ...
+    s.log.Event("store", msg.FromID, WithMessage("stored 2.3KB"))
+}
+```
+
+### Step 3.1.2: Service-to-Service Communication via Local Messages
+
+Services communicate with each other using the same Message primitive with `Local()` behaviors.
+No network transport, no signing — just internal event routing through the runtime.
+
+**Why use messages for internal communication?**
+- Services are decoupled — no direct imports between services
+- Communication is explicit and observable (can log/trace all internal messages)
+- Same patterns work (versioning, typed handlers)
+- Easy to test — MockRuntime captures internal messages too
+
+**Example: Stash notifies other services when recovery completes**
+
+```go
+// messages/stash.go - add internal event payload
+type StashRecoveredPayload struct {
+    Size      int   `json:"size"`
+    Timestamp int64 `json:"ts"`
+}
+
+// stash/behaviors.go - register local event
+Register(Local("stash:recovered", "Stash recovery completed").
+    WithPayload[messages.StashRecoveredPayload]())
+
+// stash/service.go - emit when recovery completes
+func (s *StashService) completeRecovery(data []byte) {
+    s.data = data
+    s.rt.Emit(&Message{
+        Kind:    "stash:recovered",
+        Payload: &messages.StashRecoveredPayload{
+            Size:      len(data),
+            Timestamp: time.Now().Unix(),
+        },
+    })
+}
+
+// presence/behaviors.go - another service subscribes
+Register(Local("stash:recovered", "Stash recovery completed").
+    WithPayload[messages.StashRecoveredPayload]().
+    WithHandler(1, p.handleStashRecovered))
+
+// presence/service.go - react to stash events
+func (p *PresenceService) handleStashRecovered(msg *Message, payload *messages.StashRecoveredPayload) {
+    p.log.Info("stash recovered, %d bytes", payload.Size)
+    // Maybe announce presence now that we have state
+    p.announceIdentity()
+}
+```
+
+**How it works internally:**
+
+```go
+func (rt *Runtime) Emit(msg *Message) error {
+    behavior := Lookup(msg.Kind)
+    pipeline := rt.buildEmitPipeline(behavior)
+    result := pipeline.Run(msg, ctx)
+
+    // NotifyStage at the end invokes handlers for ALL messages.
+    // For Local messages, Transport is NoTransport() so no network send happens.
+    // Handlers still get called — that's how service-to-service works.
+    return nil
 }
 ```
 
