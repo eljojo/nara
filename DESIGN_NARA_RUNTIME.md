@@ -9,14 +9,15 @@ A comprehensive design for restructuring Nara into a runtime with pluggable serv
 1. [Vision](#vision)
 2. [Core Primitives](#core-primitives)
 3. [The Pipeline Pattern](#the-pipeline-pattern)
-4. [Emit Pipeline Stages](#emit-pipeline-stages)
-5. [Receive Pipeline Stages](#receive-pipeline-stages)
-6. [Behavior Registry](#behavior-registry)
-7. [Complete Behavior Catalog](#complete-behavior-catalog)
-8. [Services](#services)
-9. [Runtime Implementation](#runtime-implementation)
-10. [Migration Strategy](#migration-strategy)
-11. [Auto-Generated Documentation](#auto-generated-documentation)
+4. [StageResult: Explicit Outcomes](#stageresult-explicit-outcomes)
+5. [Error Handling Strategies](#error-handling-strategies)
+6. [Emit Pipeline Stages](#emit-pipeline-stages)
+7. [Receive Pipeline Stages](#receive-pipeline-stages)
+8. [Behavior Registry](#behavior-registry)
+9. [Complete Behavior Catalog](#complete-behavior-catalog)
+10. [Services](#services)
+11. [Runtime Implementation](#runtime-implementation)
+12. [Auto-Generated Documentation](#auto-generated-documentation)
 
 ---
 
@@ -24,7 +25,7 @@ A comprehensive design for restructuring Nara into a runtime with pluggable serv
 
 ### Nara as an Operating System
 
-Nara is a **runtime**. Services are **programs** that run on it. The runtime provides primitives (storage, transport, identity). Services use them, and can swap out pieces with custom implementations.
+Nara is a **runtime**. Services are **programs** that run on it. The runtime provides primitives (storage, transport, identity, serialization). Services use them, and can swap out pieces with custom implementations.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -47,11 +48,17 @@ Nara is a **runtime**. Services are **programs** that run on it. The runtime pro
 │   ┌─────────────────────────────────────────────────────────┐   │
 │   │                 EMIT PIPELINE                            │   │
 │   │   Message → [ID] → [Sign] → [Store] → [Transport]       │   │
+│   │                         ↓                                │   │
+│   │                   StageResult                            │   │
+│   │            (Continue | Drop | Error)                     │   │
 │   └─────────────────────────────────────────────────────────┘   │
 │                                                                  │
 │   ┌─────────────────────────────────────────────────────────┐   │
 │   │               RECEIVE PIPELINE                           │   │
-│   │   Message → [Verify] → [RateLimit] → [Filter] → [Store] │   │
+│   │   Message → [Verify] → [Dedupe] → [RateLimit] → [Store] │   │
+│   │                         ↓                                │   │
+│   │                   StageResult                            │   │
+│   │            (Continue | Drop | Error)                     │   │
 │   └─────────────────────────────────────────────────────────┘   │
 │                                                                  │
 │   ┌────────────┐  ┌────────────┐  ┌────────────┐                │
@@ -67,8 +74,9 @@ Nara is a **runtime**. Services are **programs** that run on it. The runtime pro
 2. **Behavior is declared, not scattered** — all handling defined in one place per message kind
 3. **Defaults for common cases** — 80% of messages use standard handling
 4. **Customizable where needed** — swap any pipeline stage for the 20% that need it
-5. **Middleware pattern** — stages chain like HTTP middleware, easy to reason about
-6. **Auto-documented** — the registry generates documentation automatically
+5. **Explicit outcomes** — stages return `StageResult` (Continue/Drop/Error), no silent failures
+6. **OS handles serialization** — services provide Go structs, runtime handles wire format
+7. **Auto-documented** — the registry generates documentation automatically
 
 ---
 
@@ -88,7 +96,7 @@ type Message struct {
     Timestamp time.Time // When it was created
 
     // Content
-    Payload   any       // Kind-specific data (struct)
+    Payload   any       // Kind-specific data (Go struct, runtime handles serialization)
 
     // Cryptographic (attached by runtime)
     Signature []byte    // Creator's signature (may be nil for some kinds)
@@ -122,16 +130,29 @@ The **type** is the same. The **behavior** differs.
 ## The Pipeline Pattern
 
 Messages flow through a pipeline of stages. Each stage:
+- Returns a **StageResult** (Continue, Drop, or Error)
 - Has a **default** behavior (most messages use this)
 - Can be **customized** (service provides alternative)
-- Can be **skipped** (stage returns early or is nil)
+- Can be **skipped** (returns early)
 
 ### Pipeline Interface
 
 ```go
-// Stage processes a message and calls next to continue
+// StageResult represents the outcome of a stage
+type StageResult struct {
+    Message *Message  // nil = dropped
+    Error   error     // nil = success
+    Reason  string    // "rate_limited", "invalid_signature", "duplicate", etc.
+}
+
+// Convenience constructors
+func Continue(msg *Message) StageResult { return StageResult{Message: msg} }
+func Drop(reason string) StageResult    { return StageResult{Reason: reason} }
+func Fail(err error) StageResult        { return StageResult{Error: err} }
+
+// Stage processes a message and returns an explicit result
 type Stage interface {
-    Process(msg *Message, ctx *PipelineContext, next func())
+    Process(msg *Message, ctx *PipelineContext) StageResult
 }
 
 // PipelineContext carries runtime dependencies
@@ -139,6 +160,7 @@ type PipelineContext struct {
     Runtime     *Runtime
     Ledger      *Ledger
     Transport   *Transport
+    GossipQueue *GossipQueue  // Explicit queue for gossip (not coupled to ledger)
     Keypair     NaraKeypair
     Personality *Personality
     EventBus    *EventBus
@@ -147,15 +169,19 @@ type PipelineContext struct {
 // Pipeline chains stages
 type Pipeline []Stage
 
-func (p Pipeline) Run(msg *Message, ctx *PipelineContext) {
-    var run func(int)
-    run = func(i int) {
-        if i >= len(p) {
-            return // End of pipeline
+func (p Pipeline) Run(msg *Message, ctx *PipelineContext) StageResult {
+    for _, stage := range p {
+        result := stage.Process(msg, ctx)
+
+        if result.Error != nil {
+            return result  // Error - propagate up
         }
-        p[i].Process(msg, ctx, func() { run(i + 1) })
+        if result.Message == nil {
+            return result  // Dropped with reason
+        }
+        msg = result.Message  // Continue with (possibly modified) message
     }
-    run(0)
+    return Continue(msg)
 }
 ```
 
@@ -165,12 +191,110 @@ Two pipelines, different purposes:
 
 **Emit Pipeline** (outgoing messages):
 ```
-Message → [ID] → [Sign] → [Store] → [Transport] → [Notify]
+Message → [ID] → [Sign] → [Store] → [Gossip?] → [Transport] → [Notify]
+                                        ↓
+                              Returns StageResult
 ```
 
 **Receive Pipeline** (incoming messages):
 ```
 Message → [Verify] → [Dedupe] → [RateLimit] → [Filter] → [Store] → [Notify]
+                                        ↓
+                              Returns StageResult
+```
+
+---
+
+## StageResult: Explicit Outcomes
+
+Every stage returns a `StageResult` that explicitly communicates what happened:
+
+```go
+type StageResult struct {
+    Message *Message  // The message to continue with (nil = dropped)
+    Error   error     // Set if stage failed (transport error, etc.)
+    Reason  string    // Human-readable reason for drop ("rate_limited", "duplicate")
+}
+
+// Three possible outcomes:
+
+// 1. Continue - message proceeds to next stage
+result := Continue(msg)
+
+// 2. Drop - message is intentionally filtered/rejected
+result := Drop("rate_limited")
+
+// 3. Error - something went wrong
+result := Fail(fmt.Errorf("MQTT publish failed: %w", err))
+```
+
+**Benefits over `next()` callback:**
+- Can't forget to call `next()` — you must return something
+- Explicit error path — errors are returned, not swallowed
+- Debuggable — `Reason` field explains why message was dropped
+- Composable — pipeline runner knows exactly what happened
+
+---
+
+## Error Handling Strategies
+
+Each behavior can specify how to handle errors at each stage:
+
+```go
+type ErrorStrategy int
+
+const (
+    ErrorDrop    ErrorStrategy = iota  // Drop message silently
+    ErrorLog                           // Log warning and drop
+    ErrorRetry                         // Retry with exponential backoff
+    ErrorQueue                         // Send to dead letter queue for inspection
+    ErrorPanic                         // Fail loudly (for critical messages)
+)
+
+// Behavior includes error strategies
+type Behavior struct {
+    // ... other fields ...
+
+    // Error handling per stage
+    OnTransportError ErrorStrategy  // What if MQTT/mesh fails?
+    OnStoreError     ErrorStrategy  // What if ledger is full?
+    OnVerifyError    ErrorStrategy  // What if signature is invalid?
+}
+```
+
+**Default strategies by message type:**
+
+| Message Type | Transport Error | Store Error | Verify Error |
+|--------------|-----------------|-------------|--------------|
+| Checkpoint | ErrorPanic | ErrorPanic | ErrorLog |
+| Observation | ErrorRetry | ErrorLog | ErrorLog |
+| Social | ErrorLog | ErrorLog | ErrorDrop |
+| Ephemeral | ErrorDrop | N/A | ErrorDrop |
+
+**Runtime applies strategies:**
+
+```go
+func (rt *Runtime) applyErrorStrategy(
+    msg *Message,
+    stage string,
+    err error,
+    strategy ErrorStrategy,
+) {
+    rt.metrics.RecordError(msg.Kind, stage)
+
+    switch strategy {
+    case ErrorDrop:
+        // Silent drop
+    case ErrorLog:
+        logrus.Warnf("%s failed for %s: %v", stage, msg.Kind, err)
+    case ErrorRetry:
+        rt.retryQueue.Add(msg, stage, err)
+    case ErrorQueue:
+        rt.deadLetter.Add(msg, stage, err)
+    case ErrorPanic:
+        logrus.Fatalf("Critical failure in %s for %s: %v", stage, msg.Kind, err)
+    }
+}
 ```
 
 ---
@@ -185,26 +309,25 @@ Computes the message ID. Default uses (kind, from, timestamp, payload hash).
 // DefaultIDStage computes ID from all fields
 type DefaultIDStage struct{}
 
-func (s *DefaultIDStage) Process(msg *Message, ctx *PipelineContext, next func()) {
+func (s *DefaultIDStage) Process(msg *Message, ctx *PipelineContext) StageResult {
     if msg.ID == "" {
         msg.ID = DefaultComputeID(msg)
     }
-    next()
+    return Continue(msg)
 }
 
 // ContentIDStage computes ID from payload content only (for dedup across observers)
 type ContentIDStage struct {
-    // ContentFunc extracts the content string for hashing
     ContentFunc func(payload any) string
 }
 
-func (s *ContentIDStage) Process(msg *Message, ctx *PipelineContext, next func()) {
+func (s *ContentIDStage) Process(msg *Message, ctx *PipelineContext) StageResult {
     if msg.ID == "" {
         content := s.ContentFunc(msg.Payload)
         h := sha256.Sum256([]byte(msg.Kind + ":" + content))
         msg.ID = base58.Encode(h[:])[:16]
     }
-    next()
+    return Continue(msg)
 }
 ```
 
@@ -230,26 +353,17 @@ Signs the message with the creator's keypair.
 // DefaultSignStage signs with the runtime's keypair
 type DefaultSignStage struct{}
 
-func (s *DefaultSignStage) Process(msg *Message, ctx *PipelineContext, next func()) {
+func (s *DefaultSignStage) Process(msg *Message, ctx *PipelineContext) StageResult {
     msg.Signature = ctx.Keypair.Sign(msg.SignableContent())
-    next()
+    return Continue(msg)
 }
 
 // NoSignStage skips signing (for messages where signature is in payload)
 type NoSignStage struct{}
 
-func (s *NoSignStage) Process(msg *Message, ctx *PipelineContext, next func()) {
-    next() // No signature on Message itself
+func (s *NoSignStage) Process(msg *Message, ctx *PipelineContext) StageResult {
+    return Continue(msg)  // No signature on Message itself
 }
-```
-
-**Usage:**
-```go
-// Default: most messages
-Sign: DefaultSign()
-
-// Custom: checkpoints have multi-sig in payload
-Sign: NoSign()
 ```
 
 ---
@@ -264,16 +378,18 @@ type DefaultStoreStage struct {
     Priority int // 0 = never prune, higher = prune sooner
 }
 
-func (s *DefaultStoreStage) Process(msg *Message, ctx *PipelineContext, next func()) {
-    ctx.Ledger.Add(msg, s.Priority)
-    next()
+func (s *DefaultStoreStage) Process(msg *Message, ctx *PipelineContext) StageResult {
+    if err := ctx.Ledger.Add(msg, s.Priority); err != nil {
+        return Fail(fmt.Errorf("ledger add: %w", err))
+    }
+    return Continue(msg)
 }
 
 // NoStoreStage skips storage (ephemeral messages)
 type NoStoreStage struct{}
 
-func (s *NoStoreStage) Process(msg *Message, ctx *PipelineContext, next func()) {
-    next() // Don't store
+func (s *NoStoreStage) Process(msg *Message, ctx *PipelineContext) StageResult {
+    return Continue(msg)  // Don't store
 }
 
 // DedupStoreStage stores with content-based deduplication
@@ -282,34 +398,17 @@ type DedupStoreStage struct {
     IsSameAs  func(new, existing *Message) bool
 }
 
-func (s *DedupStoreStage) Process(msg *Message, ctx *PipelineContext, next func()) {
-    // Check for existing duplicate
+func (s *DedupStoreStage) Process(msg *Message, ctx *PipelineContext) StageResult {
     if ctx.Ledger.HasMatching(msg.Kind, func(existing *Message) bool {
         return s.IsSameAs(msg, existing)
     }) {
-        return // Duplicate, don't store or continue
+        return Drop("duplicate")  // Explicit drop reason
     }
-    ctx.Ledger.Add(msg, s.Priority)
-    next()
+    if err := ctx.Ledger.Add(msg, s.Priority); err != nil {
+        return Fail(fmt.Errorf("ledger add: %w", err))
+    }
+    return Continue(msg)
 }
-```
-
-**Usage:**
-```go
-// Default: store with priority
-Store: DefaultStore(2)
-
-// Ephemeral: don't store
-Store: NoStore()
-
-// Custom: dedup by content
-Store: DedupStore(0, func(new, existing *Message) bool {
-    n := new.Payload.(*ObservationPayload)
-    e := existing.Payload.(*ObservationPayload)
-    return n.Subject == e.Subject &&
-           n.RestartNum == e.RestartNum &&
-           n.StartTime == e.StartTime
-})
 ```
 
 **GC Priority Values:**
@@ -323,7 +422,46 @@ Store: DedupStore(0, func(new, existing *Message) bool {
 
 ---
 
-### 4. Transport Stage
+### 4. Gossip Stage
+
+**Key change: Gossip is now explicit, not coupled to ledger.**
+
+```go
+// GossipStage explicitly queues message for gossip
+type GossipStage struct{}
+
+func (s *GossipStage) Process(msg *Message, ctx *PipelineContext) StageResult {
+    ctx.GossipQueue.Add(msg)  // Explicit queue - gossip service reads from here
+    return Continue(msg)
+}
+
+// NoGossipStage skips gossip
+type NoGossipStage struct{}
+
+func (s *NoGossipStage) Process(msg *Message, ctx *PipelineContext) StageResult {
+    return Continue(msg)
+}
+```
+
+**Why explicit gossip queue?**
+
+Old design:
+```go
+Transport: Gossip()  // Does nothing! Relies on Store putting in ledger.
+Store: NoStore()     // Oops, gossip won't work. Silent failure.
+```
+
+New design:
+```go
+Gossip: Gossip()     // Explicitly queues for gossip
+Store: NoStore()     // Fine - gossip and store are independent
+```
+
+The gossip service reads from `GossipQueue`, not from the ledger. Store and gossip are independent.
+
+---
+
+### 5. Transport Stage
 
 Sends the message over the network.
 
@@ -333,9 +471,11 @@ type MQTTStage struct {
     Topic string
 }
 
-func (s *MQTTStage) Process(msg *Message, ctx *PipelineContext, next func()) {
-    ctx.Transport.PublishMQTT(s.Topic, msg.Marshal())
-    next()
+func (s *MQTTStage) Process(msg *Message, ctx *PipelineContext) StageResult {
+    if err := ctx.Transport.PublishMQTT(s.Topic, msg.Marshal()); err != nil {
+        return Fail(fmt.Errorf("mqtt publish: %w", err))
+    }
+    return Continue(msg)
 }
 
 // MQTTPerNaraStage broadcasts to a per-nara topic
@@ -343,29 +483,12 @@ type MQTTPerNaraStage struct {
     TopicPattern string // e.g., "nara/newspaper/%s"
 }
 
-func (s *MQTTPerNaraStage) Process(msg *Message, ctx *PipelineContext, next func()) {
+func (s *MQTTPerNaraStage) Process(msg *Message, ctx *PipelineContext) StageResult {
     topic := fmt.Sprintf(s.TopicPattern, msg.From)
-    ctx.Transport.PublishMQTT(topic, msg.Marshal())
-    next()
-}
-
-// GossipStage relies on gossip to spread (reads from ledger)
-type GossipStage struct{}
-
-func (s *GossipStage) Process(msg *Message, ctx *PipelineContext, next func()) {
-    // Nothing to do here - gossip service reads from ledger
-    next()
-}
-
-// BroadcastStage does both MQTT and gossip
-type BroadcastStage struct {
-    Topic string
-}
-
-func (s *BroadcastStage) Process(msg *Message, ctx *PipelineContext, next func()) {
-    ctx.Transport.PublishMQTT(s.Topic, msg.Marshal())
-    // Gossip will also pick up from ledger
-    next()
+    if err := ctx.Transport.PublishMQTT(topic, msg.Marshal()); err != nil {
+        return Fail(fmt.Errorf("mqtt publish: %w", err))
+    }
+    return Continue(msg)
 }
 
 // DirectFirstStage tries mesh HTTP before falling back to broadcast
@@ -373,50 +496,40 @@ type DirectFirstStage struct {
     Topic string
 }
 
-func (s *DirectFirstStage) Process(msg *Message, ctx *PipelineContext, next func()) {
+func (s *DirectFirstStage) Process(msg *Message, ctx *PipelineContext) StageResult {
     // Try direct mesh delivery first
     if target := extractTarget(msg); target != "" {
-        if ctx.Transport.TrySendDirect(target, msg) {
-            next()
-            return
+        if err := ctx.Transport.TrySendDirect(target, msg); err == nil {
+            return Continue(msg)  // Sent directly
         }
     }
     // Fall back to broadcast
-    ctx.Transport.PublishMQTT(s.Topic, msg.Marshal())
-    next()
+    if err := ctx.Transport.PublishMQTT(s.Topic, msg.Marshal()); err != nil {
+        return Fail(fmt.Errorf("mqtt publish: %w", err))
+    }
+    return Continue(msg)
 }
-```
 
-**Usage:**
-```go
-// MQTT only (ephemeral)
-Transport: MQTT("nara/plaza/howdy")
+// NoTransportStage skips network transport (local-only)
+type NoTransportStage struct{}
 
-// Per-nara topic
-Transport: MQTTPerNara("nara/newspaper/%s")
-
-// Gossip only (no MQTT)
-Transport: Gossip()
-
-// Both MQTT and gossip
-Transport: Broadcast("nara/plaza/social")
-
-// Try DM first, then broadcast
-Transport: DirectFirst("nara/plaza/social")
+func (s *NoTransportStage) Process(msg *Message, ctx *PipelineContext) StageResult {
+    return Continue(msg)
+}
 ```
 
 ---
 
-### 5. Notify Stage
+### 6. Notify Stage
 
 Always runs last. Notifies local subscribers.
 
 ```go
 type NotifyStage struct{}
 
-func (s *NotifyStage) Process(msg *Message, ctx *PipelineContext, next func()) {
+func (s *NotifyStage) Process(msg *Message, ctx *PipelineContext) StageResult {
     ctx.EventBus.Emit(msg)
-    next()
+    return Continue(msg)
 }
 ```
 
@@ -432,15 +545,15 @@ Verifies the message signature.
 // DefaultVerifyStage verifies single signature against known public key
 type DefaultVerifyStage struct{}
 
-func (s *DefaultVerifyStage) Process(msg *Message, ctx *PipelineContext, next func()) {
+func (s *DefaultVerifyStage) Process(msg *Message, ctx *PipelineContext) StageResult {
     pubKey := ctx.Runtime.LookupPublicKey(msg.From)
     if pubKey == nil {
-        return // Unknown sender, reject
+        return Drop("unknown_sender")
     }
     if !msg.VerifySignature(pubKey) {
-        return // Invalid signature, reject
+        return Drop("invalid_signature")
     }
-    next()
+    return Continue(msg)
 }
 
 // SelfAttestingVerifyStage uses public key embedded in payload
@@ -448,51 +561,30 @@ type SelfAttestingVerifyStage struct {
     ExtractKey func(payload any) []byte
 }
 
-func (s *SelfAttestingVerifyStage) Process(msg *Message, ctx *PipelineContext, next func()) {
+func (s *SelfAttestingVerifyStage) Process(msg *Message, ctx *PipelineContext) StageResult {
     pubKey := s.ExtractKey(msg.Payload)
     if !msg.VerifySignature(pubKey) {
-        return // Invalid signature, reject
+        return Drop("invalid_signature")
     }
-    // Optionally register the key for future lookups
     ctx.Runtime.RegisterPublicKey(msg.From, pubKey)
-    next()
+    return Continue(msg)
 }
 
 // CustomVerifyStage for complex verification (e.g., checkpoint multi-sig)
 type CustomVerifyStage struct {
-    VerifyFunc func(msg *Message, ctx *PipelineContext) bool
+    VerifyFunc func(msg *Message, ctx *PipelineContext) StageResult
 }
 
-func (s *CustomVerifyStage) Process(msg *Message, ctx *PipelineContext, next func()) {
-    if !s.VerifyFunc(msg, ctx) {
-        return // Verification failed, reject
-    }
-    next()
+func (s *CustomVerifyStage) Process(msg *Message, ctx *PipelineContext) StageResult {
+    return s.VerifyFunc(msg, ctx)
 }
 
 // NoVerifyStage skips verification
 type NoVerifyStage struct{}
 
-func (s *NoVerifyStage) Process(msg *Message, ctx *PipelineContext, next func()) {
-    next()
+func (s *NoVerifyStage) Process(msg *Message, ctx *PipelineContext) StageResult {
+    return Continue(msg)
 }
-```
-
-**Usage:**
-```go
-// Default: verify against known public key
-Verify: DefaultVerify()
-
-// Self-attesting: hey-there embeds public key
-Verify: SelfAttesting(func(p any) []byte {
-    return p.(*HeyTherePayload).PublicKey
-})
-
-// Custom: checkpoint multi-sig
-Verify: CustomVerify(checkpointVerifyMultiSig)
-
-// Skip: unsigned ephemerals
-Verify: NoVerify()
 ```
 
 ---
@@ -505,11 +597,11 @@ Prevents storing duplicate messages.
 // IDDedupeStage rejects messages with duplicate ID
 type IDDedupeStage struct{}
 
-func (s *IDDedupeStage) Process(msg *Message, ctx *PipelineContext, next func()) {
+func (s *IDDedupeStage) Process(msg *Message, ctx *PipelineContext) StageResult {
     if ctx.Ledger.HasID(msg.ID) {
-        return // Already have this exact message
+        return Drop("duplicate_id")
     }
-    next()
+    return Continue(msg)
 }
 
 // ContentDedupeStage rejects messages with duplicate content
@@ -517,13 +609,13 @@ type ContentDedupeStage struct {
     IsSameAs func(new, existing *Message) bool
 }
 
-func (s *ContentDedupeStage) Process(msg *Message, ctx *PipelineContext, next func()) {
+func (s *ContentDedupeStage) Process(msg *Message, ctx *PipelineContext) StageResult {
     if ctx.Ledger.HasMatching(msg.Kind, func(existing *Message) bool {
         return s.IsSameAs(msg, existing)
     }) {
-        return // Duplicate content
+        return Drop("duplicate_content")
     }
-    next()
+    return Continue(msg)
 }
 ```
 
@@ -537,27 +629,16 @@ Throttles incoming messages.
 type RateLimitStage struct {
     Window  time.Duration
     Max     int
-    KeyFunc func(msg *Message) string // What to rate limit by
+    KeyFunc func(msg *Message) string
 }
 
-func (s *RateLimitStage) Process(msg *Message, ctx *PipelineContext, next func()) {
+func (s *RateLimitStage) Process(msg *Message, ctx *PipelineContext) StageResult {
     key := s.KeyFunc(msg)
     if !ctx.Runtime.RateLimiter.Allow(key, s.Window, s.Max) {
-        return // Rate limited, reject
+        return Drop("rate_limited")
     }
-    next()
+    return Continue(msg)
 }
-```
-
-**Usage:**
-```go
-// Rate limit observations per subject
-RateLimit: RateLimit(5*time.Minute, 10, func(msg *Message) string {
-    return msg.Payload.(*ObservationPayload).Subject
-})
-
-// No rate limit
-RateLimit: nil
 ```
 
 ---
@@ -567,63 +648,30 @@ RateLimit: nil
 Filters messages based on local criteria (e.g., personality).
 
 ```go
-// PersonalityFilterStage filters based on local nara's personality
-type PersonalityFilterStage struct {
-    FilterFunc func(msg *Message, personality *Personality) bool
-}
-
-func (s *PersonalityFilterStage) Process(msg *Message, ctx *PipelineContext, next func()) {
-    if s.FilterFunc != nil && !s.FilterFunc(msg, ctx.Personality) {
-        return // Filtered out by personality
-    }
-    next()
-}
-
 // ImportanceFilterStage uses importance levels
 type ImportanceFilterStage struct {
-    Importance int // 1=casual, 2=normal, 3=critical
-    // For casual, provide custom filter
+    Importance   int // 1=casual, 2=normal, 3=critical
     CasualFilter func(msg *Message, personality *Personality) bool
 }
 
-func (s *ImportanceFilterStage) Process(msg *Message, ctx *PipelineContext, next func()) {
+func (s *ImportanceFilterStage) Process(msg *Message, ctx *PipelineContext) StageResult {
     switch s.Importance {
     case 3: // Critical - never filter
-        next()
+        return Continue(msg)
     case 2: // Normal - filter only if very chill
         if ctx.Personality.Chill <= 85 {
-            next()
+            return Continue(msg)
         }
+        return Drop("filtered_by_chill")
     case 1: // Casual - use custom filter
         if s.CasualFilter == nil || s.CasualFilter(msg, ctx.Personality) {
-            next()
+            return Continue(msg)
         }
+        return Drop("filtered_by_personality")
     default:
-        next()
+        return Continue(msg)
     }
 }
-```
-
-**Usage:**
-```go
-// Critical: never filter
-Filter: Critical()
-
-// Normal: filtered by very chill naras
-Filter: Normal()
-
-// Casual with custom filter
-Filter: Casual(func(msg *Message, p *Personality) bool {
-    payload := msg.Payload.(*SocialPayload)
-    switch payload.Reason {
-    case ReasonRandom:
-        return p.Chill < 70
-    case ReasonNiceNumber:
-        return p.Chill < 80
-    default:
-        return true
-    }
-})
 ```
 
 ---
@@ -637,21 +685,33 @@ Each message kind has a Behavior that defines its pipelines:
 ```go
 type Behavior struct {
     // Identity
-    Kind        string  // Unique identifier, e.g., "observation:restart"
-    Description string  // Human-readable description
-    Schema      *Schema // Payload schema (for validation and docs)
+    Kind        string       // Unique identifier, e.g., "observation:restart"
+    Description string       // Human-readable description
+    PayloadType reflect.Type // The Go struct type for payload (runtime handles serialization)
 
     // Emit pipeline stages (nil = use default)
-    ID        IDStage
-    Sign      SignStage
-    Store     StoreStage
-    Transport TransportStage
+    ID        Stage  // IDStage
+    Sign      Stage  // SignStage
+    Store     Stage  // StoreStage
+    Gossip    Stage  // GossipStage (explicit, not coupled to Store)
+    Transport Stage  // TransportStage
 
     // Receive pipeline stages (nil = use default or skip)
-    Verify    VerifyStage
-    Dedupe    DedupeStage
-    RateLimit RateLimitStage
-    Filter    FilterStage
+    Verify    Stage  // VerifyStage
+    Dedupe    Stage  // DedupeStage
+    RateLimit Stage  // RateLimitStage
+    Filter    Stage  // FilterStage
+
+    // Error handling
+    OnTransportError ErrorStrategy
+    OnStoreError     ErrorStrategy
+    OnVerifyError    ErrorStrategy
+}
+
+// PayloadTypeOf is a helper to get reflect.Type from a struct
+func PayloadTypeOf[T any]() reflect.Type {
+    var zero T
+    return reflect.TypeOf(zero)
 }
 ```
 
@@ -660,11 +720,15 @@ type Behavior struct {
 ```go
 var Behaviors = map[string]*Behavior{}
 
-func Register(b *Behavior) {
+func Register(b *Behavior) error {
     if b.Kind == "" {
-        panic("behavior must have a Kind")
+        return errors.New("behavior must have a Kind")
+    }
+    if Behaviors[b.Kind] != nil {
+        return fmt.Errorf("behavior %s already registered", b.Kind)
     }
     Behaviors[b.Kind] = b
+    return nil
 }
 
 func Lookup(kind string) *Behavior {
@@ -672,50 +736,55 @@ func Lookup(kind string) *Behavior {
 }
 ```
 
-### Helper Constructors
+### Helper Constructors (DSL)
 
 ```go
 // === ID Helpers ===
-func DefaultID() IDStage { return &DefaultIDStage{} }
-func ContentID(f func(any) string) IDStage { return &ContentIDStage{ContentFunc: f} }
+func DefaultID() Stage { return &DefaultIDStage{} }
+func ContentID(f func(any) string) Stage { return &ContentIDStage{ContentFunc: f} }
 
 // === Sign Helpers ===
-func DefaultSign() SignStage { return &DefaultSignStage{} }
-func NoSign() SignStage { return &NoSignStage{} }
+func DefaultSign() Stage { return &DefaultSignStage{} }
+func NoSign() Stage { return &NoSignStage{} }
 
 // === Store Helpers ===
-func DefaultStore(priority int) StoreStage { return &DefaultStoreStage{Priority: priority} }
-func NoStore() StoreStage { return &NoStoreStage{} }
-func DedupStore(priority int, isSame func(*Message, *Message) bool) StoreStage {
+func DefaultStore(priority int) Stage { return &DefaultStoreStage{Priority: priority} }
+func NoStore() Stage { return &NoStoreStage{} }
+func DedupStore(priority int, isSame func(*Message, *Message) bool) Stage {
     return &DedupStoreStage{Priority: priority, IsSameAs: isSame}
 }
 
+// === Gossip Helpers ===
+func Gossip() Stage { return &GossipStage{} }
+func NoGossip() Stage { return &NoGossipStage{} }
+
 // === Transport Helpers ===
-func MQTT(topic string) TransportStage { return &MQTTStage{Topic: topic} }
-func MQTTPerNara(pattern string) TransportStage { return &MQTTPerNaraStage{TopicPattern: pattern} }
-func Gossip() TransportStage { return &GossipStage{} }
-func Broadcast(topic string) TransportStage { return &BroadcastStage{Topic: topic} }
-func DirectFirst(topic string) TransportStage { return &DirectFirstStage{Topic: topic} }
+func MQTT(topic string) Stage { return &MQTTStage{Topic: topic} }
+func MQTTPerNara(pattern string) Stage { return &MQTTPerNaraStage{TopicPattern: pattern} }
+func DirectFirst(topic string) Stage { return &DirectFirstStage{Topic: topic} }
+func NoTransport() Stage { return &NoTransportStage{} }
 
 // === Verify Helpers ===
-func DefaultVerify() VerifyStage { return &DefaultVerifyStage{} }
-func SelfAttesting(f func(any) []byte) VerifyStage { return &SelfAttestingVerifyStage{ExtractKey: f} }
-func CustomVerify(f func(*Message, *PipelineContext) bool) VerifyStage { return &CustomVerifyStage{VerifyFunc: f} }
-func NoVerify() VerifyStage { return &NoVerifyStage{} }
+func DefaultVerify() Stage { return &DefaultVerifyStage{} }
+func SelfAttesting(f func(any) []byte) Stage { return &SelfAttestingVerifyStage{ExtractKey: f} }
+func CustomVerify(f func(*Message, *PipelineContext) StageResult) Stage {
+    return &CustomVerifyStage{VerifyFunc: f}
+}
+func NoVerify() Stage { return &NoVerifyStage{} }
 
 // === Dedupe Helpers ===
-func IDDedupe() DedupeStage { return &IDDedupeStage{} }
-func ContentDedupe(f func(*Message, *Message) bool) DedupeStage { return &ContentDedupeStage{IsSameAs: f} }
+func IDDedupe() Stage { return &IDDedupeStage{} }
+func ContentDedupe(f func(*Message, *Message) bool) Stage { return &ContentDedupeStage{IsSameAs: f} }
 
 // === RateLimit Helpers ===
-func RateLimit(window time.Duration, max int, keyFunc func(*Message) string) RateLimitStage {
+func RateLimit(window time.Duration, max int, keyFunc func(*Message) string) Stage {
     return &RateLimitStage{Window: window, Max: max, KeyFunc: keyFunc}
 }
 
 // === Filter Helpers ===
-func Critical() FilterStage { return &ImportanceFilterStage{Importance: 3} }
-func Normal() FilterStage { return &ImportanceFilterStage{Importance: 2} }
-func Casual(f func(*Message, *Personality) bool) FilterStage {
+func Critical() Stage { return &ImportanceFilterStage{Importance: 3} }
+func Normal() Stage { return &ImportanceFilterStage{Importance: 2} }
+func Casual(f func(*Message, *Personality) bool) Stage {
     return &ImportanceFilterStage{Importance: 1, CasualFilter: f}
 }
 ```
@@ -732,7 +801,9 @@ func init() {
     Register(&Behavior{
         Kind:        "howdy",
         Description: "Discovery poll - who's out there?",
+        PayloadType: PayloadTypeOf[HowdyPayload](),
         Store:       NoStore(),
+        Gossip:      NoGossip(),
         Transport:   MQTT("nara/plaza/howdy"),
         Verify:      NoVerify(),
         Filter:      Critical(),
@@ -742,8 +813,9 @@ func init() {
     Register(&Behavior{
         Kind:        "newspaper",
         Description: "Periodic presence heartbeat with status",
-        Schema:      NewspaperSchema,
+        PayloadType: PayloadTypeOf[NewspaperPayload](),
         Store:       NoStore(),
+        Gossip:      NoGossip(),
         Transport:   MQTTPerNara("nara/newspaper/%s"),
         Verify:      DefaultVerify(),
         Filter:      Critical(),
@@ -753,7 +825,9 @@ func init() {
     Register(&Behavior{
         Kind:        "stash-refresh",
         Description: "Request stash recovery from confidants",
+        PayloadType: PayloadTypeOf[StashRefreshPayload](),
         Store:       NoStore(),
+        Gossip:      NoGossip(),
         Transport:   MQTT("nara/plaza/stash_refresh"),
         Verify:      NoVerify(),
         Filter:      Critical(),
@@ -769,9 +843,10 @@ func init() {
     Register(&Behavior{
         Kind:        "hey-there",
         Description: "Identity announcement with public key and mesh IP",
-        Schema:      HeyThereSchema,
+        PayloadType: PayloadTypeOf[HeyTherePayload](),
         Store:       DefaultStore(1),
-        Transport:   Broadcast("nara/plaza/hey_there"),
+        Gossip:      Gossip(),
+        Transport:   MQTT("nara/plaza/hey_there"),
         Verify:      SelfAttesting(func(p any) []byte {
             return p.(*HeyTherePayload).PublicKey
         }),
@@ -782,9 +857,10 @@ func init() {
     Register(&Behavior{
         Kind:        "chau",
         Description: "Graceful shutdown announcement",
-        Schema:      ChauSchema,
+        PayloadType: PayloadTypeOf[ChauPayload](),
         Store:       DefaultStore(1),
-        Transport:   Broadcast("nara/plaza/chau"),
+        Gossip:      Gossip(),
+        Transport:   MQTT("nara/plaza/chau"),
         Verify:      DefaultVerify(),
         Filter:      Critical(),
     })
@@ -799,24 +875,27 @@ func init() {
     Register(&Behavior{
         Kind:        "observation:restart",
         Description: "Records when a nara restarts",
-        Schema:      ObservationRestartSchema,
+        PayloadType: PayloadTypeOf[ObservationRestartPayload](),
         ID:          ContentID(restartContentID),
         Store:       DedupStore(0, restartIsSame),
-        Transport:   Gossip(),
+        Gossip:      Gossip(),
+        Transport:   NoTransport(),  // Gossip only, no MQTT
         Verify:      DefaultVerify(),
         Dedupe:      ContentDedupe(restartIsSame),
         RateLimit:   RateLimit(5*time.Minute, 10, subjectKey),
         Filter:      Critical(),
+        OnStoreError: ErrorLog,
     })
 
     // First-seen observation
     Register(&Behavior{
         Kind:        "observation:first-seen",
         Description: "Records first time a nara is observed",
-        Schema:      ObservationFirstSeenSchema,
+        PayloadType: PayloadTypeOf[ObservationFirstSeenPayload](),
         ID:          ContentID(firstSeenContentID),
         Store:       DedupStore(0, firstSeenIsSame),
-        Transport:   Gossip(),
+        Gossip:      Gossip(),
+        Transport:   NoTransport(),
         Verify:      DefaultVerify(),
         Dedupe:      ContentDedupe(firstSeenIsSame),
         RateLimit:   RateLimit(5*time.Minute, 10, subjectKey),
@@ -827,31 +906,32 @@ func init() {
     Register(&Behavior{
         Kind:        "observation:status-change",
         Description: "Records online/offline transitions",
-        Schema:      ObservationStatusChangeSchema,
+        PayloadType: PayloadTypeOf[ObservationStatusChangePayload](),
         Store:       DefaultStore(1),
-        Transport:   Gossip(),
+        Gossip:      Gossip(),
+        Transport:   NoTransport(),
         Verify:      DefaultVerify(),
         RateLimit:   RateLimit(5*time.Minute, 10, subjectKey),
         Filter:      Normal(),
     })
 }
 
-// Helper functions for observations
+// Helper functions
 func restartContentID(p any) string {
-    obs := p.(*ObservationPayload)
+    obs := p.(*ObservationRestartPayload)
     return fmt.Sprintf("%s:%d:%d", obs.Subject, obs.RestartNum, obs.StartTime.Unix())
 }
 
 func restartIsSame(new, existing *Message) bool {
-    n := new.Payload.(*ObservationPayload)
-    e := existing.Payload.(*ObservationPayload)
+    n := new.Payload.(*ObservationRestartPayload)
+    e := existing.Payload.(*ObservationRestartPayload)
     return n.Subject == e.Subject &&
            n.RestartNum == e.RestartNum &&
            n.StartTime.Equal(e.StartTime)
 }
 
 func subjectKey(msg *Message) string {
-    return msg.Payload.(*ObservationPayload).Subject
+    return msg.Payload.(interface{ GetSubject() string }).GetSubject()
 }
 ```
 
@@ -862,35 +942,30 @@ func init() {
     Register(&Behavior{
         Kind:        "social",
         Description: "Social interactions (teases, trends, etc.)",
-        Schema:      SocialSchema,
+        PayloadType: PayloadTypeOf[SocialPayload](),
         Store:       DefaultStore(2),
+        Gossip:      Gossip(),
         Transport:   DirectFirst("nara/plaza/social"),
         Verify:      DefaultVerify(),
         Filter:      Casual(socialFilter),
+        OnTransportError: ErrorLog,
     })
 }
 
 func socialFilter(msg *Message, p *Personality) bool {
     payload := msg.Payload.(*SocialPayload)
 
-    // High chill: doesn't store random teases
     if p.Chill > 70 && payload.Reason == ReasonRandom {
         return false
     }
-
-    // Very chill: only stores significant events
     if p.Chill > 85 {
         if payload.Reason != ReasonComeback && payload.Reason != ReasonHighRestarts {
             return false
         }
     }
-
-    // Highly agreeable: doesn't store negative drama
     if p.Agreeableness > 80 && payload.Reason == ReasonTrendAbandon {
         return false
     }
-
-    // Low sociability: less interested in drama
     if p.Sociability < 20 && payload.Reason == ReasonRandom {
         return false
     }
@@ -906,33 +981,18 @@ func init() {
     Register(&Behavior{
         Kind:        "ping",
         Description: "Latency measurement between naras",
-        Schema:      PingSchema,
-        Store:       MaxPerKeyStore(4, 5, pingKey), // Priority 4, max 5 per target
-        Transport:   Gossip(),
+        PayloadType: PayloadTypeOf[PingPayload](),
+        Store:       MaxPerKeyStore(4, 5, pingKey),
+        Gossip:      Gossip(),
+        Transport:   NoTransport(),
         Verify:      DefaultVerify(),
-        Filter:      Casual(nil), // Always include
+        Filter:      Casual(nil),
     })
 }
 
 func pingKey(msg *Message) string {
     p := msg.Payload.(*PingPayload)
     return msg.From + ":" + p.Target
-}
-```
-
-### Seen Events
-
-```go
-func init() {
-    Register(&Behavior{
-        Kind:        "seen",
-        Description: "Lightweight observation that a nara was seen",
-        Schema:      SeenSchema,
-        Store:       DefaultStore(3),
-        Transport:   Gossip(),
-        Verify:      DefaultVerify(),
-        Filter:      Casual(nil),
-    })
 }
 ```
 
@@ -944,24 +1004,25 @@ func init() {
     Register(&Behavior{
         Kind:        "checkpoint",
         Description: "Multi-party signed consensus anchor",
-        Schema:      CheckpointSchema,
-        Sign:        NoSign(), // Signatures in payload
-        Store:       DefaultStore(0), // Never prune
-        Transport:   Broadcast("nara/checkpoint/final"),
+        PayloadType: PayloadTypeOf[CheckpointPayload](),
+        Sign:        NoSign(),  // Signatures in payload
+        Store:       DefaultStore(0),
+        Gossip:      Gossip(),
+        Transport:   MQTT("nara/checkpoint/final"),
         Verify:      CustomVerify(checkpointVerifyMultiSig),
         Filter:      Critical(),
+        OnTransportError: ErrorPanic,
+        OnStoreError:     ErrorPanic,
     })
 }
 
-func checkpointVerifyMultiSig(msg *Message, ctx *PipelineContext) bool {
+func checkpointVerifyMultiSig(msg *Message, ctx *PipelineContext) StageResult {
     cp := msg.Payload.(*CheckpointPayload)
 
-    // Need minimum signatures
     if len(cp.Signatures) < MinCheckpointSignatures {
-        return false
+        return Drop("insufficient_signatures")
     }
 
-    // Verify each signature
     validCount := 0
     for i, voterID := range cp.VoterIDs {
         pubKey := ctx.Runtime.LookupPublicKey(voterID)
@@ -974,7 +1035,11 @@ func checkpointVerifyMultiSig(msg *Message, ctx *PipelineContext) bool {
         }
     }
 
-    return validCount >= MinCheckpointSignatures
+    if validCount < MinCheckpointSignatures {
+        return Drop("invalid_signatures")
+    }
+
+    return Continue(msg)
 }
 ```
 
@@ -986,8 +1051,9 @@ func init() {
     Register(&Behavior{
         Kind:        "checkpoint:propose",
         Description: "Checkpoint proposal (consensus protocol)",
-        Schema:      CheckpointProposalSchema,
+        PayloadType: PayloadTypeOf[CheckpointProposalPayload](),
         Store:       NoStore(),
+        Gossip:      NoGossip(),
         Transport:   MQTT("nara/checkpoint/propose"),
         Verify:      DefaultVerify(),
         Filter:      Critical(),
@@ -997,8 +1063,9 @@ func init() {
     Register(&Behavior{
         Kind:        "checkpoint:vote",
         Description: "Checkpoint vote (consensus protocol)",
-        Schema:      CheckpointVoteSchema,
+        PayloadType: PayloadTypeOf[CheckpointVotePayload](),
         Store:       NoStore(),
+        Gossip:      NoGossip(),
         Transport:   MQTT("nara/checkpoint/vote"),
         Verify:      DefaultVerify(),
         Filter:      Critical(),
@@ -1008,8 +1075,9 @@ func init() {
     Register(&Behavior{
         Kind:        "sync:request",
         Description: "Ledger sync request",
-        Schema:      SyncRequestSchema,
+        PayloadType: PayloadTypeOf[SyncRequestPayload](),
         Store:       NoStore(),
+        Gossip:      NoGossip(),
         Transport:   MQTTPerNara("nara/ledger/%s/request"),
         Verify:      NoVerify(),
         Filter:      Critical(),
@@ -1019,8 +1087,9 @@ func init() {
     Register(&Behavior{
         Kind:        "sync:response",
         Description: "Ledger sync response",
-        Schema:      SyncResponseSchema,
+        PayloadType: PayloadTypeOf[SyncResponsePayload](),
         Store:       NoStore(),
+        Gossip:      NoGossip(),
         Transport:   MQTTPerNara("nara/ledger/%s/response"),
         Verify:      DefaultVerify(),
         Filter:      Critical(),
@@ -1047,14 +1116,11 @@ type Service interface {
 
 // Optional interfaces services can implement
 type MessageHandler interface {
-    // Kinds returns message kinds this service handles
     Kinds() []string
-    // Handle is called when a message of a registered kind arrives
     Handle(msg *Message)
 }
 
 type BehaviorRegistrar interface {
-    // RegisterBehaviors is called during init to let services register their behaviors
     RegisterBehaviors()
 }
 ```
@@ -1072,20 +1138,9 @@ func (s *PresenceService) RegisterBehaviors() {
     Register(&Behavior{
         Kind:        "hey-there",
         Description: "Identity announcement",
-        // ... as defined above
-    })
-    Register(&Behavior{
-        Kind:        "chau",
         // ...
     })
-    Register(&Behavior{
-        Kind:        "newspaper",
-        // ...
-    })
-    Register(&Behavior{
-        Kind:        "howdy",
-        // ...
-    })
+    // ...
 }
 
 func (s *PresenceService) Kinds() []string {
@@ -1098,7 +1153,6 @@ func (s *PresenceService) Handle(msg *Message) {
         s.handleHeyThere(msg)
     case "howdy":
         s.handleHowdy(msg)
-    // ...
     }
 }
 
@@ -1148,7 +1202,8 @@ type Runtime struct {
     ledger *Ledger
 
     // Transport
-    transport *Transport
+    transport   *Transport
+    gossipQueue *GossipQueue  // Explicit gossip queue
 
     // Services
     services []Service
@@ -1159,6 +1214,13 @@ type Runtime struct {
 
     // Rate limiting
     rateLimiter *RateLimiter
+
+    // Metrics
+    metrics *Metrics
+
+    // Error handling
+    retryQueue *RetryQueue
+    deadLetter *DeadLetterQueue
 
     // Personality (for filtering)
     personality *Personality
@@ -1172,7 +1234,7 @@ type Runtime struct {
 ### Emit Implementation
 
 ```go
-func (rt *Runtime) Emit(msg *Message) {
+func (rt *Runtime) Emit(msg *Message) error {
     // Set timestamp if not set
     if msg.Timestamp.IsZero() {
         msg.Timestamp = time.Now()
@@ -1181,48 +1243,44 @@ func (rt *Runtime) Emit(msg *Message) {
     // Look up behavior
     behavior := Lookup(msg.Kind)
     if behavior == nil {
-        logrus.Warnf("unknown message kind: %s", msg.Kind)
-        return
+        return fmt.Errorf("unknown message kind: %s", msg.Kind)
     }
 
     // Build and run emit pipeline
     pipeline := rt.buildEmitPipeline(behavior)
-    ctx := &PipelineContext{
-        Runtime:     rt,
-        Ledger:      rt.ledger,
-        Transport:   rt.transport,
-        Keypair:     rt.keypair,
-        Personality: rt.personality,
-        EventBus:    rt.eventBus,
+    ctx := rt.newPipelineContext()
+
+    result := pipeline.Run(msg, ctx)
+
+    // Handle result
+    if result.Error != nil {
+        rt.applyErrorStrategy(msg, "emit", result.Error, behavior.OnTransportError)
+        return result.Error
     }
-    pipeline.Run(msg, ctx)
+    if result.Message == nil {
+        rt.metrics.RecordDrop(msg.Kind, result.Reason)
+        logrus.Debugf("message %s dropped: %s", msg.Kind, result.Reason)
+    }
+
+    return nil
 }
 
 func (rt *Runtime) buildEmitPipeline(b *Behavior) Pipeline {
     stages := []Stage{}
 
     // ID stage
-    if b.ID != nil {
-        stages = append(stages, b.ID)
-    } else {
-        stages = append(stages, DefaultID())
-    }
+    stages = append(stages, orDefault(b.ID, DefaultID()))
 
     // Sign stage
-    if b.Sign != nil {
-        stages = append(stages, b.Sign)
-    } else {
-        stages = append(stages, DefaultSign())
-    }
+    stages = append(stages, orDefault(b.Sign, DefaultSign()))
 
     // Store stage
-    if b.Store != nil {
-        stages = append(stages, b.Store)
-    } else {
-        stages = append(stages, DefaultStore(2))
-    }
+    stages = append(stages, orDefault(b.Store, DefaultStore(2)))
 
-    // Transport stage (required)
+    // Gossip stage (explicit, independent of store)
+    stages = append(stages, orDefault(b.Gossip, NoGossip()))
+
+    // Transport stage
     if b.Transport != nil {
         stages = append(stages, b.Transport)
     }
@@ -1232,56 +1290,89 @@ func (rt *Runtime) buildEmitPipeline(b *Behavior) Pipeline {
 
     return Pipeline(stages)
 }
+
+func orDefault(stage Stage, defaultStage Stage) Stage {
+    if stage != nil {
+        return stage
+    }
+    return defaultStage
+}
 ```
 
 ### Receive Implementation
 
 ```go
-func (rt *Runtime) Receive(msg *Message) {
+func (rt *Runtime) Receive(raw []byte) error {
+    // Deserialize using behavior's PayloadType
+    msg, err := rt.deserialize(raw)
+    if err != nil {
+        return fmt.Errorf("deserialize: %w", err)
+    }
+
     behavior := Lookup(msg.Kind)
     if behavior == nil {
-        logrus.Warnf("unknown message kind: %s", msg.Kind)
-        return
+        return fmt.Errorf("unknown message kind: %s", msg.Kind)
     }
 
     // Build and run receive pipeline
     pipeline := rt.buildReceivePipeline(behavior)
-    ctx := &PipelineContext{
-        Runtime:     rt,
-        Ledger:      rt.ledger,
-        Transport:   rt.transport,
-        Keypair:     rt.keypair,
-        Personality: rt.personality,
-        EventBus:    rt.eventBus,
+    ctx := rt.newPipelineContext()
+
+    result := pipeline.Run(msg, ctx)
+
+    // Handle result
+    if result.Error != nil {
+        rt.applyErrorStrategy(msg, "receive", result.Error, behavior.OnVerifyError)
+        return result.Error
+    }
+    if result.Message == nil {
+        rt.metrics.RecordDrop(msg.Kind, result.Reason)
+        logrus.Debugf("message %s dropped: %s", msg.Kind, result.Reason)
     }
 
-    // Receive pipeline stages return early if they reject
-    pipeline.Run(msg, ctx)
+    return nil
+}
+
+// deserialize uses behavior's PayloadType for typed deserialization
+func (rt *Runtime) deserialize(raw []byte) (*Message, error) {
+    // First, peek at kind
+    var envelope struct {
+        Kind string `json:"kind"`
+    }
+    if err := json.Unmarshal(raw, &envelope); err != nil {
+        return nil, err
+    }
+
+    behavior := Lookup(envelope.Kind)
+    if behavior == nil {
+        return nil, fmt.Errorf("unknown kind: %s", envelope.Kind)
+    }
+
+    // Create typed payload
+    payload := reflect.New(behavior.PayloadType).Interface()
+
+    // Full unmarshal with typed payload
+    msg := &Message{}
+    // ... custom unmarshaling that puts typed payload in msg.Payload
+
+    return msg, nil
 }
 
 func (rt *Runtime) buildReceivePipeline(b *Behavior) Pipeline {
     stages := []Stage{}
 
     // Verify stage
-    if b.Verify != nil {
-        stages = append(stages, b.Verify)
-    } else {
-        stages = append(stages, DefaultVerify())
-    }
+    stages = append(stages, orDefault(b.Verify, DefaultVerify()))
 
     // Dedupe stage
-    if b.Dedupe != nil {
-        stages = append(stages, b.Dedupe)
-    } else {
-        stages = append(stages, IDDedupe())
-    }
+    stages = append(stages, orDefault(b.Dedupe, IDDedupe()))
 
     // Rate limit stage (optional)
     if b.RateLimit != nil {
         stages = append(stages, b.RateLimit)
     }
 
-    // Filter stage
+    // Filter stage (optional)
     if b.Filter != nil {
         stages = append(stages, b.Filter)
     }
@@ -1289,6 +1380,11 @@ func (rt *Runtime) buildReceivePipeline(b *Behavior) Pipeline {
     // Store stage (from emit config, for received messages)
     if b.Store != nil && !isNoStore(b.Store) {
         stages = append(stages, b.Store)
+    }
+
+    // Gossip stage (optional - spread to others)
+    if b.Gossip != nil && !isNoGossip(b.Gossip) {
+        stages = append(stages, b.Gossip)
     }
 
     // Notify stage (always last)
@@ -1300,69 +1396,7 @@ func (rt *Runtime) buildReceivePipeline(b *Behavior) Pipeline {
 
 ---
 
-## Migration Strategy
-
-### Phase 1: Foundation
-
-1. Create `runtime/` package with Message, Behavior, Stage interfaces
-2. Create `runtime/stages/` with all stage implementations
-3. Create `runtime/catalog/` with behavior registry
-4. Write comprehensive tests for pipelines
-
-### Phase 2: Parallel Implementation
-
-1. Implement Runtime alongside existing Network
-2. Port one service at a time (start with simplest: social)
-3. Keep old path working, new path opt-in
-4. Verify behavior matches old implementation
-
-### Phase 3: Services Migration
-
-Order by complexity (simplest first):
-
-1. **social** — simple events, good test case
-2. **world** — self-contained journeys
-3. **presence** — hey-there, chau, newspaper, howdy
-4. **neighbourhood** — observations
-5. **gossip** — reads from ledger, creates zines
-6. **stash** — confidant management
-7. **checkpoint** — complex multi-sig
-
-### Phase 4: Cleanup
-
-1. Remove old Network methods
-2. Remove old event handling code
-3. Consolidate tests
-4. Update documentation
-
----
-
 ## Auto-Generated Documentation
-
-### Schema Definition
-
-```go
-type Schema struct {
-    Fields []FieldDef
-}
-
-type FieldDef struct {
-    Name        string
-    Type        string // "string", "int", "time", "[]string", etc.
-    Required    bool
-    Description string
-}
-
-// Example
-var HeyThereSchema = &Schema{
-    Fields: []FieldDef{
-        {Name: "PublicKey", Type: "[]byte", Required: true, Description: "Ed25519 public key"},
-        {Name: "MeshIP", Type: "string", Required: true, Description: "Tailscale mesh IP address"},
-        {Name: "ID", Type: "string", Required: true, Description: "Nara ID"},
-        {Name: "Version", Type: "int", Required: false, Description: "Protocol version"},
-    },
-}
-```
 
 ### Documentation Generator
 
@@ -1374,19 +1408,7 @@ func GenerateMarkdown() string {
     sb.WriteString("Auto-generated from behavior registry.\n\n")
 
     // Group by category
-    categories := map[string][]*Behavior{
-        "Ephemeral":    {},
-        "Presence":     {},
-        "Observation":  {},
-        "Social":       {},
-        "Checkpoint":   {},
-        "Protocol":     {},
-    }
-
-    for _, b := range Behaviors {
-        cat := categorize(b.Kind)
-        categories[cat] = append(categories[cat], b)
-    }
+    categories := groupByCategory()
 
     for cat, behaviors := range categories {
         sb.WriteString(fmt.Sprintf("## %s\n\n", cat))
@@ -1399,23 +1421,23 @@ func GenerateMarkdown() string {
             sb.WriteString("| Aspect | Configuration |\n")
             sb.WriteString("|--------|---------------|\n")
             sb.WriteString(fmt.Sprintf("| Storage | %s |\n", describeStore(b.Store)))
+            sb.WriteString(fmt.Sprintf("| Gossip | %s |\n", describeGossip(b.Gossip)))
             sb.WriteString(fmt.Sprintf("| Transport | %s |\n", describeTransport(b.Transport)))
             sb.WriteString(fmt.Sprintf("| Verify | %s |\n", describeVerify(b.Verify)))
             sb.WriteString(fmt.Sprintf("| Filter | %s |\n", describeFilter(b.Filter)))
             sb.WriteString("\n")
 
-            // Schema table
-            if b.Schema != nil {
+            // Payload fields from reflection
+            if b.PayloadType != nil {
                 sb.WriteString("**Payload:**\n\n")
-                sb.WriteString("| Field | Type | Required | Description |\n")
-                sb.WriteString("|-------|------|----------|-------------|\n")
-                for _, f := range b.Schema.Fields {
-                    req := ""
-                    if f.Required {
-                        req = "✓"
-                    }
+                sb.WriteString("| Field | Type | JSON | Description |\n")
+                sb.WriteString("|-------|------|------|-------------|\n")
+                for i := 0; i < b.PayloadType.NumField(); i++ {
+                    field := b.PayloadType.Field(i)
+                    jsonTag := field.Tag.Get("json")
+                    desc := field.Tag.Get("desc")
                     sb.WriteString(fmt.Sprintf("| %s | `%s` | %s | %s |\n",
-                        f.Name, f.Type, req, f.Description))
+                        field.Name, field.Type, jsonTag, desc))
                 }
                 sb.WriteString("\n")
             }
@@ -1429,7 +1451,6 @@ func GenerateMarkdown() string {
 ### Build Integration
 
 ```makefile
-# Makefile
 docs: build
 	./bin/nara docs --output docs/src/content/docs/messages.md
 
@@ -1447,9 +1468,12 @@ build-web: docs
 | Component | Purpose |
 |-----------|---------|
 | **Message** | Universal primitive — everything is a message |
+| **StageResult** | Explicit outcomes — Continue/Drop/Error, no silent failures |
 | **Behavior** | Declares how a message kind is handled |
-| **Pipeline** | Chains stages like HTTP middleware |
-| **Stages** | Pluggable units: ID, Sign, Store, Transport, Verify, Filter |
+| **Pipeline** | Chains stages, returns StageResult |
+| **Stages** | Pluggable units: ID, Sign, Store, Gossip, Transport, Verify, Filter |
+| **GossipQueue** | Explicit gossip, decoupled from ledger |
+| **ErrorStrategy** | Per-behavior error handling |
 | **Registry** | Central catalog of all behaviors |
 | **Runtime** | The OS that runs pipelines and manages services |
 | **Services** | Programs that emit and handle messages |
@@ -1457,13 +1481,14 @@ build-web: docs
 ### Key Benefits
 
 1. **Everything is a Message** — unified model for events, ephemerals, protocols
-2. **Behavior is visible** — all handling declared in one place
-3. **Middleware pattern** — easy to reason about, easy to extend
-4. **Customizable** — swap any stage for the 20% that need it
-5. **Auto-documented** — registry generates docs
-6. **Testable** — each stage testable in isolation
+2. **Explicit outcomes** — StageResult replaces error-prone `next()` callback
+3. **Gossip decoupled from Store** — independent concerns
+4. **Error strategies** — configurable per-behavior error handling
+5. **OS handles serialization** — services provide structs, runtime handles wire format
+6. **Auto-documented** — registry generates docs from PayloadType reflection
+7. **Testable** — each stage testable in isolation
 
 ### The 80/20 Split
 
-- **80%**: Use default stages, just define Kind + Description + Schema
+- **80%**: Use default stages, just define Kind + Description + PayloadType
 - **20%**: Customize specific stages (ID, Sign, Verify, Filter, etc.)
