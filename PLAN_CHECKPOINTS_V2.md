@@ -42,6 +42,63 @@ Before starting, ensure you understand:
 
 ---
 
+## New Package Structure
+
+```
+nara/
+├── main.go                    # Entry point (stays in root)
+├── network.go                 # Core network (stays for now, migrates in Chapter 2)
+├── ... existing files ...     # Other services stay until Chapter 2
+│
+├── messages/                  # NEW: All message payload types
+│   ├── doc.go
+│   └── stash.go              # Stash payloads (Chapter 1)
+│                              # social.go, presence.go, etc. (Chapter 2)
+│
+├── runtime/                   # NEW: Runtime infrastructure
+│   ├── message.go            # Message struct
+│   ├── stage.go              # Stage, StageResult, Pipeline
+│   ├── behavior.go           # Behavior, Registry
+│   ├── runtime.go            # Runtime struct
+│   ├── mock_runtime.go       # MockRuntime for testing
+│   └── ... stages, helpers ...
+│
+├── utilities/                 # NEW: Opt-in service utilities
+│   ├── correlator.go         # Request/response correlation
+│   └── encryptor.go          # XChaCha20-Poly1305 encryption
+│
+└── services/                  # NEW: Services as packages
+    └── stash/                 # Stash service (Chapter 1)
+        ├── service.go        # StashService implementation
+        ├── behaviors.go      # Behavior registrations
+        ├── handlers.go       # Message handlers
+        └── service_test.go   # Tests
+```
+
+---
+
+## Existing Stash Files — What Happens to Them
+
+The old `stash_*.go` files in the root package get **migrated and deleted by the end of Chapter 1**:
+
+| Old File | Fate | New Location |
+|----------|------|--------------|
+| `stash_types.go` | **MIGRATE → DELETE** | `messages/stash.go` |
+| `stash_service.go` | **MIGRATE → DELETE** | `services/stash/service.go` |
+| `stash_manager.go` | **MIGRATE → DELETE** | Merged into `services/stash/service.go` |
+| `stash_confidant.go` | **MIGRATE → DELETE** | Merged into `services/stash/service.go` |
+| `stash_tracker.go` | **MIGRATE → DELETE** | Replaced by `utilities/correlator.go` |
+| `stash_network.go` | **MIGRATE → DELETE** | Replaced by runtime adapters |
+| `stash_test.go` | **MIGRATE → DELETE** | `services/stash/service_test.go` |
+
+**By the end of Chapter 1:**
+- All `stash_*.go` files in root are **deleted**
+- Stash lives cleanly in its own package: `services/stash/`
+- Payload types in `messages/stash.go`
+- No orphaned code
+
+---
+
 ## Phase 1: Core Types (Stash-Scoped)
 
 **Goal:** Create the foundational types needed for stash.
@@ -58,7 +115,7 @@ messages/
 
 **Note:** Other message types (checkpoint.go, social.go, presence.go, etc.) are added in Chapter 2.
 
-**stash.go contents:**
+**messages/stash.go contents:**
 ```go
 package messages
 
@@ -1179,9 +1236,16 @@ func TestStashRoundTrip(t *testing.T) {
 - [ ] Stash service fully migrated to new runtime
 - [ ] All stash message kinds working
 - [ ] Round-trip tests pass (store → ack, request → response)
-- [ ] No backwards compatibility needed — clean slate
+- [ ] **Old stash files deleted** — no orphaned code in root:
+  - [ ] `stash_types.go` → deleted (moved to `messages/stash.go`)
+  - [ ] `stash_service.go` → deleted (moved to `services/stash/`)
+  - [ ] `stash_manager.go` → deleted (merged into new service)
+  - [ ] `stash_confidant.go` → deleted (merged into new service)
+  - [ ] `stash_tracker.go` → deleted (replaced by Correlator)
+  - [ ] `stash_network.go` → deleted (replaced by adapters)
+  - [ ] `stash_test.go` → deleted (moved to `services/stash/`)
 
-**Once Chapter 1 is complete:** Stash works beautifully on the new architecture. The rest of the system continues on the existing architecture until Chapter 2.
+**Once Chapter 1 is complete:** Stash works beautifully on the new architecture. Old stash code is gone. The rest of the system continues on the existing architecture until Chapter 2.
 
 ---
 
