@@ -1,4 +1,4 @@
-# Nara Spec Maintenance Protocol (Living English Spec)
+# nara Spec Maintenance Protocol (Living English Spec)
 
 This repository treats the product spec as a **living set of English documents** that must stay in sync with the code and tests.
 
@@ -6,7 +6,7 @@ Codex (or any AI coding agent) is responsible for maintaining the spec in:
 `docs/src/content/docs/spec`
 
 The spec is *not* marketing docs. It is a **re-implementation grade spec**:
-another engineer or AI should be able to rebuild Nara using only the spec + this protocol.
+another engineer or AI should be able to rebuild nara using only the spec + this protocol.
 
 ---
 
@@ -120,7 +120,7 @@ Every spec file MUST follow this structure (in this order), even if some section
 - **Assume a senior programmer audience** familiar with distributed systems and cryptography.
 - **Reference industry standards** and note deviations rather than explaining basics.
   - Example: "Uses Ed25519 signatures (RFC 8032) with custom nonce generation" instead of explaining digital signatures.
-- **Be succinct**: Document behaviors unique to Nara, not Go internals or standard patterns.
+- **Be succinct**: Document behaviors unique to nara, not Go internals or standard patterns.
 - **Target Rust-level portability**: Document what matters for re-implementation in any language, not Go-specific details.
 
 ### Visual aids
@@ -143,6 +143,10 @@ Every spec file MUST follow this structure (in this order), even if some section
 ### Don't lie
 - If behavior is unclear, identify the ambiguity and resolve it by reading tests/code.
 - If tests don't cover it, document current behavior and optionally add a TODO.
+
+## Very Important
+
+- nara should always be written lowercase. no exceptions.
 
 ---
 

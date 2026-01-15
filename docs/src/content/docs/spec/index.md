@@ -20,6 +20,7 @@ This folder contains the **authoritative** specification for the Nara Network. I
 
 ### 1. Identity & Being
 - **[Overview](./overview.md)**: Core principles and the network myth.
+- **[Styleguide](./styleguide.md)**: Cultural vibes, terminology, and design aesthetics.
 - **[Identity](./identity.md)**: Names, souls, Ed25519 bonds, and portability.
 - **[Personality](./personality.md)**: Agreeableness, Sociability, and Chill.
 - **[Aura & Avatar](./aura-and-avatar.md)**: Deterministic visual identity.
