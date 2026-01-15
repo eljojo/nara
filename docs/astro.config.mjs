@@ -57,8 +57,8 @@ export default defineConfig({
             { label: 'Web UI', link: '/spec/web-ui/' },
             { label: 'Boot Sequence', link: '/spec/boot-sequence/' },
             { label: 'Configuration', link: '/spec/configuration/' },
-            { label: 'Deployment', link: '/spec/deployment/' }
-            { label: 'Styleguide', link: '/spec/styleguide/' },
+            { label: 'Deployment', link: '/spec/deployment/' },
+            { label: 'Styleguide', link: '/spec/styleguide/' }
           ]
         },
         {
