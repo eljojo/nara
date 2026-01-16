@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -297,8 +298,9 @@ func (m *MeshClient) FetchCheckpoints(ctx context.Context, naraID types.NaraID, 
 // TODO: Add PostGossipZine when Zine type signature is confirmed
 // TODO: Add SendDM when DirectMessage type is confirmed (currently uses SyncEvent)
 
-// Ping sends a ping to a peer and returns the round-trip time
-func (m *MeshClient) Ping(ctx context.Context, naraID types.NaraID) (time.Duration, error) {
+// PingNara sends a ping to a peer by NaraID and returns the round-trip time.
+// This is the preferred method for pinging peers in most cases.
+func (m *MeshClient) PingNara(ctx context.Context, naraID types.NaraID) (time.Duration, error) {
 	url, err := m.buildURL(naraID, "/ping")
 	if err != nil {
 		return 0, err
@@ -309,13 +311,16 @@ func (m *MeshClient) Ping(ctx context.Context, naraID types.NaraID) (time.Durati
 	if err != nil {
 		return 0, fmt.Errorf("create request: %w", err)
 	}
-	// Note: /ping doesn't require auth for latency reasons
+	req.Header.Set("X-Nara-From", m.name.String())
 
 	resp, err := m.httpClient.Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
+
+	// Drain body to reuse connection
+	_, _ = io.Copy(io.Discard, resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("server returned %d", resp.StatusCode)
@@ -427,6 +432,42 @@ func (m *MeshClient) PostGossipZine(ctx context.Context, naraID types.NaraID, zi
 	return &responseZine, nil
 }
 
+// PingIP sends a ping request to a nara via mesh IP and measures round-trip time.
+// This is used for special cases like Vivaldi coordinate updates where we have the mesh IP directly.
+// For general use, prefer PingNara which works with NaraIDs.
+func (m *MeshClient) PingIP(ctx context.Context, meshIP string) (time.Duration, error) {
+	if meshIP == "" {
+		return 0, fmt.Errorf("mesh IP is required")
+	}
+
+	// Build the ping URL (using mesh IP and mesh port)
+	url := fmt.Sprintf("http://%s:%d/ping", meshIP, DefaultMeshPort)
+
+	// Create request with X-Nara-From header
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create ping request: %w", err)
+	}
+	req.Header.Set("X-Nara-From", m.name.String())
+
+	start := time.Now()
+	resp, err := m.httpClient.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("ping failed: %w", err)
+	}
+	rtt := time.Since(start)
+	defer resp.Body.Close()
+
+	// Drain body to reuse connection
+	_, _ = io.Copy(io.Discard, resp.Body)
+
+	if resp.StatusCode != 200 {
+		return 0, fmt.Errorf("ping returned status %d", resp.StatusCode)
+	}
+
+	return rtt, nil
+}
+
 // Note: Additional mesh client methods can be added as needed.
 // Currently implemented: FetchSyncEvents, FetchCheckpoints, Ping, RelayWorldMessage, SendDM, PostGossipZine
-// Sufficient for boot recovery, checkpoint sync, backup tool, and world journeys.
+// Sufficient for boot recovery, checkpoint sync, backup tool, world journeys, and coordinates.

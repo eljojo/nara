@@ -4,13 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"math/rand"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 
 	"github.com/sirupsen/logrus"
 	"tailscale.com/ipn/store/mem"
@@ -199,58 +197,4 @@ func (t *TsnetMesh) Close() error {
 	}
 
 	return nil
-}
-
-// Ping measures RTT to a peer nara via the mesh network
-// Uses HTTP GET to the /ping endpoint and returns the round-trip time
-// Note: TCP handshake time is included, which is correct for Vivaldi coordinates
-// (the handshake itself measures one network RTT)
-// TODO: we need to unify this with MeshClient somehow
-func (t *TsnetMesh) Ping(targetIP string, from types.NaraName, timeout time.Duration) (time.Duration, error) {
-	t.mu.Lock()
-	if t.closed {
-		t.mu.Unlock()
-		return 0, errors.New("transport closed")
-	}
-	client := t.httpClient
-	t.mu.Unlock()
-
-	if targetIP == "" {
-		return 0, errors.New("target IP is required")
-	}
-
-	// Use tsnet's HTTP client
-	if client == nil {
-		client = t.server.HTTPClient()
-	}
-
-	// Build the ping URL (using mesh IP and mesh port)
-	url := fmt.Sprintf("http://%s:%d/ping", targetIP, DefaultMeshPort)
-
-	// Create request with X-Nara-From header
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return 0, fmt.Errorf("failed to create ping request: %w", err)
-	}
-	req.Header.Set("X-Nara-From", from.String())
-
-	start := time.Now()
-	resp, err := client.Do(req)
-	if err != nil {
-		return 0, fmt.Errorf("ping failed: %w", err)
-	}
-	rtt := time.Since(start)
-	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
-		logrus.WithError(err).Warn("Failed to discard response body")
-	}
-	resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return 0, fmt.Errorf("ping returned status %d", resp.StatusCode)
-	}
-
-	return rtt, nil
 }

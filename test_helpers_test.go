@@ -575,8 +575,9 @@ func (m *testMeshNetwork) ServerURL(i int) string {
 // The server is automatically started on a test-specific port and cleaned up after the test.
 //
 // Example:
-//   nara, baseURL := testNaraWithHTTP(t, "test-nara")
-//   resp, err := http.Get(baseURL + "/api/stash/status")
+//
+//	nara, baseURL := testNaraWithHTTP(t, "test-nara")
+//	resp, err := http.Get(baseURL + "/api/stash/status")
 func testNaraWithHTTP(t *testing.T, name string, opts ...TestNaraOption) (*LocalNara, string) {
 	nara := testNara(t, name, opts...)
 

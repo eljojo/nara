@@ -1,6 +1,7 @@
 package nara
 
 import (
+	"context"
 	"math/rand"
 	"sort"
 	"time"
@@ -142,7 +143,9 @@ func (network *Network) pingAndUpdateCoordinates(targetName types.NaraName, conf
 	}
 
 	// Ping the peer
-	rtt, err := network.tsnetMesh.Ping(meshIP, network.meName(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	rtt, err := network.meshClient.PingIP(ctx, meshIP)
 	if err != nil {
 		logrus.Infof("📍 Ping to %s failed: %v", targetName, err)
 		return

@@ -42,12 +42,12 @@ func NewTestCoordinator(t *testing.T) *TestCoordinator {
 type CoordinatorNaraOption func(*naraConfig)
 
 type naraConfig struct {
-	soul            string
-	chattiness      int
-	ledgerCapacity  int
-	withServer      bool
-	handlers        []string
-	notBooting      bool // Mark as not booting (common test requirement)
+	soul           string
+	chattiness     int
+	ledgerCapacity int
+	withServer     bool
+	handlers       []string
+	notBooting     bool // Mark as not booting (common test requirement)
 }
 
 // WithStandardHandlers adds all common handlers (gossip, dm, world, peer query, checkpoints).
@@ -100,7 +100,7 @@ func (tc *TestCoordinator) AddNara(name string, opts ...CoordinatorNaraOption) *
 	config := &naraConfig{
 		chattiness:     50,
 		ledgerCapacity: 1000,
-		withServer:     true, // default to server enabled
+		withServer:     true,                                                     // default to server enabled
 		handlers:       []string{"gossip", "dm", "world", "peer", "checkpoints"}, // default all
 	}
 

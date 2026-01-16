@@ -3,10 +3,8 @@ package nara
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"testing"
-	"time"
 
 	"github.com/eljojo/nara/types"
 	"github.com/sirupsen/logrus"
@@ -28,26 +26,8 @@ func TestStashHTTPEndpoints_Integration(t *testing.T) {
 
 	logrus.SetLevel(logrus.WarnLevel)
 
-	// Start nara with UI enabled (HTTP server)
-	nara := testNara(t, "test-nara")
-
-	// Start with HTTP server (readOnly=false, no mesh, gossip-only transport)
-	go nara.Start(true, false, ":0", nil, TransportGossip)
-
-	// Wait for HTTP server to start
-	time.Sleep(200 * time.Millisecond)
-
-	// Get the actual HTTP port
-	if nara.Network.httpServer == nil {
-		t.Fatal("HTTP server not started")
-	}
-
-	port := nara.Network.httpServer.Addr
-	if port == "" {
-		// Find the actual listening port
-		port = ":8080" // Default fallback
-	}
-	baseURL := fmt.Sprintf("http://localhost%s", port)
+	// Start nara with HTTP server using testNaraWithHTTP helper
+	nara, baseURL := testNaraWithHTTP(t, "test-nara")
 
 	// Test 1: GET /api/stash/status (initial state - no stash)
 	t.Run("status_empty", func(t *testing.T) {
