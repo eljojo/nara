@@ -1,57 +1,69 @@
 ---
 title: Clout
-description: Subjective reputation and ranking in the Nara Network.
+description: Subjective reputation and resonance in the nara network.
 ---
 
-Clout is a subjective reputation score derived from observed actions. It is an observer-dependent opinion, not a global value.
+Clout is a subjective measure of a nara's reputation and social standing, derived from its interactions and the "resonance" those interactions have with others.
 
 ## 1. Purpose
-- Decentralized reputation without central authority.
-- Reward participation (journeys, service).
-- Penalize "cringe" (failed teases) or instability (restarts).
-- Drive social hierarchy and "coolness" dynamics.
+- Provide a decentralized mechanism for ranking naras based on their activity and social impact.
+- Help naras prioritize information (gossip, sync) from "important" or "interesting" peers.
+- Reward stability, uptime, and meaningful social participation.
 
 ## 2. Conceptual Model
-- **Score**: Floating-point projection of social events.
-- **Subjectivity**: Derived by each node based on personality and seen history.
-- **Resonance**: Interaction impact depends on observer "liking" (resonating with) the act.
+- **Clout Score**: A numerical value representing reputation.
+- **Resonance**: A multiplier derived from how much an interaction matches a nara's personality.
+- **Interactions**: Events like teasing, seen proofs, and presence announcements that contribute to clout.
+- **Decay**: Clout is not permanent; old interactions lose influence over time (Hazy Memory).
 
 ### Invariants
-- **Growth**: Tied to positive service and journey participation.
-- **Decay**: Half-life-based reduction over time.
-- **Cringe Penalty**: Actor loses clout if their tease fails to resonate with the observer.
+1. **Subjectivity**: Every nara calculates Clout differently based on its own personality.
+2. **Event-Sourced**: Clout MUST be entirely derived from the event ledger.
+3. **No Central Authority**: There is no global "High Score"; rankings only exist in the mind of the observer.
 
-## 3. Algorithms
+## 3. External Behavior
+- naras use Clout scores to decide which peers to sync with first or whose gossip to prioritize.
+- The Web UI displays Clout rankings to show which naras are currently "resonant" in the neighborhood.
+- High Clout scores may influence social interactions (e.g., naras are more likely to tease high-clout peers).
 
-### Resonance Logic (`TeaseResonates`)
-Determines if an observer approves of a tease:
-1. `Score = Hash(EventID + ObserverSoul) % 100`.
-2. `Threshold = 50 + (Sociability/5) - (Chill/10) - (Agreeableness/20)`.
-3. `Resonates = Score < Threshold`.
+## 4. Interfaces
+- `CloutProjection`: The read-model responsible for computing scores from the ledger.
+- `GetClout(naraID)`: Retrieves the current subjective score for a peer.
 
-### Clout Projection
-Observer-side adjustments:
-- **Tease (Actor)**: `+1.0` (Resonates) / `-0.3` (Cringe).
-- **Service (Actor)**: `+2.0` (e.g., `stash-stored`).
-- **Journey Complete (Target)**: `+0.5`.
-- **Journey Timeout (Target)**: `-0.3`.
-- **Online (Target)**: `+0.1`.
-- **Offline (Target)**: `-0.05`.
+## 5. Event Types & Schemas
+Clout is derived primarily from:
+- `social` events (especially `tease`).
+- `seen` events (proof of contact).
+- `hey-there` / `chau` (presence).
+- `observation` (restarts and uptime).
 
-### Weighting & Decay
-`Adjustment = BaseWeight * TimeDecay`.
-- **BaseWeight**: `1.0 + (Sociability/200) - (Chill/400)`.
-- **TimeDecay**: `1 / (1 + age/halfLife)`. (See [Personality](/docs/spec/personality/) for half-life).
+## 6. Algorithms
 
-## 4. Failure Modes
-- **Asymmetry**: Missing events (e.g., service logs) leads to unfairly low opinions.
-- **Volatility**: High-sociability nodes may experience rapid clout swings.
+### Clout Derivation
+1. **Base Score**: 1.0.
+2. **Interaction Bonus**: For every relevant interaction in the ledger:
+   - `Score += InteractionValue * Resonance(Personality) * TimeDecay(Age)`.
+3. **Resonance Calculation**:
+   - Social naras give more weight to `tease` and `gossip`.
+   - Chill naras give less weight to high-restart counts.
+   - Agreeable naras penalize excessive teasing.
+4. **Time Decay**:
+   - `Weight = 1.0 / (1.0 + Age/HalfLife)`.
+   - Social events decay faster than "hard facts" like restarts.
 
-## 5. Security & Trust
-- **Subjective Immunity**: Cannot be hacked globally; each peer verifies claims via signed evidence.
-- **Proof-of-Action**: Clout adjustments require cryptographically signed event proofs.
+## 7. Failure Modes
+- **Clout Bubbles**: A small group of naras teasing each other can create a local "clout bubble" that may not be recognized by outsiders.
+- **Amnesia**: If a nara prunes too many social events, its clout rankings will shift toward those with more recent activity.
 
-## 6. Test Oracle
-- `TestDeriveClout`: Event-to-score projection accuracy.
-- `TestTeaseResonance`: Personality-based approval checks.
-- `TestCloutDecay`: Temporal reduction verification.
+## 8. Security / Trust Model
+- **Sybil Resistance**: Because clout is weighted by the observer's own view of the emitter's clout, new or unknown naras cannot easily manipulate the rankings.
+- **Signature Required**: Only signed events can contribute to clout.
+
+## 9. Test Oracle
+- `TestClout_SubjectiveDivergence`: Verifies that a Social nara and a Chill nara produce different rankings from the same event stream.
+- `TestClout_Decay`: Ensures that a nara who stops participating eventually loses its high clout score.
+- `TestClout_Resonance`: Validates that personality traits correctly amplify or dampen specific interaction types.
+
+## 10. Open Questions / TODO
+- Implement "Global Clout" in the Web UI by averaging opinions from multiple naras.
+- Add "Negative Clout" for naras that frequently emit malformed or unverified events.

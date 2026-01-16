@@ -1,11 +1,11 @@
 ---
 title: Nara Network Specification
-description: Authoritative specification for the Nara Network Go implementation.
+description: Authoritative specification for the nara network Go implementation.
 ---
 
 *A distributed system with hazy memory.*
 
-This document is the **authoritative, re-implementation-grade** specification for the Nara Network.
+This document is the **authoritative, re-implementation-grade** specification for the nara network.
 
 ## Core Principles
 - **Memory is Social**: RAM-only; state replicated to peers.
@@ -25,8 +25,8 @@ This document is the **authoritative, re-implementation-grade** specification fo
 - **[Aura & Avatar](/docs/spec/aura-and-avatar/)**: Visual representation.
 
 ### 2. Runtime & Services
-- **[Runtime](/docs/spec/runtime/)**: Message primitives, behaviors, pipelines, and adapters for every service.
-- **[Stash](/docs/spec/stash/)**: Runtime service reference implementation for encrypted storage.
+- **[Runtime & Primitives](/docs/spec/developer/runtime/)**: Message primitives, Nara OS, and adapters.
+- **[Stash Service](/docs/spec/stash/)**: Reference implementation for encrypted distributed storage.
 
 ### 3. Event & Memory Model
 - **[Events](/docs/spec/events/)**: Immutable signed facts and ledger.
@@ -34,27 +34,37 @@ This document is the **authoritative, re-implementation-grade** specification fo
 - **[Memory Model](/docs/spec/memory-model/)**: Pruning, recovery, and forgetting.
 
 ### 4. Transport & Sync
-- **[Plaza (MQTT)](/docs/spec/plaza-mqtt/)**: Public broadcasts.
-- **[Mesh (HTTP)](/docs/spec/mesh-http/)**: P2P WireGuard transport.
+- **[Plaza (MQTT)](/docs/spec/plaza-mqtt/)**: Public broadcasts and discovery.
+- **[Mesh (HTTP)](/docs/spec/mesh-http/)**: P2P authenticated transport.
 - **[Zines](/docs/spec/zines/)**: Hand-to-hand gossip bundles.
 - **[Sync Protocol](/docs/spec/sync-protocol/)**: Historical reconciliation.
 
 ### 5. Presence & Consensus
 - **[Presence](/docs/spec/presence/)**: Discovery and liveness.
-- **[Observations](/docs/spec/observations/)**: Uptime/restart monitoring.
+- **[Observations](/docs/spec/observations/)**: Distributed state monitoring.
 - **[Checkpoints](/docs/spec/checkpoints/)**: Multi-sig historical anchors.
 
 ### 6. Social & World
 - **[Social Events](/docs/spec/social-events/)**: Teasing, trends, and buzz.
 - **[Clout](/docs/spec/clout/)**: Subjective reputation ranking.
 - **[World Postcards](/docs/spec/world-postcards/)**: Signature-chained messages.
-- **[Coordinates](/docs/spec/coordinates/)**: Vivaldi network latency mapping.
+- **[Network Coordinates](/docs/spec/coordinates/)**: Vivaldi latency mapping.
 
 ### 7. Operations & UI
+- **[Web UI](/docs/spec/web-ui/)**: Real-time dashboard and inspection.
 - **[HTTP API](/docs/spec/http-api/)**: Public and Inspector endpoints.
 - **[Boot Sequence](/docs/spec/boot-sequence/)**: Transition to steady-state.
 - **[Configuration](/docs/spec/configuration/)**: Flags and environment variables.
-- **[Deployment](/docs/spec/deployment/)**: Production requirements.
+- **[Deployment](/docs/spec/deployment/)**: Build and orchestration.
+
+### 8. Developer Section
+- **[Developer Guide](/docs/spec/developer-guide/)**: Vision and building services.
+- **[Runtime & Test Helpers](/docs/spec/developer/runtime/)**: The Nara OS and MockRuntime.
+- **[Pipelines & Stages](/docs/spec/developer/pipelines/)**: Composable message processing.
+- **[Behaviors & Patterns](/docs/spec/developer/behaviors/)**: Declarative Kind configuration.
+- **[Cryptography (Keyring)](/docs/spec/developer/cryptography/)**: Identity, signing, and self-encryption.
+- **[Mesh Client](/docs/spec/developer/mesh-client/)**: Authenticated P2P HTTP communication.
+- **[Sample Service (Stash)](/docs/spec/developer/sample-service/)**: Reference implementation deep-dive.
 
 ---
 

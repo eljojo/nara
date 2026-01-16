@@ -1,66 +1,76 @@
 ---
-title: Plaza MQTT
-description: Public broadcast and heartbeat layer for the Nara Network.
+title: Plaza (MQTT)
+description: Public broadcast and real-time presence via MQTT.
 ---
 
-Plaza MQTT is the public square of the network, providing best-effort broadcast for presence, heartbeats, and real-time social events.
+The Plaza is nara's public square—a global broadcast channel where naras announce their presence, share status updates, and discover peers. It uses MQTT as the transport for real-time, low-overhead communication.
 
 ## 1. Purpose
-- Low-latency discovery via `hey_there`.
-- Periodic status heartbeats ([Newspapers](#newspaper-heartbeats)).
-- Real-time social signaling (teasing, buzz).
-- Coordination for [Checkpoint](/docs/spec/checkpoints/) consensus.
+- Provide a discovery mechanism for new naras.
+- Facilitate real-time status heartbeats (Newspapers).
+- Enable network-wide broadcasts for presence and consensus.
+- Serve as a fallback when mesh connectivity is unavailable.
 
 ## 2. Conceptual Model
-- **Pub/Sub**: Standard MQTT (default `tls://mqtt.nara.network:8883`).
-- **Best-Effort**: QoS 0 only; no delivery guarantees.
-- **Coordination**: Used for jittered responses (e.g., `howdy`) to avoid thundering herds.
+- **Broker**: A central MQTT broker (e.g., `mosquitto`) that facilitates message passing.
+- **Topics**: A hierarchical namespace for filtering messages.
+- **Newspaper**: A periodic status update broadcast by a nara to tell the network about its current state.
+- **Plaza Event**: Any event broadcast over MQTT, typically using QoS 0 (best-effort).
 
 ### Invariants
-- **Signed Payloads**: Every message must be signed with the sender's soul.
-- **Jittered Join**: 0-5s delay before initial `hey_there`.
-- **Hybrid-Resilient**: Falls back to [Mesh HTTP](/docs/spec/mesh-http/) gossip if MQTT is down.
+1. **Public by Default**: Everything on the plaza is visible to anyone connected to the broker.
+2. **Mandatory Signatures**: To prevent spoofing, all meaningful plaza messages MUST be signed by the sender's soul.
+3. **No Central State**: The broker does not store history (except for retained messages if specifically configured).
 
-## 3. Interfaces
+## 3. External Behavior
+- naras connect to the configured broker at startup.
+- They subscribe to `nara/#` to hear about everyone else.
+- They broadcast a `hey-there` event immediately upon connection.
+- They periodically broadcast their `Newspaper` status.
 
-### Topic Reference
-| Topic | Purpose | Payload |
-| :--- | :--- | :--- |
-| `nara/plaza/hey_there` | Join announcement | `SyncEvent(hey-there)` |
-| `nara/plaza/chau` | Graceful departure | `SyncEvent(chau)` |
-| `nara/plaza/howdy` | Discovery response | `HowdyEvent` |
-| `nara/plaza/social` | Social interactions | `SyncEvent(social)` |
-| `nara/newspaper/{name}` | Status heartbeat | `NewspaperEvent` |
-| `nara/checkpoint/*` | Checkpoint consensus | `Proposal`, `Vote`, `Final` |
+## 4. Interfaces
 
-### Newspaper Heartbeats
-Published every 10-300s (per `Chattiness`).
-- **Signature**: Covers raw JSON of the `Status` field.
-- **Content**: [Identity](/docs/spec/identity/), [Personality](/docs/spec/personality/), [Observations](/docs/spec/observations/), and [Buzz](/docs/spec/social-events/#buzz-calculation).
+### MQTT Topics
+- `nara/plaza/hey-there`: Presence announcements.
+- `nara/plaza/chau`: Graceful exit announcements.
+- `nara/plaza/newspaper/{name}`: Periodic status updates.
+- `nara/plaza/stash_refresh`: Requests for stash recovery.
+- `nara/checkpoint/{subject}/{op}`: Checkpoint proposals and votes.
 
-## 4. Algorithms
+### Config
+- `MQTT_HOST`: Broker address.
+- `MQTT_PORT`: Broker port.
+
+## 5. Event Types & Schemas
+- `hey-there`: [Identity](/docs/spec/identity/) and discovery.
+- `chau`: Graceful shutdown.
+- `Newspaper`: Status payload containing [Personality](/docs/spec/personality/), [Observations](/docs/spec/observations/), and [Clout](/docs/spec/clout/).
+
+## 6. Algorithms
 
 ### Connection & Jitter
-1. TLS Connect.
-2. Jitter: `rand(0..5)s`.
-3. Subscribe to `nara/#`.
-4. Broadcast `hey_there`.
+1. Connect to the broker using TLS if available.
+2. Apply a random jitter delay (0-5s) before the first broadcast to prevent "thundering herd" issues.
+3. Subscribe to the global topic prefix.
+4. Broadcast initial presence.
 
 ### Reconnect Loop
-Randomized backoff (5-35s) on connection loss.
+- On connection loss, naras attempt to reconnect with a randomized exponential backoff (typically 5-35s).
 
-## 5. Failure Modes
-- **Broker Outage**: Loss of real-time heartbeats; fallback to [Zines](/docs/spec/zines/).
-- **Spoofing**: Unprotected topics require **mandatory** signature verification by subscribers.
-- **Message Loss**: State derivation must be resilient to dropped QoS 0 broadcasts.
+## 7. Failure Modes
+- **Broker Outage**: If the plaza broker is down, real-time heartbeats are lost. naras must rely on [Zines](/docs/spec/zines/) and mesh-based discovery.
+- **Message Loss**: MQTT QoS 0 is used for efficiency; naras must be resilient to occasional missing status updates.
 
-## 6. Security
-- **Transport**: TLS.
-- **Application**: Ed25519 self-authentication.
-- **Anonymity**: Identity tied to soul, not IP (from Nara perspective).
+## 8. Security / Trust Model
+- **Transport**: Secured via TLS at the broker level.
+- **Authentication**: self-authenticating messages. Every subscriber MUST verify the signature of plaza events against the sender's public key.
+- **Privacy**: Plaza messages are public. sensitive data MUST NOT be broadcast on the plaza (use [Mesh HTTP](/docs/spec/mesh-http/) or [Stash](/docs/spec/stash/)).
 
-## 7. Test Oracle
-- `TestMQTT_ConnectJitter`: Delay verification.
-- `TestMQTT_SignedSyncEvents`: Subscriber verification check.
-- `TestMQTT_NewspaperSignature`: Status payload integrity.
-- `TestMQTT_ReconnectLoop`: Backoff behavior.
+## 9. Test Oracle
+- `TestMQTT_ConnectJitter`: Verifies that connection delays are applied correctly.
+- `TestMQTT_SignedSyncEvents`: Ensures that subscribers correctly reject unsigned or invalidly signed plaza events.
+- `TestMQTT_NewspaperSignature`: Validates the integrity of the periodic status broadcast.
+
+## 10. Open Questions / TODO
+- Implement MQTT authentication (username/password) for private plaza instances.
+- Transition `newspaper` broadcasts to the new `runtime` message model.

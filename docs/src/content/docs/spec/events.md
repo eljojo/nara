@@ -1,67 +1,95 @@
 ---
 title: Events
-description: Immutable, signed facts in the Nara Network ledger.
+description: Immutable, signed facts in the nara network ledger.
 ---
 
-Events are the fundamental unit of information in Nara, representing immutable facts from which all state (status, reputation, uptime) is derived.
+Events are the fundamental unit of information in nara, representing immutable facts from which all state (status, reputation, uptime) is derived.
 
 ## 1. Purpose
-- Immutable audit trail of network activity.
-- Eventual consistency via gossip and sync.
-- Cryptographic verification of authorship and integrity.
-- Deterministic state derivation across nodes.
+- Provide an immutable audit trail of all network activity.
+- Enable eventual consistency via gossip and historical sync.
+- Cryptographic verification of authorship and integrity for every fact.
+- Support deterministic state derivation (projections) across all nodes.
 
 ## 2. Conceptual Model
-- **SyncEvent**: Unified container for service-specific payloads.
-- **Service Types**: Categorization (e.g., `social`, `ping`, `observation`).
-- **Ledger**: Chronological in-memory store.
-- **Deduplication**: Unique 16-char hex IDs.
+- **SyncEvent**: The unified container for all syncable data.
+- **Service Type**: Categorization of the payload (e.g., `social`, `ping`, `observation`).
+- **Ledger**: Chronological in-memory store for events.
+- **Authorship**: Every event is bound to a nara's soul via Ed25519 signatures.
 
 ### Invariants
-- **Immutability**: IDs are content-derived; fields must never change.
-- **Causality**: Ordered by nanosecond timestamps.
-- **Authorship**: Must be signed by the emitter's soul.
+1. **Immutability**: Event `ID`s are derived from content; once computed, the event MUST NOT change.
+2. **Deterministic IDs**: Identical content + identical timestamp MUST produce the same `ID`.
+3. **Causality**: Events are ordered by nanosecond timestamps.
+4. **Authenticity**: Every event MUST be signed by the emitter's soul to be accepted by the ledger.
 
-## 3. Interfaces
+## 3. External Behavior
+- Components subscribe to the ledger to receive new events.
+- Projections replay events from the ledger to derive current state (e.g., clout, online status).
+- The ledger automatically prunes low-priority events when `MaxEvents` is exceeded, preserving critical history.
+
+## 4. Interfaces
 
 ### SyncEvent Structure
-- `id`: 16-char hex hash.
-- `ts`: Unix nanoseconds.
-- `svc`: Service type.
-- `emitter` / `emitter_id`.
-- `sig`: Base64 Ed25519 signature.
+- `id`: 32-character hex string (derived from 16 bytes of SHA256).
+- `ts`: Unix timestamp in **nanoseconds**.
+- `svc`: Service type string.
+- `emitter`: Nara name of the author.
+- `emitter_id`: Nara ID (public key hash) of the author.
+- `sig`: Base64-encoded Ed25519 signature.
 
-### Service Types
-| Service | Purpose |
-| :--- | :--- |
-| `social` | Teasing, gossip, interactions. |
-| `ping` | Latency (RTT) measurements. |
-| `observation`| Consensus (restarts, first-seen). |
-| `hey-there` | Presence/identity announcement. |
-| `chau` | Graceful departure. |
-| `seen` | Proof-of-contact. |
-| `checkpoint` | Multi-sig historical snapshot. |
+### Service Types & Importance
+| Service | Importance | Purpose |
+| :--- | :--- | :--- |
+| `checkpoint` | 3 (Critical) | Multi-sig historical state anchors. |
+| `observation`| 1-3 | Consensus on restarts (3), first-seen (3), status-change (2). |
+| `hey-there` | 3 (Critical) | Presence and public key announcements. |
+| `chau` | 3 (Critical) | Graceful departure announcements. |
+| `social` | 2 (Normal) | Teasing, gossip, and interactions. |
+| `seen` | 1 (Casual) | Proof-of-contact sightings. |
+| `ping` | 1 (Casual) | Latency (RTT) measurements. |
 
-## 4. Algorithms
+## 5. Event Types & Schemas
+
+### Payload Types
+- `SocialEventPayload`: `type`, `actor`, `actor_id`, `target`, `target_id`, `reason`, `witness`.
+- `ObservationEventPayload`: `type`, `subject`, `subject_id`, `start_time`, `restart_num`, `last_restart`, `online_state`.
+- `PingObservation`: `observer`, `target`, `rtt`.
+- `HeyThereEvent`: `from`, `public_key`, `mesh_ip`, `id`.
+- `ChauEvent`: `from`, `public_key`, `id`.
+- `SeenEvent`: `observer`, `subject`, `via`.
+- `CheckpointEventPayload`: See [Checkpoints](/docs/spec/checkpoints/).
+
+## 6. Algorithms
 
 ### ID Computation
-`ID = hex(SHA256(ts_nanos + ":" + svc + ":" + payload)[0:8])`
+`ID = Hex(SHA256(Timestamp + ":" + Service + ":" + Payload.ContentString()))[0:32]`
+*Note: Payload.ContentString() is a colon-separated canonical representation of the payload.*
 
-### Signing & Verification
-1. **Data**: `SHA256(ID + ":" + ts + ":" + svc + ":" + emitter + ":" + payload)`
-2. **Signature**: Ed25519 (RFC 8032).
-3. **Verification**: Emitter's public key (fetched by `emitter_id`).
+### Signing
+1. **Message**: `ID + ":" + Timestamp + ":" + Service + ":" + Emitter + ":" + Payload.ContentString()`
+2. **Signature**: Ed25519 signature over the SHA256 hash of the Message.
 
-### Legacy Filtering
-Ignore `checkpoint` events with `AsOfTime` < `1768271051`.
+### Verification
+1. Resolve the `emitter_id` to a public key.
+2. Verify the `sig` against the canonical `signableData`.
 
-## 5. Security & Trust
-- **Non-Repudiation**: Signed events cannot be denied.
-- **Integrity**: Modification after signing invalidates the event.
-- **Authenticity**: Guaranteed by soul-based signatures.
+## 7. Failure Modes
+- **Clock Skew**: Events with future timestamps may be rejected or prematurely pruned.
+- **Signature Failure**: Events with invalid signatures are dropped immediately.
+- **Ledger Saturation**: If the volume of Critical (Priority 0) events exceeds `MaxEvents`, the ledger will grow beyond its limit as it refuses to prune critical history.
 
-## 6. Test Oracle
-- `TestSyncEvent_IDStability`: Deterministic ID generation.
-- `TestSyncEvent_Signing`: Generation/verification round-trip.
-- `TestSyncEvent_Immutability`: Integrity checks.
-- `TestSyncEvent_CheckpointCutoff`: Legacy data filtering.
+## 8. Security / Trust Model
+- **Non-Repudiation**: Authors cannot deny events they have signed.
+- **Integrity**: Any modification to an event's fields will invalidate its signature and ID.
+- **Hearsay Protection**: Observations can be compared across multiple emitters to reach consensus, protecting against single-node lies.
+
+## 9. Test Oracle
+- `TestSyncEvent_IDStability`: Verifies deterministic ID generation.
+- `TestSyncEvent_Signing`: Ensures signing/verification round-trips correctly.
+- `TestSyncEvent_Immutability`: Ensures any field change results in verification failure.
+- `TestSyncEvent_CheckpointCutoff`: Verifies that checkpoints before `1768271051` are ignored.
+
+## 10. Open Questions / TODO
+- Move from name-based fallbacks to ID-only verification for all payloads.
+- Unify `ObservationEventPayload` with `NaraObservation` struct used in checkpoints.

@@ -1,59 +1,87 @@
 ---
 title: HTTP API
-description: Public and private HTTP endpoints for state, projections, and control.
+description: Public, private, and introspection endpoints in the nara network.
 ---
 
-The Nara HTTP API provides interfaces for network state retrieval, opinion inspection, and local control. It is divided into **Public UI/API** and **Inspector API**.
+The HTTP API is the primary interface for interacting with a nara, providing endpoints for status updates, real-time events, network introspection, and peer communication.
 
-## 1. Servers
-- **Local Server** (Default `:8080`): Serves Web UI and general API.
-- **Mesh Server** (Default `:7433`): Serves peer-authenticated endpoints (see [Mesh HTTP](/docs/spec/mesh-http/)).
+## 1. Purpose
+- Provide a standardized interface for the [Web UI](/docs/spec/web-ui/) and external tools.
+- Enable high-bandwidth peer-to-peer data exchange via [Mesh HTTP](/docs/spec/mesh-http/).
+- Facilitate network debugging and auditing through "Inspector" endpoints.
+- Allow users to trigger manual actions (e.g., starting a journey or updating a stash).
 
-## 2. Interfaces
+## 2. Conceptual Model
+- **Local Server**: Serves the UI and general-purpose JSON APIs, typically on port 8080.
+- **Mesh Server**: Serves peer-authenticated endpoints on port 7433.
+- **Subjective View**: Every API response reflects the local nara's specific view of the network (Hazy Memory).
+- **Introspection**: Deep-dive endpoints that reveal the internal state of projections and the ledger.
 
-### State & UI
-| Endpoint | Method | Purpose |
-| :--- | :--- | :--- |
-| `/api.json` | GET | Known naras and raw statuses. |
-| `/narae.json` | GET | Aggregated view with derived opinions/clout. |
-| `/profile/{name}.json`| GET | Detailed profile: friends, teases, etc. |
-| `/events` | GET | **SSE stream** of real-time UI-formatted events. |
-| `/metrics` | GET | **Prometheus** metrics. |
+### Invariants
+1. **Consistency**: JSON responses MUST follow the documented schemas to ensure compatibility with the Web UI.
+2. **Security Gating**: Sensitive or destructive endpoints MUST be protected by mesh authentication or restricted to local access.
+3. **Availability**: The API SHOULD remain responsive even during heavy sync or gossip activity.
 
-### Inspector (Introspection)
-| Endpoint | Method | Purpose |
-| :--- | :--- | :--- |
-| `/api/inspector/events` | GET | Paginated ledger events. |
-| `/api/inspector/checkpoints`| GET | Summary of latest verified checkpoints. |
-| `/api/inspector/projections`| GET | Current projection states (Online, Clout, Opinions). |
-| `/api/inspector/uptime/{subject}`| GET | Reconstructed timeline of status periods. |
+## 3. External Behavior
+- The API is the source of truth for the local dashboard.
+- Real-time updates are delivered via a Server-Sent Events (SSE) stream.
+- Developers and operators use the Inspector API to debug consensus issues or verify event ingestion.
 
-### Control & Stash
-| Endpoint | Method | Purpose |
-| :--- | :--- | :--- |
-| `/world/start` | POST | Initiate a [World Postcard](/docs/spec/world-postcards/). |
-| `/api/stash/update`| POST | Update and distribute local stash. |
-| `/api/events/import`| POST | Signed batch event import. |
+## 4. Interfaces
 
-## 3. Algorithms
+### General API (Default: Port 8080)
+- `GET /api.json`: A full snapshot of the neighbourhood and local status.
+- `GET /narae.json`: A lightweight summary of all known peers.
+- `GET /profile/{name}.json`: Detailed information about a specific nara.
+- `GET /events`: SSE stream of real-time UI-formatted events.
+
+### Inspector API
+- `GET /api/inspector/events`: Paginated access to the `SyncLedger`.
+- `GET /api/inspector/checkpoints`: Summary of the latest verified checkpoints.
+- `GET /api/inspector/projections`: Current internal state of all projections.
+- `GET /api/inspector/uptime/{subject}`: The derived uptime timeline for a peer.
+
+### Mesh API (Default: Port 7433)
+See [Mesh HTTP](/docs/spec/mesh-http/) for authenticated peer endpoints.
+
+## 5. Event Types & Schemas
+The `/events` SSE stream uses a specific JSON format:
+```json
+{
+  "id": "event-id",
+  "service": "social",
+  "timestamp": 1700000000000000000,
+  "icon": "👋",
+  "text": "Human-readable summary",
+  "detail": "Additional context"
+}
+```
+
+## 6. Algorithms
 
 ### Uptime Timeline Derivation
-1. **Baseline**: Latest **Checkpoint** `TotalUptime`.
-2. **Backfill**: If no checkpoint, use `StartTime` from **Backfill** event.
-3. **Interleave**: Process `ONLINE`, `OFFLINE`, `MISSING` events chronologically.
-4. **Active**: If currently online, extend final period to `now`.
+Used by the `/api/inspector/uptime/` endpoint:
+1. **Start with Baseline**: Use the `TotalUptime` and `LastRestart` from the latest valid [Checkpoint](/docs/spec/checkpoints/).
+2. **Replay Events**: Process all `ONLINE`, `OFFLINE`, and `MISSING` events in the ledger since the checkpoint.
+3. **Calculate Intervals**: Sum the durations where the nara was in an `ONLINE` state.
+4. **Project to Now**: If the nara is currently `ONLINE`, add the duration since the last recorded state change.
 
-### Event Import Verification
-1. **Proof**: Requires `SHA256(ts + ":" + event_ids)` signed by Nara's soul.
-2. **Freshness**: Timestamp must be within ±5m.
+## 7. Failure Modes
+- **SSE Disconnection**: Clients must handle reconnections gracefully.
+- **Stale Snapshots**: High-frequency network changes may make `api.json` feel slightly behind the SSE stream.
+- **OOM on Large Ledgers**: The Inspector API must use pagination to avoid crashing the nara when querying massive ledgers.
 
-## 4. Security
-- **Authentication**: Destructive/private operations require soul-based signatures.
-- **Auditability**: Inspector API exposes the subjective rationale behind "opinions."
-- **Sovereignty**: API only reflects the *local* Nara's world view.
+## 8. Security / Trust Model
+- **Local-Only**: Mutating endpoints (like `/api/events/import`) are restricted to local/authenticated access.
+- **Mesh Auth**: All peer-to-peer mesh calls are verified using Ed25519 signatures.
+- **Privacy**: The API reveals the nara's subjective view but never its private soul seed.
 
-## 5. Test Oracle
-- `TestHTTP_ApiJson` / `TestHTTP_InspectorEvents`.
-- `TestHTTP_EventImport`: Validity and replay protection.
-- `TestHTTP_UptimeTimeline`: Interleaving logic.
-- `TestHTTP_MeshAuthMiddleware`: Access gating.
+## 9. Test Oracle
+- `TestHTTP_ApiJson`: Validates the structure and content of the neighbourhood snapshot.
+- `TestHTTP_InspectorEvents`: Ensures that ledger events are correctly paginated and returned.
+- `TestHTTP_UptimeTimeline`: Confirms that the timeline reconstruction logic correctly handles interleaved events.
+- `TestHTTP_SSE_Heartbeat`: Verifies that the event stream remains active and delivers formatted events.
+
+## 10. Open Questions / TODO
+- Add GraphQL support for more flexible neighbourhood queries.
+- Implement rate-limiting for the public API endpoints.
