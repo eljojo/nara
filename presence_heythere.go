@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // truncateKey returns first 8 chars of a key for logging
@@ -16,10 +18,10 @@ func truncateKey(key string) string {
 }
 
 type HeyThereEvent struct {
-	From      NaraName
+	From      types.NaraName
 	PublicKey string // Base64-encoded Ed25519 public key
 	MeshIP    string // Tailscale IP for mesh communication
-	ID        NaraID // Nara ID: deterministic hash of soul+name
+	ID        types.NaraID // Nara ID: deterministic hash of soul+name
 	Signature string // Base64-encoded signature of "hey_there:{From}:{PublicKey}:{MeshIP}:{ID}"
 }
 
@@ -76,10 +78,10 @@ func (h *HeyThereEvent) IsValid() bool {
 }
 
 // GetActor implements Payload interface for HeyThereEvent
-func (h *HeyThereEvent) GetActor() NaraName { return h.From }
+func (h *HeyThereEvent) GetActor() types.NaraName { return h.From }
 
 // GetTarget implements Payload interface for HeyThereEvent
-func (h *HeyThereEvent) GetTarget() NaraName { return h.From }
+func (h *HeyThereEvent) GetTarget() types.NaraName { return h.From }
 
 // VerifySignature implements Payload using the embedded public key
 func (h *HeyThereEvent) VerifySignature(event *SyncEvent, lookup PublicKeyLookup) bool {
@@ -181,7 +183,7 @@ func (network *Network) processHeyThereSyncEvents(events []SyncEvent) {
 			}
 		} else {
 			// Create new nara and import it
-			newNara := NewNara(NaraName(h.From))
+			newNara := NewNara(types.NaraName(h.From))
 			newNara.Status.PublicKey = h.PublicKey
 			newNara.Status.MeshIP = h.MeshIP
 			newNara.Status.MeshEnabled = h.MeshIP != ""
@@ -205,7 +207,7 @@ func (network *Network) emitHeyThereSyncEvent() {
 	logrus.Infof("%s: 👋 (gossip)", network.meName())
 }
 
-func (network *Network) hasMoreRecentHeyThere(from NaraName, thanTimestamp int64) bool {
+func (network *Network) hasMoreRecentHeyThere(from types.NaraName, thanTimestamp int64) bool {
 	if network.local.SyncLedger == nil {
 		return false
 	}

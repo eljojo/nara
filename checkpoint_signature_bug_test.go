@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/eljojo/nara/types"
 )
 
 // TestCheckpoint_VoteAsOfTimeMismatch verifies Issue #1 is fixed:
@@ -14,9 +16,9 @@ func TestCheckpoint_VoteAsOfTimeMismatch(t *testing.T) {
 	proposerKeypair := generateTestKeypair()
 	voterKeypair := generateTestKeypair()
 
-	proposerID := NaraID("proposer-id")
-	voterID := NaraID("voter-id")
-	subject := NaraName("proposer")
+	proposerID := types.NaraID("proposer-id")
+	voterID := types.NaraID("voter-id")
+	subject := types.NaraName("proposer")
 	proposalAsOfTime := time.Now().Unix() - 10 // 10 seconds ago
 
 	// Create proposal attestation (self-attestation)
@@ -51,7 +53,7 @@ func TestCheckpoint_VoteAsOfTimeMismatch(t *testing.T) {
 			TotalUptime: 50000,
 			StartTime:   1624066568,
 		},
-		Attester:   NaraName("voter"),
+		Attester:   types.NaraName("voter"),
 		AttesterID: voterID,
 		AsOfTime:   voteAsOfTime, // BUG: Different timestamp!
 	}
@@ -74,7 +76,7 @@ func TestCheckpoint_VoteAsOfTimeMismatch(t *testing.T) {
 			TotalUptime: 50000,
 			StartTime:   1624066568,
 		},
-		VoterIDs:   []NaraID{proposerID, voterID},
+		VoterIDs:   []types.NaraID{proposerID, voterID},
 		Signatures: []string{proposal.Signature, vote.Signature},
 		Round:      1,
 	}
@@ -140,9 +142,9 @@ func TestCheckpoint_SignatureFormatMismatch(t *testing.T) {
 	proposerKeypair := generateTestKeypair()
 	voterKeypair := generateTestKeypair()
 
-	proposerID := NaraID("proposer-id")
-	voterID := NaraID("voter-id")
-	subject := NaraName("proposer")
+	proposerID := types.NaraID("proposer-id")
+	voterID := types.NaraID("voter-id")
+	subject := types.NaraName("proposer")
 	asOfTime := time.Now().Unix()
 
 	// Create proposal attestation - signs with Attestation.SignableContent()
@@ -175,7 +177,7 @@ func TestCheckpoint_SignatureFormatMismatch(t *testing.T) {
 			TotalUptime: 50000,
 			StartTime:   1624066568,
 		},
-		Attester:   NaraName("voter"),
+		Attester:   types.NaraName("voter"),
 		AttesterID: voterID,
 		AsOfTime:   asOfTime, // Same as proposal for now
 	}
@@ -198,7 +200,7 @@ func TestCheckpoint_SignatureFormatMismatch(t *testing.T) {
 			TotalUptime: 50000,
 			StartTime:   1624066568,
 		},
-		VoterIDs:   []NaraID{proposerID, voterID},
+		VoterIDs:   []types.NaraID{proposerID, voterID},
 		Signatures: []string{proposal.Signature, vote.Signature},
 		Round:      1,
 	}

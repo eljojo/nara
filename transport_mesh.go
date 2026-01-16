@@ -17,6 +17,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"tailscale.com/ipn/store/mem"
 	"tailscale.com/tsnet"
+
+	"github.com/eljojo/nara/types"
 )
 
 // TsnetPeer represents a peer discovered from the tsnet Status API
@@ -28,7 +30,7 @@ type TsnetPeer struct {
 // MeshTransport defines the interface for mesh network communication
 type MeshTransport interface {
 	// Send sends a message to a specific nara
-	Send(target string, msg *WorldMessage) error
+	Send(target types.NaraName, msg *WorldMessage) error // this method is deprecated?
 	// Receive returns a channel for incoming world messages
 	// Note: With HTTP transport, messages come via HTTP handler instead
 	Receive() <-chan *WorldMessage
@@ -72,7 +74,9 @@ func NewHTTPMeshTransport(tsnetServer *tsnet.Server, network *Network, port int)
 
 // Send sends a world message to another nara via HTTP POST
 // TODO: Migrate to MeshClient.RelayWorldMessage() method to reduce code duplication and improve maintainability
-func (t *HTTPMeshTransport) Send(target string, msg *WorldMessage) error {
+// TODO: this is a messss!!!!!
+// TODO: this is broken now as it's taken a nara name instead of an IP
+func (t *HTTPMeshTransport) Send(target types.NaraName, msg *WorldMessage) error {
 	t.mu.Lock()
 	if t.closed {
 		t.mu.Unlock()
@@ -87,7 +91,8 @@ func (t *HTTPMeshTransport) Send(target string, msg *WorldMessage) error {
 	}
 
 	// Build request (target is a mesh IP)
-	url := t.network.buildMeshURLFromIP(target, "/world/relay")
+	// TODO: fix this, ip is empty now ugh
+	url := t.network.buildMeshURLFromIP("", "/world/relay")
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -192,7 +197,7 @@ func NewMockMeshTransport() *MockMeshTransport {
 }
 
 // Send sends a message to a target nara through the mock network
-func (t *MockMeshTransport) Send(target string, msg *WorldMessage) error {
+func (t *MockMeshTransport) Send(target types.NaraName, msg *WorldMessage) error {
 	t.mu.Lock()
 	if t.closed {
 		t.mu.Unlock()
@@ -204,9 +209,9 @@ func (t *MockMeshTransport) Send(target string, msg *WorldMessage) error {
 		return errors.New("transport not connected to network")
 	}
 
-	targetTransport, ok := t.network.GetTransport(target)
+	targetTransport, ok := t.network.GetTransport(target.String()) // assuming nara name is the transport name
 	if !ok {
-		return errors.New("target not found: " + target)
+		return errors.New("target not found: " + target.String())
 	}
 
 	// Clone the message to simulate network serialization
@@ -395,7 +400,7 @@ func (t *TsnetMesh) Peers(ctx context.Context) ([]TsnetPeer, error) {
 
 // Send is deprecated - world messages now use HTTP via HTTPMeshTransport
 // This method returns an error as it's no longer supported
-func (t *TsnetMesh) Send(target string, msg *WorldMessage) error {
+func (t *TsnetMesh) Send(target types.NaraName, msg *WorldMessage) error {
 	return errors.New("deprecated: TsnetMesh.Send() no longer supported - use HTTPMeshTransport instead")
 }
 
@@ -428,7 +433,7 @@ func (t *TsnetMesh) Close() error {
 // Note: TCP handshake time is included, which is correct for Vivaldi coordinates
 // (the handshake itself measures one network RTT)
 // TODO: we need to unify this with MeshClient somehow
-func (t *TsnetMesh) Ping(targetIP string, from NaraName, timeout time.Duration) (time.Duration, error) {
+func (t *TsnetMesh) Ping(targetIP string, from types.NaraName, timeout time.Duration) (time.Duration, error) {
 	t.mu.Lock()
 	if t.closed {
 		t.mu.Unlock()
@@ -457,7 +462,7 @@ func (t *TsnetMesh) Ping(targetIP string, from NaraName, timeout time.Duration) 
 	if err != nil {
 		return 0, fmt.Errorf("failed to create ping request: %w", err)
 	}
-	req.Header.Set("X-Nara-From", from)
+	req.Header.Set("X-Nara-From", from.String())
 
 	start := time.Now()
 	resp, err := client.Do(req)

@@ -1,6 +1,9 @@
 package nara
 
-import "fmt"
+import (
+	"fmt"
+	"github.com/eljojo/nara/types"
+)
 
 // Attestation represents a signed claim about a nara's state
 // "I (Attester) claim that Subject has this state"
@@ -16,15 +19,15 @@ type Attestation struct {
 	Version int `json:"version"` // Attestation format version (default: 1)
 
 	// About whom
-	Subject   NaraName `json:"subject"`    // Nara name being attested about
-	SubjectID NaraID   `json:"subject_id"` // Nara ID (public key hash)
+	Subject   types.NaraName `json:"subject"`    // Nara name being attested about
+	SubjectID types.NaraID   `json:"subject_id"` // Nara ID (public key hash)
 
 	// What state is being claimed
 	Observation NaraObservation `json:"observation"`
 
 	// Who is making the claim
-	Attester   NaraName `json:"attester"`    // Nara name making the attestation
-	AttesterID NaraID   `json:"attester_id"` // Nara ID (public key hash)
+	Attester   types.NaraName `json:"attester"`    // Nara name making the attestation
+	AttesterID types.NaraID   `json:"attester_id"` // Nara ID (public key hash)
 
 	// Reference point (v2+) - what checkpoint attester had seen when making this attestation
 	LastSeenCheckpointID string `json:"last_seen_checkpoint_id,omitempty"` // ID of last checkpoint attester has seen for subject (empty for v1)

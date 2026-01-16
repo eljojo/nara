@@ -3,6 +3,8 @@ package nara
 import (
 	"math"
 	"math/rand"
+
+	"github.com/eljojo/nara/types"
 )
 
 // NetworkCoordinate represents a node's position in network space
@@ -159,12 +161,12 @@ func (c *NetworkCoordinate) IsValid() bool {
 
 // ApplyProximityToClout adjusts clout scores based on network distance
 // Nearby naras have stronger influence on opinions
-func ApplyProximityToClout(baseClout map[NaraName]float64, myCoords *NetworkCoordinate, getCoords func(NaraName) *NetworkCoordinate) map[NaraName]float64 {
+func ApplyProximityToClout(baseClout map[types.NaraName]float64, myCoords *NetworkCoordinate, getCoords func(types.NaraName) *NetworkCoordinate) map[types.NaraName]float64 {
 	if myCoords == nil || getCoords == nil {
 		return baseClout
 	}
 
-	result := make(map[NaraName]float64)
+	result := make(map[types.NaraName]float64)
 	for name, clout := range baseClout {
 		result[name] = clout
 

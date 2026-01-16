@@ -11,6 +11,8 @@ import (
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // Checkpoint MQTT topics
@@ -665,7 +667,7 @@ func (s *CheckpointService) tryFindConsensus(proposal *CheckpointProposal, votes
 			TotalUptime: bestKey.TotalUptime,
 			StartTime:   bestKey.FirstSeen,
 		},
-		VoterIDs:   make([]NaraID, 0, MaxCheckpointSignatures),
+		VoterIDs:   make([]types.NaraID, 0, MaxCheckpointSignatures),
 		Signatures: make([]string, 0, MaxCheckpointSignatures),
 		Round:      proposal.Round, // Needed for signature verification
 	}
@@ -698,7 +700,7 @@ func (s *CheckpointService) tryFindConsensus(proposal *CheckpointProposal, votes
 }
 
 // getVoterUptime looks up a voter's total uptime from the ledger
-func (s *CheckpointService) getVoterUptime(voterName NaraName) int64 {
+func (s *CheckpointService) getVoterUptime(voterName types.NaraName) int64 {
 	if s.ledger == nil {
 		return 0
 	}
@@ -825,7 +827,7 @@ func (s *CheckpointService) HandleFinalCheckpoint(event *SyncEvent) {
 
 // verifyCheckpointSignatures verifies checkpoint signatures and returns detailed result
 func (s *CheckpointService) verifyCheckpointSignatures(checkpoint *CheckpointEventPayload) CheckpointVerificationResult {
-	lookup := PublicKeyLookup(func(id NaraID, name NaraName) ed25519.PublicKey {
+	lookup := PublicKeyLookup(func(id types.NaraID, name types.NaraName) ed25519.PublicKey {
 		return s.network.getPublicKeyForNaraID(id)
 	})
 	return checkpoint.VerifySignatureWithCounts(lookup)

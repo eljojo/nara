@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcutil/base58"
+
+	"github.com/eljojo/nara/types"
 )
 
 // ComputeNaraID computes a deterministic, stable ID from soul and name.
@@ -21,7 +23,7 @@ import (
 //   - Deterministic: Same soul+name always produces same ID
 //   - Stable: Survives restarts (doesn't depend on ephemeral keypairs)
 //   - Unique: Different souls with same name produce different IDs
-func ComputeNaraID(soulBase58 string, name NaraName) (NaraID, error) {
+func ComputeNaraID(soulBase58 string, name types.NaraName) (types.NaraID, error) {
 	// Decode soul from Base58 to get raw 40-byte soul
 	soulBytes := base58.Decode(soulBase58)
 	if len(soulBytes) == 0 {
@@ -40,5 +42,5 @@ func ComputeNaraID(soulBase58 string, name NaraName) (NaraID, error) {
 	hash := hasher.Sum(nil)
 
 	// Encode as Base58 for consistency with soul encoding
-	return NaraID(base58.Encode(hash)), nil
+	return types.NaraID(base58.Encode(hash)), nil
 }

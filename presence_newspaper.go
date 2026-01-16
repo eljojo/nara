@@ -7,11 +7,13 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // NewspaperEvent represents a signed announcement of status
 type NewspaperEvent struct {
-	From       NaraName
+	From       types.NaraName
 	Status     NaraStatus
 	Signature  string // Base64-encoded signature of the status JSON
 	StatusJSON []byte `json:"-"` // Raw status JSON for signature verification
@@ -156,7 +158,7 @@ func (network *Network) handleNewspaperEvent(event NewspaperEvent) {
 			changes = append(changes, fmt.Sprintf("Version:%s→%s", nara.Version, event.Status.Version))
 		}
 		if len(changes) > 0 && network.logService != nil {
-			network.logService.BatchNewspaper(event.From, strings.Join(changes, ", "))
+			network.logService.BatchNewspaper(string(event.From), strings.Join(changes, ", "))
 		}
 		nara.Status.setValuesFrom(event.Status)
 		nara.mu.Unlock()

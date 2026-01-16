@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // PeerDiscovery is a strategy for discovering mesh peers
@@ -20,7 +22,7 @@ type PeerDiscovery interface {
 
 // DiscoveredPeer represents a nara found via discovery
 type DiscoveredPeer struct {
-	Name      NaraName
+	Name      types.NaraName
 	MeshIP    string
 	PublicKey string // Ed25519 public key (from /ping response)
 }
@@ -88,7 +90,7 @@ func (d *TailscalePeerDiscovery) ScanForPeers(myIP string) []DiscoveredPeer {
 
 			mu.Lock()
 			peers = append(peers, DiscoveredPeer{
-				Name:      NaraName(naraName),
+				Name:      types.NaraName(naraName),
 				MeshIP:    ip,
 				PublicKey: pubKey,
 			})
@@ -127,9 +129,9 @@ func (network *Network) discoverMeshPeers() {
 	} else {
 		// Convert TsnetPeer to DiscoveredPeer (no public keys yet)
 		for _, p := range tsnetPeers {
-			var peerNaraName NaraName
+			var peerNaraName types.NaraName
 			if len(p.Name) >= 5 {
-				peerNaraName = NaraName(p.Name[:len(p.Name)-5]) // remove random suffix
+				peerNaraName = types.NaraName(p.Name[:len(p.Name)-5]) // remove random suffix
 			} else {
 				continue
 			}
@@ -144,9 +146,9 @@ func (network *Network) discoverMeshPeers() {
 	discovered := 0
 	for _, peer := range peers {
 		// Skip self
-		var peerNaraName NaraName
+		var peerNaraName types.NaraName
 		if len(peer.Name) >= 5 {
-			peerNaraName = NaraName(peer.Name[:len(peer.Name)-5]) // remove random suffix
+			peerNaraName = types.NaraName(peer.Name[:len(peer.Name)-5]) // remove random suffix
 		} else {
 			continue
 		}
@@ -248,7 +250,7 @@ func (network *Network) fetchPublicKeysFromPeers(peers []DiscoveredPeer) []Disco
 			mu.Lock()
 			// Get the real nara name from the ping response (not Tailscale hostname)
 			if name, ok := pingResp["from"].(string); ok && name != "" {
-				peers[idx].Name = NaraName(name)
+				peers[idx].Name = types.NaraName(name)
 			}
 			if pubKey, ok := pingResp["public_key"].(string); ok && pubKey != "" {
 				peers[idx].PublicKey = pubKey

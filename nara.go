@@ -3,6 +3,7 @@ package nara
 import (
 	"fmt"
 
+	"github.com/eljojo/nara/types"
 	"github.com/shirou/gopsutil/v3/host"
 	"github.com/sirupsen/logrus"
 
@@ -19,7 +20,7 @@ type LocalNara struct {
 	Me              *Nara
 	Network         *Network
 	Soul            string
-	ID              NaraID // Nara ID: deterministic hash of soul+name for unique identity
+	ID              types.NaraID // Nara ID: deterministic hash of soul+name for unique identity
 	Keypair         NaraKeypair
 	SyncLedger      *SyncLedger      // Unified event store for all syncable data (social + ping + future types)
 	Projections     *ProjectionStore // Event-sourced projections for derived state
@@ -33,11 +34,11 @@ type LocalNara struct {
 
 // Notice there's also Nara struct in runtime/interfaces.go...
 type Nara struct {
-	Name     NaraName
+	Name     types.NaraName
 	Hostname string `json:"-"`
 	Version  string
 	Status   NaraStatus
-	ID       NaraID // Nara ID from other naras (redundant with Status.ID but convenient)
+	ID       types.NaraID // Nara ID from other naras (redundant with Status.ID but convenient)
 	mu       sync.Mutex
 	// remember to sync with setValuesFrom
 }
@@ -54,7 +55,7 @@ type NaraStatus struct {
 	HostStats           HostStats
 	Chattiness          int64
 	Buzz                int
-	Observations        map[NaraName]NaraObservation
+	Observations        map[types.NaraName]NaraObservation
 	Trend               string
 	TrendEmoji          string
 	Personality         NaraPersonality
@@ -62,7 +63,7 @@ type NaraStatus struct {
 	Version             string
 	PublicUrl           string
 	PublicKey           string             // Base64-encoded Ed25519 public key
-	ID                  NaraID             // Nara ID: deterministic hash of soul+name
+	ID                  types.NaraID       // Nara ID: deterministic hash of soul+name
 	MeshEnabled         bool               // True if this nara is connected to the Headscale mesh
 	MeshIP              string             // Tailscale IP for direct mesh communication (no DNS needed)
 	Coordinates         *NetworkCoordinate `json:"coordinates,omitempty"`    // Vivaldi network coordinates
@@ -147,9 +148,9 @@ func NewLocalNara(identity IdentityResult, mqtt_host string, mqtt_user string, m
 	return ln, nil
 }
 
-func NewNara(name NaraName) *Nara {
+func NewNara(name types.NaraName) *Nara {
 	nara := &Nara{Name: name}
-	nara.Status.Observations = make(map[NaraName]NaraObservation)
+	nara.Status.Observations = make(map[types.NaraName]NaraObservation)
 	return nara
 }
 
@@ -164,7 +165,7 @@ func (ln *LocalNara) Start(serveUI bool, readOnly bool, httpAddr string, meshCon
 	// Start projections
 	if ln.Projections != nil {
 		// Configure MISSING threshold to account for gossip mode
-		ln.Projections.OnlineStatus().SetMissingThresholdFunc(func(name NaraName) int64 {
+		ln.Projections.OnlineStatus().SetMissingThresholdFunc(func(name types.NaraName) int64 {
 			threshold := MissingThresholdSeconds
 			nara := ln.Network.getNara(name)
 			// Defensive: nara might not be found or might have been removed

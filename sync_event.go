@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"fmt"
 	"time"
+
+	"github.com/eljojo/nara/types"
 )
 
 // Service types for the unified sync ledger
@@ -42,9 +44,9 @@ type SyncEvent struct {
 	Service   string `json:"svc"` // "social", "ping", "observation"
 
 	// Provenance - who created this event (optional but recommended)
-	Emitter   NaraName `json:"emitter,omitempty"`    // nara name who created this event
-	EmitterID NaraID   `json:"emitter_id,omitempty"` // nara ID (public key hash) for signature verification
-	Signature string   `json:"sig,omitempty"`        // base64 Ed25519 signature (optional)
+	Emitter   types.NaraName `json:"emitter,omitempty"`    // nara name who created this event
+	EmitterID types.NaraID   `json:"emitter_id,omitempty"` // nara ID (public key hash) for signature verification
+	Signature string         `json:"sig,omitempty"`        // base64 Ed25519 signature (optional)
 
 	// Payloads - only one is set based on Service
 	Social      *SocialEventPayload      `json:"social,omitempty"`
@@ -60,11 +62,11 @@ type SyncEvent struct {
 // This is a lightweight event for "I received something from this nara"
 // that proves they're reachable/online without creating heavier events.
 type SeenEvent struct {
-	Observer   NaraName `json:"observer,omitempty"`    // who saw them (name, for display - legacy)
-	ObserverID NaraID   `json:"observer_id,omitempty"` // who saw them (ID, for verification)
-	Subject    NaraName `json:"subject,omitempty"`     // who was seen (name, for display - legacy)
-	SubjectID  NaraID   `json:"subject_id,omitempty"`  // who was seen (ID, for verification)
-	Via        string   `json:"via"`                   // how: "zine", "mesh", "ping", "sync"
+	Observer   types.NaraName `json:"observer,omitempty"`    // who saw them (name, for display - legacy)
+	ObserverID types.NaraID   `json:"observer_id,omitempty"` // who saw them (ID, for verification)
+	Subject    types.NaraName `json:"subject,omitempty"`     // who was seen (name, for display - legacy)
+	SubjectID  types.NaraID   `json:"subject_id,omitempty"`  // who was seen (ID, for verification)
+	Via        string         `json:"via"`                   // how: "zine", "mesh", "ping", "sync"
 }
 
 // ContentString returns canonical string for hashing/signing
@@ -78,10 +80,10 @@ func (s *SeenEvent) IsValid() bool {
 }
 
 // GetActor implements Payload (Observer is the actor)
-func (s *SeenEvent) GetActor() NaraName { return s.Observer }
+func (s *SeenEvent) GetActor() types.NaraName { return s.Observer }
 
 // GetTarget implements Payload (Subject is the target)
-func (s *SeenEvent) GetTarget() NaraName { return s.Subject }
+func (s *SeenEvent) GetTarget() types.NaraName { return s.Subject }
 
 // VerifySignature implements Payload using default verification
 func (s *SeenEvent) VerifySignature(event *SyncEvent, lookup PublicKeyLookup) bool {
@@ -119,8 +121,8 @@ func (s *SeenEvent) ToLogEvent() *LogEvent {
 	return &LogEvent{
 		Category: CategoryPresence,
 		Type:     "seen",
-		Actor:    s.Observer,
-		Target:   s.Subject,
+		Actor:    string(s.Observer),
+		Target:   string(s.Subject),
 		Detail:   via, // Use via as detail for grouping
 		GroupFormat: func(actors string) string {
 			return fmt.Sprintf("👀 %s vouched for %s (%s)", actors, subject, via)
@@ -129,14 +131,14 @@ func (s *SeenEvent) ToLogEvent() *LogEvent {
 }
 
 // PublicKeyLookup is a function that resolves a public key by nara ID or name
-type PublicKeyLookup func(id NaraID, name NaraName) ed25519.PublicKey
+type PublicKeyLookup func(id types.NaraID, name types.NaraName) ed25519.PublicKey
 
 // Payload is the interface for service-specific event data
 type Payload interface {
 	ContentString() string
 	IsValid() bool
-	GetActor() NaraName
-	GetTarget() NaraName
+	GetActor() types.NaraName
+	GetTarget() types.NaraName
 	LogFormat() string     // Returns technical log-friendly description
 	ToLogEvent() *LogEvent // Returns structured log event (nil to skip logging)
 
@@ -149,13 +151,13 @@ type Payload interface {
 // SocialEventPayload is the social event data within a SyncEvent
 // This replaces the standalone SocialEvent for sync purposes
 type SocialEventPayload struct {
-	Type     string   `json:"type"`                // "tease", "observed", "gossip", "observation"
-	Actor    NaraName `json:"actor,omitempty"`     // who did it (name, for display - legacy)
-	ActorID  NaraID   `json:"actor_id,omitempty"`  // who did it (ID, for verification)
-	Target   NaraName `json:"target,omitempty"`    // who it was about (name, for display - legacy)
-	TargetID NaraID   `json:"target_id,omitempty"` // who it was about (ID, for verification)
-	Reason   string   `json:"reason,omitempty"`    // why (e.g., "high-restarts", "trend-abandon")
-	Witness  NaraName `json:"witness,omitempty"`   // who reported it (empty if self-reported)
+	Type     string         `json:"type"`                // "tease", "observed", "gossip", "observation"
+	Actor    types.NaraName `json:"actor,omitempty"`     // who did it (name, for display - legacy)
+	ActorID  types.NaraID   `json:"actor_id,omitempty"`  // who did it (ID, for verification)
+	Target   types.NaraName `json:"target,omitempty"`    // who it was about (name, for display - legacy)
+	TargetID types.NaraID   `json:"target_id,omitempty"` // who it was about (ID, for verification)
+	Reason   string         `json:"reason,omitempty"`    // why (e.g., "high-restarts", "trend-abandon")
+	Witness  types.NaraName `json:"witness,omitempty"`   // who reported it (empty if self-reported)
 }
 
 // ContentString returns canonical string for hashing/signing
@@ -172,10 +174,10 @@ func (p *SocialEventPayload) IsValid() bool {
 }
 
 // GetActor implements Payload
-func (p *SocialEventPayload) GetActor() NaraName { return p.Actor }
+func (p *SocialEventPayload) GetActor() types.NaraName { return p.Actor }
 
 // GetTarget implements Payload
-func (p *SocialEventPayload) GetTarget() NaraName { return p.Target }
+func (p *SocialEventPayload) GetTarget() types.NaraName { return p.Target }
 
 // VerifySignature implements Payload using default verification
 func (p *SocialEventPayload) VerifySignature(event *SyncEvent, lookup PublicKeyLookup) bool {
@@ -220,8 +222,8 @@ func (p *SocialEventPayload) ToLogEvent() *LogEvent {
 		return &LogEvent{
 			Category: CategorySocial,
 			Type:     "tease",
-			Actor:    p.Actor,
-			Target:   p.Target,
+			Actor:    string(p.Actor),
+			Target:   string(p.Target),
 			Detail:   p.Reason, // Store reason as detail for grouping key
 			Instant:  false,    // Batch teases together
 			GroupFormat: func(actors string) string {
@@ -234,8 +236,8 @@ func (p *SocialEventPayload) ToLogEvent() *LogEvent {
 		return &LogEvent{
 			Category: CategorySocial,
 			Type:     "observed",
-			Actor:    p.Actor,
-			Target:   p.Target,
+			Actor:    string(p.Actor),
+			Target:   string(p.Target),
 			Detail:   p.Reason,
 			GroupFormat: func(actors string) string {
 				return fmt.Sprintf("👀 %s observed %s: %s", actors, target, reason)
@@ -246,8 +248,8 @@ func (p *SocialEventPayload) ToLogEvent() *LogEvent {
 		return &LogEvent{
 			Category: CategoryGossip,
 			Type:     "social-gossip",
-			Actor:    p.Actor,
-			Target:   p.Target,
+			Actor:    string(p.Actor),
+			Target:   string(p.Target),
 			GroupFormat: func(actors string) string {
 				return fmt.Sprintf("🗣️ %s gossiped about %s", actors, target)
 			},
@@ -258,11 +260,11 @@ func (p *SocialEventPayload) ToLogEvent() *LogEvent {
 
 // PingObservation records a latency measurement between two naras
 type PingObservation struct {
-	Observer   NaraName `json:"observer,omitempty"`    // who took the measurement (name, for display - legacy)
-	ObserverID NaraID   `json:"observer_id,omitempty"` // who took the measurement (ID, for verification)
-	Target     NaraName `json:"target,omitempty"`      // who was measured (name, for display - legacy)
-	TargetID   NaraID   `json:"target_id,omitempty"`   // who was measured (ID, for verification)
-	RTT        float64  `json:"rtt"`                   // round-trip time in milliseconds
+	Observer   types.NaraName `json:"observer,omitempty"`    // who took the measurement (name, for display - legacy)
+	ObserverID types.NaraID   `json:"observer_id,omitempty"` // who took the measurement (ID, for verification)
+	Target     types.NaraName `json:"target,omitempty"`      // who was measured (name, for display - legacy)
+	TargetID   types.NaraID   `json:"target_id,omitempty"`   // who was measured (ID, for verification)
+	RTT        float64        `json:"rtt"`                   // round-trip time in milliseconds
 }
 
 // ContentString returns canonical string for hashing/signing
@@ -277,10 +279,10 @@ func (p *PingObservation) IsValid() bool {
 }
 
 // GetActor implements Payload (Observer is the actor for pings)
-func (p *PingObservation) GetActor() NaraName { return p.Observer }
+func (p *PingObservation) GetActor() types.NaraName { return p.Observer }
 
 // GetTarget implements Payload
-func (p *PingObservation) GetTarget() NaraName { return p.Target }
+func (p *PingObservation) GetTarget() types.NaraName { return p.Target }
 
 // VerifySignature implements Payload using default verification
 func (p *PingObservation) VerifySignature(event *SyncEvent, lookup PublicKeyLookup) bool {
@@ -367,13 +369,13 @@ func (p *PingObservation) ToLogEvent() *LogEvent {
 //
 // =============================================================================
 type ObservationEventPayload struct {
-	Observer   NaraName `json:"observer,omitempty"`    // who made the observation (name, for display)
-	ObserverID NaraID   `json:"observer_id,omitempty"` // who made the observation (ID, for verification)
-	Subject    NaraName `json:"subject,omitempty"`     // who is being observed (name, for display)
-	SubjectID  NaraID   `json:"subject_id,omitempty"`  // who is being observed (ID, for verification)
-	Type       string   `json:"type"`                  // "restart", "first-seen", "status-change"
-	Importance int      `json:"importance"`            // 1=casual, 2=normal, 3=critical
-	IsBackfill bool     `json:"is_backfill,omitempty"` // true if grandfathering existing data
+	Observer   types.NaraName `json:"observer,omitempty"`    // who made the observation (name, for display)
+	ObserverID types.NaraID   `json:"observer_id,omitempty"` // who made the observation (ID, for verification)
+	Subject    types.NaraName `json:"subject,omitempty"`     // who is being observed (name, for display)
+	SubjectID  types.NaraID   `json:"subject_id,omitempty"`  // who is being observed (ID, for verification)
+	Type       string         `json:"type"`                  // "restart", "first-seen", "status-change"
+	Importance int            `json:"importance"`            // 1=casual, 2=normal, 3=critical
+	IsBackfill bool           `json:"is_backfill,omitempty"` // true if grandfathering existing data
 
 	// Data specific to observation type (all timestamps in SECONDS)
 	StartTime   int64  `json:"start_time,omitempty"`   // Unix timestamp in SECONDS when nara started
@@ -438,10 +440,10 @@ func (p *ObservationEventPayload) IsValid() bool {
 }
 
 // GetActor implements Payload (Observer is the actor for observations)
-func (p *ObservationEventPayload) GetActor() NaraName { return p.Observer }
+func (p *ObservationEventPayload) GetActor() types.NaraName { return p.Observer }
 
 // GetTarget implements Payload (Subject is the target being observed)
-func (p *ObservationEventPayload) GetTarget() NaraName { return p.Subject }
+func (p *ObservationEventPayload) GetTarget() types.NaraName { return p.Subject }
 
 // VerifySignature implements Payload using default verification
 func (p *ObservationEventPayload) VerifySignature(event *SyncEvent, lookup PublicKeyLookup) bool {
@@ -505,7 +507,7 @@ func (p *ObservationEventPayload) ToLogEvent() *LogEvent {
 		return &LogEvent{
 			Category: CategoryPresence,
 			Type:     "first-seen",
-			Actor:    p.Subject,
+			Actor:    string(p.Subject),
 			Detail:   fmt.Sprintf("✨ spotted %s for the first time", p.Subject),
 			Instant:  true,
 		}
@@ -515,7 +517,7 @@ func (p *ObservationEventPayload) ToLogEvent() *LogEvent {
 			return &LogEvent{
 				Category: CategoryPresence,
 				Type:     "restart-milestone",
-				Actor:    p.Subject,
+				Actor:    string(p.Subject),
 				Detail:   fmt.Sprintf("🔄 %s hit restart #%d", p.Subject, p.RestartNum),
 				Instant:  true,
 			}
@@ -589,7 +591,7 @@ func (e *SyncEvent) signableData() []byte {
 }
 
 // Sign signs this event with the given keypair and sets Emitter
-func (e *SyncEvent) Sign(emitter NaraName, keypair NaraKeypair) {
+func (e *SyncEvent) Sign(emitter types.NaraName, keypair NaraKeypair) {
 	e.Emitter = emitter
 	e.Signature = keypair.SignBase64(e.signableData())
 }
@@ -636,7 +638,7 @@ func DefaultVerifySignature(event *SyncEvent, lookup PublicKeyLookup) bool {
 }
 
 // GetActor returns the primary actor of this event (for filtering)
-func (e *SyncEvent) GetActor() NaraName {
+func (e *SyncEvent) GetActor() types.NaraName {
 	if p := e.Payload(); p != nil {
 		return p.GetActor()
 	}
@@ -644,7 +646,7 @@ func (e *SyncEvent) GetActor() NaraName {
 }
 
 // GetTarget returns the target of this event (for filtering)
-func (e *SyncEvent) GetTarget() NaraName {
+func (e *SyncEvent) GetTarget() types.NaraName {
 	if p := e.Payload(); p != nil {
 		return p.GetTarget()
 	}
@@ -654,7 +656,7 @@ func (e *SyncEvent) GetTarget() NaraName {
 // --- Constructors ---
 
 // NewSocialSyncEvent creates a SyncEvent from social event data
-func NewSocialSyncEvent(eventType, actor NaraName, target NaraName, reason string, witness NaraName) SyncEvent {
+func NewSocialSyncEvent(eventType string, actor types.NaraName, target types.NaraName, reason string, witness types.NaraName) SyncEvent {
 	e := SyncEvent{
 		Timestamp: time.Now().UnixNano(),
 		Service:   ServiceSocial,
@@ -671,7 +673,7 @@ func NewSocialSyncEvent(eventType, actor NaraName, target NaraName, reason strin
 }
 
 // NewPingSyncEvent creates a SyncEvent from a ping observation
-func NewPingSyncEvent(observer, target NaraName, rtt float64) SyncEvent {
+func NewPingSyncEvent(observer, target types.NaraName, rtt float64) SyncEvent {
 	e := SyncEvent{
 		Timestamp: time.Now().UnixNano(),
 		Service:   ServicePing,
@@ -686,14 +688,14 @@ func NewPingSyncEvent(observer, target NaraName, rtt float64) SyncEvent {
 }
 
 // NewSignedSocialSyncEvent creates a signed SyncEvent for social events
-func NewSignedSocialSyncEvent(eventType string, actor NaraName, target NaraName, reason string, witness string, emitter NaraName, keypair NaraKeypair) SyncEvent {
+func NewSignedSocialSyncEvent(eventType string, actor types.NaraName, target types.NaraName, reason string, witness types.NaraName, emitter types.NaraName, keypair NaraKeypair) SyncEvent {
 	e := NewSocialSyncEvent(eventType, actor, target, reason, witness)
 	e.Sign(emitter, keypair)
 	return e
 }
 
 // NewRestartObservationEvent creates a SyncEvent for a restart observation
-func NewRestartObservationEvent(observer, subject NaraName, startTime, restartNum int64) SyncEvent {
+func NewRestartObservationEvent(observer, subject types.NaraName, startTime, restartNum int64) SyncEvent {
 	e := SyncEvent{
 		Timestamp: time.Now().UnixNano(),
 		Service:   ServiceObservation,
@@ -713,7 +715,7 @@ func NewRestartObservationEvent(observer, subject NaraName, startTime, restartNu
 
 // NewRestartObservationEventWithUptime creates a restart observation with explicit observer uptime
 // Used for uptime-weighted consensus where longer-running observers get more weight
-func NewRestartObservationEventWithUptime(observer, subject NaraName, startTime, restartNum int64, observerUptime uint64) SyncEvent {
+func NewRestartObservationEventWithUptime(observer, subject types.NaraName, startTime, restartNum int64, observerUptime uint64) SyncEvent {
 	e := SyncEvent{
 		Timestamp: time.Now().UnixNano(),
 		Service:   ServiceObservation,
@@ -733,7 +735,7 @@ func NewRestartObservationEventWithUptime(observer, subject NaraName, startTime,
 }
 
 // NewFirstSeenObservationEvent creates a SyncEvent for first-seen observation
-func NewFirstSeenObservationEvent(observer, subject NaraName, startTime int64) SyncEvent {
+func NewFirstSeenObservationEvent(observer, subject types.NaraName, startTime int64) SyncEvent {
 	e := SyncEvent{
 		Timestamp: time.Now().UnixNano(),
 		Service:   ServiceObservation,
@@ -750,7 +752,7 @@ func NewFirstSeenObservationEvent(observer, subject NaraName, startTime int64) S
 }
 
 // NewStatusChangeObservationEvent creates a SyncEvent for status change observation
-func NewStatusChangeObservationEvent(observer, subject, onlineState string) SyncEvent {
+func NewStatusChangeObservationEvent(observer, subject types.NaraName, onlineState string) SyncEvent {
 	e := SyncEvent{
 		Timestamp: time.Now().UnixNano(),
 		Service:   ServiceObservation,
@@ -771,7 +773,7 @@ func NewStatusChangeObservationEvent(observer, subject, onlineState string) Sync
 // Use these when creating events to ensure proper ID-based verification.
 
 // NewRestartObservationEventWithIDs creates a restart observation with explicit IDs
-func NewRestartObservationEventWithIDs(observer NaraName, observerID NaraID, subject NaraName, subjectID NaraID, startTime, restartNum int64) SyncEvent {
+func NewRestartObservationEventWithIDs(observer types.NaraName, observerID types.NaraID, subject types.NaraName, subjectID types.NaraID, startTime, restartNum int64) SyncEvent {
 	e := SyncEvent{
 		Timestamp: time.Now().UnixNano(),
 		Service:   ServiceObservation,
@@ -792,7 +794,7 @@ func NewRestartObservationEventWithIDs(observer NaraName, observerID NaraID, sub
 }
 
 // NewFirstSeenObservationEventWithIDs creates a first-seen observation with explicit IDs
-func NewFirstSeenObservationEventWithIDs(observer NaraName, observerID NaraID, subject NaraName, subjectID NaraID, startTime int64) SyncEvent {
+func NewFirstSeenObservationEventWithIDs(observer types.NaraName, observerID types.NaraID, subject types.NaraName, subjectID types.NaraID, startTime int64) SyncEvent {
 	e := SyncEvent{
 		Timestamp: time.Now().UnixNano(),
 		Service:   ServiceObservation,
@@ -811,7 +813,7 @@ func NewFirstSeenObservationEventWithIDs(observer NaraName, observerID NaraID, s
 }
 
 // NewStatusChangeObservationEventWithIDs creates a status change observation with explicit IDs
-func NewStatusChangeObservationEventWithIDs(observer NaraName, observerID NaraID, subject NaraName, subjectID NaraID, onlineState string) SyncEvent {
+func NewStatusChangeObservationEventWithIDs(observer types.NaraName, observerID types.NaraID, subject types.NaraName, subjectID types.NaraID, onlineState string) SyncEvent {
 	e := SyncEvent{
 		Timestamp: time.Now().UnixNano(),
 		Service:   ServiceObservation,
@@ -830,7 +832,7 @@ func NewStatusChangeObservationEventWithIDs(observer NaraName, observerID NaraID
 }
 
 // NewSeenSyncEventWithIDs creates a signed seen event with explicit IDs
-func NewSeenSyncEventWithIDs(observer NaraName, observerID NaraID, subject NaraName, subjectID NaraID, via string, keypair NaraKeypair) SyncEvent {
+func NewSeenSyncEventWithIDs(observer types.NaraName, observerID types.NaraID, subject types.NaraName, subjectID types.NaraID, via string, keypair NaraKeypair) SyncEvent {
 	e := SyncEvent{
 		Timestamp: time.Now().UnixNano(),
 		Service:   ServiceSeen,
@@ -848,7 +850,7 @@ func NewSeenSyncEventWithIDs(observer NaraName, observerID NaraID, subject NaraN
 }
 
 // NewTeaseSyncEventWithIDs creates a signed tease event with explicit IDs
-func NewTeaseSyncEventWithIDs(actor NaraName, actorID NaraID, target NaraName, targetID NaraID, reason string, keypair NaraKeypair) SyncEvent {
+func NewTeaseSyncEventWithIDs(actor types.NaraName, actorID types.NaraID, target types.NaraName, targetID types.NaraID, reason string, keypair NaraKeypair) SyncEvent {
 	e := SyncEvent{
 		Timestamp: time.Now().UnixNano(),
 		Service:   ServiceSocial,
@@ -867,7 +869,7 @@ func NewTeaseSyncEventWithIDs(actor NaraName, actorID NaraID, target NaraName, t
 }
 
 // NewBackfillObservationEvent creates a backfill event for migrating historical observations
-func NewBackfillObservationEvent(observer, subject NaraName, startTime, restartNum, lastRestart int64) SyncEvent {
+func NewBackfillObservationEvent(observer, subject types.NaraName, startTime, restartNum, lastRestart int64) SyncEvent {
 	e := SyncEvent{
 		Timestamp: time.Now().UnixNano(),
 		Service:   ServiceObservation,
@@ -887,7 +889,7 @@ func NewBackfillObservationEvent(observer, subject NaraName, startTime, restartN
 }
 
 // NewSignedPingSyncEvent creates a signed SyncEvent for ping observations
-func NewSignedPingSyncEvent(observer NaraName, target NaraID, rtt float64, emitter NaraName, keypair NaraKeypair) SyncEvent {
+func NewSignedPingSyncEvent(observer types.NaraName, target types.NaraName, rtt float64, emitter types.NaraName, keypair NaraKeypair) SyncEvent {
 	e := NewPingSyncEvent(observer, target, rtt)
 	e.Sign(emitter, keypair)
 	return e
@@ -897,7 +899,7 @@ func NewSignedPingSyncEvent(observer NaraName, target NaraID, rtt float64, emitt
 // This allows hey_there events to propagate through gossip, enabling peer discovery
 // without MQTT broadcasts. The SyncEvent signature is the attestation - inner event
 // is just payload data.
-func NewHeyThereSyncEvent(name NaraName, publicKey string, meshIP string, id NaraID, keypair NaraKeypair) SyncEvent {
+func NewHeyThereSyncEvent(name types.NaraName, publicKey string, meshIP string, id types.NaraID, keypair NaraKeypair) SyncEvent {
 	heyThere := &HeyThereEvent{
 		From:      name,
 		PublicKey: publicKey,
@@ -919,7 +921,7 @@ func NewHeyThereSyncEvent(name NaraName, publicKey string, meshIP string, id Nar
 // This allows chau events to propagate through gossip, enabling gossip-only naras
 // to distinguish OFFLINE (graceful) from MISSING (timeout). The SyncEvent signature
 // is the attestation - inner event is just payload data.
-func NewChauSyncEvent(name NaraName, publicKey string, id NaraID, keypair NaraKeypair) SyncEvent {
+func NewChauSyncEvent(name types.NaraName, publicKey string, id types.NaraID, keypair NaraKeypair) SyncEvent {
 	chau := &ChauEvent{
 		From:      name,
 		PublicKey: publicKey,
@@ -939,7 +941,7 @@ func NewChauSyncEvent(name NaraName, publicKey string, id NaraID, keypair NaraKe
 // NewSeenSyncEvent creates a signed SyncEvent for when a nara is seen through some interaction.
 // The via parameter indicates how they were seen: "zine", "mesh", "ping", "sync".
 // Signed so other naras can verify who made the observation when events propagate.
-func NewSeenSyncEvent(observer NaraName, subject NaraName, via string, keypair NaraKeypair) SyncEvent {
+func NewSeenSyncEvent(observer types.NaraName, subject types.NaraName, via string, keypair NaraKeypair) SyncEvent {
 	e := SyncEvent{
 		Timestamp: time.Now().UnixNano(),
 		Service:   ServiceSeen,
@@ -955,19 +957,20 @@ func NewSeenSyncEvent(observer NaraName, subject NaraName, via string, keypair N
 }
 
 // NewTeaseSyncEvent creates a signed SyncEvent for teasing another nara.
-func NewTeaseSyncEvent(actor NaraName, target NaraName, reason string, keypair NaraKeypair) SyncEvent {
+func NewTeaseSyncEvent(actor types.NaraName, target types.NaraName, reason string, keypair NaraKeypair) SyncEvent {
 	return NewSignedSocialSyncEvent("tease", actor, target, reason, "", actor, keypair)
 }
 
 // NewObservationSocialSyncEvent creates a signed SyncEvent for system observations.
-func NewObservationSocialSyncEvent(actor NaraName, target NaraName, reason string, keypair NaraKeypair) SyncEvent {
+func NewObservationSocialSyncEvent(actor types.NaraName, target types.NaraName, reason string, keypair NaraKeypair) SyncEvent {
 	return NewSignedSocialSyncEvent("observation", actor, target, reason, "", actor, keypair)
 }
 
 // NewJourneyObservationSyncEvent creates a signed SyncEvent for journey observations.
 // The journeyID is stored in the Witness field for tracking.
-func NewJourneyObservationSyncEvent(observer NaraName, journeyOriginator, reason, journeyID string, keypair NaraKeypair) SyncEvent {
-	return NewSignedSocialSyncEvent("observation", observer, journeyOriginator, reason, journeyID, observer, keypair)
+// TODO: the journey used to be stored in the Witness field but now it's not stored there anyore, this is likely breaking somethign...
+func NewJourneyObservationSyncEvent(observer types.NaraName, journeyOriginator types.NaraName, reason, journeyID string, keypair NaraKeypair) SyncEvent {
+	return NewSignedSocialSyncEvent("observation", observer, journeyOriginator, reason, "", observer, keypair)
 }
 
 // SyncEventFromSocialEvent converts legacy SocialEvent to SyncEvent

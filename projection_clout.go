@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // SocialEventRecord stores social event data needed for clout calculation.
@@ -13,10 +15,10 @@ type SocialEventRecord struct {
 	ID        string
 	Timestamp int64 // nanoseconds
 	Type      string
-	Actor     NaraName
-	Target    NaraName
+	Actor     types.NaraName
+	Target    types.NaraName
 	Reason    string
-	Witness   NaraName
+	Witness   types.NaraName
 }
 
 // CloutProjection accumulates social events for clout calculation.
@@ -76,13 +78,13 @@ func (p *CloutProjection) handleEvent(event SyncEvent) error {
 // DeriveClout computes subjective clout scores based on stored events.
 // Each observer derives their own opinion based on their soul and personality.
 // Note: Call Trigger() or RunOnce() before this if you need up-to-date data.
-func (p *CloutProjection) DeriveClout(observerSoul string, personality NaraPersonality) map[NaraName]float64 {
+func (p *CloutProjection) DeriveClout(observerSoul string, personality NaraPersonality) map[types.NaraName]float64 {
 	p.mu.RLock()
 	events := make([]SocialEventRecord, len(p.events))
 	copy(events, p.events)
 	p.mu.RUnlock()
 
-	clout := make(map[NaraName]float64)
+	clout := make(map[types.NaraName]float64)
 	now := time.Now().Unix()
 
 	for _, record := range events {
@@ -121,7 +123,7 @@ func (p *CloutProjection) DeriveClout(observerSoul string, personality NaraPerso
 }
 
 // applyProjectionObservationClout applies clout changes for observation events.
-func applyProjectionObservationClout(clout map[NaraName]float64, record SocialEventRecord, weight float64) {
+func applyProjectionObservationClout(clout map[types.NaraName]float64, record SocialEventRecord, weight float64) {
 	switch record.Reason {
 	case ReasonOnline:
 		// Coming online is slightly positive (reliable, available)

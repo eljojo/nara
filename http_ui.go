@@ -6,6 +6,8 @@ import (
 	"net/http"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // SSE endpoint for real-time social events (shooting stars!)
@@ -89,11 +91,11 @@ func (network *Network) httpEventsSSEHandler(w http.ResponseWriter, r *http.Requ
 
 // Clout scores from this nara's perspective
 func (network *Network) httpCloutHandler(w http.ResponseWriter, r *http.Request) {
-	var clout map[NaraName]float64
+	var clout map[types.NaraName]float64
 	if network.local.Projections != nil {
 		clout = network.local.Projections.Clout().DeriveClout(network.local.Soul, network.local.Me.Status.Personality)
 	} else {
-		clout = make(map[NaraName]float64)
+		clout = make(map[types.NaraName]float64)
 	}
 
 	response := map[string]interface{}{
@@ -145,17 +147,17 @@ func (network *Network) httpRecentEventsHandler(w http.ResponseWriter, r *http.R
 
 // Tease counts - objective count of teases per actor (no personality influence)
 func (network *Network) httpTeaseCountsHandler(w http.ResponseWriter, r *http.Request) {
-	var counts map[string]int
+	var counts map[types.NaraName]int
 	if network.local.SyncLedger != nil {
 		counts = network.local.SyncLedger.GetTeaseCounts()
 	} else {
-		counts = make(map[string]int)
+		counts = make(map[types.NaraName]int)
 	}
 
 	// Convert to sorted list for the response
 	type teaseCount struct {
-		Actor string `json:"actor"`
-		Count int    `json:"count"`
+		Actor types.NaraName `json:"actor"`
+		Count int            `json:"count"`
 	}
 	var teases []teaseCount
 	for actor, count := range counts {
@@ -336,7 +338,7 @@ func (network *Network) httpNetworkMapHandler(w http.ResponseWriter, r *http.Req
 		nara.mu.Unlock()
 
 		// Get our observation of this peer
-		myObs := network.local.getObservationLocked(NaraName(name))
+		myObs := network.local.getObservationLocked(types.NaraName(name))
 
 		node := map[string]interface{}{
 			"name":        name,
@@ -373,7 +375,7 @@ func (network *Network) httpProximityHandler(w http.ResponseWriter, r *http.Requ
 	myEmoji := network.GetMyBarrioEmoji()
 
 	// Find all naras in my barrio
-	var barrioMembers []NaraName
+	var barrioMembers []types.NaraName
 	for name := range network.Neighbourhood {
 		if network.IsInMyBarrio(name) {
 			barrioMembers = append(barrioMembers, name)

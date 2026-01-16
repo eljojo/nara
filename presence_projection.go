@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // Default thresholds (in nanoseconds)
@@ -24,7 +26,7 @@ type OnlineState struct {
 
 // MissingThresholdFunc returns the MISSING threshold (in nanoseconds) for a given nara.
 // This allows the projection to account for gossip mode naras having longer thresholds.
-type MissingThresholdFunc func(name NaraName) int64
+type MissingThresholdFunc func(name types.NaraName) int64
 
 // OnlineStatusProjection maintains per-nara online status derived from events.
 // It implements "most recent event wins" semantics.
@@ -33,7 +35,7 @@ type MissingThresholdFunc func(name NaraName) int64
 // data when available, falls back to backfill records, then calculates from
 // status-change events.
 type OnlineStatusProjection struct {
-	states     map[NaraName]*OnlineState
+	states     map[types.NaraName]*OnlineState
 	ledger     *SyncLedger
 	projection *Projection
 	mu         sync.RWMutex
@@ -48,10 +50,10 @@ type OnlineStatusProjection struct {
 // NewOnlineStatusProjection creates a new online status projection.
 func NewOnlineStatusProjection(ledger *SyncLedger) *OnlineStatusProjection {
 	p := &OnlineStatusProjection{
-		states:    make(map[NaraName]*OnlineState),
+		states:    make(map[types.NaraName]*OnlineState),
 		ledger:    ledger,
 		triggerCh: make(chan struct{}, 1),
-		missingThresholdFunc: func(name NaraName) int64 {
+		missingThresholdFunc: func(name types.NaraName) int64 {
 			return DefaultMissingThresholdNano
 		},
 	}
@@ -61,7 +63,7 @@ func NewOnlineStatusProjection(ledger *SyncLedger) *OnlineStatusProjection {
 	// Register reset handler to clear state when ledger is restructured
 	p.projection.SetOnReset(func() {
 		p.mu.Lock()
-		p.states = make(map[NaraName]*OnlineState)
+		p.states = make(map[types.NaraName]*OnlineState)
 		p.mu.Unlock()
 	})
 
@@ -78,9 +80,9 @@ func (p *OnlineStatusProjection) SetMissingThresholdFunc(f MissingThresholdFunc)
 // handleEvent processes a single event and updates the projection state.
 func (p *OnlineStatusProjection) handleEvent(event SyncEvent) error {
 	// Determine which nara this event affects and what status it implies
-	var targetName NaraName
+	var targetName types.NaraName
 	var newStatus string
-	var observer NaraName
+	var observer types.NaraName
 
 	switch event.Service {
 	case ServiceHeyThere:
@@ -142,7 +144,7 @@ func (p *OnlineStatusProjection) handleEvent(event SyncEvent) error {
 }
 
 // updateState updates the state for a nara if this event is newer than the current state.
-func (p *OnlineStatusProjection) updateState(name NaraName, status string, timestamp int64, service string, observer NaraName) {
+func (p *OnlineStatusProjection) updateState(name types.NaraName, status string, timestamp int64, service string, observer types.NaraName) {
 	if name == "" {
 		return
 	}
@@ -156,7 +158,7 @@ func (p *OnlineStatusProjection) updateState(name NaraName, status string, times
 			Status:        status,
 			LastEventTime: timestamp,
 			LastEventType: service,
-			Observer:      observer,
+			Observer:      string(observer),
 		}
 	}
 }
@@ -164,7 +166,7 @@ func (p *OnlineStatusProjection) updateState(name NaraName, status string, times
 // GetStatus returns the current derived status for a nara.
 // Returns "ONLINE", "OFFLINE", "MISSING", or "" if unknown.
 // Note: Call Trigger() or RunOnce() before this if you need up-to-date data.
-func (p *OnlineStatusProjection) GetStatus(name NaraName) string {
+func (p *OnlineStatusProjection) GetStatus(name types.NaraName) string {
 	p.mu.RLock()
 	state := p.states[name]
 	thresholdFunc := p.missingThresholdFunc
@@ -189,7 +191,7 @@ func (p *OnlineStatusProjection) GetStatus(name NaraName) string {
 }
 
 // GetState returns the full state for a nara (for debugging/testing).
-func (p *OnlineStatusProjection) GetState(name NaraName) *OnlineState {
+func (p *OnlineStatusProjection) GetState(name types.NaraName) *OnlineState {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.states[name]
@@ -198,21 +200,21 @@ func (p *OnlineStatusProjection) GetState(name NaraName) *OnlineState {
 // GetTotalUptime returns the total uptime in seconds for a nara.
 // Uses checkpoint data if available, falls back to backfill record,
 // then calculates from status-change events.
-func (p *OnlineStatusProjection) GetTotalUptime(name NaraName) int64 {
+func (p *OnlineStatusProjection) GetTotalUptime(name types.NaraName) int64 {
 	return p.ledger.DeriveTotalUptime(name)
 }
 
 // GetAllStatuses returns all known nara statuses.
-func (p *OnlineStatusProjection) GetAllStatuses() map[NaraName]string {
+func (p *OnlineStatusProjection) GetAllStatuses() map[types.NaraName]string {
 	p.mu.RLock()
 	thresholdFunc := p.missingThresholdFunc
-	states := make(map[NaraName]*OnlineState, len(p.states))
+	states := make(map[types.NaraName]*OnlineState, len(p.states))
 	for k, v := range p.states {
 		states[k] = v
 	}
 	p.mu.RUnlock()
 
-	result := make(map[NaraName]string, len(states))
+	result := make(map[types.NaraName]string, len(states))
 	now := time.Now().UnixNano()
 
 	for name, state := range states {
@@ -282,6 +284,6 @@ func (p *OnlineStatusProjection) RunContinuous(ctx context.Context) {
 func (p *OnlineStatusProjection) Reset() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.states = make(map[NaraName]*OnlineState)
+	p.states = make(map[types.NaraName]*OnlineState)
 	p.projection.Reset()
 }

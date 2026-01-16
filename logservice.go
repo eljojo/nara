@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // LogCategory represents a log section for grouped output
@@ -60,7 +62,7 @@ type verboseGroup struct {
 // 1. Automatic: registered as a listener on SyncLedger
 // 2. Manual: direct Push() calls for things not in the event store
 type LogService struct {
-	localName NaraName // Our nara's name for filtering self-events
+	localName types.NaraName // Our nara's name for filtering self-events
 
 	// Event channel for incoming log events
 	events chan LogEvent
@@ -89,7 +91,7 @@ type LogService struct {
 }
 
 // NewLogService creates a new LogService
-func NewLogService(localName NaraName) *LogService {
+func NewLogService(localName types.NaraName) *LogService {
 	return &LogService{
 		localName:     localName,
 		events:        make(chan LogEvent, 100),
@@ -867,7 +869,7 @@ func (ls *LogService) BatchHTTP(method, path string, status int) {
 }
 
 // BatchGossipMerge records a gossip merge for batched output
-func (ls *LogService) BatchGossipMerge(from NaraName, eventCount int) {
+func (ls *LogService) BatchGossipMerge(from types.NaraName, eventCount int) {
 	ls.Push(LogEvent{
 		Category: CategoryGossip,
 		Type:     "gossip-merge",
@@ -880,7 +882,7 @@ func (ls *LogService) BatchGossipMerge(from NaraName, eventCount int) {
 }
 
 // BatchMeshSync records a mesh sync for batched output
-func (ls *LogService) BatchMeshSync(from NaraName, eventCount int) {
+func (ls *LogService) BatchMeshSync(from types.NaraName, eventCount int) {
 	ls.Push(LogEvent{
 		Category: CategoryMesh,
 		Type:     "mesh-sync",
@@ -893,7 +895,7 @@ func (ls *LogService) BatchMeshSync(from NaraName, eventCount int) {
 }
 
 // BatchHowdyForMe records a howdy directed at us for batched output
-func (ls *LogService) BatchHowdyForMe(from NaraName) {
+func (ls *LogService) BatchHowdyForMe(from types.NaraName) {
 	ls.Push(LogEvent{
 		Category: CategoryPresence,
 		Type:     "howdy-for-me",
@@ -905,7 +907,7 @@ func (ls *LogService) BatchHowdyForMe(from NaraName) {
 }
 
 // BatchDMReceived records a received DM for batched output
-func (ls *LogService) BatchDMReceived(from NaraName) {
+func (ls *LogService) BatchDMReceived(from types.NaraName) {
 	ls.Push(LogEvent{
 		Category: CategorySocial,
 		Type:     "dm-received",
@@ -917,7 +919,7 @@ func (ls *LogService) BatchDMReceived(from NaraName) {
 }
 
 // BatchDiscovery records a discovered nara for batched output
-func (ls *LogService) BatchDiscovery(name NaraName) {
+func (ls *LogService) BatchDiscovery(name types.NaraName) {
 	ls.Push(LogEvent{
 		Category: CategoryMesh,
 		Type:     "discovery",
@@ -929,7 +931,7 @@ func (ls *LogService) BatchDiscovery(name NaraName) {
 }
 
 // BatchObservedHowdy records an observed howdy for batched output
-func (ls *LogService) BatchObservedHowdy(observer NaraName, target NaraName) {
+func (ls *LogService) BatchObservedHowdy(observer types.NaraName, target types.NaraName) {
 	t := target
 	ls.Push(LogEvent{
 		Category: CategoryPresence,
@@ -943,7 +945,7 @@ func (ls *LogService) BatchObservedHowdy(observer NaraName, target NaraName) {
 }
 
 // BatchPeerResolutionFailed records a failed peer resolution for batched output
-func (ls *LogService) BatchPeerResolutionFailed(name NaraName) {
+func (ls *LogService) BatchPeerResolutionFailed(name types.NaraName) {
 	ls.Push(LogEvent{
 		Category: CategoryMesh,
 		Type:     "peer-resolution-failed",
@@ -955,7 +957,7 @@ func (ls *LogService) BatchPeerResolutionFailed(name NaraName) {
 }
 
 // BatchBootSyncRequest records a boot sync request for batched output
-func (ls *LogService) BatchBootSyncRequest(name NaraName, eventsRequested int) {
+func (ls *LogService) BatchBootSyncRequest(name types.NaraName, eventsRequested int) {
 	ls.Push(LogEvent{
 		Category: CategoryMesh,
 		Type:     "boot-sync-request",
@@ -965,7 +967,7 @@ func (ls *LogService) BatchBootSyncRequest(name NaraName, eventsRequested int) {
 }
 
 // BatchMeshVerified records a verified mesh response for batched output
-func (ls *LogService) BatchMeshVerified(name NaraName) {
+func (ls *LogService) BatchMeshVerified(name types.NaraName) {
 	ls.Push(LogEvent{
 		Category: CategoryMesh,
 		Type:     "mesh-verified",
@@ -1024,7 +1026,7 @@ func (ls *LogService) BatchBootInfo(key, value string) {
 }
 
 // BatchBarrioMovement records a barrio movement for batched output
-func (ls *LogService) BatchBarrioMovement(name NaraName, oldCluster, newCluster, emoji, method string, gridSize float64) {
+func (ls *LogService) BatchBarrioMovement(name types.NaraName, oldCluster, newCluster, emoji, method string, gridSize float64) {
 	detail := fmt.Sprintf("%s→%s %s (via %s, grid=%.0f)", oldCluster, newCluster, emoji, method, gridSize)
 	ls.Push(LogEvent{
 		Category: CategorySystem,

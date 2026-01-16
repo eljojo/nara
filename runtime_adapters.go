@@ -2,11 +2,12 @@ package nara
 
 import (
 	"bytes"
-	"crypto/ed25519"
 	"fmt"
 	"net/http"
 
 	"github.com/eljojo/nara/runtime"
+
+	"github.com/eljojo/nara/types"
 )
 
 // === Transport Adapter ===
@@ -22,7 +23,7 @@ func NewTransportAdapter(network *Network) *TransportAdapter {
 }
 
 // TrySendDirect sends a message directly to a target nara via mesh.
-func (a *TransportAdapter) TrySendDirect(targetID NaraID, msg *runtime.Message) error {
+func (a *TransportAdapter) TrySendDirect(targetID types.NaraID, msg *runtime.Message) error {
 	// Resolve targetID to mesh address
 	nara := a.network.getNaraByID(targetID)
 	if nara == nil {
@@ -129,19 +130,19 @@ func NewIdentityAdapter(network *Network) *IdentityAdapter {
 }
 
 // LookupPublicKey looks up a public key by nara ID.
-func (a *IdentityAdapter) LookupPublicKey(id NaraID) []byte {
+func (a *IdentityAdapter) LookupPublicKey(id types.NaraID) []byte {
 	return a.network.getPublicKeyForNaraID(id)
 }
 
 // LookupPublicKeyByName looks up a public key by nara name.
-func (a *IdentityAdapter) LookupPublicKeyByName(name NaraName) []byte {
+func (a *IdentityAdapter) LookupPublicKeyByName(name types.NaraName) []byte {
 	return a.network.getPublicKeyForNara(name)
 }
 
 // RegisterPublicKey registers a public key for a nara ID.
 //
 // This updates the network's neighbourhood map.
-func (a *IdentityAdapter) RegisterPublicKey(id NaraID, key []byte) {
+func (a *IdentityAdapter) RegisterPublicKey(id types.NaraID, key []byte) {
 	// Look up nara by ID
 	nara := a.network.getNaraByID(id)
 	if nara != nil {

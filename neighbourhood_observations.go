@@ -1,5 +1,7 @@
 package nara
 
+import "github.com/eljojo/nara/types"
+
 // neighbourhood_observations.go
 // Extracted from observations.go
 // Contains NaraObservation type and observation access methods
@@ -43,14 +45,14 @@ func (localNara *LocalNara) setMeObservation(observation NaraObservation) {
 }
 
 // getObservation returns the observation about the named nara.
-func (localNara *LocalNara) getObservation(name NaraName) NaraObservation {
+func (localNara *LocalNara) getObservation(name types.NaraName) NaraObservation {
 	observation := localNara.Me.getObservation(name)
 	return observation
 }
 
 // getObservationLocked returns the observation about the named nara.
 // This is called when localNara.mu is already held, but we still need to lock localNara.Me.mu.
-func (localNara *LocalNara) getObservationLocked(name NaraName) NaraObservation {
+func (localNara *LocalNara) getObservationLocked(name types.NaraName) NaraObservation {
 	// this is called when localNara.mu is already held
 	// but we still need to lock localNara.Me.mu
 	localNara.Me.mu.Lock()
@@ -60,14 +62,14 @@ func (localNara *LocalNara) getObservationLocked(name NaraName) NaraObservation 
 }
 
 // setObservation sets the observation about the named nara.
-func (localNara *LocalNara) setObservation(name NaraName, observation NaraObservation) {
+func (localNara *LocalNara) setObservation(name types.NaraName, observation NaraObservation) {
 	localNara.mu.Lock()
 	localNara.Me.setObservation(name, observation)
 	localNara.mu.Unlock()
 }
 
 // getObservation returns the observation about the named nara.
-func (nara *Nara) getObservation(name NaraName) NaraObservation {
+func (nara *Nara) getObservation(name types.NaraName) NaraObservation {
 	nara.mu.Lock()
 	observation := nara.Status.Observations[name]
 	nara.mu.Unlock()
@@ -75,7 +77,7 @@ func (nara *Nara) getObservation(name NaraName) NaraObservation {
 }
 
 // setObservation sets the observation about the named nara.
-func (nara *Nara) setObservation(name NaraName, observation NaraObservation) {
+func (nara *Nara) setObservation(name types.NaraName, observation NaraObservation) {
 	nara.mu.Lock()
 	nara.setObservationLocked(name, observation)
 	nara.mu.Unlock()
@@ -83,6 +85,6 @@ func (nara *Nara) setObservation(name NaraName, observation NaraObservation) {
 
 // setObservationLocked sets an observation without acquiring the lock.
 // Caller must hold nara.mu.
-func (nara *Nara) setObservationLocked(name NaraName, observation NaraObservation) {
+func (nara *Nara) setObservationLocked(name types.NaraName, observation NaraObservation) {
 	nara.Status.Observations[name] = observation
 }

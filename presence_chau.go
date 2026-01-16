@@ -5,12 +5,14 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 type ChauEvent struct {
-	From      NaraName
+	From      types.NaraName
 	PublicKey string // Base64-encoded Ed25519 public key
-	ID        NaraID // Nara ID: deterministic hash of soul+name
+	ID        types.NaraID // Nara ID: deterministic hash of soul+name
 	Signature string // Base64-encoded signature of "chau:{From}:{PublicKey}:{ID}"
 }
 
@@ -67,10 +69,10 @@ func (c *ChauEvent) IsValid() bool {
 }
 
 // GetActor implements Payload interface for ChauEvent
-func (c *ChauEvent) GetActor() NaraName { return c.From }
+func (c *ChauEvent) GetActor() types.NaraName { return c.From }
 
 // GetTarget implements Payload interface for ChauEvent
-func (c *ChauEvent) GetTarget() NaraName { return c.From }
+func (c *ChauEvent) GetTarget() types.NaraName { return c.From }
 
 // VerifySignature implements Payload using the embedded public key
 func (c *ChauEvent) VerifySignature(event *SyncEvent, lookup PublicKeyLookup) bool {

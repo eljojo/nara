@@ -8,19 +8,21 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // syncCheckpointsFromNetwork fetches checkpoint history from random online naras
 // This recovers the full network timeline after boot recovery completes
 // Keeps trying naras until 5 successful responses or all naras exhausted
-func (network *Network) syncCheckpointsFromNetwork(online []NaraName) {
+func (network *Network) syncCheckpointsFromNetwork(online []types.NaraName) {
 	if len(online) == 0 {
 		logrus.Debug("📸 No online naras to sync checkpoints from")
 		return
 	}
 
 	// Shuffle all online naras to randomize selection
-	shuffled := make([]NaraName, len(online))
+	shuffled := make([]types.NaraName, len(online))
 	copy(shuffled, online)
 	for i := range shuffled {
 		j := i + int(time.Now().UnixNano()%(int64(len(shuffled)-i)))
@@ -29,7 +31,7 @@ func (network *Network) syncCheckpointsFromNetwork(online []NaraName) {
 
 	const targetSuccessfulFetches = 5
 	successfulFetches := 0
-	attemptedNaras := []NaraName{}
+	attemptedNaras := []types.NaraName{}
 	totalMerged := 0
 	totalWarned := 0
 
@@ -42,7 +44,7 @@ func (network *Network) syncCheckpointsFromNetwork(online []NaraName) {
 		attemptedNaras = append(attemptedNaras, naraName)
 
 		// Get the nara's ID and IP address
-		var naraID NaraID
+		var naraID types.NaraID
 		var ip string
 		network.local.mu.Lock()
 		if nara, exists := network.Neighbourhood[naraName]; exists {
@@ -94,7 +96,7 @@ func (network *Network) syncCheckpointsFromNetwork(online []NaraName) {
 
 // fetchAllCheckpointsFromNara fetches all checkpoint events from a remote nara via HTTP
 // Handles pagination automatically to retrieve the complete checkpoint history
-func (network *Network) fetchAllCheckpointsFromNara(naraName NaraName, naraID NaraID) []SyncEvent {
+func (network *Network) fetchAllCheckpointsFromNara(naraName types.NaraName, naraID types.NaraID) []SyncEvent {
 	// Allow tests to work without tsnetMesh if testHTTPClient is set
 	if network.tsnetMesh == nil && network.testHTTPClient == nil {
 		return nil
@@ -113,7 +115,7 @@ func (network *Network) fetchAllCheckpointsFromNara(naraName NaraName, naraID Na
 }
 
 // fetchCheckpointsViaUnifiedAPI uses the new Mode: "page" API with checkpoint filter
-func (network *Network) fetchCheckpointsViaUnifiedAPI(naraName NaraName, naraID NaraID) []SyncEvent {
+func (network *Network) fetchCheckpointsViaUnifiedAPI(naraName types.NaraName, naraID types.NaraID) []SyncEvent {
 	if network.meshClient == nil {
 		return nil
 	}
@@ -147,7 +149,7 @@ func (network *Network) fetchCheckpointsViaUnifiedAPI(naraName NaraName, naraID 
 
 // fetchCheckpointsViaLegacyAPI uses the old /api/checkpoints/all endpoint with offset/limit pagination
 // TODO: Remove after ~6 months (2026-07) when all naras support unified API
-func (network *Network) fetchCheckpointsViaLegacyAPI(naraName NaraName, naraID NaraID) []SyncEvent {
+func (network *Network) fetchCheckpointsViaLegacyAPI(naraName types.NaraName, naraID types.NaraID) []SyncEvent {
 	client := network.getMeshHTTPClient()
 	if client == nil {
 		return nil

@@ -173,7 +173,7 @@ func (a *NetworkInfoAdapter) OnlinePeers() []*runtime.PeerInfo {
 
 		if online {
 			peers = append(peers, &runtime.PeerInfo{
-				ID:     id,
+				ID:     nara.ID,
 				Name:   nara.Name,
 				Uptime: uptime,
 			})
