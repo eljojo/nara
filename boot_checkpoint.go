@@ -155,10 +155,22 @@ func (network *Network) fetchCheckpointsViaLegacyAPI(naraName types.NaraName, na
 		return nil
 	}
 
-	// Get base URL from mesh client (peer was registered by caller)
-	baseURL, ok := network.meshClient.GetPeerBaseURL(naraID)
-	if !ok {
-		logrus.Debugf("📸 %s: peer not registered for legacy API", naraName)
+	// Get base URL - try meshClient first, fall back to buildMeshURL for tests
+	var baseURL string
+	if network.meshClient != nil {
+		var ok bool
+		baseURL, ok = network.meshClient.GetPeerBaseURL(naraID)
+		if !ok {
+			logrus.Debugf("📸 %s: peer not registered in meshClient, trying buildMeshURL", naraName)
+			baseURL = network.buildMeshURL(naraName, "")
+		}
+	} else {
+		// No meshClient (test mode), use buildMeshURL which checks testMeshURLs
+		baseURL = network.buildMeshURL(naraName, "")
+	}
+
+	if baseURL == "" {
+		logrus.Debugf("📸 %s: no base URL available for legacy API", naraName)
 		return nil
 	}
 

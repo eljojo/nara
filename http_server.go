@@ -65,8 +65,11 @@ func (network *Network) startHttpServer(httpAddr string) error {
 	// Create a mux for handlers (so we can reuse with mesh server)
 	mux := network.createHTTPMux(true) // includeUI = true
 
+	// Store the actual listening address for tests
+	actualAddr := fmt.Sprintf(":%d", port)
 	network.httpServer = &http.Server{
 		Handler: mux,
+		Addr:    actualAddr,
 	}
 
 	go func() {
