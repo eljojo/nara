@@ -6,19 +6,18 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// InitWorldJourney sets up the world journey handler with the given mesh transport
-func (network *Network) InitWorldJourney(mesh MeshTransport) {
+// InitWorldJourney sets up the world journey handler with the mesh client
+func (network *Network) InitWorldJourney() {
 	network.worldHandler = NewWorldJourneyHandler(
 		network.local,
-		mesh,
+		network.meshClient,
 		network.getMyClout,
 		network.getOnlineNaraNames,
 		network.resolvePublicKeyForNara,
-		network.getMeshIPForNara,
+		network.getNaraIDByName,
 		network.onWorldJourneyComplete,
 		network.onWorldJourneyPassThrough,
 	)
-	network.worldHandler.Listen()
 	logrus.Printf("World journey handler initialized")
 }
 

@@ -55,64 +55,23 @@ func TestIntegration_DiscoverNarasFromEventStream(t *testing.T) {
 func TestIntegration_HeyThereEventPropagation(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
-	// Setup: alice, bob, carol in a chain: alice <-> bob <-> carol
-	alice := testLocalNaraWithParams(t, "alice", 50, 1000)
+	tc := NewTestCoordinator(t)
+	alice := tc.AddNara("alice", WithHandlers("gossip"))
+	bob := tc.AddNara("bob", WithHandlers("gossip"))
+	carol := tc.AddNara("carol", WithHandlers("gossip"))
+
+	// Setup chain: alice <-> bob <-> carol
+	tc.Connect("alice", "bob")
+	tc.Connect("bob", "carol")
+	tc.SetOnline("alice", "bob")
+	tc.SetOnline("bob", "alice")
+	tc.SetOnline("bob", "carol")
+	tc.SetOnline("carol", "bob")
+
+	// Set transport mode to gossip
 	alice.Network.TransportMode = TransportGossip
-
-	bob := testLocalNaraWithParams(t, "bob", 50, 1000)
 	bob.Network.TransportMode = TransportGossip
-
-	carol := testLocalNaraWithParams(t, "carol", 50, 1000)
 	carol.Network.TransportMode = TransportGossip
-
-	// Set up test servers
-	aliceMux := http.NewServeMux()
-	aliceMux.HandleFunc("/gossip/zine", alice.Network.httpGossipZineHandler)
-	aliceServer := httptest.NewServer(aliceMux)
-	defer aliceServer.Close()
-
-	bobMux := http.NewServeMux()
-	bobMux.HandleFunc("/gossip/zine", bob.Network.httpGossipZineHandler)
-	bobServer := httptest.NewServer(bobMux)
-	defer bobServer.Close()
-
-	carolMux := http.NewServeMux()
-	carolMux.HandleFunc("/gossip/zine", carol.Network.httpGossipZineHandler)
-	carolServer := httptest.NewServer(carolMux)
-	defer carolServer.Close()
-
-	sharedClient := &http.Client{Timeout: 5 * time.Second}
-
-	// Alice knows bob
-	alice.Network.testHTTPClient = sharedClient
-	alice.Network.testMeshURLs = map[types.NaraName]string{types.NaraName("bob"): bobServer.URL}
-	bobNara := NewNara("bob")
-	bobNara.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
-	alice.Network.importNara(bobNara)
-	alice.setObservation("bob", NaraObservation{Online: "ONLINE"})
-
-	// Bob knows alice and carol
-	bob.Network.testHTTPClient = sharedClient
-	bob.Network.testMeshURLs = map[types.NaraName]string{
-		types.NaraName("alice"): aliceServer.URL,
-		types.NaraName("carol"): carolServer.URL,
-	}
-	aliceNara := NewNara("alice")
-	aliceNara.Status.PublicKey = FormatPublicKey(alice.Keypair.PublicKey)
-	bob.Network.importNara(aliceNara)
-	bob.setObservation("alice", NaraObservation{Online: "ONLINE"})
-	carolNaraForBob := NewNara("carol")
-	carolNaraForBob.Status.PublicKey = FormatPublicKey(carol.Keypair.PublicKey)
-	bob.Network.importNara(carolNaraForBob)
-	bob.setObservation("carol", NaraObservation{Online: "ONLINE"})
-
-	// Carol knows bob
-	carol.Network.testHTTPClient = sharedClient
-	carol.Network.testMeshURLs = map[types.NaraName]string{types.NaraName("bob"): bobServer.URL}
-	bobNaraForCarol := NewNara("bob")
-	bobNaraForCarol.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
-	carol.Network.importNara(bobNaraForCarol)
-	carol.setObservation("bob", NaraObservation{Online: "ONLINE"})
 
 	// Alice doesn't know carol's public key
 	if alice.Network.getPublicKeyForNara("carol") != nil {
@@ -191,6 +150,7 @@ func TestIntegration_PeerResolutionProtocol(t *testing.T) {
 		types.NaraName("carol"): carolServer.URL, // URL only, no identity - needed for redirect following
 	}
 	bobNara := NewNara("bob")
+	bobNara.ID = bob.ID // Set ID so nameToID mapping is created
 	bobNara.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
 	alice.Network.importNara(bobNara)
 	alice.setObservation("bob", NaraObservation{Online: "ONLINE"})
@@ -206,6 +166,7 @@ func TestIntegration_PeerResolutionProtocol(t *testing.T) {
 	bob.Network.importNara(aliceNara)
 	bob.setObservation("alice", NaraObservation{Online: "ONLINE"})
 	carolNaraForBob := NewNara("carol")
+	carolNaraForBob.ID = carol.ID // Set ID so nameToID mapping is created
 	carolNaraForBob.Status.PublicKey = FormatPublicKey(carol.Keypair.PublicKey)
 	bob.Network.importNara(carolNaraForBob)
 	bob.setObservation("carol", NaraObservation{Online: "ONLINE"})
@@ -394,6 +355,7 @@ func TestIntegration_GossipOnlyPeerDiscovery(t *testing.T) {
 	alice.Network.testHTTPClient = sharedClient
 	alice.Network.testMeshURLs = map[types.NaraName]string{types.NaraName("bob"): bobServer.URL}
 	bobNara := NewNara("bob")
+	bobNara.ID = bob.ID // Set ID so nameToID mapping is created
 	bobNara.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
 	alice.Network.importNara(bobNara)
 	alice.setObservation("bob", NaraObservation{Online: "ONLINE"})
@@ -409,6 +371,7 @@ func TestIntegration_GossipOnlyPeerDiscovery(t *testing.T) {
 	bob.Network.importNara(aliceNara)
 	bob.setObservation("alice", NaraObservation{Online: "ONLINE"})
 	carolNaraForBob := NewNara("carol")
+	carolNaraForBob.ID = carol.ID // Set ID so nameToID mapping is created
 	carolNaraForBob.Status.PublicKey = FormatPublicKey(carol.Keypair.PublicKey)
 	bob.Network.importNara(carolNaraForBob)
 	bob.setObservation("carol", NaraObservation{Online: "ONLINE"})
@@ -554,6 +517,7 @@ func TestIntegration_ZineVerificationTriggersResolution(t *testing.T) {
 		types.NaraName("carol"): carolServer.URL,
 	}
 	bobNara := NewNara("bob")
+	bobNara.ID = bob.ID // Set ID so nameToID mapping is created
 	bobNara.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
 	alice.Network.importNara(bobNara)
 	alice.setObservation("bob", NaraObservation{Online: "ONLINE"})
@@ -564,6 +528,7 @@ func TestIntegration_ZineVerificationTriggersResolution(t *testing.T) {
 		types.NaraName("carol"): carolServer.URL,
 	}
 	carolNaraForBob := NewNara("carol")
+	carolNaraForBob.ID = carol.ID // Set ID so nameToID mapping is created
 	carolNaraForBob.Status.PublicKey = FormatPublicKey(carol.Keypair.PublicKey)
 	bob.Network.importNara(carolNaraForBob)
 	bob.setObservation("carol", NaraObservation{Online: "ONLINE"})
@@ -625,10 +590,12 @@ func TestIntegration_WorldJourneyTriggersResolution(t *testing.T) {
 
 	bobMux := http.NewServeMux()
 	bobMux.HandleFunc("/peer/query", bob.Network.httpPeerQueryHandler)
+	bobMux.HandleFunc("/world/relay", bob.Network.httpWorldRelayHandler)
 	bobServer := httptest.NewServer(bobMux)
 	defer bobServer.Close()
 
 	carolMux := http.NewServeMux()
+	carolMux.HandleFunc("/world/relay", carol.Network.httpWorldRelayHandler)
 	carolServer := httptest.NewServer(carolMux)
 	defer carolServer.Close()
 
@@ -640,30 +607,60 @@ func TestIntegration_WorldJourneyTriggersResolution(t *testing.T) {
 		types.NaraName("bob"): bobServer.URL,
 	}
 	bobNara := NewNara("bob")
+	bobNara.ID = bob.ID // Set ID so nameToID mapping is created
 	bobNara.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
 	alice.Network.importNara(bobNara)
 	alice.setObservation("bob", NaraObservation{Online: "ONLINE"})
 
-	// Bob knows carol
+	// Bob knows alice and carol
 	bob.Network.testHTTPClient = sharedClient
 	bob.Network.testMeshURLs = map[types.NaraName]string{
+		types.NaraName("alice"): aliceServer.URL,
 		types.NaraName("carol"): carolServer.URL,
 	}
+	aliceNaraForBob := NewNara("alice")
+	aliceNaraForBob.ID = alice.ID // Set ID so nameToID mapping is created
+	aliceNaraForBob.Status.PublicKey = FormatPublicKey(alice.Keypair.PublicKey)
+	bob.Network.importNara(aliceNaraForBob)
+	bob.setObservation("alice", NaraObservation{Online: "ONLINE"})
+
 	carolNaraForBob := NewNara("carol")
+	carolNaraForBob.ID = carol.ID // Set ID so nameToID mapping is created
 	carolNaraForBob.Status.PublicKey = FormatPublicKey(carol.Keypair.PublicKey)
 	bob.Network.importNara(carolNaraForBob)
 	bob.setObservation("carol", NaraObservation{Online: "ONLINE"})
 
-	// Set up mock network for world journey
-	mockNet := NewMockMeshNetwork()
-	aliceTransport := NewMockMeshTransport()
-	bobTransport := NewMockMeshTransport()
+	// Carol knows alice and bob
+	carol.Network.testHTTPClient = sharedClient
+	carol.Network.testMeshURLs = map[types.NaraName]string{
+		types.NaraName("alice"): aliceServer.URL,
+		types.NaraName("bob"):   bobServer.URL,
+	}
+	aliceNaraForCarol := NewNara("alice")
+	aliceNaraForCarol.ID = alice.ID // Set ID so nameToID mapping is created
+	aliceNaraForCarol.Status.PublicKey = FormatPublicKey(alice.Keypair.PublicKey)
+	carol.Network.importNara(aliceNaraForCarol)
 
-	mockNet.Register("alice", aliceTransport)
-	mockNet.Register("bob", bobTransport)
+	bobNaraForCarol := NewNara("bob")
+	bobNaraForCarol.ID = bob.ID // Set ID so nameToID mapping is created
+	bobNaraForCarol.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
+	carol.Network.importNara(bobNaraForCarol)
 
-	alice.Network.InitWorldJourney(aliceTransport)
-	bob.Network.InitWorldJourney(bobTransport)
+	// Initialize world journey for alice, bob, and carol
+	// (meshClient is already set up in NewNetwork)
+	alice.Network.InitWorldJourney()
+	bob.Network.InitWorldJourney()
+	carol.Network.InitWorldJourney()
+
+	// Configure alice's meshClient to route to bob by ID
+	alice.Network.meshClient.EnableTestMode(map[types.NaraID]string{
+		bob.ID: bobServer.URL,
+	})
+
+	// Configure bob's meshClient to route to carol by ID
+	bob.Network.meshClient.EnableTestMode(map[types.NaraID]string{
+		carol.ID: carolServer.URL,
+	})
 
 	// We need bob to be reachable for peer queries
 	// Alice's resolvePeer will use testHTTPClient (sharedClient) and testMeshURLs
@@ -674,6 +671,7 @@ func TestIntegration_WorldJourneyTriggersResolution(t *testing.T) {
 
 	// Bob needs to know carol to answer the query
 	carolNara := NewNara("carol")
+	carolNara.ID = carol.ID // Set ID so nameToID mapping is created
 	carolNara.Status.PublicKey = FormatPublicKey(carol.Keypair.PublicKey)
 	bob.Network.importNara(carolNara)
 
@@ -740,12 +738,14 @@ func TestIntegration_MeshAuthTriggersResolution(t *testing.T) {
 		types.NaraName("bob"): bobServer.URL,
 	}
 	bobNara := NewNara("bob")
+	bobNara.ID = bob.ID // Set ID so nameToID mapping is created
 	bobNara.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
 	alice.Network.importNara(bobNara)
 	alice.setObservation("bob", NaraObservation{Online: "ONLINE"})
 
 	// Bob knows carol
 	carolNaraForBob := NewNara("carol")
+	carolNaraForBob.ID = carol.ID // Set ID so nameToID mapping is created
 	carolNaraForBob.Status.PublicKey = FormatPublicKey(carol.Keypair.PublicKey)
 	bob.Network.importNara(carolNaraForBob)
 	bob.setObservation("carol", NaraObservation{Online: "ONLINE"})

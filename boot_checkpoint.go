@@ -61,9 +61,7 @@ func (network *Network) syncCheckpointsFromNetwork(online []types.NaraName) {
 		}
 
 		// Register peer for mesh client lookups
-		if network.meshClient != nil {
-			network.meshClient.RegisterPeerIP(naraID, ip)
-		}
+		network.meshClient.RegisterPeerIP(naraID, ip)
 
 		// Fetch all checkpoints from this nara (handles pagination internally)
 		checkpoints := network.fetchAllCheckpointsFromNara(naraName, naraID)
@@ -116,10 +114,6 @@ func (network *Network) fetchAllCheckpointsFromNara(naraName types.NaraName, nar
 
 // fetchCheckpointsViaUnifiedAPI uses the new Mode: "page" API with checkpoint filter
 func (network *Network) fetchCheckpointsViaUnifiedAPI(naraName types.NaraName, naraID types.NaraID) []SyncEvent {
-	if network.meshClient == nil {
-		return nil
-	}
-
 	var allCheckpoints []SyncEvent
 	cursor := ""
 	pageSize := 1000
@@ -155,17 +149,12 @@ func (network *Network) fetchCheckpointsViaLegacyAPI(naraName types.NaraName, na
 		return nil
 	}
 
-	// Get base URL - try meshClient first, fall back to buildMeshURL for tests
+	// Get base URL from meshClient or fall back to buildMeshURL for tests
 	var baseURL string
-	if network.meshClient != nil {
-		var ok bool
-		baseURL, ok = network.meshClient.GetPeerBaseURL(naraID)
-		if !ok {
-			logrus.Debugf("📸 %s: peer not registered in meshClient, trying buildMeshURL", naraName)
-			baseURL = network.buildMeshURL(naraName, "")
-		}
-	} else {
-		// No meshClient (test mode), use buildMeshURL which checks testMeshURLs
+	var ok bool
+	baseURL, ok = network.meshClient.GetPeerBaseURL(naraID)
+	if !ok {
+		logrus.Debugf("📸 %s: peer not registered in meshClient, trying buildMeshURL", naraName)
 		baseURL = network.buildMeshURL(naraName, "")
 	}
 

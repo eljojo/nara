@@ -1,11 +1,8 @@
 package nara
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"math/rand"
-	"net/http"
 	"sync"
 	"time"
 
@@ -89,62 +86,27 @@ func (network *Network) performGossipRound() {
 }
 
 // exchangeZine sends our zine to a neighbor and receives theirs back
-// TODO: Migrate to MeshClient.PostGossipZine() method to reduce code duplication and improve maintainability
 func (network *Network) exchangeZine(targetName types.NaraName, myZine *Zine) {
-	// Determine URL
-	url := network.buildMeshURL(targetName, "/gossip/zine")
-	if url == "" {
+	// Resolve nara name to ID
+	naraID := network.getNaraIDByName(targetName)
+	if naraID == "" {
+		logrus.Debugf("📰 Cannot exchange zine with %s: could not resolve nara ID", targetName)
 		return
 	}
 
-	// Encode our zine
-	zineBytes, err := json.Marshal(myZine)
-	if err != nil {
-		logrus.Warnf("📰 Failed to encode zine for %s: %v", targetName, err)
-		return
-	}
-
-	// Create request with 30s timeout to prevent goroutine leaks
+	// Send our zine and receive theirs via mesh client
 	ctx, cancel := context.WithTimeout(network.ctx, 15*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(zineBytes))
-	if err != nil {
-		logrus.Warnf("📰 Failed to create zine request for %s: %v", targetName, err)
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	// Add mesh authentication headers (Ed25519 signature)
-	network.AddMeshAuthHeaders(req)
-
-	client := network.getMeshHTTPClient()
-	if client == nil {
-		return
-	}
-
-	resp, err := client.Do(req)
+	theirZine, err := network.meshClient.PostGossipZine(ctx, naraID, myZine)
 	if err != nil {
 		logrus.Infof("📰 Failed to exchange zine with %s: %v", targetName, err)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		logrus.Infof("📰 Zine exchange with %s failed: status %d", targetName, resp.StatusCode)
-		return
-	}
-
-	// Decode their zine
-	var theirZine Zine
-	if err := json.NewDecoder(resp.Body).Decode(&theirZine); err != nil {
-		logrus.Warnf("📰 Failed to decode zine from %s: %v", targetName, err)
 		return
 	}
 
 	// Verify signature
 	pubKey := network.resolvePublicKeyForNara(targetName)
-	if len(pubKey) > 0 && !VerifyZine(&theirZine, pubKey) {
+	if len(pubKey) > 0 && !VerifyZine(theirZine, pubKey) {
 		logrus.Warnf("📰 Invalid zine signature from %s, rejecting", targetName)
 		return
 	}

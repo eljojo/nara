@@ -100,9 +100,7 @@ func (network *Network) recoverSelfStartTimeFromMesh() {
 		}
 
 		// Register peer for mesh client lookups
-		if network.meshClient != nil {
-			network.meshClient.RegisterPeerIP(naraID, ip)
-		}
+		network.meshClient.RegisterPeerIP(naraID, ip)
 
 		events, respVerified := network.fetchSyncEventsFromMesh(naraID, neighbor, subjects, 0, 1, 500)
 		if len(events) == 0 {
