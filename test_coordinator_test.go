@@ -42,12 +42,12 @@ func NewTestCoordinator(t *testing.T) *TestCoordinator {
 type CoordinatorNaraOption func(*naraConfig)
 
 type naraConfig struct {
-	soul            string
-	chattiness      int
-	ledgerCapacity  int
-	withServer      bool
-	handlers        []string
-	notBooting      bool // Mark as not booting (common test requirement)
+	soul           string
+	chattiness     int
+	ledgerCapacity int
+	withServer     bool
+	handlers       []string
+	notBooting     bool // Mark as not booting (common test requirement)
 }
 
 // WithStandardHandlers adds all common handlers (gossip, dm, world, peer query, checkpoints).
@@ -100,7 +100,7 @@ func (tc *TestCoordinator) AddNara(name string, opts ...CoordinatorNaraOption) *
 	config := &naraConfig{
 		chattiness:     50,
 		ledgerCapacity: 1000,
-		withServer:     true, // default to server enabled
+		withServer:     true,                                                     // default to server enabled
 		handlers:       []string{"gossip", "dm", "world", "peer", "checkpoints"}, // default all
 	}
 
@@ -193,6 +193,12 @@ func (tc *TestCoordinator) connectOneWay(sourceName, targetName string) {
 	targetNara.Status.PublicKey = FormatPublicKey(target.Keypair.PublicKey)
 	source.Network.importNara(targetNara)
 
+	// Mark target as online so gossip can find them
+	obs := source.getObservation(types.NaraName(targetName))
+	obs.Online = "ONLINE"
+	obs.LastSeen = time.Now().Unix()
+	source.setObservation(types.NaraName(targetName), obs)
+
 	// Set up routing if target has a server
 	if server, ok := tc.servers[targetName]; ok {
 		// Configure name-based routing (for legacy code)
@@ -213,6 +219,53 @@ func (tc *TestCoordinator) connectOneWay(sourceName, targetName string) {
 		source.Network.meshClient.EnableTestMode(testURLs)
 	}
 	// If target doesn't have a server, we still import them (they're known but unreachable)
+}
+
+// connectOneWayWithoutPublicKey sets up routing without importing the target's public key.
+// Used to test public key discovery via hey_there events.
+func (tc *TestCoordinator) connectOneWayWithoutPublicKey(sourceName, targetName string) {
+	source := tc.naras[sourceName]
+	target := tc.naras[targetName]
+
+	if source == nil {
+		tc.t.Fatalf("connectOneWayWithoutPublicKey: source nara %s not found", sourceName)
+	}
+	if target == nil {
+		tc.t.Fatalf("connectOneWayWithoutPublicKey: target nara %s not found", targetName)
+	}
+
+	// Import target into source's neighbourhood WITHOUT public key
+	targetNara := NewNara(types.NaraName(targetName))
+	targetNara.ID = target.ID
+	targetNara.Status.ID = target.ID
+	// NO public key set - this is the key difference
+	source.Network.importNara(targetNara)
+
+	// Mark target as online so gossip can find them
+	obs := source.getObservation(types.NaraName(targetName))
+	obs.Online = "ONLINE"
+	obs.LastSeen = time.Now().Unix()
+	source.setObservation(types.NaraName(targetName), obs)
+
+	// Set up routing if target has a server
+	if server, ok := tc.servers[targetName]; ok {
+		// Configure name-based routing (for legacy code)
+		if source.Network.testMeshURLs == nil {
+			source.Network.testMeshURLs = make(map[types.NaraName]string)
+		}
+		source.Network.testMeshURLs[types.NaraName(targetName)] = server.URL
+
+		// Configure ID-based routing (for MeshClient)
+		testURLs := make(map[types.NaraID]string)
+		// Preserve existing test URLs
+		if len(source.Network.meshClient.testURLs) > 0 {
+			for id, url := range source.Network.meshClient.testURLs {
+				testURLs[id] = url
+			}
+		}
+		testURLs[target.ID] = server.URL
+		source.Network.meshClient.EnableTestMode(testURLs)
+	}
 }
 
 // ConnectAll creates a full mesh where every nara knows every other nara.

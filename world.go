@@ -216,7 +216,7 @@ func CalculateWorldRewards(wm *WorldMessage) map[types.NaraName]float64 {
 // WorldJourneyHandler manages world journeys for a nara
 type WorldJourneyHandler struct {
 	localNara      *LocalNara
-	meshClient     *MeshClient // Mesh client for sending world messages
+	meshClient     *MeshClient                       // Mesh client for sending world messages
 	getMyClout     func() map[types.NaraName]float64 // This nara's clout scores for others
 	getOnlineNaras func() []types.NaraName
 	getPublicKey   func(types.NaraName) []byte
@@ -349,4 +349,3 @@ func (h *WorldJourneyHandler) chooseNext(wm *WorldMessage) types.NaraName {
 	}
 	return next
 }
-

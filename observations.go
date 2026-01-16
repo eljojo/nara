@@ -1,6 +1,7 @@
 package nara
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"sync"
@@ -779,8 +780,9 @@ func (network *Network) verifyOnlineWithPing(name types.NaraName) bool {
 
 	// Try to ping with a short timeout (2 seconds)
 	logrus.Debugf("🔍 Verifying %s is really offline via ping...", name)
-	// TODO: i think this needs to be updated in a deeper way to use naraID
-	rtt, err := network.tsnetMesh.Ping(meshIP, network.meName(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	rtt, err := network.meshClient.PingIP(ctx, meshIP)
 	if err != nil {
 		logrus.Debugf("🔍 Verification ping to %s failed: %v - confirmed offline", name, err)
 		// Cache the failed result
