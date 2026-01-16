@@ -186,7 +186,7 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	network.checkpointService = NewCheckpointService(network, localNara.SyncLedger, localNara)
 
 	// Initialize keyring with our identity
-	network.keyring = keyring.New(localNara.Keypair.PrivateKey, localNara.Me.Status.ID)
+	network.keyring = keyring.New(localNara.Keypair, localNara.Me.Status.ID)
 
 	// Initialize mesh client (always required)
 	// Initially uses a simple HTTP client, will be updated when tsnet is ready
