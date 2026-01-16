@@ -95,6 +95,7 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 	mux.HandleFunc("/mesh/message", network.loggingMiddleware("/mesh/message", network.meshAuthMiddleware("/mesh/message", network.httpMeshMessageHandler)))
 	mux.HandleFunc("/ping", network.loggingMiddleware("/ping", network.httpPingHandler)) // No auth - latency critical
 	mux.HandleFunc("/coordinates", network.loggingMiddleware("/coordinates", network.httpCoordinatesHandler))
+	mux.HandleFunc("/peer/query", network.loggingMiddleware("/peer/query", network.httpPeerQueryHandler)) // No auth - used for peer discovery
 
 	// Checkpoint sync endpoint - serves all checkpoints for boot recovery
 	// Available on mesh for distributed timeline recovery
