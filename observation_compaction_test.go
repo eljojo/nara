@@ -3,13 +3,15 @@ package nara
 import (
 	"testing"
 	"time"
+
+	"github.com/eljojo/nara/types"
 )
 
 // Test that we can add up to 20 observation events per observer→subject pair
 func TestObservationCompaction_UnderLimit(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	observer := "nara-a"
-	subject := "nara-b"
+	observer := types.NaraName("nara-a")
+	subject := types.NaraName("nara-b")
 
 	// Add 20 events for the same observer→subject pair
 	for i := 0; i < 20; i++ {
@@ -38,8 +40,8 @@ func TestObservationCompaction_UnderLimit(t *testing.T) {
 // Note: Without a checkpoint, restart events are preserved to avoid losing history
 func TestObservationCompaction_OverLimit(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	observer := "nara-a"
-	subject := "nara-b"
+	observer := types.NaraName("nara-a")
+	subject := types.NaraName("nara-b")
 
 	// First add a checkpoint so compaction of restart events is allowed
 	checkpoint := NewTestCheckpointEvent(subject, time.Now().Unix()-3600, time.Now().Unix()-86400, 0, 0)
@@ -94,31 +96,31 @@ func TestObservationCompaction_MultiplePairs(t *testing.T) {
 
 	// Add 20 events for alice→bob
 	for i := 0; i < 20; i++ {
-		event := NewRestartObservationEvent("alice", "bob", time.Now().Unix(), int64(i))
+		event := NewRestartObservationEvent(types.NaraName("alice"), types.NaraName("bob"), time.Now().Unix(), int64(i))
 		ledger.AddEvent(event)
 	}
 
 	// Add 20 events for alice→charlie
 	for i := 0; i < 20; i++ {
-		event := NewRestartObservationEvent("alice", "charlie", time.Now().Unix(), int64(i))
+		event := NewRestartObservationEvent(types.NaraName("alice"), types.NaraName("charlie"), time.Now().Unix(), int64(i))
 		ledger.AddEvent(event)
 	}
 
 	// Add 20 events for dave→bob
 	for i := 0; i < 20; i++ {
-		event := NewRestartObservationEvent("dave", "bob", time.Now().Unix(), int64(i))
+		event := NewRestartObservationEvent(types.NaraName("dave"), types.NaraName("bob"), time.Now().Unix(), int64(i))
 		ledger.AddEvent(event)
 	}
 
 	// Each pair should have 20 events
-	bobEvents := ledger.GetObservationEventsAbout("bob")
+	bobEvents := ledger.GetObservationEventsAbout(types.NaraName("bob"))
 	aliceToBobCount := 0
 	daveToBobCount := 0
 	for _, e := range bobEvents {
-		if e.Observation.Observer == "alice" {
+		if e.Observation.Observer == types.NaraName("alice") {
 			aliceToBobCount++
 		}
-		if e.Observation.Observer == "dave" {
+		if e.Observation.Observer == types.NaraName("dave") {
 			daveToBobCount++
 		}
 	}
@@ -131,10 +133,10 @@ func TestObservationCompaction_MultiplePairs(t *testing.T) {
 		t.Errorf("Expected 20 events for dave→bob, got %d", daveToBobCount)
 	}
 
-	charlieEvents := ledger.GetObservationEventsAbout("charlie")
+	charlieEvents := ledger.GetObservationEventsAbout(types.NaraName("charlie"))
 	aliceToCharlieCount := 0
 	for _, e := range charlieEvents {
-		if e.Observation.Observer == "alice" {
+		if e.Observation.Observer == types.NaraName("alice") {
 			aliceToCharlieCount++
 		}
 	}
@@ -147,8 +149,8 @@ func TestObservationCompaction_MultiplePairs(t *testing.T) {
 // Test compaction with different observation types
 func TestObservationCompaction_MixedTypes(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	observer := "nara-a"
-	subject := "nara-b"
+	observer := types.NaraName("nara-a")
+	subject := types.NaraName("nara-b")
 
 	// Add 10 restart events
 	for i := 0; i < 10; i++ {
@@ -204,8 +206,8 @@ func TestObservationCompaction_MixedTypes(t *testing.T) {
 // Test compaction behavior at exact limit
 func TestObservationCompaction_ExactLimit(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	observer := "nara-a"
-	subject := "nara-b"
+	observer := types.NaraName("nara-a")
+	subject := types.NaraName("nara-b")
 
 	// Add exactly 20 events
 	for i := 0; i < 20; i++ {
@@ -245,8 +247,8 @@ func TestObservationCompaction_ExactLimit(t *testing.T) {
 // Test heavy compaction (adding 100 events, keeping only 20 when checkpoint exists)
 func TestObservationCompaction_HeavyLoad(t *testing.T) {
 	ledger := NewSyncLedger(2000)
-	observer := "nara-a"
-	subject := "nara-b"
+	observer := types.NaraName("nara-a")
+	subject := types.NaraName("nara-b")
 
 	// First add a checkpoint so compaction of restart events is allowed
 	checkpoint := NewTestCheckpointEvent(subject, time.Now().Unix()-3600, time.Now().Unix()-86400, 0, 0)
@@ -307,8 +309,8 @@ func TestObservationCompaction_HeavyLoad(t *testing.T) {
 // Test that compaction preserves critical importance events
 func TestObservationCompaction_PreservesImportance(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	observer := "nara-a"
-	subject := "nara-b"
+	observer := types.NaraName("nara-a")
+	subject := types.NaraName("nara-b")
 
 	// Add 25 critical events (restarts and first-seen)
 	event := NewFirstSeenObservationEvent(observer, subject, time.Now().Unix())
@@ -333,8 +335,8 @@ func TestObservationCompaction_PreservesImportance(t *testing.T) {
 // Test compaction with backfill events (after checkpoint exists)
 func TestObservationCompaction_WithBackfill(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	observer := "nara-a"
-	subject := "nara-b"
+	observer := types.NaraName("nara-a")
+	subject := types.NaraName("nara-b")
 
 	// First add a checkpoint so compaction of restart events is allowed
 	checkpoint := NewTestCheckpointEvent(subject, time.Now().Unix()-3600, time.Now().Unix()-86400, 0, 0)

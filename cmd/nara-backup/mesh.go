@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/eljojo/nara"
+	"github.com/eljojo/nara/types"
 	"github.com/sirupsen/logrus"
 	"tailscale.com/tsnet"
 )
@@ -46,7 +47,7 @@ func NewBackupMesh(ctx context.Context, naraName string, naraSoul nara.SoulV1) (
 	client := nara.NewMeshHTTPClient(server)
 
 	// Create mesh client with nara's identity (not ephemeral backup identity)
-	meshClient := nara.NewMeshClient(client, naraName, naraKeypair)
+	meshClient := nara.NewMeshClient(client, types.NaraName(naraName), naraKeypair)
 
 	return &BackupMesh{
 		server:       server,
@@ -63,13 +64,24 @@ func (m *BackupMesh) DiscoverPeers(ctx context.Context) ([]nara.TsnetPeer, error
 // FetchEvents fetches all events from a specific peer via /events/sync
 // Uses cursor-based pagination (mode: "page") for complete, deterministic retrieval
 func (m *BackupMesh) FetchEvents(ctx context.Context, peerIP string, peerName string) ([]nara.SyncEvent, error) {
+	// Register peer with mesh client using IP
+	// TODO: Migrate to a better structure where we properly map peer names to NaraIDs
+	// For now, we strip the 5-character suffix from peerName to get the base name
+	// Note: Using peerName as NaraID temporarily since we don't know the real NaraID
+	baseName := peerName
+	if len(peerName) > 5 {
+		baseName = peerName[:len(peerName)-5]
+	}
+	peerID := types.NaraID(baseName)
+	m.meshClient.RegisterPeerIP(peerID, peerIP)
+
 	var allEvents []nara.SyncEvent
 	cursor := ""
 	pageSize := 5000 // Server supports up to 5000 events per page
 
 	for {
 		// Fetch next page
-		resp, err := m.meshClient.FetchSyncEventsWithCursor(ctx, peerIP, nara.SyncRequest{
+		resp, err := m.meshClient.FetchSyncEventsWithCursor(ctx, peerID, nara.SyncRequest{
 			Mode:     "page",
 			PageSize: pageSize,
 			Cursor:   cursor,

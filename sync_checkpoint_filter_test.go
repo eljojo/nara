@@ -3,6 +3,8 @@ package nara
 import (
 	"testing"
 	"time"
+
+	"github.com/eljojo/nara/types"
 )
 
 // TestCheckpointIngestionFilter verifies that old buggy checkpoints are filtered out during ingestion
@@ -23,7 +25,7 @@ func TestCheckpointIngestionFilter(t *testing.T) {
 				TotalUptime: 86400,
 				StartTime:   1639996062,
 			},
-			VoterIDs:   []string{"voter1", "voter2"},
+			VoterIDs:   []types.NaraID{types.NaraID("voter1"), types.NaraID("voter2")},
 			Signatures: []string{"sig1", "sig2"},
 			Round:      1,
 		},
@@ -45,7 +47,7 @@ func TestCheckpointIngestionFilter(t *testing.T) {
 				StartTime:   1639996062,
 				LastRestart: time.Now().Unix(), // New field that old checkpoints don't have
 			},
-			VoterIDs:   []string{"voter1", "voter2"},
+			VoterIDs:   []types.NaraID{types.NaraID("voter1"), types.NaraID("voter2")},
 			Signatures: []string{"sig1", "sig2"},
 			Round:      1,
 		},
@@ -92,7 +94,7 @@ func TestCheckpointIngestionFilter(t *testing.T) {
 				TotalUptime: 43200,
 				StartTime:   1639996062,
 			},
-			VoterIDs:   []string{"voter1"},
+			VoterIDs:   []types.NaraID{types.NaraID("voter1")},
 			Signatures: []string{"sig1"},
 			Round:      1,
 		},
@@ -145,7 +147,7 @@ func TestCheckpointCutoffBoundary(t *testing.T) {
 				TotalUptime: 1000,
 				StartTime:   time.Now().Unix(),
 			},
-			VoterIDs:   []string{"voter1"},
+			VoterIDs:   []types.NaraID{types.NaraID("voter1")},
 			Signatures: []string{"sig1"},
 			Round:      1,
 		},

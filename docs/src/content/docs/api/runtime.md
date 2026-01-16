@@ -91,7 +91,7 @@ import "github.com/eljojo/nara/runtime"
   - [func \(k \*MockKeypair\) Seal\(plaintext \[\]byte\) \(nonce, ciphertext \[\]byte, err error\)](<#MockKeypair.Seal>)
   - [func \(k \*MockKeypair\) Sign\(data \[\]byte\) \[\]byte](<#MockKeypair.Sign>)
 - [type MockRuntime](<#MockRuntime>)
-  - [func NewMockRuntime\(t \*testing.T, name, id string\) \*MockRuntime](<#NewMockRuntime>)
+  - [func NewMockRuntime\(t \*testing.T, name types.NaraName, id types.NaraID\) \*MockRuntime](<#NewMockRuntime>)
   - [func \(m \*MockRuntime\) Clear\(\)](<#MockRuntime.Clear>)
   - [func \(m \*MockRuntime\) Deliver\(msg \*Message\)](<#MockRuntime.Deliver>)
   - [func \(m \*MockRuntime\) Emit\(msg \*Message\) error](<#MockRuntime.Emit>)
@@ -100,15 +100,15 @@ import "github.com/eljojo/nara/runtime"
   - [func \(m \*MockRuntime\) Env\(\) Environment](<#MockRuntime.Env>)
   - [func \(m \*MockRuntime\) LastEmitted\(\) \*Message](<#MockRuntime.LastEmitted>)
   - [func \(m \*MockRuntime\) Log\(service string\) \*ServiceLog](<#MockRuntime.Log>)
-  - [func \(m \*MockRuntime\) LookupPublicKey\(id string\) \[\]byte](<#MockRuntime.LookupPublicKey>)
-  - [func \(m \*MockRuntime\) LookupPublicKeyByName\(name string\) \[\]byte](<#MockRuntime.LookupPublicKeyByName>)
+  - [func \(m \*MockRuntime\) LookupPublicKey\(id types.NaraID\) \[\]byte](<#MockRuntime.LookupPublicKey>)
+  - [func \(m \*MockRuntime\) LookupPublicKeyByName\(name types.NaraName\) \[\]byte](<#MockRuntime.LookupPublicKeyByName>)
   - [func \(m \*MockRuntime\) Me\(\) \*Nara](<#MockRuntime.Me>)
-  - [func \(m \*MockRuntime\) MeID\(\) string](<#MockRuntime.MeID>)
+  - [func \(m \*MockRuntime\) MeID\(\) types.NaraID](<#MockRuntime.MeID>)
   - [func \(m \*MockRuntime\) MemoryMode\(\) string](<#MockRuntime.MemoryMode>)
   - [func \(m \*MockRuntime\) OnlinePeers\(\) \[\]\*PeerInfo](<#MockRuntime.OnlinePeers>)
   - [func \(m \*MockRuntime\) Open\(nonce, ciphertext \[\]byte\) \(\[\]byte, error\)](<#MockRuntime.Open>)
   - [func \(m \*MockRuntime\) RegisterBehavior\(b \*Behavior\)](<#MockRuntime.RegisterBehavior>)
-  - [func \(m \*MockRuntime\) RegisterPublicKey\(id string, key \[\]byte\)](<#MockRuntime.RegisterPublicKey>)
+  - [func \(m \*MockRuntime\) RegisterPublicKey\(id types.NaraID, key \[\]byte\)](<#MockRuntime.RegisterPublicKey>)
   - [func \(m \*MockRuntime\) Seal\(plaintext \[\]byte\) \(nonce, ciphertext \[\]byte, err error\)](<#MockRuntime.Seal>)
   - [func \(m \*MockRuntime\) Stop\(\)](<#MockRuntime.Stop>)
   - [func \(m \*MockRuntime\) StorageLimit\(\) int](<#MockRuntime.StorageLimit>)
@@ -145,15 +145,15 @@ import "github.com/eljojo/nara/runtime"
   - [func \(rt \*Runtime\) Emit\(msg \*Message\) error](<#Runtime.Emit>)
   - [func \(rt \*Runtime\) Env\(\) Environment](<#Runtime.Env>)
   - [func \(rt \*Runtime\) Log\(service string\) \*ServiceLog](<#Runtime.Log>)
-  - [func \(rt \*Runtime\) LookupPublicKey\(id string\) \[\]byte](<#Runtime.LookupPublicKey>)
-  - [func \(rt \*Runtime\) LookupPublicKeyByName\(name string\) \[\]byte](<#Runtime.LookupPublicKeyByName>)
+  - [func \(rt \*Runtime\) LookupPublicKey\(id types.NaraID\) \[\]byte](<#Runtime.LookupPublicKey>)
+  - [func \(rt \*Runtime\) LookupPublicKeyByName\(name types.NaraName\) \[\]byte](<#Runtime.LookupPublicKeyByName>)
   - [func \(rt \*Runtime\) Me\(\) \*Nara](<#Runtime.Me>)
-  - [func \(rt \*Runtime\) MeID\(\) string](<#Runtime.MeID>)
+  - [func \(rt \*Runtime\) MeID\(\) types.NaraID](<#Runtime.MeID>)
   - [func \(rt \*Runtime\) MemoryMode\(\) string](<#Runtime.MemoryMode>)
   - [func \(rt \*Runtime\) OnlinePeers\(\) \[\]\*PeerInfo](<#Runtime.OnlinePeers>)
   - [func \(rt \*Runtime\) Open\(nonce, ciphertext \[\]byte\) \(\[\]byte, error\)](<#Runtime.Open>)
   - [func \(rt \*Runtime\) Receive\(raw \[\]byte\) error](<#Runtime.Receive>)
-  - [func \(rt \*Runtime\) RegisterPublicKey\(id string, key \[\]byte\)](<#Runtime.RegisterPublicKey>)
+  - [func \(rt \*Runtime\) RegisterPublicKey\(id types.NaraID, key \[\]byte\)](<#Runtime.RegisterPublicKey>)
   - [func \(rt \*Runtime\) Seal\(plaintext \[\]byte\) \(nonce, ciphertext \[\]byte, err error\)](<#Runtime.Seal>)
   - [func \(rt \*Runtime\) Start\(\) error](<#Runtime.Start>)
   - [func \(rt \*Runtime\) Stop\(\) error](<#Runtime.Stop>)
@@ -278,7 +278,7 @@ func ClearRegistry()
 ClearRegistry clears all registered behaviors \(for testing only\).
 
 <a name="ComputeID"></a>
-## func [ComputeID](<https://github.com/eljojo/nara/blob/main/runtime/message.go#L42>)
+## func [ComputeID](<https://github.com/eljojo/nara/blob/main/runtime/message.go#L43>)
 
 ```go
 func ComputeID(msg *Message) string
@@ -481,7 +481,7 @@ func (b *Behavior) WithRateLimit(stage Stage) *Behavior
 WithRateLimit adds rate limiting to the receive pipeline.
 
 <a name="BehaviorRegistrar"></a>
-## type [BehaviorRegistrar](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L161-L163>)
+## type [BehaviorRegistrar](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L166-L168>)
 
 BehaviorRegistrar is optionally implemented by services that register behaviors.
 
@@ -492,7 +492,7 @@ type BehaviorRegistrar interface {
 ```
 
 <a name="BehaviorRegistry"></a>
-## type [BehaviorRegistry](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L168-L170>)
+## type [BehaviorRegistry](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L173-L175>)
 
 BehaviorRegistry is optionally implemented by runtimes that support local behavior registration. The mock runtime implements this to allow per\-runtime behavior registration \(for tests\). The real runtime may delegate to the global registry.
 
@@ -503,7 +503,7 @@ type BehaviorRegistry interface {
 ```
 
 <a name="CallRegistry"></a>
-## type [CallRegistry](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L173-L176>)
+## type [CallRegistry](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L178-L181>)
 
 CallRegistry manages pending Call requests \(Chapter 3\).
 
@@ -514,7 +514,7 @@ type CallRegistry struct {
 ```
 
 <a name="CallRegistry.Cancel"></a>
-### func \(\*CallRegistry\) [Cancel](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L192>)
+### func \(\*CallRegistry\) [Cancel](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L197>)
 
 ```go
 func (r *CallRegistry) Cancel(id string)
@@ -523,7 +523,7 @@ func (r *CallRegistry) Cancel(id string)
 
 
 <a name="CallRegistry.Register"></a>
-### func \(\*CallRegistry\) [Register](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L183>)
+### func \(\*CallRegistry\) [Register](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L188>)
 
 ```go
 func (r *CallRegistry) Register(id string, ch chan CallResult, timeout time.Duration)
@@ -532,7 +532,7 @@ func (r *CallRegistry) Register(id string, ch chan CallResult, timeout time.Dura
 
 
 <a name="CallRegistry.Resolve"></a>
-### func \(\*CallRegistry\) [Resolve](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L187>)
+### func \(\*CallRegistry\) [Resolve](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L192>)
 
 ```go
 func (r *CallRegistry) Resolve(inReplyTo string, response *Message) bool
@@ -541,7 +541,7 @@ func (r *CallRegistry) Resolve(inReplyTo string, response *Message) bool
 
 
 <a name="CallResult"></a>
-## type [CallResult](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L142-L145>)
+## type [CallResult](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L147-L150>)
 
 CallResult is returned by CallAsync \(Chapter 3\).
 
@@ -714,7 +714,7 @@ type EmitBehavior struct {
 ```
 
 <a name="Environment"></a>
-## type [Environment](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L103>)
+## type [Environment](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L108>)
 
 Environment enum for runtime behavior.
 
@@ -756,7 +756,7 @@ const (
 ```
 
 <a name="EventBusInterface"></a>
-## type [EventBusInterface](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L80-L83>)
+## type [EventBusInterface](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L84-L87>)
 
 EventBusInterface is what notification stages use.
 
@@ -768,7 +768,7 @@ type EventBusInterface interface {
 ```
 
 <a name="GossipQueueInterface"></a>
-## type [GossipQueueInterface](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L59-L61>)
+## type [GossipQueueInterface](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L63-L65>)
 
 GossipQueueInterface is what gossip stages use.
 
@@ -866,7 +866,7 @@ func (s *ImportanceFilterStage) Process(msg *Message, ctx *PipelineContext) Stag
 
 
 <a name="KeypairInterface"></a>
-## type [KeypairInterface](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L71-L77>)
+## type [KeypairInterface](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L75-L81>)
 
 KeypairInterface is what sign stages use.
 
@@ -881,7 +881,7 @@ type KeypairInterface interface {
 ```
 
 <a name="LedgerInterface"></a>
-## type [LedgerInterface](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L46-L50>)
+## type [LedgerInterface](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L50-L54>)
 
 LedgerInterface is what store stages use.
 
@@ -894,7 +894,7 @@ type LedgerInterface interface {
 ```
 
 <a name="Logger"></a>
-## type [Logger](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L137-L139>)
+## type [Logger](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L142-L144>)
 
 Logger is the central logging coordinator \(owned by Runtime\).
 
@@ -964,7 +964,7 @@ func (s *MeshOnlyStage) Process(msg *Message, ctx *PipelineContext) StageResult
 
 
 <a name="Message"></a>
-## type [Message](<https://github.com/eljojo/nara/blob/main/runtime/message.go#L16-L36>)
+## type [Message](<https://github.com/eljojo/nara/blob/main/runtime/message.go#L17-L37>)
 
 Message is the universal primitive for all communication in Nara.
 
@@ -973,15 +973,15 @@ Everything that flows through the system is a Message: stored events, ephemeral 
 ```go
 type Message struct {
     // Core identity (always present)
-    ID         string    // Unique envelope identifier (always unique per message instance)
-    ContentKey string    // Semantic identity for dedup (optional, stable across observers)
-    Kind       string    // Message type: "hey-there", "observation:restart", "checkpoint", etc.
-    Version    int       // Schema version for this kind (default 1, increment on breaking changes)
-    From       string    // Sender name (for display)
-    FromID     string    // Sender nara ID (primary identifier)
-    To         string    // Target name (for direct messages, display only)
-    ToID       string    // Target nara ID (for direct messages, primary identifier)
-    Timestamp  time.Time // When it was created
+    ID         string         // Unique envelope identifier (always unique per message instance)
+    ContentKey string         // Semantic identity for dedup (optional, stable across observers)
+    Kind       string         // Message type: "hey-there", "observation:restart", "checkpoint", etc.
+    Version    int            // Schema version for this kind (default 1, increment on breaking changes)
+    From       types.NaraName // Sender name (for display)
+    FromID     types.NaraID   // Sender nara ID (primary identifier)
+    To         types.NaraName // Target name (for direct messages, display only)
+    ToID       types.NaraID   // Target nara ID (for direct messages, primary identifier)
+    Timestamp  time.Time      // When it was created
 
     // Content
     Payload any // Kind-specific data (Go struct, runtime handles serialization)
@@ -995,7 +995,7 @@ type Message struct {
 ```
 
 <a name="Message.Marshal"></a>
-### func \(\*Message\) [Marshal](<https://github.com/eljojo/nara/blob/main/runtime/message.go#L93>)
+### func \(\*Message\) [Marshal](<https://github.com/eljojo/nara/blob/main/runtime/message.go#L94>)
 
 ```go
 func (m *Message) Marshal() []byte
@@ -1004,7 +1004,7 @@ func (m *Message) Marshal() []byte
 Marshal serializes the message for network transport.
 
 <a name="Message.Reply"></a>
-### func \(\*Message\) [Reply](<https://github.com/eljojo/nara/blob/main/runtime/message.go#L102>)
+### func \(\*Message\) [Reply](<https://github.com/eljojo/nara/blob/main/runtime/message.go#L103>)
 
 ```go
 func (m *Message) Reply(kind string, payload any) *Message
@@ -1015,7 +1015,7 @@ Reply creates a response message linked to the original.
 Automatically sets InReplyTo, ToID, and swaps the direction. Used for request/response patterns \(Chapter 3\).
 
 <a name="Message.SignableContent"></a>
-### func \(\*Message\) [SignableContent](<https://github.com/eljojo/nara/blob/main/runtime/message.go#L60>)
+### func \(\*Message\) [SignableContent](<https://github.com/eljojo/nara/blob/main/runtime/message.go#L61>)
 
 ```go
 func (m *Message) SignableContent() []byte
@@ -1026,7 +1026,7 @@ SignableContent returns the canonical bytes to be signed.
 This ensures consistent signing across the network.
 
 <a name="Message.VerifySignature"></a>
-### func \(\*Message\) [VerifySignature](<https://github.com/eljojo/nara/blob/main/runtime/message.go#L82>)
+### func \(\*Message\) [VerifySignature](<https://github.com/eljojo/nara/blob/main/runtime/message.go#L83>)
 
 ```go
 func (m *Message) VerifySignature(pubKey []byte) bool
@@ -1035,7 +1035,7 @@ func (m *Message) VerifySignature(pubKey []byte) bool
 VerifySignature checks if the signature is valid for this message.
 
 <a name="MockKeypair"></a>
-## type [MockKeypair](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L227-L230>)
+## type [MockKeypair](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L221-L224>)
 
 MockKeypair is a fake keypair for testing.
 
@@ -1046,7 +1046,7 @@ type MockKeypair struct {
 ```
 
 <a name="NewMockKeypair"></a>
-### func [NewMockKeypair](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L233>)
+### func [NewMockKeypair](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L227>)
 
 ```go
 func NewMockKeypair() *MockKeypair
@@ -1055,7 +1055,7 @@ func NewMockKeypair() *MockKeypair
 NewMockKeypair creates a new mock keypair.
 
 <a name="MockKeypair.Open"></a>
-### func \(\*MockKeypair\) [Open](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L278>)
+### func \(\*MockKeypair\) [Open](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L271>)
 
 ```go
 func (k *MockKeypair) Open(nonce, ciphertext []byte) ([]byte, error)
@@ -1064,7 +1064,7 @@ func (k *MockKeypair) Open(nonce, ciphertext []byte) ([]byte, error)
 Open decrypts ciphertext using XChaCha20\-Poly1305.
 
 <a name="MockKeypair.PublicKey"></a>
-### func \(\*MockKeypair\) [PublicKey](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L245>)
+### func \(\*MockKeypair\) [PublicKey](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L239>)
 
 ```go
 func (k *MockKeypair) PublicKey() []byte
@@ -1073,7 +1073,7 @@ func (k *MockKeypair) PublicKey() []byte
 
 
 <a name="MockKeypair.Seal"></a>
-### func \(\*MockKeypair\) [Seal](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L261>)
+### func \(\*MockKeypair\) [Seal](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L244>)
 
 ```go
 func (k *MockKeypair) Seal(plaintext []byte) (nonce, ciphertext []byte, err error)
@@ -1082,7 +1082,7 @@ func (k *MockKeypair) Seal(plaintext []byte) (nonce, ciphertext []byte, err erro
 Seal encrypts plaintext using XChaCha20\-Poly1305.
 
 <a name="MockKeypair.Sign"></a>
-### func \(\*MockKeypair\) [Sign](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L241>)
+### func \(\*MockKeypair\) [Sign](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L235>)
 
 ```go
 func (k *MockKeypair) Sign(data []byte) []byte
@@ -1108,13 +1108,13 @@ type MockRuntime struct {
 ### func [NewMockRuntime](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L34>)
 
 ```go
-func NewMockRuntime(t *testing.T, name, id string) *MockRuntime
+func NewMockRuntime(t *testing.T, name types.NaraName, id types.NaraID) *MockRuntime
 ```
 
 NewMockRuntime creates a mock runtime with auto\-cleanup via t.Cleanup\(\).
 
 <a name="MockRuntime.Clear"></a>
-### func \(\*MockRuntime\) [Clear](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L220>)
+### func \(\*MockRuntime\) [Clear](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L214>)
 
 ```go
 func (m *MockRuntime) Clear()
@@ -1123,7 +1123,7 @@ func (m *MockRuntime) Clear()
 Clear clears all captured messages.
 
 <a name="MockRuntime.Deliver"></a>
-### func \(\*MockRuntime\) [Deliver](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L144>)
+### func \(\*MockRuntime\) [Deliver](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L138>)
 
 ```go
 func (m *MockRuntime) Deliver(msg *Message)
@@ -1143,7 +1143,7 @@ func (m *MockRuntime) Emit(msg *Message) error
 Emit captures messages for test assertions.
 
 <a name="MockRuntime.EmittedCount"></a>
-### func \(\*MockRuntime\) [EmittedCount](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L196>)
+### func \(\*MockRuntime\) [EmittedCount](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L190>)
 
 ```go
 func (m *MockRuntime) EmittedCount() int
@@ -1152,7 +1152,7 @@ func (m *MockRuntime) EmittedCount() int
 EmittedCount returns the number of emitted messages.
 
 <a name="MockRuntime.EmittedOfKind"></a>
-### func \(\*MockRuntime\) [EmittedOfKind](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L209>)
+### func \(\*MockRuntime\) [EmittedOfKind](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L203>)
 
 ```go
 func (m *MockRuntime) EmittedOfKind(kind string) []*Message
@@ -1161,7 +1161,7 @@ func (m *MockRuntime) EmittedOfKind(kind string) []*Message
 EmittedOfKind returns all emitted messages of a given kind.
 
 <a name="MockRuntime.Env"></a>
-### func \(\*MockRuntime\) [Env](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L113>)
+### func \(\*MockRuntime\) [Env](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L107>)
 
 ```go
 func (m *MockRuntime) Env() Environment
@@ -1170,7 +1170,7 @@ func (m *MockRuntime) Env() Environment
 
 
 <a name="MockRuntime.LastEmitted"></a>
-### func \(\*MockRuntime\) [LastEmitted](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L201>)
+### func \(\*MockRuntime\) [LastEmitted](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L195>)
 
 ```go
 func (m *MockRuntime) LastEmitted() *Message
@@ -1179,7 +1179,7 @@ func (m *MockRuntime) LastEmitted() *Message
 LastEmitted returns the most recently emitted message.
 
 <a name="MockRuntime.Log"></a>
-### func \(\*MockRuntime\) [Log](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L106>)
+### func \(\*MockRuntime\) [Log](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L100>)
 
 ```go
 func (m *MockRuntime) Log(service string) *ServiceLog
@@ -1191,7 +1191,7 @@ func (m *MockRuntime) Log(service string) *ServiceLog
 ### func \(\*MockRuntime\) [LookupPublicKey](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L69>)
 
 ```go
-func (m *MockRuntime) LookupPublicKey(id string) []byte
+func (m *MockRuntime) LookupPublicKey(id types.NaraID) []byte
 ```
 
 
@@ -1200,7 +1200,7 @@ func (m *MockRuntime) LookupPublicKey(id string) []byte
 ### func \(\*MockRuntime\) [LookupPublicKeyByName](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L73>)
 
 ```go
-func (m *MockRuntime) LookupPublicKeyByName(name string) []byte
+func (m *MockRuntime) LookupPublicKeyByName(name types.NaraName) []byte
 ```
 
 
@@ -1218,13 +1218,13 @@ func (m *MockRuntime) Me() *Nara
 ### func \(\*MockRuntime\) [MeID](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L65>)
 
 ```go
-func (m *MockRuntime) MeID() string
+func (m *MockRuntime) MeID() types.NaraID
 ```
 
 
 
 <a name="MockRuntime.MemoryMode"></a>
-### func \(\*MockRuntime\) [MemoryMode](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L121>)
+### func \(\*MockRuntime\) [MemoryMode](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L115>)
 
 ```go
 func (m *MockRuntime) MemoryMode() string
@@ -1233,7 +1233,7 @@ func (m *MockRuntime) MemoryMode() string
 
 
 <a name="MockRuntime.OnlinePeers"></a>
-### func \(\*MockRuntime\) [OnlinePeers](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L117>)
+### func \(\*MockRuntime\) [OnlinePeers](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L111>)
 
 ```go
 func (m *MockRuntime) OnlinePeers() []*PeerInfo
@@ -1242,16 +1242,16 @@ func (m *MockRuntime) OnlinePeers() []*PeerInfo
 
 
 <a name="MockRuntime.Open"></a>
-### func \(\*MockRuntime\) [Open](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L135>)
+### func \(\*MockRuntime\) [Open](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L129>)
 
 ```go
 func (m *MockRuntime) Open(nonce, ciphertext []byte) ([]byte, error)
 ```
 
-Open decrypts ciphertext using the mock keypair.
+Open decrypts ciphertext using the keypair.
 
 <a name="MockRuntime.RegisterBehavior"></a>
-### func \(\*MockRuntime\) [RegisterBehavior](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L183>)
+### func \(\*MockRuntime\) [RegisterBehavior](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L177>)
 
 ```go
 func (m *MockRuntime) RegisterBehavior(b *Behavior)
@@ -1263,22 +1263,22 @@ RegisterBehavior allows tests to register behaviors manually.
 ### func \(\*MockRuntime\) [RegisterPublicKey](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L78>)
 
 ```go
-func (m *MockRuntime) RegisterPublicKey(id string, key []byte)
+func (m *MockRuntime) RegisterPublicKey(id types.NaraID, key []byte)
 ```
 
 
 
 <a name="MockRuntime.Seal"></a>
-### func \(\*MockRuntime\) [Seal](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L130>)
+### func \(\*MockRuntime\) [Seal](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L124>)
 
 ```go
 func (m *MockRuntime) Seal(plaintext []byte) (nonce, ciphertext []byte, err error)
 ```
 
-Seal encrypts plaintext using the mock keypair.
+Seal encrypts plaintext using the keypair.
 
 <a name="MockRuntime.Stop"></a>
-### func \(\*MockRuntime\) [Stop](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L188>)
+### func \(\*MockRuntime\) [Stop](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L182>)
 
 ```go
 func (m *MockRuntime) Stop()
@@ -1287,7 +1287,7 @@ func (m *MockRuntime) Stop()
 Stop cleans up the mock runtime.
 
 <a name="MockRuntime.StorageLimit"></a>
-### func \(\*MockRuntime\) [StorageLimit](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L125>)
+### func \(\*MockRuntime\) [StorageLimit](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L119>)
 
 ```go
 func (m *MockRuntime) StorageLimit() int
@@ -1296,7 +1296,7 @@ func (m *MockRuntime) StorageLimit() int
 
 
 <a name="MockRuntime.Subscribe"></a>
-### func \(\*MockRuntime\) [Subscribe](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L178>)
+### func \(\*MockRuntime\) [Subscribe](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L172>)
 
 ```go
 func (m *MockRuntime) Subscribe(kind string, handler func(*Message))
@@ -1305,21 +1305,21 @@ func (m *MockRuntime) Subscribe(kind string, handler func(*Message))
 Subscribe registers a handler for a message kind.
 
 <a name="Nara"></a>
-## type [Nara](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L95-L98>)
+## type [Nara](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L100-L103>)
 
 Nara represents a network participant.
 
-The full Nara struct will be migrated in Chapter 2.
+Notice there's also Nara struct in nara.go The full Nara struct will be migrated in Chapter 2.
 
 ```go
 type Nara struct {
-    ID   string
-    Name string
+    ID   types.NaraID
+    Name types.NaraName
 }
 ```
 
 <a name="NetworkInfoInterface"></a>
-## type [NetworkInfoInterface](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L64-L68>)
+## type [NetworkInfoInterface](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L68-L72>)
 
 NetworkInfoInterface provides network and peer information.
 
@@ -1484,20 +1484,20 @@ func (s *NotifyStage) Process(msg *Message, ctx *PipelineContext) StageResult
 
 
 <a name="PeerInfo"></a>
-## type [PeerInfo](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L39-L43>)
+## type [PeerInfo](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L43-L47>)
 
 PeerInfo contains information about a network peer.
 
 ```go
 type PeerInfo struct {
-    ID     string
-    Name   string
+    ID     types.NaraID
+    Name   types.NaraName
     Uptime time.Duration
 }
 ```
 
 <a name="Personality"></a>
-## type [Personality](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L86-L90>)
+## type [Personality](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L90-L94>)
 
 Personality affects filtering behavior.
 
@@ -1589,7 +1589,7 @@ type ReceiveBehavior struct {
 ```
 
 <a name="Runtime"></a>
-## type [Runtime](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L17-L54>)
+## type [Runtime](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L18-L55>)
 
 Runtime is the core execution environment for services.
 
@@ -1602,7 +1602,7 @@ type Runtime struct {
 ```
 
 <a name="NewRuntime"></a>
-### func [NewRuntime](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L70>)
+### func [NewRuntime](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L71>)
 
 ```go
 func NewRuntime(cfg RuntimeConfig) *Runtime
@@ -1611,7 +1611,7 @@ func NewRuntime(cfg RuntimeConfig) *Runtime
 NewRuntime creates a new runtime with the given configuration.
 
 <a name="Runtime.AddService"></a>
-### func \(\*Runtime\) [AddService](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L496>)
+### func \(\*Runtime\) [AddService](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L498>)
 
 ```go
 func (rt *Runtime) AddService(svc Service) error
@@ -1620,7 +1620,7 @@ func (rt *Runtime) AddService(svc Service) error
 AddService registers a service with the runtime.
 
 <a name="Runtime.Emit"></a>
-### func \(\*Runtime\) [Emit](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L188>)
+### func \(\*Runtime\) [Emit](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L189>)
 
 ```go
 func (rt *Runtime) Emit(msg *Message) error
@@ -1629,7 +1629,7 @@ func (rt *Runtime) Emit(msg *Message) error
 Emit sends a message through the emit pipeline.
 
 <a name="Runtime.Env"></a>
-### func \(\*Runtime\) [Env](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L141>)
+### func \(\*Runtime\) [Env](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L142>)
 
 ```go
 func (rt *Runtime) Env() Environment
@@ -1638,7 +1638,7 @@ func (rt *Runtime) Env() Environment
 Env returns the runtime environment.
 
 <a name="Runtime.Log"></a>
-### func \(\*Runtime\) [Log](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L133>)
+### func \(\*Runtime\) [Log](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L134>)
 
 ```go
 func (rt *Runtime) Log(service string) *ServiceLog
@@ -1647,25 +1647,25 @@ func (rt *Runtime) Log(service string) *ServiceLog
 Log returns a logger scoped to the given service.
 
 <a name="Runtime.LookupPublicKey"></a>
-### func \(\*Runtime\) [LookupPublicKey](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L116>)
+### func \(\*Runtime\) [LookupPublicKey](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L117>)
 
 ```go
-func (rt *Runtime) LookupPublicKey(id string) []byte
+func (rt *Runtime) LookupPublicKey(id types.NaraID) []byte
 ```
 
 LookupPublicKey looks up a public key by nara ID.
 
 <a name="Runtime.LookupPublicKeyByName"></a>
-### func \(\*Runtime\) [LookupPublicKeyByName](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L122>)
+### func \(\*Runtime\) [LookupPublicKeyByName](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L123>)
 
 ```go
-func (rt *Runtime) LookupPublicKeyByName(name string) []byte
+func (rt *Runtime) LookupPublicKeyByName(name types.NaraName) []byte
 ```
 
 LookupPublicKeyByName looks up a public key by nara name.
 
 <a name="Runtime.Me"></a>
-### func \(\*Runtime\) [Me](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L103>)
+### func \(\*Runtime\) [Me](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L104>)
 
 ```go
 func (rt *Runtime) Me() *Nara
@@ -1674,16 +1674,16 @@ func (rt *Runtime) Me() *Nara
 Me returns the local nara.
 
 <a name="Runtime.MeID"></a>
-### func \(\*Runtime\) [MeID](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L108>)
+### func \(\*Runtime\) [MeID](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L109>)
 
 ```go
-func (rt *Runtime) MeID() string
+func (rt *Runtime) MeID() types.NaraID
 ```
 
 MeID returns the local nara's ID.
 
 <a name="Runtime.MemoryMode"></a>
-### func \(\*Runtime\) [MemoryMode](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L154>)
+### func \(\*Runtime\) [MemoryMode](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L155>)
 
 ```go
 func (rt *Runtime) MemoryMode() string
@@ -1692,7 +1692,7 @@ func (rt *Runtime) MemoryMode() string
 MemoryMode returns the current memory mode \(low/medium/high\).
 
 <a name="Runtime.OnlinePeers"></a>
-### func \(\*Runtime\) [OnlinePeers](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L146>)
+### func \(\*Runtime\) [OnlinePeers](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L147>)
 
 ```go
 func (rt *Runtime) OnlinePeers() []*PeerInfo
@@ -1701,7 +1701,7 @@ func (rt *Runtime) OnlinePeers() []*PeerInfo
 OnlinePeers returns a list of currently online peers.
 
 <a name="Runtime.Open"></a>
-### func \(\*Runtime\) [Open](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L178>)
+### func \(\*Runtime\) [Open](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L179>)
 
 ```go
 func (rt *Runtime) Open(nonce, ciphertext []byte) ([]byte, error)
@@ -1710,7 +1710,7 @@ func (rt *Runtime) Open(nonce, ciphertext []byte) ([]byte, error)
 Open decrypts ciphertext using the runtime's keypair.
 
 <a name="Runtime.Receive"></a>
-### func \(\*Runtime\) [Receive](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L235>)
+### func \(\*Runtime\) [Receive](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L236>)
 
 ```go
 func (rt *Runtime) Receive(raw []byte) error
@@ -1719,16 +1719,16 @@ func (rt *Runtime) Receive(raw []byte) error
 Receive processes an incoming message through the receive pipeline.
 
 <a name="Runtime.RegisterPublicKey"></a>
-### func \(\*Runtime\) [RegisterPublicKey](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L128>)
+### func \(\*Runtime\) [RegisterPublicKey](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L129>)
 
 ```go
-func (rt *Runtime) RegisterPublicKey(id string, key []byte)
+func (rt *Runtime) RegisterPublicKey(id types.NaraID, key []byte)
 ```
 
 RegisterPublicKey registers a public key for a nara ID.
 
 <a name="Runtime.Seal"></a>
-### func \(\*Runtime\) [Seal](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L170>)
+### func \(\*Runtime\) [Seal](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L171>)
 
 ```go
 func (rt *Runtime) Seal(plaintext []byte) (nonce, ciphertext []byte, err error)
@@ -1737,7 +1737,7 @@ func (rt *Runtime) Seal(plaintext []byte) (nonce, ciphertext []byte, err error)
 Seal encrypts plaintext using the runtime's keypair.
 
 <a name="Runtime.Start"></a>
-### func \(\*Runtime\) [Start](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L508>)
+### func \(\*Runtime\) [Start](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L510>)
 
 ```go
 func (rt *Runtime) Start() error
@@ -1746,7 +1746,7 @@ func (rt *Runtime) Start() error
 Start starts all services.
 
 <a name="Runtime.Stop"></a>
-### func \(\*Runtime\) [Stop](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L525>)
+### func \(\*Runtime\) [Stop](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L527>)
 
 ```go
 func (rt *Runtime) Stop() error
@@ -1755,7 +1755,7 @@ func (rt *Runtime) Stop() error
 Stop stops all services.
 
 <a name="Runtime.StorageLimit"></a>
-### func \(\*Runtime\) [StorageLimit](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L162>)
+### func \(\*Runtime\) [StorageLimit](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L163>)
 
 ```go
 func (rt *Runtime) StorageLimit() int
@@ -1764,7 +1764,7 @@ func (rt *Runtime) StorageLimit() int
 StorageLimit returns the maximum number of stashes based on memory mode.
 
 <a name="RuntimeConfig"></a>
-## type [RuntimeConfig](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L57-L67>)
+## type [RuntimeConfig](<https://github.com/eljojo/nara/blob/main/runtime/runtime.go#L58-L68>)
 
 RuntimeConfig is passed to NewRuntime.
 
@@ -1783,7 +1783,7 @@ type RuntimeConfig struct {
 ```
 
 <a name="RuntimeInterface"></a>
-## type [RuntimeInterface](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L9-L36>)
+## type [RuntimeInterface](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L13-L40>)
 
 RuntimeInterface is what services and stages can access.
 
@@ -1793,12 +1793,12 @@ This interface prevents circular dependencies and makes it easy to create mocks 
 type RuntimeInterface interface {
     // Identity
     Me() *Nara
-    MeID() string
+    MeID() types.NaraID
 
     // Public key management
-    LookupPublicKey(id string) []byte
-    LookupPublicKeyByName(name string) []byte
-    RegisterPublicKey(id string, key []byte)
+    LookupPublicKey(id types.NaraID) []byte
+    LookupPublicKeyByName(name types.NaraName) []byte
+    RegisterPublicKey(id types.NaraID, key []byte)
 
     // Messaging
     Emit(msg *Message) error
@@ -1843,7 +1843,7 @@ func (s *SelfAttestingVerifyStage) Process(msg *Message, ctx *PipelineContext) S
 
 
 <a name="Service"></a>
-## type [Service](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L150-L158>)
+## type [Service](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L155-L163>)
 
 Service is what all services implement.
 
@@ -1862,7 +1862,7 @@ type Service interface {
 ```
 
 <a name="ServiceLog"></a>
-## type [ServiceLog](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L114-L117>)
+## type [ServiceLog](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L119-L122>)
 
 ServiceLog is a logger scoped to a specific service.
 
@@ -1875,7 +1875,7 @@ type ServiceLog struct {
 ```
 
 <a name="ServiceLog.Debug"></a>
-### func \(\*ServiceLog\) [Debug](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L120>)
+### func \(\*ServiceLog\) [Debug](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L125>)
 
 ```go
 func (l *ServiceLog) Debug(format string, args ...any)
@@ -1884,7 +1884,7 @@ func (l *ServiceLog) Debug(format string, args ...any)
 Logger methods
 
 <a name="ServiceLog.Error"></a>
-### func \(\*ServiceLog\) [Error](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L132>)
+### func \(\*ServiceLog\) [Error](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L137>)
 
 ```go
 func (l *ServiceLog) Error(format string, args ...any)
@@ -1893,7 +1893,7 @@ func (l *ServiceLog) Error(format string, args ...any)
 
 
 <a name="ServiceLog.Info"></a>
-### func \(\*ServiceLog\) [Info](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L124>)
+### func \(\*ServiceLog\) [Info](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L129>)
 
 ```go
 func (l *ServiceLog) Info(format string, args ...any)
@@ -1902,7 +1902,7 @@ func (l *ServiceLog) Info(format string, args ...any)
 
 
 <a name="ServiceLog.Warn"></a>
-### func \(\*ServiceLog\) [Warn](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L128>)
+### func \(\*ServiceLog\) [Warn](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L133>)
 
 ```go
 func (l *ServiceLog) Warn(format string, args ...any)
@@ -2224,14 +2224,14 @@ func (r StageResult) IsError() bool
 IsError returns true if the result indicates an error.
 
 <a name="TransportInterface"></a>
-## type [TransportInterface](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L53-L56>)
+## type [TransportInterface](<https://github.com/eljojo/nara/blob/main/runtime/interfaces.go#L57-L60>)
 
 TransportInterface is what transport stages use.
 
 ```go
 type TransportInterface interface {
     PublishMQTT(topic string, data []byte) error
-    TrySendDirect(targetID string, msg *Message) error
+    TrySendDirect(targetID types.NaraID, msg *Message) error
 }
 ```
 

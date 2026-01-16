@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eljojo/nara/types"
 	"github.com/sirupsen/logrus"
 )
 
@@ -89,10 +90,10 @@ func TestStashHTTPEndpoints_Integration(t *testing.T) {
 		}
 
 		// Set 3 test confidants
-		nara.Network.stashService.SetConfidants([]string{
-			"confidant-1-id",
-			"confidant-2-id",
-			"confidant-3-id",
+		nara.Network.stashService.SetConfidants([]types.NaraID{
+			types.NaraID("confidant-1-id"),
+			types.NaraID("confidant-2-id"),
+			types.NaraID("confidant-3-id"),
 		})
 	})
 
@@ -267,21 +268,21 @@ func TestStashMinimumConfidants(t *testing.T) {
 	}
 
 	// Test with 0 confidants
-	nara.Network.stashService.SetConfidants([]string{})
+	nara.Network.stashService.SetConfidants([]types.NaraID{})
 	err := nara.Network.stashService.SetStashData([]byte(`{"test": "data"}`))
 	if err == nil {
 		t.Error("Expected error with 0 confidants, got nil")
 	}
 
 	// Test with 1 confidant
-	nara.Network.stashService.SetConfidants([]string{"confidant-1"})
+	nara.Network.stashService.SetConfidants([]types.NaraID{types.NaraID("confidant-1")})
 	err = nara.Network.stashService.SetStashData([]byte(`{"test": "data"}`))
 	if err == nil {
 		t.Error("Expected error with 1 confidant, got nil")
 	}
 
 	// Test with 2 confidants
-	nara.Network.stashService.SetConfidants([]string{"confidant-1", "confidant-2"})
+	nara.Network.stashService.SetConfidants([]types.NaraID{types.NaraID("confidant-1"), types.NaraID("confidant-2")})
 	err = nara.Network.stashService.SetStashData([]byte(`{"test": "data"}`))
 	if err == nil {
 		t.Error("Expected error with 2 confidants, got nil")
@@ -291,10 +292,10 @@ func TestStashMinimumConfidants(t *testing.T) {
 	}
 
 	// Test with 3 confidants - should still error (no real mesh) but different error
-	nara.Network.stashService.SetConfidants([]string{
-		"confidant-1",
-		"confidant-2",
-		"confidant-3",
+	nara.Network.stashService.SetConfidants([]types.NaraID{
+		types.NaraID("confidant-1"),
+		types.NaraID("confidant-2"),
+		types.NaraID("confidant-3"),
 	})
 	err = nara.Network.stashService.SetStashData([]byte(`{"test": "data"}`))
 	// This will fail because confidants aren't real, but it should NOT be the "minimum 3" error

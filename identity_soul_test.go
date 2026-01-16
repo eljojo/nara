@@ -2,6 +2,7 @@ package nara
 
 import (
 	"encoding/hex"
+	"github.com/eljojo/nara/types"
 	"testing"
 )
 
@@ -123,7 +124,7 @@ func TestNativeSoulGenerated(t *testing.T) {
 	}
 
 	// The soul should be valid for its generated name
-	if !ValidateBond(soul1, name1) {
+	if !ValidateBond(soul1, types.NaraName(name1)) {
 		t.Error("Generated soul should be valid for its derived name")
 	}
 }
@@ -161,7 +162,7 @@ func TestCrossHardwareValidity(t *testing.T) {
 func TestDetermineIdentityCustomName(t *testing.T) {
 	t.Parallel()
 	// ./nara -name jojo on HW1
-	result := DetermineIdentity("jojo", "", "nixos", hw1)
+	result := DetermineIdentity(types.NaraName("jojo"), "", "nixos", hw1)
 
 	if result.Name != "jojo" {
 		t.Errorf("Expected name 'jojo', got '%s'", result.Name)
@@ -175,7 +176,7 @@ func TestDetermineIdentityCustomName(t *testing.T) {
 
 	// Same soul should work on HW2 (foreign but valid)
 	soulStr := FormatSoul(result.Soul)
-	result2 := DetermineIdentity("jojo", soulStr, "nixos", hw2)
+	result2 := DetermineIdentity(types.NaraName("jojo"), soulStr, "nixos", hw2)
 
 	if result2.Name != "jojo" {
 		t.Errorf("Expected name 'jojo', got '%s'", result2.Name)
@@ -233,7 +234,7 @@ func TestDetermineIdentityInvalidSoul(t *testing.T) {
 	wrongSoul := NativeSoulCustom(hw1, "wrongname")
 	wrongSoulStr := FormatSoul(wrongSoul)
 
-	result := DetermineIdentity("jojo", wrongSoulStr, "nixos", hw1)
+	result := DetermineIdentity(types.NaraName("jojo"), wrongSoulStr, "nixos", hw1)
 
 	if result.Name != "jojo" {
 		t.Errorf("Name should still be 'jojo', got '%s'", result.Name)
@@ -266,7 +267,7 @@ func TestGeneratedNameRegexProtection(t *testing.T) {
 	// Soul: random soul not minted for this name
 
 	randomSoul := NativeSoulCustom(hw1, "attacker")
-	result := DetermineIdentity("fuzzy-cat-123", FormatSoul(randomSoul), "nixos", hw1)
+	result := DetermineIdentity(types.NaraName("fuzzy-cat-123"), FormatSoul(randomSoul), "nixos", hw1)
 
 	if result.IsValidBond {
 		t.Error("Generated-style name with wrong soul should be invalid")

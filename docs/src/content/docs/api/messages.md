@@ -51,7 +51,7 @@ When adding a new message type:
 // Version History:
 //   v1 (2024-01): Initial version
 type ExamplePayload struct {
-    ActorID NaraID `json:"actor_id"`           // Primary identifier
+    ActorID NaraID `json:"actor_id"`             // Primary identifier
     Actor   NaraName `json:"actor,omitempty"`    // Display name only
     Data    []byte `json:"data"`
 }
@@ -77,7 +77,7 @@ func (p *ExamplePayload) Validate() error {
 
 
 <a name="StashRefreshPayload"></a>
-## type [StashRefreshPayload](<https://github.com/eljojo/nara/blob/main/messages/stash.go#L137-L143>)
+## type [StashRefreshPayload](<https://github.com/eljojo/nara/blob/main/messages/stash.go#L141-L147>)
 
 StashRefreshPayload triggers stash recovery from confidants.
 
@@ -94,15 +94,15 @@ v1 (2026-01): Initial version
 ```go
 type StashRefreshPayload struct {
     // OwnerID is who wants their stash back
-    OwnerID string `json:"owner_id"`
+    OwnerID types.NaraID `json:"owner_id"`
 
     // Owner is the display name (optional)
-    Owner string `json:"owner,omitempty"`
+    Owner types.NaraName `json:"owner,omitempty"`
 }
 ```
 
 <a name="StashRefreshPayload.Validate"></a>
-### func \(\*StashRefreshPayload\) [Validate](<https://github.com/eljojo/nara/blob/main/messages/stash.go#L146>)
+### func \(\*StashRefreshPayload\) [Validate](<https://github.com/eljojo/nara/blob/main/messages/stash.go#L150>)
 
 ```go
 func (p *StashRefreshPayload) Validate() error
@@ -111,7 +111,7 @@ func (p *StashRefreshPayload) Validate() error
 Validate checks if the payload is well\-formed.
 
 <a name="StashRequestPayload"></a>
-## type [StashRequestPayload](<https://github.com/eljojo/nara/blob/main/messages/stash.go#L79-L85>)
+## type [StashRequestPayload](<https://github.com/eljojo/nara/blob/main/messages/stash.go#L83-L89>)
 
 StashRequestPayload requests stored data from a confidant.
 
@@ -126,7 +126,7 @@ v1 (2026-01): Initial version
 ```go
 type StashRequestPayload struct {
     // OwnerID is who is requesting their stash back
-    OwnerID string `json:"owner_id"`
+    OwnerID types.NaraID `json:"owner_id"`
 
     // RequestID for correlation (optional, for tracking)
     RequestID string `json:"request_id,omitempty"`
@@ -134,7 +134,7 @@ type StashRequestPayload struct {
 ```
 
 <a name="StashRequestPayload.Validate"></a>
-### func \(\*StashRequestPayload\) [Validate](<https://github.com/eljojo/nara/blob/main/messages/stash.go#L88>)
+### func \(\*StashRequestPayload\) [Validate](<https://github.com/eljojo/nara/blob/main/messages/stash.go#L92>)
 
 ```go
 func (p *StashRequestPayload) Validate() error
@@ -143,7 +143,7 @@ func (p *StashRequestPayload) Validate() error
 Validate checks if the payload is well\-formed.
 
 <a name="StashResponsePayload"></a>
-## type [StashResponsePayload](<https://github.com/eljojo/nara/blob/main/messages/stash.go#L104-L122>)
+## type [StashResponsePayload](<https://github.com/eljojo/nara/blob/main/messages/stash.go#L108-L126>)
 
 StashResponsePayload returns stored data to the owner.
 
@@ -158,7 +158,7 @@ v1 (2026-01): Initial version
 ```go
 type StashResponsePayload struct {
     // OwnerID is who the stash belongs to
-    OwnerID string `json:"owner_id"`
+    OwnerID types.NaraID `json:"owner_id"`
 
     // RequestID is echoed from the request (for correlation)
     RequestID string `json:"request_id,omitempty"`
@@ -178,7 +178,7 @@ type StashResponsePayload struct {
 ```
 
 <a name="StashStoreAck"></a>
-## type [StashStoreAck](<https://github.com/eljojo/nara/blob/main/messages/stash.go#L55-L67>)
+## type [StashStoreAck](<https://github.com/eljojo/nara/blob/main/messages/stash.go#L59-L71>)
 
 StashStoreAck acknowledges successful storage of a stash.
 
@@ -193,7 +193,7 @@ v1 (2026-01): Initial version
 ```go
 type StashStoreAck struct {
     // OwnerID is echoed back for correlation
-    OwnerID string `json:"owner_id"`
+    OwnerID types.NaraID `json:"owner_id"`
 
     // StoredAt is when the confidant stored the data (Unix timestamp)
     StoredAt int64 `json:"stored_at"`
@@ -207,7 +207,7 @@ type StashStoreAck struct {
 ```
 
 <a name="StashStorePayload"></a>
-## type [StashStorePayload](<https://github.com/eljojo/nara/blob/main/messages/stash.go#L15-L30>)
+## type [StashStorePayload](<https://github.com/eljojo/nara/blob/main/messages/stash.go#L19-L34>)
 
 StashStorePayload is sent when storing encrypted data with a confidant.
 
@@ -222,10 +222,10 @@ v1 (2026-01): Initial version
 ```go
 type StashStorePayload struct {
     // OwnerID is who the stash belongs to (primary identifier for retrieval)
-    OwnerID string `json:"owner_id"`
+    OwnerID types.NaraID `json:"owner_id"`
 
     // Owner is the display name (optional, for logging/debugging)
-    Owner string `json:"owner,omitempty"`
+    Owner types.NaraName `json:"owner,omitempty"`
 
     // Nonce for XChaCha20-Poly1305 decryption (24 bytes)
     Nonce []byte `json:"nonce"`
@@ -239,7 +239,7 @@ type StashStorePayload struct {
 ```
 
 <a name="StashStorePayload.Validate"></a>
-### func \(\*StashStorePayload\) [Validate](<https://github.com/eljojo/nara/blob/main/messages/stash.go#L33>)
+### func \(\*StashStorePayload\) [Validate](<https://github.com/eljojo/nara/blob/main/messages/stash.go#L37>)
 
 ```go
 func (p *StashStorePayload) Validate() error

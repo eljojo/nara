@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eljojo/nara/types"
 	mqttserver "github.com/mochi-mqtt/server/v2"
 	"github.com/mochi-mqtt/server/v2/hooks/auth"
 	"github.com/mochi-mqtt/server/v2/listeners"
@@ -19,7 +20,7 @@ import (
 // This ensures all test naras have valid keypairs for signing.
 func testSoul(name string) string {
 	hw := hashTestBytes([]byte("test-hardware-" + name))
-	soul := NativeSoulCustom(hw, name)
+	soul := NativeSoulCustom(hw, types.NaraName(name))
 	return FormatSoul(soul)
 }
 
@@ -119,9 +120,9 @@ func testNara(t *testing.T, name string, opts ...TestNaraOption) *LocalNara {
 	var identity IdentityResult
 	if config.soul != "" {
 		parsed, _ := ParseSoul(config.soul)
-		id, _ := ComputeNaraID(config.soul, name)
+		id, _ := ComputeNaraID(config.soul, types.NaraName(name))
 		identity = IdentityResult{
-			Name:        name,
+			Name:        types.NaraName(name),
 			Soul:        parsed,
 			ID:          id,
 			IsValidBond: true,
@@ -191,9 +192,9 @@ func testLocalNaraWithSoul(t *testing.T, name string, soul string) *LocalNara {
 func testIdentity(name string) IdentityResult {
 	soulStr := testSoul(name)
 	parsed, _ := ParseSoul(soulStr)
-	id, _ := ComputeNaraID(soulStr, name)
+	id, _ := ComputeNaraID(soulStr, types.NaraName(name))
 	return IdentityResult{
-		Name:        name,
+		Name:        types.NaraName(name),
 		Soul:        parsed,
 		ID:          id,
 		IsValidBond: true,
@@ -315,13 +316,13 @@ func waitForAllMQTTConnected(t *testing.T, naras []*LocalNara, timeout time.Dura
 
 // waitForCheckpoint blocks until a checkpoint exists for the subject in the ledger, or times out.
 // Returns the checkpoint if found, nil if timed out.
-func waitForCheckpoint(t *testing.T, ledger *SyncLedger, subject string, timeout time.Duration) *CheckpointEventPayload {
+func waitForCheckpoint(t *testing.T, ledger *SyncLedger, subject types.NaraName, timeout time.Duration) *CheckpointEventPayload {
 	t.Helper()
 	var checkpoint *CheckpointEventPayload
 	ok := waitForCondition(t, func() bool {
 		checkpoint = ledger.GetCheckpoint(subject)
 		return checkpoint != nil
-	}, timeout, "checkpoint for "+subject)
+	}, timeout, "checkpoint for "+subject.String())
 	if ok {
 		return checkpoint
 	}
@@ -329,7 +330,7 @@ func waitForCheckpoint(t *testing.T, ledger *SyncLedger, subject string, timeout
 }
 
 // waitForCheckpointPropagation blocks until all naras have the checkpoint for a subject.
-func waitForCheckpointPropagation(t *testing.T, naras []*LocalNara, subject string, timeout time.Duration) bool {
+func waitForCheckpointPropagation(t *testing.T, naras []*LocalNara, subject types.NaraName, timeout time.Duration) bool {
 	t.Helper()
 	return waitForCondition(t, func() bool {
 		for _, ln := range naras {
@@ -415,17 +416,17 @@ func waitForFullDiscovery(t *testing.T, naras []*LocalNara, timeout time.Duratio
 // attester: the nara creating/signing this checkpoint
 // attesterKeypair: the keypair to sign with
 // observation: the checkpoint data (restarts, uptime, start_time)
-func testCheckpointEvent(subject string, attester string, attesterKeypair NaraKeypair, observation NaraObservation) SyncEvent {
+func testCheckpointEvent(subject types.NaraName, attester types.NaraName, attesterKeypair NaraKeypair, observation NaraObservation) SyncEvent {
 	now := time.Now()
 
 	checkpoint := &CheckpointEventPayload{
 		Version:     1,
 		Subject:     subject,
-		SubjectID:   "test-id-" + subject,
+		SubjectID:   types.NaraID("test-id-" + subject.String()),
 		Observation: observation,
 		AsOfTime:    now.Unix(),
 		Round:       1,
-		VoterIDs:    []string{"test-id-" + attester},
+		VoterIDs:    []types.NaraID{types.NaraID("test-id-" + attester.String())},
 	}
 
 	// Create and sign attestation
@@ -435,7 +436,7 @@ func testCheckpointEvent(subject string, attester string, attesterKeypair NaraKe
 		SubjectID:   checkpoint.SubjectID,
 		Observation: checkpoint.Observation,
 		Attester:    attester,
-		AttesterID:  "test-id-" + attester,
+		AttesterID:  types.NaraID("test-id-" + attester.String()),
 		AsOfTime:    checkpoint.AsOfTime,
 	}
 	attestation.Signature = SignContent(&attestation, attesterKeypair)
@@ -446,7 +447,7 @@ func testCheckpointEvent(subject string, attester string, attesterKeypair NaraKe
 		Timestamp:  now.UnixNano(),
 		Service:    ServiceCheckpoint,
 		Emitter:    attester,
-		EmitterID:  "test-id-" + attester,
+		EmitterID:  types.NaraID("test-id-" + attester.String()),
 		Checkpoint: checkpoint,
 	}
 	event.ComputeID()
@@ -456,7 +457,7 @@ func testCheckpointEvent(subject string, attester string, attesterKeypair NaraKe
 }
 
 // testAddCheckpointToLedger creates and adds a checkpoint event to a ledger
-func testAddCheckpointToLedger(ledger *SyncLedger, subject string, attester string, attesterKeypair NaraKeypair, observation NaraObservation) SyncEvent {
+func testAddCheckpointToLedger(ledger *SyncLedger, subject types.NaraName, attester types.NaraName, attesterKeypair NaraKeypair, observation NaraObservation) SyncEvent {
 	event := testCheckpointEvent(subject, attester, attesterKeypair, observation)
 	// Manually add to ledger to avoid deduplication issues in tests
 	ledger.mu.Lock()
@@ -512,7 +513,7 @@ func testCreateMeshNetwork(t *testing.T, names []string, chattiness, ledgerCapac
 
 		// Configure test hooks
 		ln.Network.testHTTPClient = mesh.Client
-		ln.Network.testMeshURLs = make(map[string]string)
+		ln.Network.testMeshURLs = make(map[types.NaraName]string)
 		ln.Network.TransportMode = TransportGossip
 	}
 
@@ -548,7 +549,7 @@ func (m *testMeshNetwork) Get(i int) *LocalNara {
 // GetByName finds a nara by name.
 func (m *testMeshNetwork) GetByName(name string) *LocalNara {
 	for _, ln := range m.Naras {
-		if ln.Me.Name == name {
+		if ln.Me.Name == types.NaraName(name) {
 			return ln
 		}
 	}

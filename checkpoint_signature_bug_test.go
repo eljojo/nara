@@ -68,7 +68,7 @@ func TestCheckpoint_VoteAsOfTimeMismatch(t *testing.T) {
 
 	// Now simulate storing the checkpoint with both signatures
 	checkpoint := &CheckpointEventPayload{
-		Subject:   string(subject),
+		Subject:   subject,
 		SubjectID: proposerID,
 		AsOfTime:  proposalAsOfTime, // Checkpoint uses proposal's AsOfTime
 		Observation: NaraObservation{
@@ -192,7 +192,7 @@ func TestCheckpoint_SignatureFormatMismatch(t *testing.T) {
 
 	// Store checkpoint
 	checkpoint := &CheckpointEventPayload{
-		Subject:   string(subject),
+		Subject:   subject,
 		SubjectID: proposerID,
 		AsOfTime:  asOfTime,
 		Observation: NaraObservation{

@@ -3,17 +3,19 @@ package nara
 import (
 	"testing"
 	"time"
+
+	"github.com/eljojo/nara/types"
 )
 
 // Test that multiple observers reporting the same restart results in single stored event
 func TestObservationDedup_IdenticalRestarts(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 	startTime := int64(1234567890)
 	restartNum := int64(42)
 
 	// Three observers report the same restart
-	observers := []string{"observer-a", "observer-b", "observer-c"}
+	observers := []types.NaraName{types.NaraName("observer-a"), types.NaraName("observer-b"), types.NaraName("observer-c")}
 	for _, observer := range observers {
 		event := NewRestartObservationEvent(observer, subject, startTime, restartNum)
 		ledger.AddEventWithDedup(event)
@@ -38,12 +40,12 @@ func TestObservationDedup_IdenticalRestarts(t *testing.T) {
 // Test that different restart numbers are NOT deduplicated
 func TestObservationDedup_DifferentRestartNumbers(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 	startTime := int64(1234567890)
 
 	// Same observer reports 3 different restarts
 	for i := 0; i < 3; i++ {
-		event := NewRestartObservationEvent("observer-a", subject, startTime, int64(i))
+		event := NewRestartObservationEvent(types.NaraName("observer-a"), subject, startTime, int64(i))
 		ledger.AddEventWithDedup(event)
 	}
 
@@ -71,13 +73,13 @@ func TestObservationDedup_DifferentRestartNumbers(t *testing.T) {
 // Test that different start times are NOT deduplicated
 func TestObservationDedup_DifferentStartTimes(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 	restartNum := int64(5)
 
 	// Three observers report different start times (clock skew or actual different restarts)
 	startTimes := []int64{1234567890, 1234567891, 1234567892}
 	for i, startTime := range startTimes {
-		observer := "observer-" + string(rune('a'+i))
+		observer := types.NaraName("observer-" + string(rune('a'+i)))
 		event := NewRestartObservationEvent(observer, subject, startTime, restartNum)
 		ledger.AddEventWithDedup(event)
 	}
@@ -96,9 +98,9 @@ func TestObservationDedup_DifferentSubjects(t *testing.T) {
 	restartNum := int64(10)
 
 	// Same observer reports same restart for different subjects
-	subjects := []string{"nara-a", "nara-b", "nara-c"}
+	subjects := []types.NaraName{types.NaraName("nara-a"), types.NaraName("nara-b"), types.NaraName("nara-c")}
 	for _, subject := range subjects {
-		event := NewRestartObservationEvent("observer-1", subject, startTime, restartNum)
+		event := NewRestartObservationEvent(types.NaraName("observer-1"), subject, startTime, restartNum)
 		ledger.AddEventWithDedup(event)
 	}
 
@@ -117,22 +119,22 @@ func TestObservationDedup_DifferentSubjects(t *testing.T) {
 // Test that first observer is preserved when deduplicating
 func TestObservationDedup_PreservesFirstObserver(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 	startTime := int64(1234567890)
 	restartNum := int64(15)
 
 	// First observer reports
-	event1 := NewRestartObservationEvent("alice", subject, startTime, restartNum)
+	event1 := NewRestartObservationEvent(types.NaraName("alice"), subject, startTime, restartNum)
 	time.Sleep(1 * time.Millisecond)
 	ledger.AddEventWithDedup(event1)
 
 	// Second observer reports same restart
-	event2 := NewRestartObservationEvent("bob", subject, startTime, restartNum)
+	event2 := NewRestartObservationEvent(types.NaraName("bob"), subject, startTime, restartNum)
 	time.Sleep(1 * time.Millisecond)
 	ledger.AddEventWithDedup(event2)
 
 	// Third observer reports same restart
-	event3 := NewRestartObservationEvent("charlie", subject, startTime, restartNum)
+	event3 := NewRestartObservationEvent(types.NaraName("charlie"), subject, startTime, restartNum)
 	ledger.AddEventWithDedup(event3)
 
 	// Should have exactly 1 event, attributed to first observer (alice)
@@ -141,7 +143,7 @@ func TestObservationDedup_PreservesFirstObserver(t *testing.T) {
 		t.Fatalf("Expected 1 event, got %d", len(events))
 	}
 
-	if events[0].Observation.Observer != "alice" {
+	if events[0].Observation.Observer != types.NaraName("alice") {
 		t.Errorf("Expected first observer 'alice' to be preserved, got '%s'", events[0].Observation.Observer)
 	}
 }
@@ -149,24 +151,24 @@ func TestObservationDedup_PreservesFirstObserver(t *testing.T) {
 // Test deduplication with mixed duplicate and unique events
 func TestObservationDedup_MixedEvents(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 
 	// Restart #1: 3 observers report it (should deduplicate to 1)
 	for i := 0; i < 3; i++ {
-		observer := "observer-" + string(rune('a'+i))
+		observer := types.NaraName("observer-" + string(rune('a'+i)))
 		event := NewRestartObservationEvent(observer, subject, 1000, 1)
 		ledger.AddEventWithDedup(event)
 	}
 
 	// Restart #2: 2 observers report it (should deduplicate to 1)
 	for i := 0; i < 2; i++ {
-		observer := "observer-" + string(rune('d'+i))
+		observer := types.NaraName("observer-" + string(rune('d'+i)))
 		event := NewRestartObservationEvent(observer, subject, 2000, 2)
 		ledger.AddEventWithDedup(event)
 	}
 
 	// Restart #3: 1 observer reports it (no deduplication needed)
-	event := NewRestartObservationEvent("observer-f", subject, 3000, 3)
+	event := NewRestartObservationEvent(types.NaraName("observer-f"), subject, 3000, 3)
 	ledger.AddEventWithDedup(event)
 
 	// Should have exactly 3 events total (one per unique restart)
@@ -191,11 +193,11 @@ func TestObservationDedup_MixedEvents(t *testing.T) {
 // Test that deduplication only applies to restart events, not status-change
 func TestObservationDedup_OnlyRestartEvents(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 
 	// Three observers report status-change to OFFLINE (should NOT deduplicate)
 	for i := 0; i < 3; i++ {
-		observer := "observer-" + string(rune('a'+i))
+		observer := types.NaraName("observer-" + string(rune('a'+i)))
 		event := NewStatusChangeObservationEvent(observer, subject, "OFFLINE")
 		ledger.AddEventWithDedup(event)
 	}
@@ -217,12 +219,12 @@ func TestObservationDedup_OnlyRestartEvents(t *testing.T) {
 // Test that first-seen events are not deduplicated
 func TestObservationDedup_NoFirstSeenDedup(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 	startTime := int64(1234567890)
 
 	// Three observers report first-seen (should NOT deduplicate)
 	for i := 0; i < 3; i++ {
-		observer := "observer-" + string(rune('a'+i))
+		observer := types.NaraName("observer-" + string(rune('a'+i)))
 		event := NewFirstSeenObservationEvent(observer, subject, startTime)
 		ledger.AddEventWithDedup(event)
 	}
@@ -244,13 +246,13 @@ func TestObservationDedup_NoFirstSeenDedup(t *testing.T) {
 // Test deduplication with backfill events
 func TestObservationDedup_BackfillRestarts(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 	startTime := int64(1234567890)
 	restartNum := int64(1137)
 
 	// Three observers backfill the same historical restart
 	for i := 0; i < 3; i++ {
-		observer := "observer-" + string(rune('a'+i))
+		observer := types.NaraName("observer-" + string(rune('a'+i)))
 		event := NewBackfillObservationEvent(observer, subject, startTime, restartNum, startTime)
 		ledger.AddEventWithDedup(event)
 	}
@@ -274,15 +276,15 @@ func TestObservationDedup_BackfillRestarts(t *testing.T) {
 // Test deduplication hash computation stability
 func TestObservationDedup_HashStability(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 	startTime := int64(1234567890)
 	restartNum := int64(25)
 
 	// Create same restart event twice
-	event1 := NewRestartObservationEvent("observer-a", subject, startTime, restartNum)
+	event1 := NewRestartObservationEvent(types.NaraName("observer-a"), subject, startTime, restartNum)
 	event1.ComputeID()
 
-	event2 := NewRestartObservationEvent("observer-b", subject, startTime, restartNum)
+	event2 := NewRestartObservationEvent(types.NaraName("observer-b"), subject, startTime, restartNum)
 	event2.ComputeID()
 
 	// For deduplication, the content hash should match (ignoring observer)
@@ -301,15 +303,15 @@ func TestObservationDedup_HashStability(t *testing.T) {
 // Test deduplication under load
 func TestObservationDedup_HighVolume(t *testing.T) {
 	ledger := NewSyncLedger(2000)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 	startTime := int64(1234567890)
 	restartNum := int64(100)
 
 	// 50 observers all report the same restart
 	for i := 0; i < 50; i++ {
-		observer := "observer-" + string(rune('a'+(i%26)))
+		observer := types.NaraName("observer-" + string(rune('a'+(i%26))))
 		if i >= 26 {
-			observer = observer + string(rune('a'+((i-26)%26)))
+			observer = types.NaraName(observer.String() + string(rune('a'+((i-26)%26))))
 		}
 		event := NewRestartObservationEvent(observer, subject, startTime, restartNum)
 		ledger.AddEventWithDedup(event)
@@ -335,8 +337,8 @@ func TestObservationDedup_HighVolume(t *testing.T) {
 // Note: Compaction of restart events requires a checkpoint to exist
 func TestObservationDedup_WithCompaction(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	observer := "observer-a"
-	subject := "nara-target"
+	observer := types.NaraName("observer-a")
+	subject := types.NaraName("nara-target")
 
 	// First add a checkpoint so compaction works
 	checkpoint := NewTestCheckpointEvent(subject, time.Now().Unix()-3600, time.Now().Unix()-86400, 0, 0)
@@ -356,7 +358,7 @@ func TestObservationDedup_WithCompaction(t *testing.T) {
 
 	// Another observer reports the same 25 restarts (should deduplicate most)
 	for i := 0; i < 25; i++ {
-		event := NewRestartObservationEvent("observer-b", subject, int64(1000), int64(i))
+		event := NewRestartObservationEvent(types.NaraName("observer-b"), subject, int64(1000), int64(i))
 		ledger.AddEventWithDedup(event)
 	}
 
@@ -382,14 +384,14 @@ func TestObservationDedup_WithCompaction(t *testing.T) {
 // Test deduplication with slight time variations (clock skew tolerance)
 func TestObservationDedup_ClockSkewTolerance(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 	baseStartTime := int64(1234567890)
 	restartNum := int64(50)
 
 	// Three observers with slight clock skew (within tolerance)
 	skews := []int64{0, 1, 2} // ±2 seconds
 	for i, skew := range skews {
-		observer := "observer-" + string(rune('a'+i))
+		observer := types.NaraName("observer-" + string(rune('a'+i)))
 		event := NewRestartObservationEvent(observer, subject, baseStartTime+skew, restartNum)
 		ledger.AddEventWithDedup(event)
 	}

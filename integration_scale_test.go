@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/eljojo/nara/types"
 )
 
 // TestIntegration_ScaleWith5000Nodes tests the network at scale with 5000 nodes
@@ -51,7 +53,7 @@ func TestIntegration_ScaleWith5000Nodes(t *testing.T) {
 			target := fmt.Sprintf("nara-%d", targetIdx)
 
 			// Emit a restart event (realistic scenario)
-			event := NewRestartObservationEvent(nodeName, target, startTime.Unix(), int64(5))
+			event := NewRestartObservationEvent(types.NaraName(nodeName), types.NaraName(target), startTime.Unix(), int64(5))
 			added := networkLedger.AddEventWithDedup(event)
 
 			if added {
@@ -84,7 +86,7 @@ func TestIntegration_ScaleWith5000Nodes(t *testing.T) {
 
 		// Each abuser tries to flood 100 restart events about the same victim
 		for j := 0; j < 100; j++ {
-			event := NewRestartObservationEvent(abuserName, victim, startTime.Unix()+int64(j), int64(1000+j))
+			event := NewRestartObservationEvent(types.NaraName(abuserName), types.NaraName(victim), startTime.Unix()+int64(j), int64(1000+j))
 			abuseAttempts++
 
 			added := networkLedger.AddEventWithRateLimit(event)
@@ -125,7 +127,7 @@ func TestIntegration_ScaleWith5000Nodes(t *testing.T) {
 	subjectEventCounts := make(map[string]int)
 	for _, event := range allEvents {
 		if event.Service == "observation" && event.Observation != nil {
-			subjectEventCounts[event.Observation.Subject]++
+			subjectEventCounts[event.Observation.Subject.String()]++
 		}
 	}
 
@@ -261,7 +263,7 @@ func TestIntegration_ScaleWith5000Nodes(t *testing.T) {
 	}
 
 	for _, subject := range testSubjects {
-		opinion := opinionProjection.DeriveOpinion(subject)
+		opinion := opinionProjection.DeriveOpinion(types.NaraName(subject))
 		if opinion.StartTime > 0 || opinion.Restarts > 0 {
 			consensusSuccess++
 		}
@@ -347,7 +349,7 @@ func TestIntegration_ScaleStressAbuse(t *testing.T) {
 
 			// Each abuser tries to flood 1000 events about each victim
 			for k := 0; k < eventsPerAbuser; k++ {
-				event := NewRestartObservationEvent(abuser, victim, time.Now().Unix(), int64(k))
+				event := NewRestartObservationEvent(types.NaraName(abuser), types.NaraName(victim), time.Now().Unix(), int64(k))
 
 				// Use both rate limiting and compaction
 				if !ledger.AddEventWithRateLimit(event) {
@@ -418,8 +420,8 @@ func TestIntegration_ScaleBackfill(t *testing.T) {
 
 		// Each node backfills observation about one other node
 		event := NewBackfillObservationEvent(
-			observer,
-			subject,
+			types.NaraName(observer),
+			types.NaraName(subject),
 			1624066568,      // Historical start time
 			int64(100+i%50), // Varying restart counts
 			time.Now().Unix(),

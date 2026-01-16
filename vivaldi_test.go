@@ -3,6 +3,8 @@ package nara
 import (
 	"math"
 	"testing"
+
+	"github.com/eljojo/nara/types"
 )
 
 func TestNetworkCoordinate_NewCoordinate(t *testing.T) {
@@ -304,13 +306,13 @@ func TestApplyProximityToClout(t *testing.T) {
 	// Test that proximity weighting works correctly
 	myCoords := &NetworkCoordinate{X: 0, Y: 0, Height: 0.01, Error: 0.1}
 
-	baseClout := map[string]float64{
-		"near":    5.0,
-		"far":     5.0,
-		"nocoord": 5.0,
+	baseClout := map[types.NaraName]float64{
+		types.NaraName("near"):    5.0,
+		types.NaraName("far"):     5.0,
+		types.NaraName("nocoord"): 5.0,
 	}
 
-	getCoords := func(name string) *NetworkCoordinate {
+	getCoords := func(name types.NaraName) *NetworkCoordinate {
 		switch name {
 		case "near":
 			return &NetworkCoordinate{X: 10, Y: 0, Height: 0.01, Error: 0.1} // ~10ms away
@@ -326,28 +328,28 @@ func TestApplyProximityToClout(t *testing.T) {
 	result := ApplyProximityToClout(baseClout, myCoords, getCoords)
 
 	// Near peer should have higher final clout than far peer
-	if result["near"] <= result["far"] {
+	if result[types.NaraName("near")] <= result[types.NaraName("far")] {
 		t.Errorf("Near peer should have higher clout than far: near=%f, far=%f",
-			result["near"], result["far"])
+			result[types.NaraName("near")], result[types.NaraName("far")])
 	}
 
 	// Peer without coordinates should keep original clout
-	if result["nocoord"] != baseClout["nocoord"] {
+	if result[types.NaraName("nocoord")] != baseClout[types.NaraName("nocoord")] {
 		t.Errorf("Peer without coords should keep original clout: got %f, want %f",
-			result["nocoord"], baseClout["nocoord"])
+			result[types.NaraName("nocoord")], baseClout[types.NaraName("nocoord")])
 	}
 }
 
 func TestApplyProximityToClout_NilCoords(t *testing.T) {
 	t.Parallel()
-	baseClout := map[string]float64{"peer": 5.0}
+	baseClout := map[types.NaraName]float64{types.NaraName("peer"): 5.0}
 
 	// Should return base clout when myCoords is nil
-	result := ApplyProximityToClout(baseClout, nil, func(string) *NetworkCoordinate {
+	result := ApplyProximityToClout(baseClout, nil, func(types.NaraName) *NetworkCoordinate {
 		return &NetworkCoordinate{X: 0, Y: 0, Height: 0.01, Error: 0.1}
 	})
 
-	if result["peer"] != baseClout["peer"] {
+	if result[types.NaraName("peer")] != baseClout[types.NaraName("peer")] {
 		t.Errorf("Should return base clout when myCoords is nil")
 	}
 }

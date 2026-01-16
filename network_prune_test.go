@@ -5,6 +5,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/eljojo/nara/types"
 )
 
 func TestPruneInactiveNaras_Zombies(t *testing.T) {
@@ -12,11 +14,11 @@ func TestPruneInactiveNaras_Zombies(t *testing.T) {
 	now := time.Now().Unix()
 
 	// Add a zombie nara (never seen, no activity, malformed entry)
-	zombieNara := NewNara("zombie-nara")
+	zombieNara := NewNara(types.NaraName("zombie-nara"))
 	zombieNara.Status.Flair = "" // No flair
 	zombieNara.Status.Buzz = 0   // No buzz
 	ln.Network.importNara(zombieNara)
-	ln.setObservation("zombie-nara", NaraObservation{
+	ln.setObservation(types.NaraName("zombie-nara"), NaraObservation{
 		LastSeen:  0,           // Never seen (malformed)
 		StartTime: now - 86400, // "First seen" 1 day ago but never actually active
 		Online:    "OFFLINE",
@@ -26,7 +28,7 @@ func TestPruneInactiveNaras_Zombies(t *testing.T) {
 	ln.Network.pruneInactiveNaras()
 
 	// Zombie should be removed immediately
-	if ln.Network.Neighbourhood["zombie-nara"] != nil {
+	if ln.Network.Neighbourhood[types.NaraName("zombie-nara")] != nil {
 		t.Error("zombie-nara should be pruned (never seen, malformed entry)")
 	}
 }
@@ -36,20 +38,20 @@ func TestPruneInactiveNaras_Newcomers(t *testing.T) {
 	now := time.Now().Unix()
 
 	// Add a newcomer that's been offline for 25 hours (should be pruned)
-	newcomerOffline := NewNara("newcomer-offline")
+	newcomerOffline := NewNara(types.NaraName("newcomer-offline"))
 	newcomerOffline.Status.Buzz = 5
 	ln.Network.importNara(newcomerOffline)
-	ln.setObservation("newcomer-offline", NaraObservation{
+	ln.setObservation(types.NaraName("newcomer-offline"), NaraObservation{
 		LastSeen:  now - (25 * 3600), // 25 hours offline
 		StartTime: now - (30 * 3600), // First seen 30 hours ago (newcomer)
 		Online:    "OFFLINE",
 	})
 
 	// Add a newcomer that's been offline for 12 hours (should NOT be pruned)
-	newcomerRecent := NewNara("newcomer-recent")
+	newcomerRecent := NewNara(types.NaraName("newcomer-recent"))
 	newcomerRecent.Status.Buzz = 5
 	ln.Network.importNara(newcomerRecent)
-	ln.setObservation("newcomer-recent", NaraObservation{
+	ln.setObservation(types.NaraName("newcomer-recent"), NaraObservation{
 		LastSeen:  now - (12 * 3600), // 12 hours offline
 		StartTime: now - (20 * 3600), // First seen 20 hours ago (newcomer)
 		Online:    "OFFLINE",
@@ -58,12 +60,12 @@ func TestPruneInactiveNaras_Newcomers(t *testing.T) {
 	ln.Network.pruneInactiveNaras()
 
 	// Newcomer offline for 25h should be pruned
-	if ln.Network.Neighbourhood["newcomer-offline"] != nil {
+	if ln.Network.Neighbourhood[types.NaraName("newcomer-offline")] != nil {
 		t.Error("newcomer-offline should be pruned (24h+ offline, < 24h old)")
 	}
 
 	// Newcomer offline for 12h should remain
-	if ln.Network.Neighbourhood["newcomer-recent"] == nil {
+	if ln.Network.Neighbourhood[types.NaraName("newcomer-recent")] == nil {
 		t.Error("newcomer-recent should not be pruned (only 12h offline)")
 	}
 }
@@ -73,22 +75,22 @@ func TestPruneInactiveNaras_Established(t *testing.T) {
 	now := time.Now().Unix()
 
 	// Add established nara offline for 8 days (should be pruned)
-	establishedOld := NewNara("established-old")
+	establishedOld := NewNara(types.NaraName("established-old"))
 	establishedOld.Status.Flair = "🍕"
 	establishedOld.Status.Buzz = 10
 	ln.Network.importNara(establishedOld)
-	ln.setObservation("established-old", NaraObservation{
+	ln.setObservation(types.NaraName("established-old"), NaraObservation{
 		LastSeen:  now - (8 * 86400),  // 8 days offline
 		StartTime: now - (10 * 86400), // First seen 10 days ago (established)
 		Online:    "OFFLINE",
 	})
 
 	// Add established nara offline for 3 days (should NOT be pruned - 7d grace period)
-	establishedRecent := NewNara("established-recent")
+	establishedRecent := NewNara(types.NaraName("established-recent"))
 	establishedRecent.Status.Flair = "🌟"
 	establishedRecent.Status.Buzz = 15
 	ln.Network.importNara(establishedRecent)
-	ln.setObservation("established-recent", NaraObservation{
+	ln.setObservation(types.NaraName("established-recent"), NaraObservation{
 		LastSeen:  now - (3 * 86400), // 3 days offline
 		StartTime: now - (5 * 86400), // First seen 5 days ago (established)
 		Online:    "OFFLINE",
@@ -97,12 +99,12 @@ func TestPruneInactiveNaras_Established(t *testing.T) {
 	ln.Network.pruneInactiveNaras()
 
 	// Established offline for 8d should be pruned
-	if ln.Network.Neighbourhood["established-old"] != nil {
+	if ln.Network.Neighbourhood[types.NaraName("established-old")] != nil {
 		t.Error("established-old should be pruned (8d offline, 7d threshold)")
 	}
 
 	// Established offline for 3d should remain (within 7d grace period)
-	if ln.Network.Neighbourhood["established-recent"] == nil {
+	if ln.Network.Neighbourhood[types.NaraName("established-recent")] == nil {
 		t.Error("established-recent should not be pruned (only 3d offline, 7d grace period)")
 	}
 }
@@ -113,22 +115,22 @@ func TestPruneInactiveNaras_Veterans(t *testing.T) {
 
 	// Add veteran nara (known for 100 days) that's been offline for 30 days
 	// Veterans should NEVER be auto-pruned - they're community members
-	bart := NewNara("bart")
+	bart := NewNara(types.NaraName("bart"))
 	bart.Status.Flair = "🗿"
 	bart.Status.Buzz = 20
 	ln.Network.importNara(bart)
-	ln.setObservation("bart", NaraObservation{
+	ln.setObservation(types.NaraName("bart"), NaraObservation{
 		LastSeen:  now - (30 * 86400),  // 30 days offline
 		StartTime: now - (100 * 86400), // Known for 100 days (veteran!)
 		Online:    "OFFLINE",
 	})
 
 	// Add another veteran (r2d2) offline for 60 days
-	r2d2 := NewNara("r2d2")
+	r2d2 := NewNara(types.NaraName("r2d2"))
 	r2d2.Status.Flair = "🗿"
 	r2d2.Status.Buzz = 15
 	ln.Network.importNara(r2d2)
-	ln.setObservation("r2d2", NaraObservation{
+	ln.setObservation(types.NaraName("r2d2"), NaraObservation{
 		LastSeen:  now - (60 * 86400),  // 60 days offline!
 		StartTime: now - (200 * 86400), // Known for 200 days (ancient veteran)
 		Online:    "OFFLINE",
@@ -137,11 +139,11 @@ func TestPruneInactiveNaras_Veterans(t *testing.T) {
 	ln.Network.pruneInactiveNaras()
 
 	// Veterans should NEVER be pruned, even after months offline
-	if ln.Network.Neighbourhood["bart"] == nil {
+	if ln.Network.Neighbourhood[types.NaraName("bart")] == nil {
 		t.Error("bart (veteran) should not be pruned even after 30 days offline")
 	}
 
-	if ln.Network.Neighbourhood["r2d2"] == nil {
+	if ln.Network.Neighbourhood[types.NaraName("r2d2")] == nil {
 		t.Error("r2d2 (veteran) should not be pruned even after 60 days offline")
 	}
 }
@@ -151,11 +153,11 @@ func TestPruneInactiveNaras_OnlineNeverPruned(t *testing.T) {
 	now := time.Now().Unix()
 
 	// Add an ONLINE nara (should never be pruned regardless of age)
-	onlineNara := NewNara("online-nara")
+	onlineNara := NewNara(types.NaraName("online-nara"))
 	onlineNara.Status.Flair = "🚀"
 	onlineNara.Status.Buzz = 10
 	ln.Network.importNara(onlineNara)
-	ln.setObservation("online-nara", NaraObservation{
+	ln.setObservation(types.NaraName("online-nara"), NaraObservation{
 		LastSeen:  now - 60,   // Seen 1 minute ago
 		StartTime: now - 3600, // First seen 1 hour ago
 		Online:    "ONLINE",
@@ -164,7 +166,7 @@ func TestPruneInactiveNaras_OnlineNeverPruned(t *testing.T) {
 	ln.Network.pruneInactiveNaras()
 
 	// ONLINE naras are never pruned
-	if ln.Network.Neighbourhood["online-nara"] == nil {
+	if ln.Network.Neighbourhood[types.NaraName("online-nara")] == nil {
 		t.Error("online-nara should never be pruned while ONLINE")
 	}
 }
@@ -208,7 +210,7 @@ func TestPruneInactiveNaras_Integration(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		nara := NewNara(tc.name)
+		nara := NewNara(types.NaraName(tc.name))
 		nara.Status.Flair = tc.flair
 		nara.Status.Buzz = tc.buzz
 		ln.Network.importNara(nara)
@@ -223,7 +225,7 @@ func TestPruneInactiveNaras_Integration(t *testing.T) {
 			startTime = 0
 		}
 
-		ln.setObservation(tc.name, NaraObservation{
+		ln.setObservation(types.NaraName(tc.name), NaraObservation{
 			LastSeen:  lastSeen,
 			StartTime: startTime,
 			Online:    tc.online,
@@ -238,7 +240,7 @@ func TestPruneInactiveNaras_Integration(t *testing.T) {
 
 	// Verify each test case
 	for _, tc := range testCases {
-		exists := ln.Network.Neighbourhood[tc.name] != nil
+		exists := ln.Network.Neighbourhood[types.NaraName(tc.name)] != nil
 		if tc.shouldRemove && exists {
 			t.Errorf("%s should be pruned (%s) but still exists", tc.name, tc.reason)
 		}
@@ -273,29 +275,29 @@ func TestPruneInactiveNaras_RemovesFromObservations(t *testing.T) {
 	now := time.Now().Unix()
 
 	// Add a newcomer that should be pruned (offline for 25 hours)
-	newcomerOffline := NewNara("newcomer-offline")
+	newcomerOffline := NewNara(types.NaraName("newcomer-offline"))
 	newcomerOffline.Status.Buzz = 5
 	ln.Network.importNara(newcomerOffline)
-	ln.setObservation("newcomer-offline", NaraObservation{
+	ln.setObservation(types.NaraName("newcomer-offline"), NaraObservation{
 		LastSeen:  now - (25 * 3600), // 25 hours offline
 		StartTime: now - (30 * 3600), // First seen 30 hours ago (newcomer)
 		Online:    "OFFLINE",
 	})
 
 	// Add a zombie that should be pruned immediately
-	zombieNara := NewNara("zombie-nara")
+	zombieNara := NewNara(types.NaraName("zombie-nara"))
 	ln.Network.importNara(zombieNara)
-	ln.setObservation("zombie-nara", NaraObservation{
+	ln.setObservation(types.NaraName("zombie-nara"), NaraObservation{
 		LastSeen:  0,           // Never seen (malformed)
 		StartTime: now - 86400, // "First seen" 1 day ago but never actually active
 		Online:    "OFFLINE",
 	})
 
 	// Add an established nara that should NOT be pruned (only 3 days offline)
-	establishedOk := NewNara("established-ok")
+	establishedOk := NewNara(types.NaraName("established-ok"))
 	establishedOk.Status.Flair = "🌟"
 	ln.Network.importNara(establishedOk)
-	ln.setObservation("established-ok", NaraObservation{
+	ln.setObservation(types.NaraName("established-ok"), NaraObservation{
 		LastSeen:  now - (3 * 86400), // 3 days offline
 		StartTime: now - (5 * 86400), // First seen 5 days ago (established)
 		Online:    "OFFLINE",
@@ -318,13 +320,13 @@ func TestPruneInactiveNaras_RemovesFromObservations(t *testing.T) {
 	ln.Network.pruneInactiveNaras()
 
 	// Verify naras are removed from Neighbourhood
-	if ln.Network.Neighbourhood["newcomer-offline"] != nil {
+	if ln.Network.Neighbourhood[types.NaraName("newcomer-offline")] != nil {
 		t.Error("newcomer-offline should be removed from Neighbourhood")
 	}
-	if ln.Network.Neighbourhood["zombie-nara"] != nil {
+	if ln.Network.Neighbourhood[types.NaraName("zombie-nara")] != nil {
 		t.Error("zombie-nara should be removed from Neighbourhood")
 	}
-	if ln.Network.Neighbourhood["established-ok"] == nil {
+	if ln.Network.Neighbourhood[types.NaraName("established-ok")] == nil {
 		t.Error("established-ok should NOT be removed from Neighbourhood")
 	}
 
@@ -351,9 +353,9 @@ func TestPruneInactiveNaras_RaceCondition(t *testing.T) {
 	// Add multiple naras that should be pruned
 	for i := 0; i < 10; i++ {
 		name := "zombie-" + string(rune('a'+i))
-		zombieNara := NewNara(name)
+		zombieNara := NewNara(types.NaraName(name))
 		ln.Network.importNara(zombieNara)
-		ln.setObservation(name, NaraObservation{
+		ln.setObservation(types.NaraName(name), NaraObservation{
 			LastSeen:  0,           // Never seen
 			StartTime: now - 86400, // Old zombie
 			Online:    "OFFLINE",
@@ -389,11 +391,11 @@ func TestPruneInactiveNaras_RaceCondition(t *testing.T) {
 	// Verify all zombies were removed
 	for i := 0; i < 10; i++ {
 		name := "zombie-" + string(rune('a'+i))
-		if ln.Network.Neighbourhood[name] != nil {
+		if ln.Network.Neighbourhood[types.NaraName(name)] != nil {
 			t.Errorf("%s should be removed from Neighbourhood", name)
 		}
 		ln.Me.mu.Lock()
-		if _, exists := ln.Me.Status.Observations[name]; exists {
+		if _, exists := ln.Me.Status.Observations[types.NaraName(name)]; exists {
 			t.Errorf("%s observation should be removed", name)
 		}
 		ln.Me.mu.Unlock()
@@ -407,30 +409,30 @@ func TestPruneInactiveNaras_HttpApi(t *testing.T) {
 	now := time.Now().Unix()
 
 	// Add a newcomer that should be pruned (offline for 25 hours)
-	newcomerOffline := NewNara("newcomer-offline")
+	newcomerOffline := NewNara(types.NaraName("newcomer-offline"))
 	newcomerOffline.Status.Buzz = 5
 	ln.Network.importNara(newcomerOffline)
-	ln.setObservation("newcomer-offline", NaraObservation{
+	ln.setObservation(types.NaraName("newcomer-offline"), NaraObservation{
 		LastSeen:  now - (25 * 3600), // 25 hours offline
 		StartTime: now - (30 * 3600), // First seen 30 hours ago (newcomer)
 		Online:    "OFFLINE",
 	})
 
 	// Add a zombie that should be pruned immediately
-	zombieNara := NewNara("zombie-nara")
+	zombieNara := NewNara(types.NaraName("zombie-nara"))
 	ln.Network.importNara(zombieNara)
-	ln.setObservation("zombie-nara", NaraObservation{
+	ln.setObservation(types.NaraName("zombie-nara"), NaraObservation{
 		LastSeen:  0,           // Never seen (malformed)
 		StartTime: now - 86400, // "First seen" 1 day ago but never actually active
 		Online:    "OFFLINE",
 	})
 
 	// Add an established nara that should NOT be pruned (only 3 days offline)
-	establishedOk := NewNara("established-ok")
+	establishedOk := NewNara(types.NaraName("established-ok"))
 	establishedOk.Status.Flair = "🌟"
 	establishedOk.Status.Buzz = 10
 	ln.Network.importNara(establishedOk)
-	ln.setObservation("established-ok", NaraObservation{
+	ln.setObservation(types.NaraName("established-ok"), NaraObservation{
 		LastSeen:  now - (3 * 86400), // 3 days offline
 		StartTime: now - (5 * 86400), // First seen 5 days ago (established)
 		Online:    "OFFLINE",
@@ -489,9 +491,9 @@ func TestPruneInactiveNaras_ObservationMaintenanceRace(t *testing.T) {
 	now := time.Now().Unix()
 
 	// Add a zombie nara that should be pruned
-	zombieNara := NewNara("zombie-nara")
+	zombieNara := NewNara(types.NaraName("zombie-nara"))
 	ln.Network.importNara(zombieNara)
-	ln.setObservation("zombie-nara", NaraObservation{
+	ln.setObservation(types.NaraName("zombie-nara"), NaraObservation{
 		LastSeen:  0,           // Never seen (malformed)
 		StartTime: now - 86400, // "First seen" 1 day ago but never actually active
 		Online:    "OFFLINE",
@@ -518,7 +520,7 @@ func TestPruneInactiveNaras_ObservationMaintenanceRace(t *testing.T) {
 	ln.Network.pruneInactiveNaras()
 
 	// Verify zombie was removed
-	if ln.Network.Neighbourhood["zombie-nara"] != nil {
+	if ln.Network.Neighbourhood[types.NaraName("zombie-nara")] != nil {
 		t.Error("zombie-nara should be removed from Neighbourhood")
 	}
 	ln.Me.mu.Lock()
@@ -545,9 +547,9 @@ func TestPruneInactiveNaras_FullCleanup(t *testing.T) {
 	now := time.Now().Unix()
 
 	zombieName := "ghost-nara"
-	zombieNara := NewNara(zombieName)
+	zombieNara := NewNara(types.NaraName(zombieName))
 	ln.Network.importNara(zombieNara)
-	ln.setObservation(zombieName, NaraObservation{
+	ln.setObservation(types.NaraName(zombieName), NaraObservation{
 		LastSeen:  0,
 		StartTime: now - 86400,
 		Online:    "OFFLINE",
@@ -555,9 +557,9 @@ func TestPruneInactiveNaras_FullCleanup(t *testing.T) {
 
 	// Add various events where ghost is involved
 	events := []SyncEvent{
-		NewPingSyncEvent("test-nara", zombieName, 42.0),
-		NewSocialSyncEvent("tease", zombieName, "test-nara", "random", ""),
-		NewHeyThereSyncEvent(zombieName, "pubkey", "1.2.3.4", "id", ln.Keypair),
+		NewPingSyncEvent(types.NaraName("test-nara"), types.NaraName(zombieName), 42.0),
+		NewSocialSyncEvent("tease", types.NaraName(zombieName), types.NaraName("test-nara"), "random", ""),
+		NewHeyThereSyncEvent(types.NaraName(zombieName), "pubkey", "1.2.3.4", types.NaraID("id"), ln.Keypair),
 	}
 
 	for _, e := range events {
@@ -571,7 +573,7 @@ func TestPruneInactiveNaras_FullCleanup(t *testing.T) {
 	ln.Network.pruneInactiveNaras()
 
 	// 1. Verify nara is gone from Neighbourhood
-	if ln.Network.Neighbourhood[zombieName] != nil {
+	if ln.Network.Neighbourhood[types.NaraName(zombieName)] != nil {
 		t.Error("ghost-nara should be removed from Neighbourhood")
 	}
 
@@ -586,14 +588,14 @@ func TestPruneInactiveNaras_FullCleanup(t *testing.T) {
 	allEvents := ln.Network.local.SyncLedger.GetAllEvents()
 	ln.Network.discoverNarasFromEvents(allEvents)
 
-	if ln.Network.Neighbourhood[zombieName] != nil {
+	if ln.Network.Neighbourhood[types.NaraName(zombieName)] != nil {
 		t.Error("ghost-nara should NOT be re-discovered after pruning events")
 	}
 
 	// 4. Verify no ping events for the ghost nara
 	pingEvents := ln.Network.local.SyncLedger.GetPingObservations()
 	for _, ping := range pingEvents {
-		if ping.Observer == zombieName || ping.Target == zombieName {
+		if ping.Observer == types.NaraName(zombieName) || ping.Target == types.NaraName(zombieName) {
 			t.Errorf("Ping event for ghost nara (%s -> %s) found after pruning", ping.Observer, ping.Target)
 		}
 	}
@@ -607,16 +609,16 @@ func TestPruneInactiveNaras_PrunesEvents(t *testing.T) {
 
 	// Add a zombie nara that should be pruned
 	zombieName := "ghost-nara"
-	zombieNara := NewNara(zombieName)
+	zombieNara := NewNara(types.NaraName(zombieName))
 	ln.Network.importNara(zombieNara)
-	ln.setObservation(zombieName, NaraObservation{
+	ln.setObservation(types.NaraName(zombieName), NaraObservation{
 		LastSeen:  0,           // Never seen
 		StartTime: now - 86400, // Old zombie
 		Online:    "OFFLINE",
 	})
 
 	// Add some events for this ghost nara
-	event := NewPingSyncEvent("test-nara", zombieName, 42.0)
+	event := NewPingSyncEvent(types.NaraName("test-nara"), types.NaraName(zombieName), 42.0)
 	ln.Network.local.SyncLedger.AddEvent(event)
 
 	if !ln.Network.local.SyncLedger.HasEvent(event.ID) {
@@ -627,7 +629,7 @@ func TestPruneInactiveNaras_PrunesEvents(t *testing.T) {
 	ln.Network.pruneInactiveNaras()
 
 	// Verify nara is gone from Neighbourhood
-	if ln.Network.Neighbourhood[zombieName] != nil {
+	if ln.Network.Neighbourhood[types.NaraName(zombieName)] != nil {
 		t.Error("ghost-nara should be removed from Neighbourhood")
 	}
 
@@ -640,7 +642,7 @@ func TestPruneInactiveNaras_PrunesEvents(t *testing.T) {
 	allEvents := ln.Network.local.SyncLedger.GetAllEvents()
 	ln.Network.discoverNarasFromEvents(allEvents)
 
-	if ln.Network.Neighbourhood[zombieName] != nil {
+	if ln.Network.Neighbourhood[types.NaraName(zombieName)] != nil {
 		t.Error("ghost-nara should NOT be re-discovered after pruning events")
 	}
 }
@@ -654,9 +656,9 @@ func TestPruneInactiveNaras_PrunesCheckpointEventsAboutSubject(t *testing.T) {
 
 	// Create a ghost nara that will be pruned
 	ghostName := "ghost-nara"
-	ghostNara := NewNara(ghostName)
+	ghostNara := NewNara(types.NaraName(ghostName))
 	ln.Network.importNara(ghostNara)
-	ln.setObservation(ghostName, NaraObservation{
+	ln.setObservation(types.NaraName(ghostName), NaraObservation{
 		LastSeen:  now - (9 * 86400),  // 9 days offline
 		StartTime: now - (10 * 86400), // Known for 10 days (established)
 		Online:    "OFFLINE",
@@ -664,9 +666,9 @@ func TestPruneInactiveNaras_PrunesCheckpointEventsAboutSubject(t *testing.T) {
 
 	// Create another nara that will NOT be pruned
 	activeName := "active-nara"
-	activeNara := NewNara(activeName)
+	activeNara := NewNara(types.NaraName(activeName))
 	ln.Network.importNara(activeNara)
-	ln.setObservation(activeName, NaraObservation{
+	ln.setObservation(types.NaraName(activeName), NaraObservation{
 		LastSeen:  now - 60,
 		StartTime: now - (10 * 86400),
 		Online:    "ONLINE",
@@ -678,7 +680,7 @@ func TestPruneInactiveNaras_PrunesCheckpointEventsAboutSubject(t *testing.T) {
 		TotalUptime: 3600,
 		StartTime:   now - (10 * 86400),
 	}
-	event1 := testAddCheckpointToLedger(ln.SyncLedger, ghostName, ln.Me.Name, ln.Keypair, obs1)
+	event1 := testAddCheckpointToLedger(ln.SyncLedger, types.NaraName(ghostName), ln.Me.Name, ln.Keypair, obs1)
 
 	// Add checkpoint ABOUT the active nara (should NOT be pruned)
 	// Note: Ghost was a voter, but that doesn't matter - only subject matters for pruning
@@ -687,7 +689,7 @@ func TestPruneInactiveNaras_PrunesCheckpointEventsAboutSubject(t *testing.T) {
 		TotalUptime: 7200,
 		StartTime:   now - (10 * 86400),
 	}
-	event2 := testAddCheckpointToLedger(ln.SyncLedger, activeName, ln.Me.Name, ln.Keypair, obs2)
+	event2 := testAddCheckpointToLedger(ln.SyncLedger, types.NaraName(activeName), ln.Me.Name, ln.Keypair, obs2)
 
 	// Verify both checkpoints exist before pruning
 	if !ln.SyncLedger.HasEvent(event1.ID) {
@@ -701,7 +703,7 @@ func TestPruneInactiveNaras_PrunesCheckpointEventsAboutSubject(t *testing.T) {
 	ln.Network.pruneInactiveNaras()
 
 	// Verify ghost nara is removed
-	if ln.Network.Neighbourhood[ghostName] != nil {
+	if ln.Network.Neighbourhood[types.NaraName(ghostName)] != nil {
 		t.Error("ghost-nara should be removed from Neighbourhood")
 	}
 

@@ -22,7 +22,7 @@ func TestObservations_Record(t *testing.T) {
 func TestObservations_Online(t *testing.T) {
 	ln := testLocalNara(t, "me")
 	network := ln.Network
-	name := "other"
+	name := types.NaraName("other")
 	network.importNara(NewNara(name))
 
 	// 1. Initial observation via recording online
@@ -62,14 +62,14 @@ func TestIsGhostNara_TrueWhenNoData(t *testing.T) {
 
 	// Add some neighbors that have observations but no data about the ghost
 	for i := 0; i < 5; i++ {
-		neighbor := NewNara("neighbor-" + string(rune('a'+i)))
+		neighbor := NewNara(types.NaraName("neighbor-" + string(rune('a'+i))))
 		network.importNara(neighbor)
 		// Neighbor has empty observation about ghost (all zeros)
 		neighbor.setObservation("ghost-nara", NaraObservation{})
 	}
 
 	// Add the ghost to neighbourhood
-	network.importNara(NewNara("ghost-nara"))
+	network.importNara(NewNara(types.NaraName("ghost-nara")))
 
 	// Ghost nara with no data from anyone
 	if !network.isGhostNara("ghost-nara") {
@@ -136,7 +136,7 @@ func TestIsGhostNaraSafeToDelete_FalseWhenOnline(t *testing.T) {
 
 	// Add enough neighbors for the check
 	for i := 0; i < 5; i++ {
-		neighbor := NewNara("neighbor-" + string(rune('a'+i)))
+		neighbor := NewNara(types.NaraName("neighbor-" + string(rune('a'+i))))
 		network.importNara(neighbor)
 	}
 
@@ -154,7 +154,7 @@ func TestIsGhostNaraSafeToDelete_FalseWhenRecentLastSeen(t *testing.T) {
 	network := ln.Network
 
 	for i := 0; i < 5; i++ {
-		neighbor := NewNara("neighbor-" + string(rune('a'+i)))
+		neighbor := NewNara(types.NaraName("neighbor-" + string(rune('a'+i))))
 		network.importNara(neighbor)
 	}
 
@@ -179,7 +179,7 @@ func TestIsGhostNaraSafeToDelete_FalseWhenNeighborHasData(t *testing.T) {
 
 	// Other neighbors don't
 	for i := 1; i < 5; i++ {
-		neighbor := NewNara("neighbor-" + string(rune('a'+i)))
+		neighbor := NewNara(types.NaraName("neighbor-" + string(rune('a'+i))))
 		network.importNara(neighbor)
 	}
 
@@ -200,7 +200,7 @@ func TestIsGhostNaraSafeToDelete_FalseWhenNeighborThinksOnline(t *testing.T) {
 	neighborOnline.setObservation("maybe-ghost", NaraObservation{Online: "ONLINE"})
 
 	for i := 1; i < 5; i++ {
-		neighbor := NewNara("neighbor-" + string(rune('a'+i)))
+		neighbor := NewNara(types.NaraName("neighbor-" + string(rune('a'+i))))
 		network.importNara(neighbor)
 	}
 
@@ -217,7 +217,7 @@ func TestIsGhostNaraSafeToDelete_FalseWhenTooFewNeighbors(t *testing.T) {
 
 	// Only 2 neighbors (need at least 3)
 	for i := 0; i < 2; i++ {
-		neighbor := NewNara("neighbor-" + string(rune('a'+i)))
+		neighbor := NewNara(types.NaraName("neighbor-" + string(rune('a'+i))))
 		network.importNara(neighbor)
 	}
 
@@ -234,7 +234,7 @@ func TestIsGhostNaraSafeToDelete_TrueWhenAllCriteriaMet(t *testing.T) {
 
 	// Add enough neighbors with no data about ghost
 	for i := 0; i < 5; i++ {
-		neighbor := NewNara("neighbor-" + string(rune('a'+i)))
+		neighbor := NewNara(types.NaraName("neighbor-" + string(rune('a'+i))))
 		network.importNara(neighbor)
 		neighbor.setObservation("true-ghost", NaraObservation{}) // all zeros
 	}
@@ -254,7 +254,7 @@ func TestIsGhostNaraSafeToDelete_TrueWhenNeverSeen(t *testing.T) {
 	network := ln.Network
 
 	for i := 0; i < 5; i++ {
-		neighbor := NewNara("neighbor-" + string(rune('a'+i)))
+		neighbor := NewNara(types.NaraName("neighbor-" + string(rune('a'+i))))
 		network.importNara(neighbor)
 	}
 
@@ -273,7 +273,7 @@ func TestGarbageCollectGhostNaras(t *testing.T) {
 
 	// Add neighbors - give them real data so they're not detected as ghosts
 	for i := 0; i < 5; i++ {
-		name := "neighbor-" + string(rune('a'+i))
+		name := types.NaraName("neighbor-" + string(rune('a'+i)))
 		neighbor := NewNara(name)
 		network.importNara(neighbor)
 		// Mark them as having StartTime so they're "real" naras
@@ -282,8 +282,8 @@ func TestGarbageCollectGhostNaras(t *testing.T) {
 
 	// Add a true ghost (should be deleted)
 	twoDaysAgo := time.Now().Unix() - 172800
-	network.local.setObservation("ghost-to-delete", NaraObservation{LastSeen: twoDaysAgo})
-	network.importNara(NewNara("ghost-to-delete"))
+	network.local.setObservation(types.NaraName("ghost-to-delete"), NaraObservation{LastSeen: twoDaysAgo})
+	network.importNara(NewNara(types.NaraName("ghost-to-delete")))
 
 	// Add a real nara (should NOT be deleted)
 	network.local.setObservation("real-nara", NaraObservation{StartTime: 1234567890, Restarts: 5})

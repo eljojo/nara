@@ -46,7 +46,7 @@ func TestCheckpoint_VoterIDsNotUsedAsNames(t *testing.T) {
 		Timestamp:  time.Now().UnixNano(),
 		Service:    ServiceCheckpoint,
 		Checkpoint: checkpoint,
-		Emitter:    string(voterName), // Emitter should be the name
+		Emitter:    voterName, // Emitter should be the name
 	}
 	event.ComputeID()
 

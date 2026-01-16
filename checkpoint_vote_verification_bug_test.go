@@ -3,6 +3,8 @@ package nara
 import (
 	"testing"
 	"time"
+
+	"github.com/eljojo/nara/types"
 )
 
 // TestCheckpoint_VoteSignatureVerificationBug verifies that verifyVoteSignature works correctly
@@ -10,11 +12,11 @@ import (
 func TestCheckpoint_VoteSignatureVerificationBug(t *testing.T) {
 	// Setup: Create a legitimate voter with a valid signature
 	voterKeypair := generateTestKeypair()
-	voterID := "voter-id-123"
-	voterName := "alice"
+	voterID := types.NaraID("voter-id-123")
+	voterName := types.NaraName("alice")
 
-	proposerID := "proposer-id"
-	proposerName := "bob"
+	proposerID := types.NaraID("proposer-id")
+	proposerName := types.NaraName("bob")
 	asOfTime := time.Now().Unix()
 
 	// Create a valid attestation (third-party: voter attests about proposer)
@@ -80,12 +82,12 @@ func TestCheckpoint_VoteSignatureNameSpoofing(t *testing.T) {
 	attackerKeypair := generateTestKeypair()
 	victimKeypair := generateTestKeypair()
 
-	attackerID := "attacker-id"
-	victimID := "victim-id"
-	victimName := "alice" // High-reputation nara
+	attackerID := types.NaraID("attacker-id")
+	victimID := types.NaraID("victim-id")
+	victimName := types.NaraName("alice") // High-reputation nara
 
-	proposerID := "proposer-id"
-	proposerName := "bob"
+	proposerID := types.NaraID("proposer-id")
+	proposerName := types.NaraName("bob")
 	asOfTime := time.Now().Unix()
 
 	// Attacker creates an attestation but claims to be the victim by name
@@ -159,12 +161,12 @@ func TestCheckpoint_VoteNameVsIDLookup(t *testing.T) {
 	// (maybe she changed names, or we have her indexed differently)
 
 	voterKeypair := generateTestKeypair()
-	voterID := "voter-id-123"
-	oldName := "alice"
-	newName := "alice-renamed" // She changed her name
+	voterID := types.NaraID("voter-id-123")
+	oldName := types.NaraName("alice")
+	newName := types.NaraName("alice-renamed") // She changed her name
 
-	proposerID := "proposer-id"
-	proposerName := "bob"
+	proposerID := types.NaraID("proposer-id")
+	proposerName := types.NaraName("bob")
 	asOfTime := time.Now().Unix()
 
 	// Vote was created when she was still "alice"
@@ -223,8 +225,8 @@ func TestCheckpoint_VoteNameVsIDLookup(t *testing.T) {
 func TestCheckpoint_ProposalSignatureVerification(t *testing.T) {
 	// Setup: Create a legitimate proposer
 	proposerKeypair := generateTestKeypair()
-	proposerID := "proposer-id"
-	proposerName := "bob"
+	proposerID := types.NaraID("proposer-id")
+	proposerName := types.NaraName("bob")
 	asOfTime := time.Now().Unix()
 
 	// Create a valid self-attestation

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eljojo/nara/types"
 	"github.com/sirupsen/logrus"
 )
 
@@ -64,14 +65,16 @@ func TestVerifyMeshRequest_ValidSignature(t *testing.T) {
 	}
 
 	// Mock public key lookup
-	getPublicKey := func(name string) []byte {
+	getPublicKey := func(name types.NaraName) []byte {
 		if name == "alice" {
 			return pub
 		}
 		return nil
 	}
 
-	sender, err := VerifyMeshRequest(req, getPublicKey)
+	sender, err := VerifyMeshRequest(req, func(name string) []byte {
+		return getPublicKey(types.NaraName(name))
+	})
 	if err != nil {
 		t.Errorf("expected valid signature, got error: %v", err)
 	}
@@ -94,14 +97,16 @@ func TestVerifyMeshRequest_InvalidSignature(t *testing.T) {
 	}
 
 	// But verify against different public key
-	getPublicKey := func(name string) []byte {
+	getPublicKey := func(name types.NaraName) []byte {
 		if name == "alice" {
 			return pub2 // Wrong key!
 		}
 		return nil
 	}
 
-	_, err := VerifyMeshRequest(req, getPublicKey)
+	_, err := VerifyMeshRequest(req, func(name string) []byte {
+		return getPublicKey(types.NaraName(name))
+	})
 	if err == nil {
 		t.Error("expected signature verification to fail")
 	}
@@ -111,9 +116,11 @@ func TestVerifyMeshRequest_MissingHeaders(t *testing.T) {
 	req := httptest.NewRequest("POST", "/events/sync", nil)
 	// No auth headers
 
-	getPublicKey := func(name string) []byte { return nil }
+	getPublicKey := func(name types.NaraName) []byte { return nil }
 
-	_, err := VerifyMeshRequest(req, getPublicKey)
+	_, err := VerifyMeshRequest(req, func(name string) []byte {
+		return getPublicKey(types.NaraName(name))
+	})
 	if err == nil {
 		t.Error("expected error for missing headers")
 	}
@@ -133,14 +140,16 @@ func TestVerifyMeshRequest_ExpiredTimestamp(t *testing.T) {
 	req.Header.Set(HeaderNaraTimestamp, strconv.FormatInt(oldTimestamp, 10))
 	req.Header.Set(HeaderNaraSignature, base64.StdEncoding.EncodeToString(signature))
 
-	getPublicKey := func(name string) []byte {
+	getPublicKey := func(name types.NaraName) []byte {
 		if name == "alice" {
 			return pub
 		}
 		return nil
 	}
 
-	_, err := VerifyMeshRequest(req, getPublicKey)
+	_, err := VerifyMeshRequest(req, func(name string) []byte {
+		return getPublicKey(types.NaraName(name))
+	})
 	if err == nil {
 		t.Error("expected error for expired timestamp")
 	}
@@ -158,11 +167,13 @@ func TestVerifyMeshRequest_UnknownSender(t *testing.T) {
 	}
 
 	// Return nil for unknown naras
-	getPublicKey := func(name string) []byte {
+	getPublicKey := func(name types.NaraName) []byte {
 		return nil // Don't know this nara
 	}
 
-	_, err := VerifyMeshRequest(req, getPublicKey)
+	_, err := VerifyMeshRequest(req, func(name string) []byte {
+		return getPublicKey(types.NaraName(name))
+	})
 	if err == nil {
 		t.Error("expected error for unknown sender")
 	}
@@ -180,7 +191,7 @@ func TestVerifyMeshResponse_ValidSignature(t *testing.T) {
 		Body:   io.NopCloser(bytes.NewReader(body)),
 	}
 
-	getPublicKey := func(name string) []byte {
+	getPublicKey := func(name types.NaraName) []byte {
 		if name == "bob" {
 			return pub
 		}
@@ -211,7 +222,7 @@ func TestVerifyMeshResponse_TamperedBody(t *testing.T) {
 		Body:   io.NopCloser(bytes.NewReader(tamperedBody)),
 	}
 
-	getPublicKey := func(name string) []byte {
+	getPublicKey := func(name types.NaraName) []byte {
 		if name == "bob" {
 			return pub
 		}
@@ -280,7 +291,7 @@ func TestMeshAuthMiddleware_RejectsUnauthenticated(t *testing.T) {
 
 func testMeshSoul(name string) string {
 	hw := hashBytes([]byte("mesh-test-hardware-" + name))
-	soul := NativeSoulCustom(hw, name)
+	soul := NativeSoulCustom(hw, types.NaraName(name))
 	return FormatSoul(soul)
 }
 

@@ -114,9 +114,9 @@ func NameFromSoul(soul SoulV1) types.NaraName {
 
 // DetermineIdentity resolves name and soul from arguments and hardware.
 // hostname should be the short hostname (no domain suffix).
-func DetermineIdentity(nameArg, soulArg, hostname string, hwFingerprint []byte) IdentityResult {
+func DetermineIdentity(nameArg types.NaraName, soulArg, hostname string, hwFingerprint []byte) IdentityResult {
 	// Determine if we're in generated-name mode (no name provided, generic hostname)
-	effectiveName := nameArg
+	effectiveName := string(nameArg)
 	if effectiveName == "" {
 		effectiveName = hostname
 	}

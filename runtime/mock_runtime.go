@@ -66,17 +66,17 @@ func (m *MockRuntime) MeID() types.NaraID {
 	return m.id
 }
 
-func (m *MockRuntime) LookupPublicKey(id string) []byte {
-	return m.pubKeys[id]
+func (m *MockRuntime) LookupPublicKey(id types.NaraID) []byte {
+	return m.pubKeys[string(id)]
 }
 
-func (m *MockRuntime) LookupPublicKeyByName(name string) []byte {
+func (m *MockRuntime) LookupPublicKeyByName(name types.NaraName) []byte {
 	// For mock, just use name as ID
-	return m.pubKeys[name]
+	return m.pubKeys[string(name)]
 }
 
-func (m *MockRuntime) RegisterPublicKey(id string, key []byte) {
-	m.pubKeys[id] = key
+func (m *MockRuntime) RegisterPublicKey(id types.NaraID, key []byte) {
+	m.pubKeys[string(id)] = key
 }
 
 // Emit captures messages for test assertions.

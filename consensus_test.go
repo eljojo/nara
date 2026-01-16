@@ -2,6 +2,8 @@ package nara
 
 import (
 	"testing"
+
+	"github.com/eljojo/nara/types"
 )
 
 // Legacy consensus tests have been removed - the neighbourhood-based consensus
@@ -12,7 +14,7 @@ func TestObservations_OnlineTransitions(t *testing.T) {
 	t.Parallel()
 	ln := testLocalNara(t, "me")
 	network := ln.Network
-	name := "target"
+	name := types.NaraName("target")
 
 	network.importNara(NewNara(name))
 

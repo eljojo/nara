@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/eljojo/nara/types"
 )
 
 func TestNetwork_ImportNara(t *testing.T) {
@@ -93,7 +95,7 @@ func TestNara_SoulNotLeakedInJSON(t *testing.T) {
 	// Create a nara with a real soul (the kind that gets serialized over MQTT/HTTP)
 	name := "testnara"
 	soul := testSoul(name)
-	identity := DetermineIdentity(name, soul, name, nil)
+	identity := DetermineIdentity(types.NaraName(name), soul, name, nil)
 	profile := DefaultMemoryProfile()
 	ln, err := NewLocalNara(identity, "host", "user", "pass", -1, profile)
 	if err != nil {
@@ -207,7 +209,7 @@ func TestNewspaperEvent_JSONParsing(t *testing.T) {
 	// 1. Setup sender and create a signed event using real code
 	senderName := "blue-jay"
 	// Generate a valid native soul for the sender
-	identity := DetermineIdentity("", "", senderName, []byte("test-hw-fingerprint"))
+	identity := DetermineIdentity(types.NaraName(""), "", senderName, []byte("test-hw-fingerprint"))
 
 	profile := DefaultMemoryProfile()
 	sender, err := NewLocalNara(identity, "host", "user", "pass", -1, profile)
