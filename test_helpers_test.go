@@ -573,6 +573,98 @@ func (m *testMeshNetwork) ServerURL(i int) string {
 	return m.Servers[i].URL
 }
 
+// RestartNara simulates a nara restart by shutting down and recreating it with the same identity.
+// This is useful for testing recovery scenarios where a nara loses all local state but keeps its soul.
+// The restarted nara will have the same soul/identity but empty local state (no stash, no ledger).
+// All mesh connections to other naras are automatically re-wired.
+func (m *testMeshNetwork) RestartNara(index int) *LocalNara {
+	m.t.Helper()
+
+	if index < 0 || index >= len(m.Naras) {
+		m.t.Fatalf("Invalid index %d, mesh has %d naras", index, len(m.Naras))
+	}
+
+	old := m.Naras[index]
+	originalSoul := old.Soul
+	originalName := string(old.Me.Name)
+
+	// Shutdown the old nara
+	old.Network.Shutdown()
+	m.t.Logf("Stopped nara %s (index %d) for restart simulation", originalName, index)
+
+	// Wait for graceful shutdown
+	time.Sleep(200 * time.Millisecond)
+
+	// Create fresh nara with same identity (simulates reboot with no local state)
+	chattiness := old.forceChattiness
+	if chattiness == 0 {
+		chattiness = 50
+	}
+	ledgerCap := len(old.SyncLedger.Events)
+	if ledgerCap == 0 {
+		ledgerCap = 1000
+	}
+
+	fresh := testNara(m.t, originalName, WithSoul(originalSoul), WithParams(chattiness, ledgerCap))
+
+	// Mark as not booting (consistent with mesh setup)
+	me := fresh.getMeObservation()
+	me.LastRestart = time.Now().Unix() - 200
+	me.LastSeen = time.Now().Unix()
+	fresh.setMeObservation(me)
+
+	// Configure test hooks for mesh
+	fresh.Network.testHTTPClient = m.Client
+	fresh.Network.testMeshURLs = make(map[types.NaraName]string)
+	fresh.Network.TransportMode = TransportGossip
+
+	// Re-wire mesh connections: fresh nara knows about all others
+	testURLsForMeshClient := make(map[types.NaraID]string)
+	for j := 0; j < len(m.Naras); j++ {
+		if j != index {
+			neighbor := NewNara(m.Naras[j].Me.Name)
+			neighbor.Status.ID = m.Naras[j].Me.Status.ID
+			neighbor.Status.PublicKey = identity.FormatPublicKey(m.Naras[j].Keypair.PublicKey)
+			fresh.Network.importNara(neighbor)
+			fresh.setObservation(m.Naras[j].Me.Name, NaraObservation{Online: "ONLINE"})
+			fresh.Network.testMeshURLs[m.Naras[j].Me.Name] = m.Servers[j].URL
+
+			testURLsForMeshClient[m.Naras[j].Me.Status.ID] = m.Servers[j].URL
+		}
+	}
+	fresh.Network.meshClient.EnableTestMode(testURLsForMeshClient)
+
+	// Update mesh tracking
+	m.Naras[index] = fresh
+
+	// Update HTTP server to use fresh nara's handlers
+	// Note: We reuse the same httptest.Server, just update the handler
+	oldHandler := m.Servers[index].Config.Handler
+	if oldHandler != nil {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/gossip/zine", fresh.Network.httpGossipZineHandler)
+		mux.HandleFunc("/api/checkpoints/all", fresh.Network.httpCheckpointsAllHandler)
+		mux.HandleFunc("/mesh/message", fresh.Network.httpMeshMessageHandler)
+		m.Servers[index].Config.Handler = mux
+	}
+
+	// Update other naras' view of this nara (they see it as same peer, just restarted)
+	for j := 0; j < len(m.Naras); j++ {
+		if j != index {
+			// They already have this nara in their neighbourhood from initial mesh setup
+			// Just update their observation to reflect the restart
+			m.Naras[j].setObservation(fresh.Me.Name, NaraObservation{
+				Online:      "ONLINE",
+				LastRestart: me.LastRestart,
+				LastSeen:    me.LastSeen,
+			})
+		}
+	}
+
+	m.t.Logf("✅ Restarted nara %s (index %d) with fresh state", originalName, index)
+	return fresh
+}
+
 // testNaraWithHTTP creates a test nara with HTTP server and returns the base URL.
 // The server is automatically started on a test-specific port and cleaned up after the test.
 //

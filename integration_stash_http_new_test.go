@@ -52,13 +52,21 @@ func TestStashDistribution_Integration(t *testing.T) {
 		}
 	}
 
-	// Configure owner's confidants (the other 3 naras)
-	confidantIDs := []types.NaraID{
+	// Verify the system can discover peers (prerequisite for automatic selection)
+	peerCount := len(owner.Network.Neighbourhood)
+	if peerCount < 3 {
+		t.Fatalf("Need at least 3 known peers for confidant selection, found %d", peerCount)
+	}
+	t.Logf("✅ Owner knows %d peers (peer discovery working)", peerCount)
+
+	// Manually configure confidants for now
+	// Note: Automatic selection (SelectConfidantsAutomatically) requires mesh messages
+	// to be fully wired during test setup, which needs additional work.
+	owner.Network.stashService.SetConfidants([]types.NaraID{
 		confidantA.Me.Status.ID,
 		confidantB.Me.Status.ID,
 		confidantC.Me.Status.ID,
-	}
-	owner.Network.stashService.SetConfidants(confidantIDs)
+	})
 
 	// Owner creates stash data
 	stashData := map[string]interface{}{
@@ -206,15 +214,43 @@ func TestStashDistribution_Integration(t *testing.T) {
 		t.Logf("✅ HTTP /api/stash/confidants returns 3 confidants")
 	})
 
-	// Test stash recovery workflow
+	// Test stash recovery workflow - simulates a complete reboot
 	t.Run("recovery_workflow", func(t *testing.T) {
-		// Clear owner's local stash to simulate data loss
-		// (Note: This doesn't actually clear it yet - SetStashData(nil) doesn't work that way)
-		// For now, just verify recovery endpoint works
+		// Simulate complete restart: shutdown and recreate with same identity but empty state
+		rebooted := mesh.RestartNara(0) // owner is at index 0
 
-		// Trigger recovery via HTTP endpoint
+		// Initialize runtime and stash service for rebooted nara
+		if err := rebooted.Network.initRuntime(); err != nil {
+			t.Fatalf("Failed to initialize runtime for rebooted nara: %v", err)
+		}
+		if err := rebooted.Network.startRuntime(); err != nil {
+			t.Fatalf("Failed to start runtime for rebooted nara: %v", err)
+		}
+
+		// Start HTTP server on rebooted nara
+		rebootedAddr := ":9502"
+		go rebooted.Start(true, false, rebootedAddr, nil, TransportGossip)
+		time.Sleep(300 * time.Millisecond)
+		rebootedURL := fmt.Sprintf("http://localhost%s", rebootedAddr)
+
+		t.Logf("Rebooted nara with same identity, checking for empty stash...")
+
+		// Verify: Rebooted nara has no local stash
+		localData, _ := rebooted.Network.stashService.GetStashData()
+		if len(localData) > 0 {
+			t.Error("Rebooted nara should start with no local stash")
+		}
+
+		// Re-configure confidants (in real system, this would come from soul-signed config)
+		rebooted.Network.stashService.SetConfidants([]types.NaraID{
+			confidantA.Me.Status.ID,
+			confidantB.Me.Status.ID,
+			confidantC.Me.Status.ID,
+		})
+
+		// Trigger recovery via HTTP endpoint (runs async in goroutine)
 		resp, err := http.Post(
-			baseURL+"/api/stash/recover",
+			rebootedURL+"/api/stash/recover",
 			"application/json",
 			bytes.NewReader([]byte("{}")),
 		)
@@ -234,10 +270,70 @@ func TestStashDistribution_Integration(t *testing.T) {
 
 		success, ok := result["success"].(bool)
 		if !ok || !success {
-			t.Logf("Recovery endpoint responded: %v", result)
+			t.Fatalf("Recovery should succeed: %v", result)
 		}
 
-		t.Logf("✅ HTTP /api/stash/recover endpoint works")
+		t.Logf("Recovery triggered, polling for completion...")
+
+		// Poll status endpoint to wait for recovery to complete (recovery runs async)
+		var recoveredData []byte
+		var recoveredTimestamp int64
+		for i := 0; i < 15; i++ {
+			time.Sleep(500 * time.Millisecond)
+
+			// Check via HTTP status endpoint
+			statusResp, err := http.Get(rebootedURL + "/api/stash/status")
+			if err != nil {
+				continue
+			}
+
+			var status map[string]interface{}
+			if err := json.NewDecoder(statusResp.Body).Decode(&status); err != nil {
+				statusResp.Body.Close()
+				continue
+			}
+			statusResp.Body.Close()
+
+			hasStash, _ := status["has_stash"].(bool)
+			if hasStash {
+				// Got it! Extract data
+				if myStash, ok := status["my_stash"].(map[string]interface{}); ok {
+					if ts, ok := myStash["timestamp"].(float64); ok {
+						recoveredTimestamp = int64(ts)
+					}
+					if data, ok := myStash["data"]; ok {
+						dataJSON, _ := json.Marshal(data)
+						recoveredData = dataJSON
+					}
+				}
+				t.Logf("✅ Stash recovered after %d polls", i+1)
+				break
+			}
+		}
+
+		// Verify: Rebooted nara now has the stash data
+		if len(recoveredData) == 0 {
+			t.Fatal("Rebooted nara should have recovered stash data from confidants after polling")
+		}
+		if recoveredTimestamp == 0 {
+			t.Error("Recovered stash should have timestamp")
+		}
+
+		// Verify the recovered data matches original
+		var recovered map[string]interface{}
+		if err := json.Unmarshal(recoveredData, &recovered); err != nil {
+			t.Fatalf("Failed to unmarshal recovered data: %v", err)
+		}
+
+		if prefs, ok := recovered["preferences"].(map[string]interface{}); ok {
+			if theme, ok := prefs["theme"].(string); !ok || theme != "dark" {
+				t.Errorf("Expected theme 'dark' in recovered data, got %v", prefs["theme"])
+			}
+		} else {
+			t.Error("Recovered data missing preferences")
+		}
+
+		t.Logf("✅ Rebooted nara successfully recovered stash from confidants")
 	})
 
 	t.Logf("✅ End-to-end stash distribution test completed successfully!")
@@ -268,7 +364,7 @@ func TestStashUpdate_HTTPWorkflow(t *testing.T) {
 		}
 	}
 
-	// Configure confidants
+	// Manually configure confidants (automatic selection needs additional setup during test init)
 	owner.Network.stashService.SetConfidants([]types.NaraID{
 		mesh.Get(1).Me.Status.ID,
 		mesh.Get(2).Me.Status.ID,
