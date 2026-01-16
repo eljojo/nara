@@ -16,7 +16,7 @@ type SocialEventRecord struct {
 	Actor     NaraName
 	Target    NaraName
 	Reason    string
-	Witness   string
+	Witness   NaraName
 }
 
 // CloutProjection accumulates social events for clout calculation.
@@ -121,7 +121,7 @@ func (p *CloutProjection) DeriveClout(observerSoul string, personality NaraPerso
 }
 
 // applyProjectionObservationClout applies clout changes for observation events.
-func applyProjectionObservationClout(clout map[string]float64, record SocialEventRecord, weight float64) {
+func applyProjectionObservationClout(clout map[NaraName]float64, record SocialEventRecord, weight float64) {
 	switch record.Reason {
 	case ReasonOnline:
 		// Coming online is slightly positive (reliable, available)

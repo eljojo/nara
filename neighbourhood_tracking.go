@@ -189,7 +189,7 @@ func (network *Network) importNara(nara *Nara) {
 
 // getNaraIDByName returns the nara ID for a given name, or empty string if not found.
 // This is a quick O(1) lookup using the nameToID index.
-func (network *Network) getNaraIDByName(name string) NaraID {
+func (network *Network) getNaraIDByName(name NaraName) NaraID {
 	if name == "" {
 		return ""
 	}

@@ -461,7 +461,7 @@ func TestPingVerificationRateLimitBug(t *testing.T) {
 
 	// Configure test ping that succeeds
 	pingCallCount := 0
-	network.testPingFunc = func(name string) (bool, error) {
+	network.testPingFunc = func(name NaraName) (bool, error) {
 		pingCallCount++
 		t.Logf("Test ping called (call #%d) for %s", pingCallCount, name)
 		return true, nil // ping succeeds

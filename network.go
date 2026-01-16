@@ -88,17 +88,17 @@ type Network struct {
 	// Startup sequencing: operations must complete in order
 	bootRecoveryDone chan struct{}
 	// Test hooks (only used in tests)
-	testHTTPClient            *http.Client                    // Override HTTP client for testing
-	testMeshURLs              map[string]string               // Override mesh URLs for testing (nara name -> URL)
-	testTeaseDelay            *time.Duration                  // Override tease delay for testing (nil = use default 0-5s random)
-	testObservationDelay      *time.Duration                  // Override observation debounce delay for testing
-	testAnnounceCount         int                             // Counter for announce() calls (for testing)
-	testSkipHeyThereSleep     bool                            // Skip the 1s sleep in handleHeyThereEvent (for testing)
-	testSkipJitter            bool                            // Skip jitter delays in hey_there for faster tests
-	testSkipBootRecovery      bool                            // Skip boot recovery entirely (for checkpoint tests)
-	testSkipHeyThereRateLimit bool                            // Skip the 5s rate limit on hey_there (for testing)
-	testSkipCoordinateWait    bool                            // Skip the 30s initial wait in coordinateMaintenance (for testing)
-	testPingFunc              func(name string) (bool, error) // Override ping behavior for testing (returns success, error)
+	testHTTPClient            *http.Client                      // Override HTTP client for testing
+	testMeshURLs              map[string]string                 // Override mesh URLs for testing (nara name -> URL)
+	testTeaseDelay            *time.Duration                    // Override tease delay for testing (nil = use default 0-5s random)
+	testObservationDelay      *time.Duration                    // Override observation debounce delay for testing
+	testAnnounceCount         int                               // Counter for announce() calls (for testing)
+	testSkipHeyThereSleep     bool                              // Skip the 1s sleep in handleHeyThereEvent (for testing)
+	testSkipJitter            bool                              // Skip jitter delays in hey_there for faster tests
+	testSkipBootRecovery      bool                              // Skip boot recovery entirely (for checkpoint tests)
+	testSkipHeyThereRateLimit bool                              // Skip the 5s rate limit on hey_there (for testing)
+	testSkipCoordinateWait    bool                              // Skip the 30s initial wait in coordinateMaintenance (for testing)
+	testPingFunc              func(name NaraName) (bool, error) // Override ping behavior for testing (returns success, error)
 	// HTTP servers for graceful shutdown
 	httpServer        *http.Server
 	meshHttpServer    *http.Server
@@ -347,7 +347,7 @@ func (network *Network) resolvePublicKeyForNara(name NaraName) []byte {
 
 	// Log via LogService (batched)
 	if network.logService != nil {
-		network.logService.BatchPeerResolutionFailed(name.String())
+		network.logService.BatchPeerResolutionFailed(name)
 	}
 	return nil
 }
@@ -823,7 +823,7 @@ func (network *Network) isShortMemoryMode() bool {
 // This way, active naras prove themselves through their own events,
 // while quiet naras get vouched for by those who interact with them.
 // Also rate-limited to 1 per 2 minutes per subject to avoid spam.
-func (network *Network) emitSeenEvent(subject NaraName, via NaraName) {
+func (network *Network) emitSeenEvent(subject NaraName, via string) {
 	if network.local.SyncLedger == nil || network.local.isBooting() {
 		return
 	}

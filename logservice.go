@@ -893,11 +893,11 @@ func (ls *LogService) BatchMeshSync(from NaraName, eventCount int) {
 }
 
 // BatchHowdyForMe records a howdy directed at us for batched output
-func (ls *LogService) BatchHowdyForMe(from string) {
+func (ls *LogService) BatchHowdyForMe(from NaraName) {
 	ls.Push(LogEvent{
 		Category: CategoryPresence,
 		Type:     "howdy-for-me",
-		Actor:    from,
+		Actor:    from.String(),
 		GroupFormat: func(actors string) string {
 			return fmt.Sprintf("📬 got howdy from %s", actors)
 		},
@@ -905,11 +905,11 @@ func (ls *LogService) BatchHowdyForMe(from string) {
 }
 
 // BatchDMReceived records a received DM for batched output
-func (ls *LogService) BatchDMReceived(from string) {
+func (ls *LogService) BatchDMReceived(from NaraName) {
 	ls.Push(LogEvent{
 		Category: CategorySocial,
 		Type:     "dm-received",
-		Actor:    from,
+		Actor:    from.String(),
 		GroupFormat: func(actors string) string {
 			return fmt.Sprintf("📬 got DM from %s", actors)
 		},
@@ -917,11 +917,11 @@ func (ls *LogService) BatchDMReceived(from string) {
 }
 
 // BatchDiscovery records a discovered nara for batched output
-func (ls *LogService) BatchDiscovery(name string) {
+func (ls *LogService) BatchDiscovery(name NaraName) {
 	ls.Push(LogEvent{
 		Category: CategoryMesh,
 		Type:     "discovery",
-		Actor:    name,
+		Actor:    name.String(),
 		GroupFormat: func(actors string) string {
 			return fmt.Sprintf("📡 discovered %s on mesh", actors)
 		},
@@ -929,13 +929,13 @@ func (ls *LogService) BatchDiscovery(name string) {
 }
 
 // BatchObservedHowdy records an observed howdy for batched output
-func (ls *LogService) BatchObservedHowdy(observer, target string) {
+func (ls *LogService) BatchObservedHowdy(observer NaraName, target NaraName) {
 	t := target
 	ls.Push(LogEvent{
 		Category: CategoryPresence,
 		Type:     "observed-howdy",
-		Actor:    observer,
-		Target:   target,
+		Actor:    observer.String(),
+		Target:   target.String(),
 		GroupFormat: func(actors string) string {
 			return fmt.Sprintf("👀 %s observed howdy from %s", actors, t)
 		},
@@ -943,11 +943,11 @@ func (ls *LogService) BatchObservedHowdy(observer, target string) {
 }
 
 // BatchPeerResolutionFailed records a failed peer resolution for batched output
-func (ls *LogService) BatchPeerResolutionFailed(name string) {
+func (ls *LogService) BatchPeerResolutionFailed(name NaraName) {
 	ls.Push(LogEvent{
 		Category: CategoryMesh,
 		Type:     "peer-resolution-failed",
-		Actor:    name,
+		Actor:    name.String(),
 		GroupFormat: func(actors string) string {
 			return fmt.Sprintf("⚠️ couldn't resolve peer %s", actors)
 		},
@@ -955,21 +955,21 @@ func (ls *LogService) BatchPeerResolutionFailed(name string) {
 }
 
 // BatchBootSyncRequest records a boot sync request for batched output
-func (ls *LogService) BatchBootSyncRequest(name string, eventsRequested int) {
+func (ls *LogService) BatchBootSyncRequest(name NaraName, eventsRequested int) {
 	ls.Push(LogEvent{
 		Category: CategoryMesh,
 		Type:     "boot-sync-request",
-		Actor:    name,
+		Actor:    name.String(),
 		Count:    eventsRequested,
 	})
 }
 
 // BatchMeshVerified records a verified mesh response for batched output
-func (ls *LogService) BatchMeshVerified(name string) {
+func (ls *LogService) BatchMeshVerified(name NaraName) {
 	ls.Push(LogEvent{
 		Category: CategoryMesh,
 		Type:     "mesh-verified",
-		Actor:    name,
+		Actor:    name.String(),
 	})
 }
 

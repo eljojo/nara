@@ -22,19 +22,19 @@ type HTTPClient interface {
 // - Reduced coupling between components
 type NetworkContext interface {
 	// Identity
-	MyName() string
+	MyName() NaraName
 	Keypair() NaraKeypair
 
 	// Mesh HTTP operations
-	BuildMeshURL(name string, path string) string
+	BuildMeshURL(name NaraName, path string) string
 	GetMeshHTTPClient() HTTPClient
 	AddMeshAuthHeaders(req *http.Request)
-	HasMeshConnectivity(name string) bool
+	HasMeshConnectivity(name NaraName) bool
 
 	// Peer information
-	GetOnlineMeshPeers() []string
-	GetPeerInfo(names []string) []PeerInfo
-	GetOnlineStatus(name string) *OnlineState
+	GetOnlineMeshPeers() []NaraName
+	GetPeerInfo(names []NaraName) []PeerInfo
+	GetOnlineStatus(name NaraName) *OnlineState
 
 	// State
 	IsReadOnly() bool
@@ -57,7 +57,7 @@ func (network *Network) NewNetworkContext() NetworkContext {
 	return &networkContext{network: network}
 }
 
-func (c *networkContext) MyName() string {
+func (c *networkContext) MyName() NaraName {
 	return c.network.meName()
 }
 
@@ -65,7 +65,7 @@ func (c *networkContext) Keypair() NaraKeypair {
 	return c.network.local.Keypair
 }
 
-func (c *networkContext) BuildMeshURL(name string, path string) string {
+func (c *networkContext) BuildMeshURL(name NaraName, path string) string {
 	return c.network.buildMeshURL(name, path)
 }
 
@@ -77,19 +77,19 @@ func (c *networkContext) AddMeshAuthHeaders(req *http.Request) {
 	c.network.AddMeshAuthHeaders(req)
 }
 
-func (c *networkContext) HasMeshConnectivity(name string) bool {
+func (c *networkContext) HasMeshConnectivity(name NaraName) bool {
 	return c.network.hasMeshConnectivity(name)
 }
 
-func (c *networkContext) GetOnlineMeshPeers() []string {
+func (c *networkContext) GetOnlineMeshPeers() []NaraName {
 	return c.network.NeighbourhoodOnlineNames()
 }
 
-func (c *networkContext) GetPeerInfo(names []string) []PeerInfo {
+func (c *networkContext) GetPeerInfo(names []NaraName) []PeerInfo {
 	return []PeerInfo{}
 }
 
-func (c *networkContext) GetOnlineStatus(name string) *OnlineState {
+func (c *networkContext) GetOnlineStatus(name NaraName) *OnlineState {
 	if c.network.local.Projections == nil {
 		return nil
 	}

@@ -301,7 +301,7 @@ func ShouldRandomTeaseWithBoost(soul, target NaraName, timestamp int64, personal
 }
 
 // TeaseMessage returns a tease message for the given reason
-func TeaseMessage(reason, actor NaraName, target NaraName) string {
+func TeaseMessage(reason string, actor NaraName, target NaraName) string {
 	templates := map[string][]string{
 		ReasonHighRestarts: {
 			"nice uptime there, %s",

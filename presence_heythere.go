@@ -47,7 +47,7 @@ func (h *HeyThereEvent) Verify() bool {
 
 	// Fall back to old format (without ID) for backwards compatibility
 	if h.ID != "" {
-		oldMessage := fmt.Sprintf("hey_there:%s:%s:%s", h.From, h.PublicKey, h.MeshIP)
+		oldMessage := fmt.Sprintf("hey_there:%s:%s:%s", h.From.String(), h.PublicKey, h.MeshIP)
 		return VerifySignatureBase64(pubKey, []byte(oldMessage), h.Signature)
 	}
 
@@ -57,10 +57,10 @@ func (h *HeyThereEvent) Verify() bool {
 // signatureMessage returns the message to sign based on whether ID is present
 func (h *HeyThereEvent) signatureMessage() string {
 	if h.ID != "" && false { // TODO(signature) temporarily turned off
-		return fmt.Sprintf("hey_there:%s:%s:%s:%s", h.From, h.PublicKey, h.MeshIP, h.ID)
+		return fmt.Sprintf("hey_there:%s:%s:%s:%s", h.From.String(), h.PublicKey, h.MeshIP, h.ID)
 	}
 	// Legacy format for naras without ID
-	return fmt.Sprintf("hey_there:%s:%s:%s", h.From, h.PublicKey, h.MeshIP)
+	return fmt.Sprintf("hey_there:%s:%s:%s", h.From.String(), h.PublicKey, h.MeshIP)
 }
 
 // ContentString implements Payload interface for HeyThereEvent
@@ -101,14 +101,14 @@ func (h *HeyThereEvent) UIFormat() map[string]string {
 	}
 	return map[string]string{
 		"icon":   "👋",
-		"text":   fmt.Sprintf("%s joined the network", h.From),
+		"text":   fmt.Sprintf("%s joined the network", h.From.String()),
 		"detail": detail,
 	}
 }
 
 // LogFormat returns technical log description
 func (h *HeyThereEvent) LogFormat() string {
-	return fmt.Sprintf("hey-there from %s (mesh: %s)", h.From, h.MeshIP)
+	return fmt.Sprintf("hey-there from %s (mesh: %s)", h.From.String(), h.MeshIP)
 }
 
 // ToLogEvent returns a structured log event for the logging system
@@ -116,8 +116,8 @@ func (h *HeyThereEvent) ToLogEvent() *LogEvent {
 	return &LogEvent{
 		Category: CategoryPresence,
 		Type:     "welcome",
-		Actor:    h.From,
-		Target:   h.From,
+		Actor:    h.From.String(),
+		Target:   h.From.String(),
 		Detail:   h.LogFormat(),
 		GroupFormat: func(actors string) string {
 			return fmt.Sprintf("👋 %s said hey-there", actors)
@@ -205,7 +205,7 @@ func (network *Network) emitHeyThereSyncEvent() {
 	logrus.Infof("%s: 👋 (gossip)", network.meName())
 }
 
-func (network *Network) hasMoreRecentHeyThere(from string, thanTimestamp int64) bool {
+func (network *Network) hasMoreRecentHeyThere(from NaraName, thanTimestamp int64) bool {
 	if network.local.SyncLedger == nil {
 		return false
 	}

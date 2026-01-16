@@ -103,7 +103,7 @@ func (c *ChauEvent) ToLogEvent() *LogEvent {
 	return &LogEvent{
 		Category: CategoryPresence,
 		Type:     "goodbye",
-		Actor:    c.From,
+		Actor:    c.From.String(),
 		Detail:   c.LogFormat(),
 		GroupFormat: func(actors string) string {
 			return fmt.Sprintf("💨 %s bounced", actors)
