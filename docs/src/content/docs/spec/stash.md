@@ -3,11 +3,11 @@ title: Stash
 description: Encrypted distributed storage service for nara.
 ---
 
-Stash is the reference implementation of a nara runtime service. It provides encrypted, memory-only persistence by delegating storage to trusted "confidants".
+Stash is the reference implementation of a nara runtime service. It provides encrypted, memory-only persistence by delegating storage to trusted "confidants". See the **[Stash Developer Guide](/docs/spec/developer/sample-service/)** for a deep-dive into the implementation.
 
 ## 1. Purpose
-- Enable naras to survive restarts without local disk persistence by "stashing" their state on peers.
-- Provide a blueprint for runtime services using typed messages, correlators, and versioned handlers.
+- Enable naras to survive restarts without local disk persistence by "stashing" their state on peers. See the **[Memory Model](/docs/spec/memory-model/)** for the "Hazy Memory" context.
+- Provide a blueprint for runtime services using typed messages, correlators, and versioned handlers. See **[Behaviors & Patterns](/docs/spec/developer/behaviors/)**.
 - Ensure that only the owner of a stash can ever decrypt it.
 
 ## 2. Conceptual Model
@@ -19,16 +19,16 @@ Stash is the reference implementation of a nara runtime service. It provides enc
 
 ### Invariants
 1. Confidants MUST NOT be able to read the plaintext of the stashes they hold.
-2. Every stash operation (store/request) MUST be signed and verified via the runtime.
+2. Every stash operation (store/request) MUST be signed and verified via the runtime. See **[Identity](/docs/spec/identity/)**.
 3. Storage is volatile (RAM-only). If all confidants of an owner restart, the stash is lost.
 4. Symmetric keys MUST be derived deterministically from the owner's private seed.
 
 ## 3. External Behavior
 - **Storage**: `StoreWith(confidantID, data)` encrypts data and waits for a `stash:ack`.
 - **Retrieval**: `RequestFrom(confidantID)` fetches and decrypts the owner's stash.
-- **Recovery**: `RecoverFromAny()` attempts retrieval from all configured confidants until success.
+- **Recovery**: `RecoverFromAny()` attempts retrieval from all configured confidants until success. See **[Boot Sequence](/docs/spec/boot-sequence/)**.
 - **Confidant Duty**: When receiving a `stash:store`, a nara saves the blob in its local `stored` map.
-- **Refresh**: Broadcasting `stash-refresh` via MQTT triggers confidants to send back their held stashes over mesh.
+- **Refresh**: Broadcasting `stash-refresh` via MQTT triggers confidants to send back their held stashes over mesh. See **[Plaza (MQTT)](/docs/spec/plaza-mqtt/)**.
 
 ## 4. Interfaces
 

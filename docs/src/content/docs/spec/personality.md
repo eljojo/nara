@@ -7,26 +7,26 @@ Personality defines a nara's subjective experience. It is a set of deterministic
 
 ## 1. Purpose
 - Create diverse and unique behaviors among autonomous agents.
-- Enable subjective "Hazy Memory" by influencing what a nara chooses to remember or forget.
-- Provide a basis for social mechanics (teasing, resonance, and clout).
+- Enable subjective **[Hazy Memory](/docs/spec/memory-model/)** by influencing what a nara chooses to remember or forget.
+- Provide a basis for social mechanics (**[Teasing](/docs/spec/social-events/)**, resonance, and **[Clout](/docs/spec/clout/)**).
 
 ## 2. Conceptual Model
 - **The Big Three Traits**:
     - **Agreeableness**: Influences how much a nara likes others and how it reacts to teasing.
     - **Sociability**: Influences how much a nara cares about social events and gossip.
     - **Chill**: Influences how much a nara is bothered by network volatility (restarts, downtime).
-- **Aura**: A visual representation (colors) of the personality and soul.
+- **Aura**: A visual representation (colors) of the personality and soul. See **[Aura & Avatar](/docs/spec/aura-and-avatar/)**.
 
 ### Invariants
-1. **Deterministic**: Given the same soul and name, the personality MUST always be identical.
+1. **Deterministic**: Given the same soul and name, the personality MUST always be identical. See **[Identity](/docs/spec/identity/)**.
 2. **Immutable**: A nara's base personality traits never change.
 3. **Range**: Every trait is a value between 0 and 100.
 
 ## 3. External Behavior
-- naras with high **Sociability** will store more social events and gossip more frequently.
-- naras with high **Chill** are less likely to report or be bothered by peer restarts.
+- naras with high **Sociability** will store more social events and gossip more frequently. See **[Zines](/docs/spec/zines/)**.
+- naras with high **Chill** are less likely to report or be bothered by peer restarts. See **[Observations](/docs/spec/observations/)**.
 - **Agreeable** naras are less likely to initiate teasing but may "defend" peers who are teased excessively.
-- Personality traits are advertised in the `hey-there` presence announcement.
+- Personality traits are advertised in the `hey-there` presence announcement. See **[Presence](/docs/spec/presence/)**.
 
 ## 4. Interfaces
 - `NaraPersonality`: The struct containing the three trait values.

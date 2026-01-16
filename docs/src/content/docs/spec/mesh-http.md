@@ -6,14 +6,14 @@ description: Authenticated point-to-point communication over WireGuard.
 Mesh HTTP is the transport layer for sensitive, private, and bulk data exchange in the nara network. It runs over an encrypted WireGuard mesh (e.g., Tailscale or Headscale) and provides authenticated point-to-point links.
 
 ## 1. Purpose
-- Provide an encrypted and authenticated alternative to the public MQTT plaza.
-- Facilitate large data transfers like [Zines](/docs/spec/zines/) and [Sync Protocol](/docs/spec/sync-protocol/) batches.
-- Power the [Stash Service](/docs/spec/stash/) for distributed encrypted storage.
-- Support low-latency routing for [World Postcards](/docs/spec/world-postcards/).
+- Provide an encrypted and authenticated alternative to the public MQTT plaza. See **[Plaza (MQTT)](/docs/spec/plaza-mqtt/)**.
+- Facilitate large data transfers like **[Zines](/docs/spec/zines/)** and **[Sync Protocol](/docs/spec/sync-protocol/)** batches.
+- Power the **[Stash Service](/docs/spec/stash/)** for distributed encrypted storage.
+- Support low-latency routing for **[World Postcards](/docs/spec/world-postcards/)**.
 
 ## 2. Conceptual Model
 - **Mesh Network**: A private overlay network where every nara has a stable IP.
-- **Mutual Auth**: Every request and response is signed by the sender's soul.
+- **Mutual Auth**: Every request and response is signed by the sender's soul. See **[Identity](/docs/spec/identity/)**.
 - **Middleware**: A unified authentication layer that verifies identities and discovers public keys on-the-fly.
 
 ### Invariants

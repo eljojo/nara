@@ -6,21 +6,21 @@ description: Peer-to-peer gossip and editorial memory in the nara network.
 Zines are compact, signed bundles of recent events exchanged point-to-point over Mesh HTTP. They allow naras to propagate history "hand-to-hand" across the network without relying on a central broker.
 
 ## 1. Purpose
-- Provide a decentralized gossip mechanism independent of MQTT.
-- Efficiently propagate recent events (typically the last 5 minutes).
-- Enable peer discovery and mesh connectivity tracking.
-- Facilitate the creation of a distributed, collective "hazy" memory.
+- Provide a decentralized gossip mechanism independent of MQTT. See **[Plaza (MQTT)](/docs/spec/plaza-mqtt/)**.
+- Efficiently propagate recent events (typically the last 5 minutes). See **[Sync Protocol](/docs/spec/sync-protocol/)**.
+- Enable peer discovery and mesh connectivity tracking. See **[Presence](/docs/spec/presence/)**.
+- Facilitate the creation of a distributed, collective "hazy" memory. See **[Memory Model](/docs/spec/memory-model/)**.
 
 ## 2. Conceptual Model
 - **Zine**: A signed container for a batch of `SyncEvent` objects.
 - **Hand-to-Hand**: A bidirectional exchange; sending a zine to a peer triggers receiving their recent events in response.
-- **Mesh Discovery**: The process of finding and validating peers on the private mesh network.
+- **Mesh Discovery**: The process of finding and validating peers on the private mesh network. See **[Mesh (HTTP)](/docs/spec/mesh-http/)**.
 - **Direct Message (DM)**: An optimized delivery mechanism for a single urgent event.
 
 ### Invariants
 1. **Recency**: Zines MUST primarily focus on recent events to prevent redundant data transfer.
 2. **Reciprocity**: A successful zine exchange MUST result in both parties receiving new data.
-3. **Authenticity**: Every zine MUST be signed by the publisher to prevent tampering.
+3. **Authenticity**: Every zine MUST be signed by the publisher to prevent tampering. See **[Identity](/docs/spec/identity/)**.
 
 ## 3. External Behavior
 - naras initiate "gossip rounds" at intervals determined by their `Chattiness` parameter.

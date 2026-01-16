@@ -6,9 +6,9 @@ description: Multi-party attestation and historical anchors in the nara network.
 Checkpoints provide multi-party consensus for anchoring historical state (restarts, uptime, first-seen). They create trusted snapshots that survive network restarts and ledger pruning.
 
 ## 1. Purpose
-- Anchor historical facts that predate the current event-sourced system.
+- Anchor historical facts that predate the current event-sourced system. See **[Observations](/docs/spec/observations/)** for the Trinity values.
 - Provide a trusted, multi-signed baseline for lifetime statistics (total restarts, uptime).
-- Accelerate synchronization for new nodes by providing verified snapshots of the network state.
+- Accelerate synchronization for new nodes by providing verified snapshots of the network state. See **[Sync Protocol](/docs/spec/sync-protocol/)**.
 
 ## 2. Conceptual Model
 - **Proposal**: A nara proposes a snapshot of its own state (`Restarts`, `TotalUptime`, `StartTime`).
@@ -17,15 +17,15 @@ Checkpoints provide multi-party consensus for anchoring historical state (restar
 - **Chain of Trust (v2)**: Each checkpoint links to the ID of the `PreviousCheckpointID`, forming a linear history.
 
 ### Invariants
-1. **Multi-sig Trust**: A checkpoint requires ≥ 2 signatures from known peers and ≥ 5 total voters to be considered valid.
+1. **Multi-sig Trust**: A checkpoint requires ≥ 2 signatures from known peers and ≥ 5 total voters to be considered valid. See **[Identity](/docs/spec/identity/)** for signature verification.
 2. **Subject-Initiated**: Only the subject nara can initiate a proposal for its own checkpoint.
 3. **As-Of Stability**: All voters must sign the exact same `AsOfTime` and set of values.
-4. **Immutability**: Checkpoints are never pruned from the ledger.
+4. **Immutability**: Checkpoints are never pruned from the ledger. See **[Events](/docs/spec/events/)** for immutability rules.
 5. **Chain Continuity**: v2 nodes MUST ignore proposals or votes that do not correctly reference the previous checkpoint ID in the chain.
 
 ## 3. External Behavior
 - **Frequency**: Checkpoints are typically proposed every 24 hours.
-- **Consensus Window**: There is a 1-minute window on MQTT for collecting votes.
+- **Consensus Window**: There is a 1-minute window on MQTT for collecting votes. See **[Plaza (MQTT)](/docs/spec/plaza-mqtt/)**.
 - **Gossip**: Once finalized, checkpoints are broadcast via MQTT and merged into the `SyncLedger` of all nodes.
 - **Backwards Compatibility**: v2 nodes reject v1 proposals to prevent "unchained" history from being injected.
 

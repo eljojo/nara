@@ -25,7 +25,7 @@ Events are the fundamental unit of information in nara, representing immutable f
 
 ## 3. External Behavior
 - Components subscribe to the ledger to receive new events.
-- Projections replay events from the ledger to derive current state (e.g., clout, online status).
+- Projections replay events from the ledger to derive current state (e.g., clout, online status). See **[Projections](/docs/spec/projections/)**.
 - The ledger automatically prunes low-priority events when `MaxEvents` is exceeded, preserving critical history.
 
 ## 4. Interfaces
@@ -41,11 +41,11 @@ Events are the fundamental unit of information in nara, representing immutable f
 ### Service Types & Importance
 | Service | Importance | Purpose |
 | :--- | :--- | :--- |
-| `checkpoint` | 3 (Critical) | Multi-sig historical state anchors. |
-| `observation`| 1-3 | Consensus on restarts (3), first-seen (3), status-change (2). |
-| `hey-there` | 3 (Critical) | Presence and public key announcements. |
-| `chau` | 3 (Critical) | Graceful departure announcements. |
-| `social` | 2 (Normal) | Teasing, gossip, and interactions. |
+| `checkpoint` | 3 (Critical) | Multi-sig historical state anchors. See **[Checkpoints](/docs/spec/checkpoints/)**. |
+| `observation`| 1-3 | Consensus on restarts (3), first-seen (3), status-change (2). See **[Observations](/docs/spec/observations/)**. |
+| `hey-there` | 3 (Critical) | Presence and public key announcements. See **[Presence](/docs/spec/presence/)**. |
+| `chau` | 3 (Critical) | Graceful departure announcements. See **[Presence](/docs/spec/presence/)**. |
+| `social` | 2 (Normal) | Teasing, gossip, and interactions. See **[Social Events](/docs/spec/social-events/)**. |
 | `seen` | 1 (Casual) | Proof-of-contact sightings. |
 | `ping` | 1 (Casual) | Latency (RTT) measurements. |
 
@@ -68,7 +68,7 @@ Events are the fundamental unit of information in nara, representing immutable f
 
 ### Signing
 1. **Message**: `ID + ":" + Timestamp + ":" + Service + ":" + Emitter + ":" + Payload.ContentString()`
-2. **Signature**: Ed25519 signature over the SHA256 hash of the Message.
+2. **Signature**: Ed25519 signature over the SHA256 hash of the Message. See **[Identity](/docs/spec/identity/)** for key derivation.
 
 ### Verification
 1. Resolve the `emitter_id` to a public key.

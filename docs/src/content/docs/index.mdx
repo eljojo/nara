@@ -43,15 +43,15 @@ graph TB
     style D fill:#9f7aea,stroke:#6b46c1
 ```
 
-- **plaza ([MQTT](https://en.wikipedia.org/wiki/MQTT))**: a lightweight message queue where naras broadcast announcements. anyone listening hears everything.
-- **mesh (HTTP over [WireGuard](https://en.wikipedia.org/wiki/WireGuard))**: peer-to-peer connections using [Headscale](https://headscale.net/). direct nara-to-nara paths for gossip and private sync.
+- **plaza ([MQTT](/docs/spec/plaza-mqtt/))**: a lightweight message queue where naras broadcast announcements. anyone listening hears everything.
+- **mesh (HTTP over [WireGuard](/docs/spec/mesh-http/))**: peer-to-peer connections using [Headscale](https://headscale.net/). direct nara-to-nara paths for gossip and private sync.
 
 nara d above only connects via mesh, never touches MQTT, but still participates in the collective memory.
 
 
 ### identity: from hardware to soul 🔑
 
-every nara's identity flows from its hardware through a deterministic chain.
+every nara's identity flows from its hardware through a deterministic chain. see the **[Identity Specification](/docs/spec/identity/)** for the full derivation logic.
 
 ### how names are chosen
 
@@ -167,7 +167,7 @@ flowchart LR
     style HTTP fill:#ed8936,stroke:#c05621
 ```
 
-events are signed by their creator, timestamped, and immutable. the ledger doesn't store "current state", it stores "what happened". state is always derived.
+events are signed by their creator, timestamped, and immutable. the ledger doesn't store "current state", it stores "what happened". state is always derived. see the **[Events Specification](/docs/spec/events/)** for schema details and **[Service Types](/docs/spec/events/#service-types)** for the importance levels.
 
 ### event sourcing: facts in, opinions out
 
@@ -214,7 +214,7 @@ sequenceDiagram
     Note over PROJ: status: 🟢 online<br/>last downtime: 3m<br/>restarts: +1
 ```
 
-events are **immutable facts**. the projection is **computed state** that updates as new events arrive. nothing is stored as "current status"—it's always derived from the event history.
+events are **immutable facts**. the projection is **computed state** that updates as new events arrive. nothing is stored as "current status"—it's always derived from the event history. see **[Projections](/docs/spec/projections/)**.
 
 </details>
 
@@ -254,7 +254,7 @@ the two coexist: one is self-declared, the other is collectively remembered.
 
 ### stash: storage without disks 🔐
 
-stash is **distributed encrypted storage**. instead of saving to disk, a nara keeps its private state on trusted peers (confidants). think of it like leaving copies of your diary with friends.
+stash is **distributed encrypted storage**. instead of saving to disk, a nara keeps its private state on trusted peers (confidants). think of it like leaving copies of your diary with friends. see **[Stash Specification](/docs/spec/stash/)**.
 
 the encryption key? 🔑 **it's derived from the soul.** confidants can hold your stash, but _only you can read it_. lose the soul, lose access to your memories forever. this is why the soul is the one thing worth backing up.
 
@@ -323,7 +323,7 @@ nara can do many things
 
 ### uptime: who's watching whom ⏱️
 
-naras track each other's uptime through observations. no central authority decides who's online—everyone watches and forms consensus.
+naras track each other's uptime through observations. no central authority decides who's online—everyone watches and forms consensus. see **[Observations](/docs/spec/observations/)** and **[Presence](/docs/spec/presence/)**.
 
 ```mermaid
 sequenceDiagram
@@ -407,11 +407,11 @@ flowchart LR
     style ANCHOR fill:#ed8936,stroke:#c05621
 ```
 
-a checkpoint signed by multiple naras is **hard to dispute**. it's not one nara's opinion—it's a collective agreement, cryptographically sealed. "how long has pixel been alive?" stops being gossip and becomes historical fact.
+a checkpoint signed by multiple naras is **hard to dispute**. it's not one nara's opinion—it's a collective agreement, cryptographically sealed. "how long has pixel been alive?" stops being gossip and becomes historical fact. see **[Checkpoints](/docs/spec/checkpoints/)**.
 
 ### zines: gossip in bundles 📰
 
-naras compile "zines" with whatever updates they've seen and exchange them with each other. it's like passing around a hand-made newsletter at a show.
+naras compile "zines" with whatever updates they've seen and exchange them with each other. it's like passing around a hand-made newsletter at a show. see **[Zines](/docs/spec/zines/)**.
 
 ```mermaid
 sequenceDiagram
@@ -442,7 +442,7 @@ zines don't include everything, only what that nara considered **interesting** b
 
 ### the website (field guide)
 
-the web ui is the observatory for the network:
+the web ui is the observatory for the network. see **[Web UI](/docs/spec/web-ui/)**.
 
 - **[network dashboard](https://nara.network)**: live roster with aura dots, avatars, trends, uptime, restarts, and last-seen
 - **shooting stars**: social events streak across the screen in real time
@@ -456,7 +456,7 @@ the web ui is the observatory for the network:
 
 ### postcards: around the world
 
-naras can send a message on a journey. it hops from nara to nara, collecting signatures and emoji stamps, then returns home.
+naras can send a message on a journey. it hops from nara to nara, collecting signatures and emoji stamps, then returns home. see **[World Postcards](/docs/spec/world-postcards/)**.
 
 ```mermaid
 flowchart TB
@@ -480,7 +480,7 @@ the technical bits: each hop is a direct HTTP connection over wireguard, and the
 
 ### social dynamics
 
-naras have **personality**: Agreeableness, Sociability, Chill. this shapes what they keep, what they ignore, and how they judge.
+naras have **personality**: Agreeableness, Sociability, Chill. this shapes what they keep, what they ignore, and how they judge. see **[Social Events](/docs/spec/social-events/)**.
 
 ### teasing spreads through gossip
 
@@ -534,7 +534,7 @@ flowchart TB
 same event → different observers → different opinions
 ```
 
-no universal leaderboard, just everyone's opinionated memory.
+no universal leaderboard, just everyone's opinionated memory. see **[Clout](/docs/spec/clout/)**.
 
 ### trends and fashion
 
@@ -542,7 +542,7 @@ naras follow trends like they follow weather. some jump in early. some hate crow
 
 ### aura and avatar
 
-every nara emits an **aura**: a primary and secondary color derived from soul + personality. sociability and chill bias the palette (neon, noir, warm, cool), agreeableness nudges harmony, and uptime adds a quiet tint. it's a visual fingerprint for the story the nara is living.
+every nara emits an **aura**: a primary and secondary color derived from soul + personality. sociability and chill bias the palette (neon, noir, warm, cool), agreeableness nudges harmony, and uptime adds a quiet tint. it's a visual fingerprint for the story the nara is living. see **[Aura & Avatar](/docs/spec/aura-and-avatar/)**.
 
 the web ui renders a **nara avatar**: a soft, foggy silhouette generated deterministically from the nara's ID. the shape never changes (identity), while motion softness and color shift with personality and aura. no faces, no eyes, just presence in the mist.
 
@@ -552,7 +552,7 @@ here are a few sample naras:
 
 ### the network map
 
-naras measure ping times to each other and share that data. from these measurements, they triangulate positions in a virtual coordinate space—like GPS, but built from gossip.
+naras measure ping times to each other and share that data. from these measurements, they triangulate positions in a virtual coordinate space—like GPS, but built from gossip. see **[Network Coordinates](/docs/spec/coordinates/)**.
 
 ```mermaid
 flowchart TB
@@ -690,14 +690,22 @@ the codebase is organized by domain (and being refactored to make the story clea
 - **boot**: recovery and background sync
 - **network**: the core conductor that keeps the rhythm
 
-### deeper lore
+### authoritative specification
 
-- `docs/EVENTS.md` for the event universe
-- `docs/SYNC.md` for the sync backbone and zines
-- `docs/OBSERVATIONS.md` for consensus and anti-abuse
-- `docs/STASH.md` for encrypted confidants
-- `docs/WORLD.md` for journeys
-- `docs/COORDINATES.md` for the network map
+for a deep technical dive into the protocols and algorithms, see the **[Living English Specification](/docs/spec/)**.
+
+- **[Identity](/docs/spec/identity/)**: soul derivation, bonding, and keys
+- **[Events](/docs/spec/events/)**: signed facts and immutability
+- **[Sync Protocol](/docs/spec/sync-protocol/)**: p2p reconciliation modes
+- **[Observations](/docs/spec/observations/)**: derivation of the trinity
+- **[Checkpoints](/docs/spec/checkpoints/)**: v2 chain of trust consensus
+- **[Stash](/docs/spec/stash/)**: distributed encrypted state
+- **[Runtime](/docs/spec/developer/runtime/)**: the Nara OS and behavior pipelines
+
+---
+
+if you're here to build, hack, or watch the little machines dream: welcome.
+
 
 ---
 

@@ -8,26 +8,26 @@ Clout is a subjective measure of a nara's reputation and social standing, derive
 ## 1. Purpose
 - Provide a decentralized mechanism for ranking naras based on their activity and social impact.
 - Help naras prioritize information (gossip, sync) from "important" or "interesting" peers.
-- Reward stability, uptime, and meaningful social participation.
+- Reward stability, uptime, and meaningful social participation. See **[Observations](/docs/spec/observations/)**.
 
 ## 2. Conceptual Model
 - **Clout Score**: A numerical value representing reputation.
-- **Resonance**: A multiplier derived from how much an interaction matches a nara's personality.
-- **Interactions**: Events like teasing, seen proofs, and presence announcements that contribute to clout.
-- **Decay**: Clout is not permanent; old interactions lose influence over time (Hazy Memory).
+- **Resonance**: A multiplier derived from how much an interaction matches a nara's personality. See **[Personality](/docs/spec/personality/)**.
+- **Interactions**: Events like teasing, seen proofs, and presence announcements that contribute to clout. See **[Social Events](/docs/spec/social-events/)**.
+- **Decay**: Clout is not permanent; old interactions lose influence over time (**[Hazy Memory](/docs/spec/memory-model/)**).
 
 ### Invariants
 1. **Subjectivity**: Every nara calculates Clout differently based on its own personality.
-2. **Event-Sourced**: Clout MUST be entirely derived from the event ledger.
+2. **Event-Sourced**: Clout MUST be entirely derived from the event ledger. See **[Events](/docs/spec/events/)**.
 3. **No Central Authority**: There is no global "High Score"; rankings only exist in the mind of the observer.
 
 ## 3. External Behavior
-- naras use Clout scores to decide which peers to sync with first or whose gossip to prioritize.
-- The Web UI displays Clout rankings to show which naras are currently "resonant" in the neighborhood.
+- naras use Clout scores to decide which peers to sync with first or whose gossip to prioritize. See **[Sync Protocol](/docs/spec/sync-protocol/)**.
+- The Web UI displays Clout rankings to show which naras are currently "resonant" in the neighborhood. See **[Web UI](/docs/spec/web-ui/)**.
 - High Clout scores may influence social interactions (e.g., naras are more likely to tease high-clout peers).
 
 ## 4. Interfaces
-- `CloutProjection`: The read-model responsible for computing scores from the ledger.
+- `CloutProjection`: The read-model responsible for computing scores from the ledger. See **[Projections](/docs/spec/projections/)**.
 - `GetClout(naraID)`: Retrieves the current subjective score for a peer.
 
 ## 5. Event Types & Schemas

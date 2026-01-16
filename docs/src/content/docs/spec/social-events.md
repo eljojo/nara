@@ -7,21 +7,21 @@ Social events enable naras to interact, judge, and participate in collective beh
 
 ## 1. Purpose
 - Create human-readable network activity for the UI and logs.
-- Drive the subjective reputation system ([Clout](/docs/spec/clout/)).
+- Drive the subjective reputation system (**[Clout](/docs/spec/clout/)**).
 - Model collective behaviors (trends) and network energy (Buzz).
 - Provide a basis for autonomous "drama" and interaction.
 
 ## 2. Conceptual Model
-- **SocialEvent**: An interaction payload contained within a `SyncEvent`.
+- **SocialEvent**: An interaction payload contained within a `SyncEvent`. See **[Events](/docs/spec/events/)**.
 - **Teasing**: Subjective commentary or "jabs" at a peer's state or behavior.
 - **Buzz**: A numerical metric representing the current "energy" or activity level of the network.
-- **Trends**: Collective participation in shared movements or styles, influenced by personality.
+- **Trends**: Collective participation in shared movements or styles, influenced by personality. See **[Personality](/docs/spec/personality/)**.
 
 ### Invariants
 1. **Subjective Resonance**: A nara's personality determines whether a social event is considered "meaningful" enough to be stored.
 2. **Anti-Pile-On**: Jitter and ledger checks prevent multiple naras from emitting the exact same commentary simultaneously.
 3. **Cooldown**: naras enforce a 5-minute local cooldown per target for specific interaction types.
-4. **Deterministic Interaction**: The choice to tease or join a trend is influenced by the nara's soul-derived traits.
+4. **Deterministic Interaction**: The choice to tease or join a trend is influenced by the nara's soul-derived traits. See **[Identity](/docs/spec/identity/)**.
 
 ## 3. External Behavior
 - naras monitor the ledger for "teasable" moments (e.g., a peer reaching 69 restarts).
