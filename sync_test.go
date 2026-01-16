@@ -494,7 +494,7 @@ func TestSyncLedger_PrunePriority_UnknownNarasFirst(t *testing.T) {
 	ledger := NewSyncLedger(5) // Max 5 events
 
 	// Set up the unknown nara checker - "unknown-nara" is unknown, "known-nara" is known
-	ledger.SetUnknownNaraChecker(func(name string) bool {
+	ledger.SetUnknownNaraChecker(func(name NaraName) bool {
 		return name == "unknown-nara"
 	})
 

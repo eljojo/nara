@@ -30,7 +30,7 @@ func resetVerifyPingRateLimit() {
 const BlueJayURL = "https://nara.network/narae.json"
 
 // pruneVerifyPingCache removes entries for pruned naras from the verification cache.
-func (network *Network) pruneVerifyPingCache(names []string) {
+func (network *Network) pruneVerifyPingCache(names []NaraName) {
 	verifyPingLastAttemptMu.Lock()
 	defer verifyPingLastAttemptMu.Unlock()
 	for _, name := range names {
@@ -364,7 +364,7 @@ func (network *Network) fetchOpinionsFromBlueJay() {
 	}
 }
 
-func (network *Network) recordObservationOnlineNara(name string, timestamp int64) {
+func (network *Network) recordObservationOnlineNara(name NaraName, timestamp int64) {
 	if timestamp == 0 {
 		timestamp = time.Now().Unix()
 	}
@@ -802,7 +802,7 @@ func (network *Network) verifyOnlineWithPing(name string) bool {
 
 // markOnlineFromPing updates observation and emits a ping event after a successful ping.
 // This is the shared logic for both real pings and test pings.
-func (network *Network) markOnlineFromPing(name string, rttMs float64) {
+func (network *Network) markOnlineFromPing(name NaraName, rttMs float64) {
 	// Update our observation
 	obs := network.local.getObservation(name)
 	obs.Online = "ONLINE"

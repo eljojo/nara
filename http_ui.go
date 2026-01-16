@@ -89,11 +89,11 @@ func (network *Network) httpEventsSSEHandler(w http.ResponseWriter, r *http.Requ
 
 // Clout scores from this nara's perspective
 func (network *Network) httpCloutHandler(w http.ResponseWriter, r *http.Request) {
-	var clout map[string]float64
+	var clout map[NaraName]float64
 	if network.local.Projections != nil {
 		clout = network.local.Projections.Clout().DeriveClout(network.local.Soul, network.local.Me.Status.Personality)
 	} else {
-		clout = make(map[string]float64)
+		clout = make(map[NaraName]float64)
 	}
 
 	response := map[string]interface{}{
@@ -373,10 +373,10 @@ func (network *Network) httpProximityHandler(w http.ResponseWriter, r *http.Requ
 	myEmoji := network.GetMyBarrioEmoji()
 
 	// Find all naras in my barrio
-	var barrioMembers []string
+	var barrioMembers []NaraName
 	for name := range network.Neighbourhood {
-		if network.IsInMyBarrio(name.String()) {
-			barrioMembers = append(barrioMembers, name.String())
+		if network.IsInMyBarrio(name) {
+			barrioMembers = append(barrioMembers, name)
 		}
 	}
 

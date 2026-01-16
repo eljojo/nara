@@ -1,6 +1,10 @@
 package runtime
 
-import "time"
+import (
+	"time"
+
+	"github.com/eljojo/nara/types"
+)
 
 // RuntimeInterface is what services and stages can access.
 //
@@ -9,12 +13,12 @@ import "time"
 type RuntimeInterface interface {
 	// Identity
 	Me() *Nara
-	MeID() string
+	MeID() types.NaraID
 
 	// Public key management
-	LookupPublicKey(id string) []byte
-	LookupPublicKeyByName(name string) []byte
-	RegisterPublicKey(id string, key []byte)
+	LookupPublicKey(id types.NaraID) []byte
+	LookupPublicKeyByName(name types.NaraName) []byte
+	RegisterPublicKey(id types.NaraID, key []byte)
 
 	// Messaging
 	Emit(msg *Message) error
@@ -37,8 +41,8 @@ type RuntimeInterface interface {
 
 // PeerInfo contains information about a network peer.
 type PeerInfo struct {
-	ID     string
-	Name   string
+	ID     types.NaraID
+	Name   types.NaraName
 	Uptime time.Duration
 }
 
@@ -52,7 +56,7 @@ type LedgerInterface interface {
 // TransportInterface is what transport stages use.
 type TransportInterface interface {
 	PublishMQTT(topic string, data []byte) error
-	TrySendDirect(targetID string, msg *Message) error
+	TrySendDirect(targetID types.NaraID, msg *Message) error
 }
 
 // GossipQueueInterface is what gossip stages use.
@@ -91,10 +95,11 @@ type Personality struct {
 
 // Nara represents a network participant.
 //
+// Notice there's also Nara struct in nara.go
 // The full Nara struct will be migrated in Chapter 2.
 type Nara struct {
-	ID   string
-	Name string
+	ID   types.NaraID
+	Name types.NaraName
 }
 
 // Environment enum for runtime behavior.

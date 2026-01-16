@@ -9,9 +9,9 @@ import (
 )
 
 type SyncRequest struct {
-	From     string   `json:"from"`     // who is asking
-	Services []string `json:"services"` // which services (empty = all)
-	Subjects []string `json:"subjects"` // which naras (empty = all)
+	From     NaraName   `json:"from"`     // who is asking
+	Services []string   `json:"services"` // which services (empty = all)
+	Subjects []NaraName `json:"subjects"` // which naras (empty = all)
 
 	// Mode-based API (recommended)
 	Mode       string `json:"mode,omitempty"`        // "sample", "page", or "recent"
@@ -37,7 +37,7 @@ type SyncResponse struct {
 }
 
 // NewSignedSyncResponse creates a signed sync response
-func NewSignedSyncResponse(from string, events []SyncEvent, keypair NaraKeypair) SyncResponse {
+func NewSignedSyncResponse(from NaraName, events []SyncEvent, keypair NaraKeypair) SyncResponse {
 	resp := SyncResponse{
 		From:      from,
 		Events:    events,

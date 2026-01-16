@@ -17,6 +17,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"errors"
+	"github.com/eljojo/nara/types"
 	"sync"
 )
 
@@ -25,29 +26,29 @@ type Keyring struct {
 	// Our identity
 	privateKey ed25519.PrivateKey
 	publicKey  ed25519.PublicKey
-	myID       string
+	myID       types.NaraID
 
 	// Others' keys (cached, already parsed)
-	keys map[string]ed25519.PublicKey // id -> pubkey
+	keys map[types.NaraID]ed25519.PublicKey // id -> pubkey
 	mu   sync.RWMutex
 }
 
 // New creates a new Keyring from an Ed25519 private key and our ID.
-func New(privateKey ed25519.PrivateKey, myID string) *Keyring {
+func New(privateKey ed25519.PrivateKey, myID types.NaraID) *Keyring {
 	publicKey := privateKey.Public().(ed25519.PublicKey)
 
 	return &Keyring{
 		privateKey: privateKey,
 		publicKey:  publicKey,
 		myID:       myID,
-		keys:       make(map[string]ed25519.PublicKey),
+		keys:       make(map[types.NaraID]ed25519.PublicKey),
 	}
 }
 
 // === Our Identity ===
 
 // MyID returns our nara ID.
-func (k *Keyring) MyID() string {
+func (k *Keyring) MyID() types.NaraID {
 	return k.myID
 }
 
@@ -75,7 +76,7 @@ func (k *Keyring) SignBase64(data []byte) string {
 
 // Register stores a public key for a nara ID.
 // If the key is already registered, this is a no-op.
-func (k *Keyring) Register(id string, pubkey ed25519.PublicKey) {
+func (k *Keyring) Register(id types.NaraID, pubkey ed25519.PublicKey) {
 	if id == "" || len(pubkey) == 0 {
 		return
 	}
@@ -85,7 +86,7 @@ func (k *Keyring) Register(id string, pubkey ed25519.PublicKey) {
 }
 
 // RegisterBase64 parses and stores a base64-encoded public key.
-func (k *Keyring) RegisterBase64(id string, pubkeyBase64 string) error {
+func (k *Keyring) RegisterBase64(id types.NaraID, pubkeyBase64 string) error {
 	if id == "" || pubkeyBase64 == "" {
 		return nil
 	}
@@ -102,7 +103,7 @@ func (k *Keyring) RegisterBase64(id string, pubkeyBase64 string) error {
 
 // Lookup returns the public key for a nara ID, or nil if unknown.
 // Also checks if the ID is our own.
-func (k *Keyring) Lookup(id string) ed25519.PublicKey {
+func (k *Keyring) Lookup(id types.NaraID) ed25519.PublicKey {
 	if id == "" {
 		return nil
 	}
@@ -115,7 +116,7 @@ func (k *Keyring) Lookup(id string) ed25519.PublicKey {
 }
 
 // Has returns true if we have a public key for the given ID.
-func (k *Keyring) Has(id string) bool {
+func (k *Keyring) Has(id types.NaraID) bool {
 	return k.Lookup(id) != nil
 }
 
@@ -130,7 +131,7 @@ func (k *Keyring) Count() int {
 
 // Verify verifies a signature from a nara ID.
 // Returns false if the ID is unknown or the signature is invalid.
-func (k *Keyring) Verify(id string, data, signature []byte) bool {
+func (k *Keyring) Verify(id types.NaraID, data, signature []byte) bool {
 	pubkey := k.Lookup(id)
 	if pubkey == nil {
 		return false
@@ -142,7 +143,7 @@ func (k *Keyring) Verify(id string, data, signature []byte) bool {
 }
 
 // VerifyBase64 verifies a base64-encoded signature from a nara ID.
-func (k *Keyring) VerifyBase64(id string, data []byte, signatureBase64 string) bool {
+func (k *Keyring) VerifyBase64(id types.NaraID, data []byte, signatureBase64 string) bool {
 	signature, err := base64.StdEncoding.DecodeString(signatureBase64)
 	if err != nil {
 		return false

@@ -16,7 +16,7 @@ func truncateKey(key string) string {
 }
 
 type HeyThereEvent struct {
-	From      string
+	From      NaraName
 	PublicKey string // Base64-encoded Ed25519 public key
 	MeshIP    string // Tailscale IP for mesh communication
 	ID        NaraID // Nara ID: deterministic hash of soul+name
@@ -76,10 +76,10 @@ func (h *HeyThereEvent) IsValid() bool {
 }
 
 // GetActor implements Payload interface for HeyThereEvent
-func (h *HeyThereEvent) GetActor() string { return h.From }
+func (h *HeyThereEvent) GetActor() NaraName { return h.From }
 
 // GetTarget implements Payload interface for HeyThereEvent
-func (h *HeyThereEvent) GetTarget() string { return h.From }
+func (h *HeyThereEvent) GetTarget() NaraName { return h.From }
 
 // VerifySignature implements Payload using the embedded public key
 func (h *HeyThereEvent) VerifySignature(event *SyncEvent, lookup PublicKeyLookup) bool {

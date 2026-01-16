@@ -75,6 +75,8 @@ type MeshClient struct {
 	httpClient *http.Client
 	name       string      // Who we are (for request signing)
 	keypair    NaraKeypair // For signing requests
+
+	peers map[NaraID]string
 }
 
 // NewMeshClient creates a new mesh client with the given identity

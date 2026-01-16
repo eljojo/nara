@@ -24,13 +24,12 @@ const MaxGridSize = 200.0
 // Naras in the same grid cell share the same barrio - this is symmetric and location-based.
 func (network *Network) neighbourhoodMaintenance() {
 	names := network.NeighbourhoodNames()
-	names = append(names, network.meName().String())
+	names = append(names, network.meName())
 
 	// Calculate grid size from network RTT data (auto-tune)
 	gridSize := network.calculateGridSize()
 
-	for _, name := range names {
-		naraName := NaraName(name)
+	for _, naraName := range names {
 		observation := network.local.getObservation(naraName)
 		oldCluster := observation.ClusterName
 
@@ -160,7 +159,7 @@ func gridCellToClusterIndex(cellX, cellY int64) int {
 
 // IsInMyBarrio returns true if the named nara is in the same barrio as me.
 // Used for proximity-based teasing boost.
-func (network *Network) IsInMyBarrio(name string) bool {
+func (network *Network) IsInMyBarrio(name NaraName) bool {
 	gridSize := network.calculateGridSize()
 
 	myCluster := network.getGridBasedCluster(network.meName(), gridSize)

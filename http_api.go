@@ -60,8 +60,10 @@ func (network *Network) httpProfileJsonHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	naraName := NaraName(name)
+
 	network.local.mu.Lock()
-	nara, exists := network.Neighbourhood[NaraName(name)]
+	nara, exists := network.Neighbourhood[naraName]
 	network.local.mu.Unlock()
 	if !exists {
 		http.NotFound(w, r)
@@ -72,15 +74,15 @@ func (network *Network) httpProfileJsonHandler(w http.ResponseWriter, r *http.Re
 	status := nara.Status
 	nara.mu.Unlock()
 
-	obs := network.local.getObservation(NaraName(name))
+	obs := network.local.getObservation(naraName)
 
 	// Event store stats
 	var eventStoreByService map[string]int
 	var eventStoreTotal int
 	var eventStoreCritical int
 	var recentTeases []map[string]interface{}
-	fromCounts := make(map[string]int)
-	toCounts := make(map[string]int)
+	fromCounts := make(map[NaraName]int)
+	toCounts := make(map[NaraName]int)
 	if network.local.SyncLedger != nil {
 		eventStoreByService = network.local.SyncLedger.GetEventCountsByService()
 		eventStoreTotal = network.local.SyncLedger.EventCount()
@@ -91,13 +93,13 @@ func (network *Network) httpProfileJsonHandler(w http.ResponseWriter, r *http.Re
 			if e.Service == ServiceSocial && e.Social != nil && e.Social.Type == "tease" {
 				actor := e.Social.Actor
 				target := e.Social.Target
-				if target == name {
+				if target == naraName {
 					fromCounts[actor]++
 				}
-				if actor == name {
+				if actor == naraName {
 					toCounts[target]++
 				}
-				if actor == name || target == name {
+				if actor == naraName || target == naraName {
 					if len(recentTeases) < 50 {
 						recentTeases = append(recentTeases, map[string]interface{}{
 							"actor":     actor,
@@ -113,14 +115,14 @@ func (network *Network) httpProfileJsonHandler(w http.ResponseWriter, r *http.Re
 
 	bestFrom := map[string]interface{}{"name": "", "count": 0}
 	for actor, c := range fromCounts {
-		if c > bestFrom["count"].(int) && actor != "" && actor != name {
+		if c > bestFrom["count"].(int) && actor != "" && actor != naraName {
 			bestFrom["name"] = actor
 			bestFrom["count"] = c
 		}
 	}
 	bestTo := map[string]interface{}{"name": "", "count": 0}
 	for target, c := range toCounts {
-		if c > bestTo["count"].(int) && target != "" && target != name {
+		if c > bestTo["count"].(int) && target != "" && target != naraName {
 			bestTo["name"] = target
 			bestTo["count"] = c
 		}
@@ -183,7 +185,7 @@ func (network *Network) httpNaraeJsonHandler(w http.ResponseWriter, r *http.Requ
 	allNarae := network.getNarae()
 
 	// Get clout scores
-	var cloutScores map[string]float64
+	var cloutScores map[NaraName]float64
 	if network.local.Projections != nil {
 		cloutScores = network.local.Projections.Clout().DeriveClout(network.local.Soul, network.local.Me.Status.Personality)
 	}
@@ -224,7 +226,7 @@ func (network *Network) httpNaraeJsonHandler(w http.ResponseWriter, r *http.Requ
 			"event_store_total":      nara.Status.EventStoreTotal,
 			"event_store_by_service": nara.Status.EventStoreByService,
 			"event_store_critical":   nara.Status.EventStoreCritical,
-			"Clout":                  cloutScores[nara.Name.String()],
+			"Clout":                  cloutScores[nara.Name],
 		}
 		nara.mu.Unlock()
 		naras = append(naras, naraMap)

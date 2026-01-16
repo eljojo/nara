@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/eljojo/nara/types"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/hkdf"
 )
@@ -18,8 +19,8 @@ import (
 // and provides fake infrastructure without MQTT/mesh dependencies.
 type MockRuntime struct {
 	t       *testing.T
-	name    string
-	id      string
+	name    types.NaraName
+	id      types.NaraID
 	Emitted []*Message // Captured Emit() calls for assertions
 
 	handlers  map[string][]func(*Message)
@@ -30,7 +31,7 @@ type MockRuntime struct {
 }
 
 // NewMockRuntime creates a mock runtime with auto-cleanup via t.Cleanup().
-func NewMockRuntime(t *testing.T, name, id string) *MockRuntime {
+func NewMockRuntime(t *testing.T, name types.NaraName, id types.NaraID) *MockRuntime {
 	t.Helper()
 
 	mock := &MockRuntime{
@@ -61,7 +62,7 @@ func (m *MockRuntime) Me() *Nara {
 	}
 }
 
-func (m *MockRuntime) MeID() string {
+func (m *MockRuntime) MeID() types.NaraID {
 	return m.id
 }
 
@@ -83,12 +84,6 @@ func (m *MockRuntime) Emit(msg *Message) error {
 	// Set defaults like real runtime
 	if msg.ID == "" {
 		msg.ID = ComputeID(msg)
-	}
-	if msg.FromID == "" {
-		msg.FromID = m.id
-	}
-	if msg.From == "" {
-		msg.From = m.name
 	}
 
 	// Capture for assertions

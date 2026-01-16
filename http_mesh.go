@@ -237,7 +237,7 @@ func (network *Network) httpDMHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Log via LogService (batched) - skip for social events since the ledger listener handles teases
 	if network.logService != nil && event.Service != ServiceSocial {
-		network.logService.BatchDMReceived(event.Emitter)
+		network.logService.BatchDMReceived(event.Emitter.String())
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

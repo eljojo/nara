@@ -32,8 +32,8 @@ const (
 type LogEvent struct {
 	Category  LogCategory
 	Type      string // "howdy", "dm", "gossip-merge", "discovery", etc.
-	Actor     string // who did it
-	Target    string // optional: who it was done to
+	Actor     string // generic actor field - can be a nara name, service name, or any other identifier
+	Target    string // generic target field - can be a nara name, cluster name, or any other identifier
 	Count     int    // for pre-aggregated events (e.g., "merged 50 events")
 	Detail    string // optional extra info
 	Instant   bool   // bypass batching, log immediately
@@ -60,7 +60,7 @@ type verboseGroup struct {
 // 1. Automatic: registered as a listener on SyncLedger
 // 2. Manual: direct Push() calls for things not in the event store
 type LogService struct {
-	localName string // Our nara's name for filtering self-events
+	localName NaraName // Our nara's name for filtering self-events
 
 	// Event channel for incoming log events
 	events chan LogEvent
@@ -89,7 +89,7 @@ type LogService struct {
 }
 
 // NewLogService creates a new LogService
-func NewLogService(localName string) *LogService {
+func NewLogService(localName NaraName) *LogService {
 	return &LogService{
 		localName:     localName,
 		events:        make(chan LogEvent, 100),
@@ -514,7 +514,7 @@ func (ls *LogService) formatWelcomes(events []LogEvent) []string {
 	// Group by target (who came online)
 	byTarget := make(map[string][]string)
 	for _, e := range events {
-		if e.Target != "" && e.Target != ls.localName {
+		if e.Target != "" && e.Target != ls.localName.String() {
 			byTarget[e.Target] = append(byTarget[e.Target], e.Actor)
 		}
 	}
@@ -867,11 +867,11 @@ func (ls *LogService) BatchHTTP(method, path string, status int) {
 }
 
 // BatchGossipMerge records a gossip merge for batched output
-func (ls *LogService) BatchGossipMerge(from string, eventCount int) {
+func (ls *LogService) BatchGossipMerge(from NaraName, eventCount int) {
 	ls.Push(LogEvent{
 		Category: CategoryGossip,
 		Type:     "gossip-merge",
-		Actor:    from,
+		Actor:    from.String(),
 		Count:    eventCount,
 		GroupFormat: func(actors string) string {
 			return fmt.Sprintf("📰 merged events from %s", actors)
@@ -880,11 +880,11 @@ func (ls *LogService) BatchGossipMerge(from string, eventCount int) {
 }
 
 // BatchMeshSync records a mesh sync for batched output
-func (ls *LogService) BatchMeshSync(from string, eventCount int) {
+func (ls *LogService) BatchMeshSync(from NaraName, eventCount int) {
 	ls.Push(LogEvent{
 		Category: CategoryMesh,
 		Type:     "mesh-sync",
-		Actor:    from,
+		Actor:    from.String(),
 		Count:    eventCount,
 		GroupFormat: func(actors string) string {
 			return fmt.Sprintf("📦 synced events from %s", actors)
@@ -1024,12 +1024,12 @@ func (ls *LogService) BatchBootInfo(key, value string) {
 }
 
 // BatchBarrioMovement records a barrio movement for batched output
-func (ls *LogService) BatchBarrioMovement(name, oldCluster, newCluster, emoji, method string, gridSize float64) {
+func (ls *LogService) BatchBarrioMovement(name NaraName, oldCluster, newCluster, emoji, method string, gridSize float64) {
 	detail := fmt.Sprintf("%s→%s %s (via %s, grid=%.0f)", oldCluster, newCluster, emoji, method, gridSize)
 	ls.Push(LogEvent{
 		Category: CategorySystem,
 		Type:     "barrio-movement",
-		Actor:    name,
+		Actor:    name.String(),
 		Target:   oldCluster,
 		Detail:   detail,
 		GroupFormat: func(actors string) string {

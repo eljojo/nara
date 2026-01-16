@@ -294,7 +294,7 @@ func NewTsnetMesh(config TsnetConfig) (*TsnetMesh, error) {
 
 	// Append random suffix to hostname to avoid conflicts with stale registrations
 	// This helps when restarting quickly or when previous instances didn't clean up
-	suffix := randomSuffix(4)
+	suffix := randomSuffix(4) // keep this in sync with gossip_discovery.go
 	tsnetHostname := config.Hostname + "-" + suffix
 	logrus.Debugf("🌐 Tailscale hostname: %s (base: %s)", tsnetHostname, config.Hostname)
 

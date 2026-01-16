@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/eljojo/nara/types"
 	"github.com/mr-tron/base58"
 )
 
@@ -15,15 +16,15 @@ import (
 // ephemeral broadcasts, protocol exchanges, and internal service communication.
 type Message struct {
 	// Core identity (always present)
-	ID         string    // Unique envelope identifier (always unique per message instance)
-	ContentKey string    // Semantic identity for dedup (optional, stable across observers)
-	Kind       string    // Message type: "hey-there", "observation:restart", "checkpoint", etc.
-	Version    int       // Schema version for this kind (default 1, increment on breaking changes)
-	From       string    // Sender name (for display)
-	FromID     string    // Sender nara ID (primary identifier)
-	To         string    // Target name (for direct messages, display only)
-	ToID       string    // Target nara ID (for direct messages, primary identifier)
-	Timestamp  time.Time // When it was created
+	ID         string         // Unique envelope identifier (always unique per message instance)
+	ContentKey string         // Semantic identity for dedup (optional, stable across observers)
+	Kind       string         // Message type: "hey-there", "observation:restart", "checkpoint", etc.
+	Version    int            // Schema version for this kind (default 1, increment on breaking changes)
+	From       types.NaraName // Sender name (for display)
+	FromID     types.NaraID   // Sender nara ID (primary identifier)
+	To         types.NaraName // Target name (for direct messages, display only)
+	ToID       types.NaraID   // Target nara ID (for direct messages, primary identifier)
+	Timestamp  time.Time      // When it was created
 
 	// Content
 	Payload any // Kind-specific data (Go struct, runtime handles serialization)
@@ -59,12 +60,12 @@ func ComputeID(msg *Message) string {
 // This ensures consistent signing across the network.
 func (m *Message) SignableContent() []byte {
 	data := struct {
-		ID        string    `json:"id"`
-		Kind      string    `json:"kind"`
-		FromID    string    `json:"from_id"`
-		ToID      string    `json:"to_id,omitempty"`
-		Timestamp time.Time `json:"timestamp"`
-		Payload   any       `json:"payload"`
+		ID        string         `json:"id"`
+		Kind      string         `json:"kind"`
+		FromID    types.NaraID   `json:"from_id"`
+		ToID      types.NaraID   `json:"to_id,omitempty"`
+		Timestamp time.Time      `json:"timestamp"`
+		Payload   any            `json:"payload"`
 	}{
 		ID:        m.ID,
 		Kind:      m.Kind,

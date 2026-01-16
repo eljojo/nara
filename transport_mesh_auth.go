@@ -200,9 +200,9 @@ func (network *Network) tryDiscoverUnknownSender(name, remoteAddr string) bool {
 	}
 
 	var pingResp struct {
-		From      string `json:"from"`
-		PublicKey string `json:"public_key"`
-		MeshIP    string `json:"mesh_ip"`
+		From      NaraName `json:"from"`
+		PublicKey string   `json:"public_key"`
+		MeshIP    string   `json:"mesh_ip"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&pingResp); err != nil {
 		return false

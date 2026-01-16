@@ -9,6 +9,7 @@ import (
 
 	"github.com/eljojo/nara/messages"
 	"github.com/eljojo/nara/runtime"
+	"github.com/eljojo/nara/types"
 	"github.com/eljojo/nara/utilities"
 
 	"github.com/sirupsen/logrus"
@@ -26,10 +27,10 @@ type Service struct {
 
 	// Stored stashes (we're a confidant for these owners)
 	mu     sync.RWMutex
-	stored map[string]*EncryptedStash // ownerID -> stash
+	stored map[types.NaraID]*EncryptedStash // ownerID -> stash
 
 	// Our confidants (peers who hold our stash)
-	confidants       []string // List of nara IDs
+	confidants       []types.NaraID // List of nara IDs
 	targetConfidants int      // Target number of confidants (default: 3)
 
 	// Our own stash data (to be encrypted and distributed to confidants)
@@ -47,7 +48,7 @@ type Service struct {
 
 // EncryptedStash is what we store for other naras.
 type EncryptedStash struct {
-	OwnerID    string
+	OwnerID    types.NaraID
 	Nonce      []byte
 	Ciphertext []byte
 	StoredAt   time.Time
@@ -56,8 +57,8 @@ type EncryptedStash struct {
 // NewService creates a new stash service.
 func NewService() *Service {
 	return &Service{
-		stored:            make(map[string]*EncryptedStash),
-		confidants:        make([]string, 0),
+		stored:            make(map[types.NaraID]*EncryptedStash),
+		confidants:        make([]types.NaraID, 0),
 		targetConfidants:  3, // Default: 3 confidants for redundancy
 		storeCorrelator:   utilities.NewCorrelator[messages.StashStoreAck](30 * time.Second),
 		requestCorrelator: utilities.NewCorrelator[messages.StashResponsePayload](30 * time.Second),
@@ -102,7 +103,7 @@ func (s *Service) Stop() error {
 //
 // This is a synchronous call that blocks until the confidant acknowledges
 // receipt or the request times out.
-func (s *Service) StoreWith(confidantID string, data []byte) error {
+func (s *Service) StoreWith(confidantID types.NaraID, data []byte) error {
 	// Encrypt the data using runtime's keypair
 	nonce, ciphertext, err := s.rt.Seal(data)
 	if err != nil {
@@ -140,7 +141,7 @@ func (s *Service) StoreWith(confidantID string, data []byte) error {
 // RequestFrom requests stored data from a confidant.
 //
 // Returns the decrypted data if the confidant has it, or an error.
-func (s *Service) RequestFrom(confidantID string) ([]byte, error) {
+func (s *Service) RequestFrom(confidantID types.NaraID) ([]byte, error) {
 	// Create request
 	msg := &runtime.Message{
 		Kind:    "stash:request",
@@ -192,7 +193,7 @@ func (s *Service) RecoverFromAny() ([]byte, error) {
 }
 
 // SetConfidants configures the list of confidants to use.
-func (s *Service) SetConfidants(confidantIDs []string) {
+func (s *Service) SetConfidants(confidantIDs []types.NaraID) {
 	s.confidants = confidantIDs
 	s.log.Info("configured %d confidants", len(confidantIDs))
 }
@@ -244,8 +245,8 @@ func (s *Service) SelectConfidantsAutomatically() error {
 		}
 	}
 
-	selected := make([]string, 0, 3)
-	used := make(map[string]bool)
+	selected := make([]types.NaraID, 0, 3)
+	used := make(map[types.NaraID]bool)
 
 	// Try to get first confidant (highest uptime)
 	for _, peer := range sortedPeers {
@@ -333,7 +334,7 @@ func (s *Service) SetStashData(data []byte) error {
 	if len(s.confidants) < s.targetConfidants {
 		s.log.Info("only %d confidants configured (need %d), selecting automatically...", len(s.confidants), s.targetConfidants)
 		// Clear old confidants before auto-selecting
-		s.confidants = []string{}
+		s.confidants = []types.NaraID{}
 		if err := s.SelectConfidantsAutomatically(); err != nil {
 			return fmt.Errorf("failed to auto-select confidants: %w", err)
 		}
@@ -361,7 +362,7 @@ func (s *Service) HasStashData() bool {
 func (s *Service) DistributeToConfidants() error {
 	s.mu.RLock()
 	data := s.myStashData
-	confidants := make([]string, len(s.confidants))
+	confidants := make([]types.NaraID, len(s.confidants))
 	copy(confidants, s.confidants)
 	s.mu.RUnlock()
 
@@ -402,7 +403,7 @@ func (s *Service) DistributeToConfidants() error {
 }
 
 // HasStashFor returns true if we're storing a stash for the given owner.
-func (s *Service) HasStashFor(ownerID string) bool {
+func (s *Service) HasStashFor(ownerID types.NaraID) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	_, ok := s.stored[ownerID]
@@ -411,7 +412,7 @@ func (s *Service) HasStashFor(ownerID string) bool {
 
 // === Confidant API (for storing others' stashes) ===
 
-func (s *Service) store(ownerID string, nonce, ciphertext []byte) {
+func (s *Service) store(ownerID types.NaraID, nonce, ciphertext []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -425,7 +426,7 @@ func (s *Service) store(ownerID string, nonce, ciphertext []byte) {
 	s.log.Info("stored stash for %s (%d bytes)", ownerID, len(ciphertext))
 }
 
-func (s *Service) retrieve(ownerID string) *EncryptedStash {
+func (s *Service) retrieve(ownerID types.NaraID) *EncryptedStash {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.stored[ownerID]
@@ -439,10 +440,10 @@ func (s *Service) MarshalState() ([]byte, error) {
 	defer s.mu.RUnlock()
 
 	state := struct {
-		Confidants       []string                   `json:"confidants"`
-		Stored           map[string]*EncryptedStash `json:"stored"`
-		MyStashData      []byte                     `json:"my_stash_data,omitempty"`
-		MyStashTimestamp int64                      `json:"my_stash_timestamp,omitempty"`
+		Confidants       []types.NaraID                   `json:"confidants"`
+		Stored           map[types.NaraID]*EncryptedStash `json:"stored"`
+		MyStashData      []byte                           `json:"my_stash_data,omitempty"`
+		MyStashTimestamp int64                            `json:"my_stash_timestamp,omitempty"`
 	}{
 		Confidants:       s.confidants,
 		Stored:           s.stored,
@@ -456,10 +457,10 @@ func (s *Service) MarshalState() ([]byte, error) {
 // UnmarshalState loads the service's state from JSON.
 func (s *Service) UnmarshalState(data []byte) error {
 	var state struct {
-		Confidants       []string                   `json:"confidants"`
-		Stored           map[string]*EncryptedStash `json:"stored"`
-		MyStashData      []byte                     `json:"my_stash_data,omitempty"`
-		MyStashTimestamp int64                      `json:"my_stash_timestamp,omitempty"`
+		Confidants       []types.NaraID                   `json:"confidants"`
+		Stored           map[types.NaraID]*EncryptedStash `json:"stored"`
+		MyStashData      []byte                           `json:"my_stash_data,omitempty"`
+		MyStashTimestamp int64                            `json:"my_stash_timestamp,omitempty"`
 	}
 
 	if err := json.Unmarshal(data, &state); err != nil {

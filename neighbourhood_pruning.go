@@ -27,7 +27,7 @@ func (network *Network) pruneInactiveNaras() {
 		// Veterans (30d+) are never auto-pruned - they're part of the community
 	)
 
-	var toRemove []string
+	var toRemove []NaraName
 	var established, veterans, zombies int
 	var prunedNewcomers, prunedEstablished int
 

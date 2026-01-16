@@ -22,7 +22,7 @@ func NewTransportAdapter(network *Network) *TransportAdapter {
 }
 
 // TrySendDirect sends a message directly to a target nara via mesh.
-func (a *TransportAdapter) TrySendDirect(targetID string, msg *runtime.Message) error {
+func (a *TransportAdapter) TrySendDirect(targetID NaraID, msg *runtime.Message) error {
 	// Resolve targetID to mesh address
 	nara := a.network.getNaraByID(targetID)
 	if nara == nil {
