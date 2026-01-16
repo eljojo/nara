@@ -9,13 +9,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eljojo/nara/types"
 	"github.com/sirupsen/logrus"
 )
 
 // testPeerDiscoverySoul creates a unique soul for peer discovery tests
 func testPeerDiscoverySoul(name string) string {
 	hw := hashBytes([]byte("peer-discovery-test-" + name))
-	soul := NativeSoulCustom(hw, name)
+	soul := NativeSoulCustom(hw, types.NaraName(name))
 	return FormatSoul(soul)
 }
 
@@ -84,7 +85,7 @@ func TestIntegration_HeyThereEventPropagation(t *testing.T) {
 
 	// Alice knows bob
 	alice.Network.testHTTPClient = sharedClient
-	alice.Network.testMeshURLs = map[string]string{"bob": bobServer.URL}
+	alice.Network.testMeshURLs = map[types.NaraName]string{types.NaraName("bob"): bobServer.URL}
 	bobNara := NewNara("bob")
 	bobNara.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
 	alice.Network.importNara(bobNara)
@@ -92,9 +93,9 @@ func TestIntegration_HeyThereEventPropagation(t *testing.T) {
 
 	// Bob knows alice and carol
 	bob.Network.testHTTPClient = sharedClient
-	bob.Network.testMeshURLs = map[string]string{
-		"alice": aliceServer.URL,
-		"carol": carolServer.URL,
+	bob.Network.testMeshURLs = map[types.NaraName]string{
+		types.NaraName("alice"): aliceServer.URL,
+		types.NaraName("carol"): carolServer.URL,
 	}
 	aliceNara := NewNara("alice")
 	aliceNara.Status.PublicKey = FormatPublicKey(alice.Keypair.PublicKey)
@@ -107,7 +108,7 @@ func TestIntegration_HeyThereEventPropagation(t *testing.T) {
 
 	// Carol knows bob
 	carol.Network.testHTTPClient = sharedClient
-	carol.Network.testMeshURLs = map[string]string{"bob": bobServer.URL}
+	carol.Network.testMeshURLs = map[types.NaraName]string{types.NaraName("bob"): bobServer.URL}
 	bobNaraForCarol := NewNara("bob")
 	bobNaraForCarol.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
 	carol.Network.importNara(bobNaraForCarol)
@@ -185,9 +186,9 @@ func TestIntegration_PeerResolutionProtocol(t *testing.T) {
 	// Alice knows bob (and has URLs for carol for redirect following)
 	// In a real mesh network, alice could reach any mesh IP even if she doesn't know their identity
 	alice.Network.testHTTPClient = sharedClient
-	alice.Network.testMeshURLs = map[string]string{
-		"bob":   bobServer.URL,
-		"carol": carolServer.URL, // URL only, no identity - needed for redirect following
+	alice.Network.testMeshURLs = map[types.NaraName]string{
+		types.NaraName("bob"):   bobServer.URL,
+		types.NaraName("carol"): carolServer.URL, // URL only, no identity - needed for redirect following
 	}
 	bobNara := NewNara("bob")
 	bobNara.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
@@ -196,9 +197,9 @@ func TestIntegration_PeerResolutionProtocol(t *testing.T) {
 
 	// Bob knows alice and carol
 	bob.Network.testHTTPClient = sharedClient
-	bob.Network.testMeshURLs = map[string]string{
-		"alice": aliceServer.URL,
-		"carol": carolServer.URL,
+	bob.Network.testMeshURLs = map[types.NaraName]string{
+		types.NaraName("alice"): aliceServer.URL,
+		types.NaraName("carol"): carolServer.URL,
 	}
 	aliceNara := NewNara("alice")
 	aliceNara.Status.PublicKey = FormatPublicKey(alice.Keypair.PublicKey)
@@ -211,9 +212,9 @@ func TestIntegration_PeerResolutionProtocol(t *testing.T) {
 
 	// Carol knows bob and ghost (has ghost's public key!)
 	carol.Network.testHTTPClient = sharedClient
-	carol.Network.testMeshURLs = map[string]string{
-		"bob":   bobServer.URL,
-		"alice": aliceServer.URL, // For responding directly to alice
+	carol.Network.testMeshURLs = map[types.NaraName]string{
+		types.NaraName("bob"):   bobServer.URL,
+		types.NaraName("alice"): aliceServer.URL, // For responding directly to alice
 	}
 	bobNaraForCarol := NewNara("bob")
 	bobNaraForCarol.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
@@ -278,7 +279,7 @@ func TestIntegration_HeyThereSyncEventEmittedOnStartup(t *testing.T) {
 
 	// Alice knows bob's URL but NOT his public key initially
 	alice.Network.testHTTPClient = sharedClient
-	alice.Network.testMeshURLs = map[string]string{"bob": bobServer.URL}
+	alice.Network.testMeshURLs = map[types.NaraName]string{types.NaraName("bob"): bobServer.URL}
 	bobNaraForAlice := NewNara("bob")
 	// NO public key set - alice doesn't know bob's identity yet
 	alice.Network.importNara(bobNaraForAlice)
@@ -286,7 +287,7 @@ func TestIntegration_HeyThereSyncEventEmittedOnStartup(t *testing.T) {
 
 	// Bob knows alice's URL but NOT her public key initially
 	bob.Network.testHTTPClient = sharedClient
-	bob.Network.testMeshURLs = map[string]string{"alice": aliceServer.URL}
+	bob.Network.testMeshURLs = map[types.NaraName]string{types.NaraName("alice"): aliceServer.URL}
 	aliceNaraForBob := NewNara("alice")
 	// NO public key set - bob doesn't know alice's identity yet
 	bob.Network.importNara(aliceNaraForBob)
@@ -391,7 +392,7 @@ func TestIntegration_GossipOnlyPeerDiscovery(t *testing.T) {
 
 	// Alice knows bob
 	alice.Network.testHTTPClient = sharedClient
-	alice.Network.testMeshURLs = map[string]string{"bob": bobServer.URL}
+	alice.Network.testMeshURLs = map[types.NaraName]string{types.NaraName("bob"): bobServer.URL}
 	bobNara := NewNara("bob")
 	bobNara.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
 	alice.Network.importNara(bobNara)
@@ -399,9 +400,9 @@ func TestIntegration_GossipOnlyPeerDiscovery(t *testing.T) {
 
 	// Bob knows alice and carol
 	bob.Network.testHTTPClient = sharedClient
-	bob.Network.testMeshURLs = map[string]string{
-		"alice": aliceServer.URL,
-		"carol": carolServer.URL,
+	bob.Network.testMeshURLs = map[types.NaraName]string{
+		types.NaraName("alice"): aliceServer.URL,
+		types.NaraName("carol"): carolServer.URL,
 	}
 	aliceNara := NewNara("alice")
 	aliceNara.Status.PublicKey = FormatPublicKey(alice.Keypair.PublicKey)
@@ -414,9 +415,9 @@ func TestIntegration_GossipOnlyPeerDiscovery(t *testing.T) {
 
 	// Carol knows bob and ghost
 	carol.Network.testHTTPClient = sharedClient
-	carol.Network.testMeshURLs = map[string]string{
-		"bob":   bobServer.URL,
-		"ghost": ghostServer.URL,
+	carol.Network.testMeshURLs = map[types.NaraName]string{
+		types.NaraName("bob"):   bobServer.URL,
+		types.NaraName("ghost"): ghostServer.URL,
 	}
 	bobNaraForCarol := NewNara("bob")
 	bobNaraForCarol.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
@@ -429,7 +430,7 @@ func TestIntegration_GossipOnlyPeerDiscovery(t *testing.T) {
 
 	// Ghost knows carol (gossip-only mode)
 	ghost.Network.testHTTPClient = sharedClient
-	ghost.Network.testMeshURLs = map[string]string{"carol": carolServer.URL}
+	ghost.Network.testMeshURLs = map[types.NaraName]string{types.NaraName("carol"): carolServer.URL}
 	carolNaraForGhost := NewNara("carol")
 	carolNaraForGhost.Status.PublicKey = FormatPublicKey(carol.Keypair.PublicKey)
 	ghost.Network.importNara(carolNaraForGhost)
@@ -548,9 +549,9 @@ func TestIntegration_ZineVerificationTriggersResolution(t *testing.T) {
 
 	// Alice knows bob (full identity)
 	alice.Network.testHTTPClient = sharedClient
-	alice.Network.testMeshURLs = map[string]string{
-		"bob":   bobServer.URL,
-		"carol": carolServer.URL,
+	alice.Network.testMeshURLs = map[types.NaraName]string{
+		types.NaraName("bob"):   bobServer.URL,
+		types.NaraName("carol"): carolServer.URL,
 	}
 	bobNara := NewNara("bob")
 	bobNara.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
@@ -559,8 +560,8 @@ func TestIntegration_ZineVerificationTriggersResolution(t *testing.T) {
 
 	// Bob knows carol (full identity)
 	bob.Network.testHTTPClient = sharedClient
-	bob.Network.testMeshURLs = map[string]string{
-		"carol": carolServer.URL,
+	bob.Network.testMeshURLs = map[types.NaraName]string{
+		types.NaraName("carol"): carolServer.URL,
 	}
 	carolNaraForBob := NewNara("carol")
 	carolNaraForBob.Status.PublicKey = FormatPublicKey(carol.Keypair.PublicKey)
@@ -635,8 +636,8 @@ func TestIntegration_WorldJourneyTriggersResolution(t *testing.T) {
 
 	// Alice knows bob
 	alice.Network.testHTTPClient = sharedClient
-	alice.Network.testMeshURLs = map[string]string{
-		"bob": bobServer.URL,
+	alice.Network.testMeshURLs = map[types.NaraName]string{
+		types.NaraName("bob"): bobServer.URL,
 	}
 	bobNara := NewNara("bob")
 	bobNara.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
@@ -645,8 +646,8 @@ func TestIntegration_WorldJourneyTriggersResolution(t *testing.T) {
 
 	// Bob knows carol
 	bob.Network.testHTTPClient = sharedClient
-	bob.Network.testMeshURLs = map[string]string{
-		"carol": carolServer.URL,
+	bob.Network.testMeshURLs = map[types.NaraName]string{
+		types.NaraName("carol"): carolServer.URL,
 	}
 	carolNaraForBob := NewNara("carol")
 	carolNaraForBob.Status.PublicKey = FormatPublicKey(carol.Keypair.PublicKey)
@@ -667,8 +668,8 @@ func TestIntegration_WorldJourneyTriggersResolution(t *testing.T) {
 	// We need bob to be reachable for peer queries
 	// Alice's resolvePeer will use testHTTPClient (sharedClient) and testMeshURLs
 	alice.Network.testHTTPClient = sharedClient
-	alice.Network.testMeshURLs = map[string]string{
-		"bob": bobServer.URL,
+	alice.Network.testMeshURLs = map[types.NaraName]string{
+		types.NaraName("bob"): bobServer.URL,
 	}
 
 	// Bob needs to know carol to answer the query
@@ -735,8 +736,8 @@ func TestIntegration_MeshAuthTriggersResolution(t *testing.T) {
 
 	// Alice knows bob
 	alice.Network.testHTTPClient = sharedClient
-	alice.Network.testMeshURLs = map[string]string{
-		"bob": bobServer.URL,
+	alice.Network.testMeshURLs = map[types.NaraName]string{
+		types.NaraName("bob"): bobServer.URL,
 	}
 	bobNara := NewNara("bob")
 	bobNara.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)

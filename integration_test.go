@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/eljojo/nara/types"
 )
 
 // TestIntegration_MultiNaraNetwork runs a full integration test with multiple naras
@@ -38,7 +40,7 @@ func TestIntegration_MultiNaraNetwork(t *testing.T) {
 	for i := 0; i < numNaras; i++ {
 		name := fmt.Sprintf("test-nara-%d", i)
 		hwFingerprint := []byte(fmt.Sprintf("test-hw-fingerprint-%d", i))
-		identity := DetermineIdentity("", "", name, hwFingerprint)
+		identity := DetermineIdentity(types.NaraName(""), "", name, hwFingerprint)
 
 		// Create LocalNara with embedded MQTT broker address
 		profile := DefaultMemoryProfile()
@@ -110,7 +112,7 @@ func TestIntegration_MultiNaraNetwork(t *testing.T) {
 	// 2. Check that social events were recorded
 	totalSocialEvents := 0
 	for _, ln := range naras {
-		socialEvents := ln.SyncLedger.GetSocialEventsForSubjects([]string{ln.Me.Name})
+		socialEvents := ln.SyncLedger.GetSocialEventsForSubjects([]types.NaraName{ln.Me.Name})
 		eventCount := len(socialEvents)
 		totalSocialEvents += eventCount
 
@@ -341,7 +343,7 @@ func TestIntegration_CheckpointSync(t *testing.T) {
 		}
 		testAddCheckpointToLedger(
 			alice.SyncLedger,
-			fmt.Sprintf("nara-%d", i),
+			types.NaraName(fmt.Sprintf("nara-%d", i)),
 			alice.Me.Name,
 			alice.Keypair,
 			obs,
@@ -549,10 +551,10 @@ func TestIntegration_CheckpointSync(t *testing.T) {
 	// Inject test HTTP client and URL into Bob's network
 	sharedClient := &http.Client{Timeout: 5 * time.Second}
 	bob.Network.testHTTPClient = sharedClient
-	bob.Network.testMeshURLs = map[string]string{"alice": aliceHTTP.URL}
+	bob.Network.testMeshURLs = map[types.NaraName]string{types.NaraName("alice"): aliceHTTP.URL}
 
 	// Import Alice's identity into Bob's network so signature verification works
-	aliceNara := NewNara("alice")
+	aliceNara := NewNara(types.NaraName("alice"))
 	aliceNara.Status.ID = alice.Me.Status.ID
 	aliceNara.Status.PublicKey = FormatPublicKey(alice.Keypair.PublicKey)
 	aliceNara.Status.MeshIP = aliceAddr // Use just the addr (no http:// prefix)
@@ -573,7 +575,7 @@ func TestIntegration_CheckpointSync(t *testing.T) {
 	}
 
 	// Manually call fetchAllCheckpointsFromNara (what bootRecovery would call)
-	checkpoints := bob.Network.fetchAllCheckpointsFromNara("alice", aliceAddr)
+	checkpoints := bob.Network.fetchAllCheckpointsFromNara(types.NaraName("alice"), alice.Me.Status.ID)
 	t.Logf("   Bob fetched %d checkpoints from Alice", len(checkpoints))
 
 	if len(checkpoints) != 5 {
@@ -634,7 +636,7 @@ func TestIntegration_CheckpointSync(t *testing.T) {
 				StartTime:   time.Now().Unix() - 86400,
 			}
 			subject := fmt.Sprintf("subject-%s", testNaras[i].name)
-			testAddCheckpointToLedger(testNaras[i].ln.SyncLedger, subject, testNaras[i].ln.Me.Name, testNaras[i].ln.Keypair, obs)
+			testAddCheckpointToLedger(testNaras[i].ln.SyncLedger, types.NaraName(subject), testNaras[i].ln.Me.Name, testNaras[i].ln.Keypair, obs)
 		}
 
 		// Set up HTTP server
@@ -649,19 +651,19 @@ func TestIntegration_CheckpointSync(t *testing.T) {
 
 	// Set up Charlie's network with all test naras
 	charlie.Network.testHTTPClient = &http.Client{Timeout: 5 * time.Second}
-	charlie.Network.testMeshURLs = make(map[string]string)
+	charlie.Network.testMeshURLs = make(map[types.NaraName]string)
 
-	onlineList := []string{}
+	onlineList := []types.NaraName{}
 	for _, tn := range testNaras {
 		// Import nara
-		naraObj := NewNara(tn.name)
+		naraObj := NewNara(types.NaraName(tn.name))
 		naraObj.Status.ID = tn.ln.Me.Status.ID
 		naraObj.Status.PublicKey = FormatPublicKey(tn.ln.Keypair.PublicKey)
 		naraObj.Status.MeshIP = tn.server.URL[7:] // Strip http://
 		charlie.Network.importNara(naraObj)
 
-		charlie.Network.testMeshURLs[tn.name] = tn.server.URL
-		onlineList = append(onlineList, tn.name)
+		charlie.Network.testMeshURLs[types.NaraName(tn.name)] = tn.server.URL
+		onlineList = append(onlineList, types.NaraName(tn.name))
 	}
 
 	// Call syncCheckpointsFromNetwork (what bootRecovery calls)

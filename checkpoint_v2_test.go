@@ -18,7 +18,7 @@ func pubKeyFromBase64(encoded string) ed25519.PublicKey {
 // TestCheckpointV1BackwardsCompat tests that v1 checkpoints still verify correctly
 // This ensures we haven't broken existing checkpoint verification
 func TestCheckpointV1BackwardsCompat(t *testing.T) {
-	subject := "lisa"
+	subject := types.NaraName("lisa")
 	subjectID := types.NaraID("lisa-id-abc")
 	voterIDs := []types.NaraID{types.NaraID("homer-id"), types.NaraID("marge-id"), types.NaraID("bart-id")}
 	keypairs := make([]NaraKeypair, 3)
@@ -61,7 +61,7 @@ func TestCheckpointV1BackwardsCompat(t *testing.T) {
 	}
 
 	// Verify v1 checkpoint with v1 signatures
-	lookup := PublicKeyLookup(func(id types.NaraID, name string) ed25519.PublicKey {
+	lookup := PublicKeyLookup(func(id types.NaraID, name types.NaraName) ed25519.PublicKey {
 		if pubKeyStr, ok := publicKeys[id]; ok {
 			return pubKeyFromBase64(pubKeyStr)
 		}
@@ -94,7 +94,7 @@ func TestCheckpointV1BackwardsCompat(t *testing.T) {
 
 // TestCheckpointV1WithVersionZero tests that Version=0 is treated as v1
 func TestCheckpointV1WithVersionZero(t *testing.T) {
-	subject := "lisa"
+	subject := types.NaraName("lisa")
 	subjectID := types.NaraID("lisa-id-abc")
 	voterIDs := []types.NaraID{types.NaraID("homer-id"), types.NaraID("marge-id")}
 	keypairs := make([]NaraKeypair, 2)
@@ -133,7 +133,7 @@ func TestCheckpointV1WithVersionZero(t *testing.T) {
 	}
 
 	// Verify
-	lookup := PublicKeyLookup(func(id, name string) ed25519.PublicKey {
+	lookup := PublicKeyLookup(func(id types.NaraID, name types.NaraName) ed25519.PublicKey {
 		for i, voterID := range voterIDs {
 			if id == voterID {
 				return keypairs[i].PublicKey
@@ -150,10 +150,10 @@ func TestCheckpointV1WithVersionZero(t *testing.T) {
 
 // TestCheckpointV2Format tests the v2 checkpoint format and signature
 func TestCheckpointV2Format(t *testing.T) {
-	subject := "lisa"
-	subjectID := "lisa-id-abc"
+	subject := types.NaraName("lisa")
+	subjectID := types.NaraID("lisa-id-abc")
 	previousCheckpointID := "prev-checkpoint-123"
-	voterIDs := []string{"homer-id", "marge-id"}
+	voterIDs := []types.NaraID{"homer-id", "marge-id"}
 	keypairs := make([]NaraKeypair, 2)
 	for i := range keypairs {
 		keypairs[i] = generateTestKeypair()
@@ -192,7 +192,7 @@ func TestCheckpointV2Format(t *testing.T) {
 	}
 
 	// Verify v2 checkpoint
-	lookup := PublicKeyLookup(func(id, name string) ed25519.PublicKey {
+	lookup := PublicKeyLookup(func(id types.NaraID, name types.NaraName) ed25519.PublicKey {
 		for i, voterID := range voterIDs {
 			if id == voterID {
 				return keypairs[i].PublicKey
@@ -209,7 +209,7 @@ func TestCheckpointV2Format(t *testing.T) {
 
 	// Test ContentString format for v2
 	contentStr := checkpoint.ContentString()
-	expectedPrefix := "checkpoint:v2:" + subjectID
+	expectedPrefix := "checkpoint:v2:" + string(subjectID)
 	if len(contentStr) < len(expectedPrefix) || contentStr[:len(expectedPrefix)] != expectedPrefix {
 		t.Errorf("V2 ContentString has wrong format, expected prefix '%s', got: %s",
 			expectedPrefix, contentStr)
@@ -225,10 +225,10 @@ func TestCheckpointV2Format(t *testing.T) {
 
 // TestCheckpointV2TamperDetection tests that tampering with PreviousCheckpointID breaks signature
 func TestCheckpointV2TamperDetection(t *testing.T) {
-	subject := "lisa"
-	subjectID := "lisa-id-abc"
+	subject := types.NaraName("lisa")
+	subjectID := types.NaraID("lisa-id-abc")
 	previousCheckpointID := "prev-checkpoint-123"
-	voterIDs := []string{"homer-id", "marge-id"}
+	voterIDs := []types.NaraID{"homer-id", "marge-id"}
 	keypairs := make([]NaraKeypair, 2)
 	for i := range keypairs {
 		keypairs[i] = generateTestKeypair()
@@ -267,7 +267,7 @@ func TestCheckpointV2TamperDetection(t *testing.T) {
 	}
 
 	// Verify it works with correct previous ID
-	lookup := PublicKeyLookup(func(id, name string) ed25519.PublicKey {
+	lookup := PublicKeyLookup(func(id types.NaraID, name types.NaraName) ed25519.PublicKey {
 		for i, voterID := range voterIDs {
 			if id == voterID {
 				return keypairs[i].PublicKey
@@ -297,9 +297,9 @@ func TestCheckpointV2TamperDetection(t *testing.T) {
 
 // TestCheckpointV2FirstCheckpoint tests v2 checkpoint with empty PreviousCheckpointID
 func TestCheckpointV2FirstCheckpoint(t *testing.T) {
-	subject := "lisa"
-	subjectID := "lisa-id-abc"
-	voterIDs := []string{"homer-id", "marge-id"}
+	subject := types.NaraName("lisa")
+	subjectID := types.NaraID("lisa-id-abc")
+	voterIDs := []types.NaraID{"homer-id", "marge-id"}
 	keypairs := make([]NaraKeypair, 2)
 	for i := range keypairs {
 		keypairs[i] = generateTestKeypair()
@@ -338,7 +338,7 @@ func TestCheckpointV2FirstCheckpoint(t *testing.T) {
 	}
 
 	// Verify first v2 checkpoint
-	lookup := PublicKeyLookup(func(id, name string) ed25519.PublicKey {
+	lookup := PublicKeyLookup(func(id types.NaraID, name types.NaraName) ed25519.PublicKey {
 		for i, voterID := range voterIDs {
 			if id == voterID {
 				return keypairs[i].PublicKey
@@ -354,7 +354,7 @@ func TestCheckpointV2FirstCheckpoint(t *testing.T) {
 
 	// ContentString should end with empty string (likely "::")
 	contentStr := checkpoint.ContentString()
-	expectedPrefix := "checkpoint:v2:" + subjectID
+	expectedPrefix := "checkpoint:v2:" + string(subjectID)
 	if len(contentStr) < len(expectedPrefix) || contentStr[:len(expectedPrefix)] != expectedPrefix {
 		t.Errorf("V2 ContentString has wrong format: %s", contentStr)
 	}
@@ -441,7 +441,7 @@ func TestAttestationV2Format(t *testing.T) {
 // TestGetLatestCheckpointID tests the ledger helper for getting latest checkpoint ID
 func TestGetLatestCheckpointID(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "lisa"
+	subject := types.NaraName("lisa")
 
 	// No checkpoint exists yet
 	latestID := ledger.GetLatestCheckpointID(subject)
@@ -556,8 +556,8 @@ func TestCheckpointV2NodeIgnoresV1Votes(t *testing.T) {
 
 	// Create a v1 vote from another nara
 	voterKeypair := generateTestKeypair()
-	voterID := "voter-id-123"
-	voterName := "voter-nara"
+	voterID := types.NaraID("voter-id-123")
+	voterName := types.NaraName("voter-nara")
 
 	v1Attestation := Attestation{
 		Version:     1, // v1 attestation

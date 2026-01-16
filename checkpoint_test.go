@@ -22,7 +22,7 @@ func pubKeyToBase64(pub ed25519.PublicKey) string {
 
 // Test creating a basic checkpoint event
 func TestCheckpoint_Create(t *testing.T) {
-	subject := "lisa"
+	subject := types.NaraName("lisa")
 	asOfTime := time.Now().Unix()
 	firstSeen := int64(1624066568)
 	restarts := int64(47)
@@ -117,7 +117,7 @@ func TestCheckpoint_Validation(t *testing.T) {
 // Test adding checkpoint to ledger
 func TestCheckpoint_AddToLedger(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "lisa"
+	subject := types.NaraName("lisa")
 
 	event := NewTestCheckpointEvent(subject, time.Now().Unix(), 1624066568, 47, 23456789)
 
@@ -140,7 +140,7 @@ func TestCheckpoint_AddToLedger(t *testing.T) {
 // Test that only one checkpoint per subject is kept (latest wins)
 func TestCheckpoint_OnlyOnePerSubject(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "lisa"
+	subject := types.NaraName("lisa")
 
 	// Add first checkpoint
 	asOfTime1 := int64(1000)
@@ -173,7 +173,7 @@ func TestCheckpoint_OnlyOnePerSubject(t *testing.T) {
 func TestCheckpoint_NeverPruned(t *testing.T) {
 	// Small ledger to trigger pruning
 	ledger := NewSyncLedger(50)
-	subject := "lisa"
+	subject := types.NaraName("lisa")
 
 	// Add checkpoint
 	checkpointEvent := NewTestCheckpointEvent(subject, time.Now().Unix(), 1624066568, 47, 23456789)
@@ -198,7 +198,7 @@ func TestCheckpoint_NeverPruned(t *testing.T) {
 
 // Test checkpoint with single voter (basic case)
 func TestCheckpoint_SingleVoter(t *testing.T) {
-	subject := "lisa"
+	subject := types.NaraName("lisa")
 	voterID := types.NaraID("homer-id-123")
 	keypair := generateTestKeypair()
 
@@ -220,7 +220,7 @@ func TestCheckpoint_SingleVoter(t *testing.T) {
 
 // Test checkpoint with multiple voters
 func TestCheckpoint_MultipleVoters(t *testing.T) {
-	subject := "lisa"
+	subject := types.NaraName("lisa")
 	voterIDs := []types.NaraID{types.NaraID("homer-id"), types.NaraID("marge-id"), types.NaraID("bart-id")}
 	keypairs := make([]NaraKeypair, 3)
 	for i := range keypairs {
@@ -244,7 +244,7 @@ func TestCheckpoint_MultipleVoters(t *testing.T) {
 
 // Test checkpoint signature verification
 func TestCheckpoint_VerifySignatures(t *testing.T) {
-	subject := "lisa"
+	subject := types.NaraName("lisa")
 	voterIDs := []types.NaraID{types.NaraID("homer-id"), types.NaraID("marge-id"), types.NaraID("bart-id")}
 	keypairs := make([]NaraKeypair, 3)
 	publicKeys := make(map[types.NaraID]string)
@@ -268,7 +268,7 @@ func TestCheckpoint_VerifySignatures(t *testing.T) {
 
 // Test checkpoint signature verification with wrong keys
 func TestCheckpoint_VerifySignatures_WrongKeys(t *testing.T) {
-	subject := "lisa"
+	subject := types.NaraName("lisa")
 	voterID := types.NaraID("homer-id")
 	keypair := generateTestKeypair()
 	wrongKeypair := generateTestKeypair()
@@ -290,7 +290,7 @@ func TestCheckpoint_VerifySignatures_WrongKeys(t *testing.T) {
 // Test deriving restart count from checkpoint + new events
 func TestCheckpoint_DeriveRestartCount(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "lisa"
+	subject := types.NaraName("lisa")
 	checkpointTime := time.Now().Unix() // Use current time (after cutoff, won't be adjusted)
 
 	// Add checkpoint: lisa had 47 restarts as of now
@@ -314,7 +314,7 @@ func TestCheckpoint_DeriveRestartCount(t *testing.T) {
 // Test deriving restart count without checkpoint (just count events)
 func TestCheckpoint_DeriveRestartCount_NoCheckpoint(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "lisa"
+	subject := types.NaraName("lisa")
 
 	// Add 5 restart events with unique start times (no checkpoint)
 	for i := 0; i < 5; i++ {
@@ -333,7 +333,7 @@ func TestCheckpoint_DeriveRestartCount_NoCheckpoint(t *testing.T) {
 // Test deriving restart count with backfill fallback (no checkpoint)
 func TestCheckpoint_DeriveRestartCount_BackfillFallback(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "lisa"
+	subject := types.NaraName("lisa")
 
 	// Add backfill event (old system)
 	backfillEvent := NewBackfillObservationEvent(types.NaraName("observer"), types.NaraName(subject), 1624066568, 47, 1704067200)
@@ -355,7 +355,7 @@ func TestCheckpoint_DeriveRestartCount_BackfillFallback(t *testing.T) {
 // Test checkpoint takes precedence over backfill
 func TestCheckpoint_PrecedenceOverBackfill(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "lisa"
+	subject := types.NaraName("lisa")
 	checkpointTime := time.Now().Unix() // Use current time (after cutoff, won't be adjusted)
 
 	// Add backfill event with old data
@@ -380,12 +380,12 @@ func TestCheckpoint_PrecedenceOverBackfill(t *testing.T) {
 // Test counting unique start times (deduplication)
 func TestCheckpoint_UniqueStartTimes(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "lisa"
+	subject := types.NaraName("lisa")
 
 	startTime := int64(1704067200)
 
 	// Multiple observers report the same restart (same start time)
-	observers := []string{"homer", "marge", "bart"}
+	observers := []types.NaraName{"homer", "marge", "bart"}
 	for _, obs := range observers {
 		event := NewRestartObservationEvent(obs, subject, startTime, 1)
 		ledger.AddEvent(event)
@@ -401,7 +401,7 @@ func TestCheckpoint_UniqueStartTimes(t *testing.T) {
 // Test deriving total uptime from checkpoint + status events
 func TestCheckpoint_DeriveTotalUptime(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "lisa"
+	subject := types.NaraName("lisa")
 	checkpointTime := time.Now().Unix() // Use current time (after cutoff, won't be adjusted)
 
 	// Add checkpoint: lisa had 1000 seconds of uptime as of now
@@ -429,7 +429,7 @@ func TestCheckpoint_DeriveTotalUptime(t *testing.T) {
 // For backfill events, we assume the nara has been online since StartTime
 func TestCheckpoint_DeriveTotalUptime_Backfill(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "lisa"
+	subject := types.NaraName("lisa")
 
 	// Backfill: lisa has been around since startTime
 	startTime := time.Now().Unix() - 7200 // 2 hours ago
@@ -449,7 +449,7 @@ func TestCheckpoint_DeriveTotalUptime_Backfill(t *testing.T) {
 // Test deriving total uptime from backfill with status-change events
 func TestCheckpoint_DeriveTotalUptime_BackfillWithOffline(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "lisa"
+	subject := types.NaraName("lisa")
 
 	// Backfill: lisa has been around since time 1000
 	backfillEvent := NewBackfillObservationEvent(types.NaraName("observer"), types.NaraName(subject), 1000, 10, 2000)
@@ -482,8 +482,8 @@ func TestCheckpoint_DeriveTotalUptime_BackfillWithOffline(t *testing.T) {
 // This ensures we don't lose historical restart data before it's checkpointed
 func TestCheckpoint_RestartEventsPreservedWithoutCheckpoint(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "lisa"
-	observer := "homer"
+	subject := types.NaraName("lisa")
+	observer := types.NaraName("homer")
 
 	// Add 25 restart events (more than MaxObservationsPerPair = 20)
 	for i := 0; i < 25; i++ {
@@ -514,8 +514,8 @@ func TestCheckpoint_RestartEventsPreservedWithoutCheckpoint(t *testing.T) {
 // Test that restart events CAN be pruned AFTER a checkpoint exists
 func TestCheckpoint_RestartEventsPrunedAfterCheckpoint(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "lisa"
-	observer := "homer"
+	subject := types.NaraName("lisa")
+	observer := types.NaraName("homer")
 	checkpointTime := int64(1704067200)
 
 	// First add a checkpoint
@@ -621,7 +621,7 @@ func TestCheckpoint_Round2SignatureVerification(t *testing.T) {
 
 	// Create checkpoint with round 2 signatures
 	checkpoint := &CheckpointEventPayload{
-		Subject:   string(subject),
+		Subject:   subject,
 		SubjectID: proposerID,
 		AsOfTime:  asOfTime,
 		Observation: NaraObservation{
@@ -746,7 +746,7 @@ func TestCheckpoint_PartialSignatureVerification(t *testing.T) {
 
 	// Create checkpoint with all 3 signatures
 	checkpoint := &CheckpointEventPayload{
-		Subject:   string(subject),
+		Subject:   subject,
 		SubjectID: proposerID,
 		AsOfTime:  asOfTime,
 		Observation: NaraObservation{
@@ -795,8 +795,8 @@ func TestCheckpoint_PartialSignatureVerification(t *testing.T) {
 // Test that status-change events are pruned first (before restart events)
 func TestCheckpoint_StatusChangeEventsPrunedFirst(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "lisa"
-	observer := "homer"
+	subject := types.NaraName("lisa")
+	observer := types.NaraName("homer")
 
 	// Add 15 restart events
 	for i := 0; i < 15; i++ {
@@ -840,7 +840,7 @@ func TestCheckpoint_StatusChangeEventsPrunedFirst(t *testing.T) {
 // This reproduces the bug where backfill was skipped if ANY observation events existed
 func TestCheckpoint_BackfillCreatedWithExistingRestarts(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "nelly"
+	subject := types.NaraName("nelly")
 
 	// Add ONE recent restart observation (like a short-memory nara would have)
 	recentStartTime := time.Now().Unix() - 100

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eljojo/nara/types"
 	"github.com/sirupsen/logrus"
 )
 
@@ -136,7 +137,7 @@ func TestIntegration_MixedNetworkTopology(t *testing.T) {
 	// Set up test hooks and neighborhood
 	for i := 0; i < 6; i++ {
 		naras[i].ln.Network.testHTTPClient = sharedClient
-		naras[i].ln.Network.testMeshURLs = make(map[string]string)
+		naras[i].ln.Network.testMeshURLs = make(map[types.NaraName]string)
 
 		for j := 0; j < 6; j++ {
 			if i != j {
@@ -261,7 +262,7 @@ func TestIntegration_GossipTargetSelection(t *testing.T) {
 
 	// Add 10 mesh-enabled neighbors
 	for i := 0; i < 10; i++ {
-		neighborName := fmt.Sprintf("neighbor-%c", 'a'+i)
+		neighborName := types.NaraName(fmt.Sprintf("neighbor-%c", 'a'+i))
 		neighbor := NewNara(neighborName)
 		neighbor.Status.MeshIP = fmt.Sprintf("100.64.0.%d", 1+i)
 		ln.Network.importNara(neighbor)
@@ -273,7 +274,7 @@ func TestIntegration_GossipTargetSelection(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		targets := ln.Network.selectGossipTargets()
 		for _, target := range targets {
-			selections[target]++
+			selections[target.String()]++
 		}
 	}
 
@@ -376,8 +377,8 @@ func TestIntegration_MeshDiscovery(t *testing.T) {
 		"discovery-nara-c": false,
 	}
 	for _, name := range neighborNames {
-		if _, ok := expectedNeighbors[name]; ok {
-			expectedNeighbors[name] = true
+		if _, ok := expectedNeighbors[name.String()]; ok {
+			expectedNeighbors[name.String()] = true
 		}
 	}
 	for name, found := range expectedNeighbors {
@@ -468,11 +469,11 @@ func TestIntegration_SendDM(t *testing.T) {
 	defer server.Close()
 
 	// Set up sender to know about receiver
-	receiverNara := NewNara("receiver")
+	receiverNara := NewNara(types.NaraName("receiver"))
 	receiverNara.Status.PublicKey = FormatPublicKey(receiver.Keypair.PublicKey)
 	sender.Network.importNara(receiverNara)
 	sender.Network.testHTTPClient = &http.Client{Timeout: 5 * time.Second}
-	sender.Network.testMeshURLs = map[string]string{"receiver": server.URL}
+	sender.Network.testMeshURLs = map[types.NaraName]string{types.NaraName("receiver"): server.URL}
 
 	// Receiver must know sender to verify signature
 	senderNara := NewNara("sender")
@@ -510,7 +511,7 @@ func TestIntegration_SendDM_UnreachableTarget(t *testing.T) {
 
 	sender := testLocalNara(t, "sender")
 	sender.Network.testHTTPClient = &http.Client{Timeout: 100 * time.Millisecond}
-	sender.Network.testMeshURLs = map[string]string{} // No URL for receiver
+	sender.Network.testMeshURLs = map[types.NaraName]string{} // No URL for receiver
 
 	event := NewTeaseSyncEvent("sender", "receiver", "high-restarts", sender.Keypair)
 
@@ -537,11 +538,11 @@ func TestIntegration_TeaseDM(t *testing.T) {
 	defer server.Close()
 
 	// Alice knows bob
-	bobNara := NewNara("bob")
+	bobNara := NewNara(types.NaraName("bob"))
 	bobNara.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
 	alice.Network.importNara(bobNara)
 	alice.Network.testHTTPClient = &http.Client{Timeout: 5 * time.Second}
-	alice.Network.testMeshURLs = map[string]string{"bob": server.URL}
+	alice.Network.testMeshURLs = map[types.NaraName]string{types.NaraName("bob"): server.URL}
 
 	// Bob knows alice (to verify signature)
 	aliceNara := NewNara("alice")
@@ -624,9 +625,9 @@ func TestIntegration_TeaseDM_SpreadViaGossip(t *testing.T) {
 	alice.setObservation("charlie", NaraObservation{Online: "ONLINE"})
 
 	alice.Network.testHTTPClient = sharedClient
-	alice.Network.testMeshURLs = map[string]string{
+	alice.Network.testMeshURLs = map[types.NaraName]string{
 		// bob has no URL - simulates unreachable
-		"charlie": charlieServer.URL,
+		types.NaraName("charlie"): charlieServer.URL,
 	}
 	alice.Network.TransportMode = TransportGossip
 
@@ -642,8 +643,8 @@ func TestIntegration_TeaseDM_SpreadViaGossip(t *testing.T) {
 	charlie.setObservation("bob", NaraObservation{Online: "ONLINE"})
 
 	charlie.Network.testHTTPClient = sharedClient
-	charlie.Network.testMeshURLs = map[string]string{
-		"alice": aliceServer.URL,
+	charlie.Network.testMeshURLs = map[types.NaraName]string{
+		types.NaraName("alice"): aliceServer.URL,
 	}
 	charlie.Network.TransportMode = TransportGossip
 

@@ -1,6 +1,7 @@
 package nara
 
 import (
+	"github.com/eljojo/nara/types"
 	"strings"
 	"testing"
 )
@@ -217,7 +218,7 @@ func TestFlair_ShowsThinkingEmoji_WhenStartTimeUnknown(t *testing.T) {
 
 	// Add 3 neighbors so networkSize > 2
 	for i := 0; i < 3; i++ {
-		name := string(rune('a' + i))
+		name := types.NaraName(string(rune('a' + i)))
 		network.importNara(NewNara(name))
 		network.local.setObservation(name, NaraObservation{StartTime: 1000 + int64(i*100), Online: "ONLINE"})
 	}
@@ -244,7 +245,7 @@ func TestFlair_ShowsAgeFlair_WhenStartTimeKnown(t *testing.T) {
 	network.local.setMeObservation(obsMe)
 
 	for i := 0; i < 3; i++ {
-		name := string(rune('a' + i))
+		name := types.NaraName(string(rune('a' + i)))
 		network.importNara(NewNara(name))
 		network.local.setObservation(name, NaraObservation{StartTime: 1000 + int64(i*100), Online: "ONLINE"})
 	}

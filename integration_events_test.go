@@ -270,8 +270,8 @@ func TestIntegration_BackfillDoesNotDuplicate(t *testing.T) {
 
 	// Three observers backfill the same historical restart
 	for i := 0; i < 3; i++ {
-		observer := "observer-" + string(rune('a'+i))
-		event := NewBackfillObservationEvent(observer, "subject", 1000000, 42, 1000000)
+		observer := types.NaraName("observer-" + string(rune('a'+i)))
+		event := NewBackfillObservationEvent(observer, types.NaraName("subject"), 1000000, 42, 1000000)
 		ledger.AddEventWithDedup(event)
 	}
 
@@ -333,8 +333,8 @@ func TestIntegration_CompactionAndDeduplicationIndependent(t *testing.T) {
 
 	// Three observers report the same restart (dedup should work)
 	for i := 0; i < 3; i++ {
-		observer := "observer-" + string(rune('a'+i))
-		event := NewRestartObservationEvent(observer, "charlie", 2000, 100)
+		observer := types.NaraName("observer-" + string(rune('a'+i)))
+		event := NewRestartObservationEvent(observer, types.NaraName("charlie"), 2000, 100)
 		ledger.AddEventWithDedup(event) // With dedup
 	}
 
@@ -359,8 +359,8 @@ func TestIntegration_CompactionAndDeduplicationIndependent(t *testing.T) {
 
 	// Multiple observers report dave's most recent restart (should dedup)
 	for i := 0; i < 3; i++ {
-		observer := "witness-" + string(rune('a'+i))
-		event := NewRestartObservationEvent(observer, "bob", 3024, 224) // Same as dave's last event
+		observer := types.NaraName("witness-" + string(rune('a'+i)))
+		event := NewRestartObservationEvent(observer, types.NaraName("bob"), 3024, 224) // Same as dave's last event
 		ledger.AddEventWithDedup(event)
 	}
 
@@ -516,7 +516,7 @@ func TestIntegration_TeasingDeduplication(t *testing.T) {
 		naras[i] = ln
 	}
 
-	target := "comeback-nara"
+	target := types.NaraName("comeback-nara")
 
 	// Count teases before
 	countTeasesBefore := 0
@@ -557,7 +557,7 @@ func TestIntegration_TeasingDeduplication(t *testing.T) {
 	}
 
 	// Find which nara actually teased (the one with shortest delay wins)
-	var teaser string
+	var teaser types.NaraName
 	for _, e := range sharedLedger.GetSocialEventsAbout(target) {
 		if e.Social != nil && e.Social.Type == "tease" && e.Social.Reason == ReasonComeback {
 			teaser = e.Social.Actor
@@ -764,7 +764,7 @@ func TestIntegration_MeshPeerDiscoverySetsLastSeen(t *testing.T) {
 	network.ReadOnly = true
 
 	// Simulate what discoverMeshPeers does when it finds a new peer
-	peerName := "mesh-peer"
+	peerName := types.NaraName("mesh-peer")
 	nara := NewNara(peerName)
 	nara.Status.MeshIP = "100.64.0.5"
 	nara.Status.MeshEnabled = true
@@ -811,7 +811,7 @@ func TestIntegration_DirectObservationSetMissingLastSeen(t *testing.T) {
 
 	ln := testLocalNaraWithParams(t, "test-nara", 100, 1000)
 	// This is the buggy pattern that was in discoverMeshPeers
-	peerName := "buggy-peer"
+	peerName := types.NaraName("buggy-peer")
 	ln.setObservation(peerName, NaraObservation{Online: "ONLINE"})
 
 	obs := ln.getObservation(peerName)
@@ -1223,7 +1223,7 @@ func TestIntegration_SeenEventsOnlyForQuietNaras(t *testing.T) {
 	ln.SyncLedger.AddEvent(oldEvent)
 
 	// Count seen events before
-	countSeenFor := func(subject string) int {
+	countSeenFor := func(subject types.NaraName) int {
 		count := 0
 		for _, e := range ln.SyncLedger.GetAllEvents() {
 			if e.Service == ServiceSeen && e.Seen != nil && e.Seen.Subject == subject {
@@ -1233,8 +1233,8 @@ func TestIntegration_SeenEventsOnlyForQuietNaras(t *testing.T) {
 		return count
 	}
 
-	seenForActiveBefore := countSeenFor("active-nara")
-	seenForQuietBefore := countSeenFor("quiet-nara")
+	seenForActiveBefore := countSeenFor(types.NaraName("active-nara"))
+	seenForQuietBefore := countSeenFor(types.NaraName("quiet-nara"))
 
 	// Now emit seen events for both naras (simulating an interaction like gossip)
 	network.emitSeenEvent("active-nara", "test")

@@ -2,12 +2,14 @@ package nara
 
 import (
 	"testing"
+
+	"github.com/eljojo/nara/types"
 )
 
 // TestComputeNaraID_Deterministic verifies that the same soul+name always produces the same ID
 func TestComputeNaraID_Deterministic(t *testing.T) {
 	soul := testSoul("test-nara")
-	name := "test-nara"
+	name := types.NaraName("test-nara")
 
 	id1, err1 := ComputeNaraID(soul, name)
 	if err1 != nil {
@@ -31,7 +33,7 @@ func TestComputeNaraID_Deterministic(t *testing.T) {
 
 // TestComputeNaraID_DifferentSouls verifies that different souls with the same name produce different IDs
 func TestComputeNaraID_DifferentSouls(t *testing.T) {
-	name := "same-name"
+	name := types.NaraName("same-name")
 	soul1 := testSoul("soul1")
 	soul2 := testSoul("soul2")
 
@@ -53,8 +55,8 @@ func TestComputeNaraID_DifferentSouls(t *testing.T) {
 // TestComputeNaraID_DifferentNames verifies that the same soul with different names produces different IDs
 func TestComputeNaraID_DifferentNames(t *testing.T) {
 	soul := testSoul("test-soul")
-	name1 := "nara1"
-	name2 := "nara2"
+	name1 := types.NaraName("nara1")
+	name2 := types.NaraName("nara2")
 
 	id1, err1 := ComputeNaraID(soul, name1)
 	if err1 != nil {
@@ -74,7 +76,7 @@ func TestComputeNaraID_DifferentNames(t *testing.T) {
 // TestComputeNaraID_InvalidSoul verifies that invalid soul encoding returns an error
 func TestComputeNaraID_InvalidSoul(t *testing.T) {
 	invalidSoul := "not-valid-base58!!!"
-	name := "test-nara"
+	name := types.NaraName("test-nara")
 
 	_, err := ComputeNaraID(invalidSoul, name)
 	if err == nil {
@@ -86,7 +88,7 @@ func TestComputeNaraID_InvalidSoul(t *testing.T) {
 func TestComputeNaraID_WrongSoulLength(t *testing.T) {
 	// Create a valid Base58 string but with wrong length (not 40 bytes)
 	shortSoul := "3vQB7B6MrGQZaxCuFg4oh" // This is valid Base58 but too short
-	name := "test-nara"
+	name := types.NaraName("test-nara")
 
 	_, err := ComputeNaraID(shortSoul, name)
 	if err == nil {
@@ -96,9 +98,9 @@ func TestComputeNaraID_WrongSoulLength(t *testing.T) {
 
 // TestLocalNara_IDInitialization verifies that LocalNara initializes with correct ID
 func TestLocalNara_IDInitialization(t *testing.T) {
-	name := "test-nara"
-	soul := testSoul(name)
-	identity := DetermineIdentity(name, soul, name, nil)
+	name := types.NaraName("test-nara")
+	soul := testSoul(name.String())
+	identity := DetermineIdentity(name, soul, name.String(), nil)
 
 	profile := DefaultMemoryProfile()
 	ln, err := NewLocalNara(identity, "", "", "", -1, profile)
@@ -123,12 +125,12 @@ func TestLocalNara_IDInitialization(t *testing.T) {
 
 // TestLocalNara_IDUniqueness verifies that two LocalNaras with same name but different souls have different IDs
 func TestLocalNara_IDUniqueness(t *testing.T) {
-	name := "same-name"
+	name := types.NaraName("same-name")
 	soul1 := testSoul("soul1")
 	soul2 := testSoul("soul2")
 
-	identity1 := DetermineIdentity(name, soul1, name, nil)
-	identity2 := DetermineIdentity(name, soul2, name, nil)
+	identity1 := DetermineIdentity(name, soul1, name.String(), nil)
+	identity2 := DetermineIdentity(name, soul2, name.String(), nil)
 
 	profile := DefaultMemoryProfile()
 	ln1, err := NewLocalNara(identity1, "", "", "", -1, profile)

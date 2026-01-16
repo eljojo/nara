@@ -6,6 +6,7 @@ import (
 
 	"github.com/eljojo/nara/messages"
 	"github.com/eljojo/nara/runtime"
+	"github.com/eljojo/nara/types"
 )
 
 // TestStashStoreAndAck tests the store request → ack flow.
@@ -326,7 +327,7 @@ func TestStashStateMarshaling(t *testing.T) {
 	}
 
 	// Set some state
-	svc.SetConfidants([]string{"conf-1", "conf-2", "conf-3"})
+	svc.SetConfidants([]types.NaraID{"conf-1", "conf-2", "conf-3"})
 	svc.store("owner-1", []byte("nonce1"), []byte("cipher1"))
 	svc.store("owner-2", []byte("nonce2"), []byte("cipher2"))
 

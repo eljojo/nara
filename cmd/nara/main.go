@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/eljojo/nara"
+	"github.com/eljojo/nara/types"
 	"github.com/shirou/gopsutil/v3/host"
 	"github.com/sirupsen/logrus"
 )
@@ -96,7 +97,7 @@ func main() {
 	macs := nara.CollectSoulFragments()
 	hwFingerprint := nara.HashHardware(strings.Join([]string{info.HostID, macs}, "-"))
 
-	identity := nara.DetermineIdentity(*naraIdPtr, *soulPtr, getHostname(), hwFingerprint)
+	identity := nara.DetermineIdentity(types.NaraName(*naraIdPtr), *soulPtr, getHostname(), hwFingerprint)
 
 	// Use NewLocalNara with the identity result
 	memoryMode := nara.ParseMemoryMode(*memoryModePtr)
@@ -153,7 +154,7 @@ func main() {
 	var meshConfig *nara.TsnetConfig
 	if !*noMeshPtr {
 		meshConfig = &nara.TsnetConfig{
-			Hostname:   identity.Name,
+			Hostname:   identity.Name.String(),
 			ControlURL: *headscaleUrlPtr,
 			AuthKey:    *authKeyPtr,
 			Verbose:    *extraVerbosePtr,

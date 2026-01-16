@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eljojo/nara/types"
 	mqttserver "github.com/mochi-mqtt/server/v2"
 	"github.com/mochi-mqtt/server/v2/hooks/auth"
 	"github.com/mochi-mqtt/server/v2/listeners"
@@ -315,7 +316,7 @@ func waitForAllMQTTConnected(t *testing.T, naras []*LocalNara, timeout time.Dura
 
 // waitForCheckpoint blocks until a checkpoint exists for the subject in the ledger, or times out.
 // Returns the checkpoint if found, nil if timed out.
-func waitForCheckpoint(t *testing.T, ledger *SyncLedger, subject string, timeout time.Duration) *CheckpointEventPayload {
+func waitForCheckpoint(t *testing.T, ledger *SyncLedger, subject types.NaraName, timeout time.Duration) *CheckpointEventPayload {
 	t.Helper()
 	var checkpoint *CheckpointEventPayload
 	ok := waitForCondition(t, func() bool {
@@ -329,7 +330,7 @@ func waitForCheckpoint(t *testing.T, ledger *SyncLedger, subject string, timeout
 }
 
 // waitForCheckpointPropagation blocks until all naras have the checkpoint for a subject.
-func waitForCheckpointPropagation(t *testing.T, naras []*LocalNara, subject string, timeout time.Duration) bool {
+func waitForCheckpointPropagation(t *testing.T, naras []*LocalNara, subject types.NaraName, timeout time.Duration) bool {
 	t.Helper()
 	return waitForCondition(t, func() bool {
 		for _, ln := range naras {
@@ -415,7 +416,7 @@ func waitForFullDiscovery(t *testing.T, naras []*LocalNara, timeout time.Duratio
 // attester: the nara creating/signing this checkpoint
 // attesterKeypair: the keypair to sign with
 // observation: the checkpoint data (restarts, uptime, start_time)
-func testCheckpointEvent(subject string, attester string, attesterKeypair NaraKeypair, observation NaraObservation) SyncEvent {
+func testCheckpointEvent(subject types.NaraName, attester types.NaraName, attesterKeypair NaraKeypair, observation NaraObservation) SyncEvent {
 	now := time.Now()
 
 	checkpoint := &CheckpointEventPayload{
@@ -456,7 +457,7 @@ func testCheckpointEvent(subject string, attester string, attesterKeypair NaraKe
 }
 
 // testAddCheckpointToLedger creates and adds a checkpoint event to a ledger
-func testAddCheckpointToLedger(ledger *SyncLedger, subject string, attester string, attesterKeypair NaraKeypair, observation NaraObservation) SyncEvent {
+func testAddCheckpointToLedger(ledger *SyncLedger, subject types.NaraName, attester types.NaraName, attesterKeypair NaraKeypair, observation NaraObservation) SyncEvent {
 	event := testCheckpointEvent(subject, attester, attesterKeypair, observation)
 	// Manually add to ledger to avoid deduplication issues in tests
 	ledger.mu.Lock()

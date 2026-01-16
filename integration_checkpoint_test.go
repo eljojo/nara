@@ -1,6 +1,7 @@
 package nara
 
 import (
+	"github.com/eljojo/nara/types"
 	"fmt"
 	"testing"
 	"time"
@@ -166,7 +167,7 @@ func TestIntegration_CheckpointRound2(t *testing.T) {
 	for i := 0; i < numNaras; i++ {
 		name := fmt.Sprintf("round2-test-%d", i)
 		hwFingerprint := []byte(fmt.Sprintf("round2-hw-%d", i))
-		identity := DetermineIdentity("", "", name, hwFingerprint)
+		identity := DetermineIdentity(types.NaraName(""), "", name, hwFingerprint)
 
 		profile := DefaultMemoryProfile()
 		profile.Mode = MemoryModeCustom
