@@ -11,8 +11,6 @@ import (
 	"github.com/eljojo/nara/runtime"
 	"github.com/eljojo/nara/types"
 	"github.com/eljojo/nara/utilities"
-
-	"github.com/sirupsen/logrus"
 )
 
 // NOTE: Encryption is provided by runtime.Seal/Open which delegates to NaraKeypair.
@@ -81,7 +79,7 @@ func (s *Service) Init(rt runtime.RuntimeInterface, log *runtime.ServiceLog) err
 	// Register message behaviors
 	s.RegisterBehaviors(rt)
 
-	logrus.Info("📦 Stash service initialized successfully")
+	s.log.Info("stash service initialized successfully")
 	return nil
 }
 
@@ -213,9 +211,9 @@ func (s *Service) TargetConfidants() int {
 func (s *Service) SelectConfidantsAutomatically() error {
 	// Check if runtime has network info (might not be configured yet)
 	if s.rt == nil {
-		logrus.Error("📦 CRITICAL: Stash service runtime is nil! Init() was never called or failed silently.")
-		logrus.Error("📦 This usually means initRuntime() or startRuntime() failed during startup.")
-		logrus.Error("📦 Check logs for 'Failed to initialize runtime' or 'Failed to start runtime'.")
+		s.log.Error("CRITICAL: Stash service runtime is nil! Init() was never called or failed silently.")
+		s.log.Error("This usually means initRuntime() or startRuntime() failed during startup.")
+		s.log.Error("Check logs for 'Failed to initialize runtime' or 'Failed to start runtime'.")
 		return fmt.Errorf("runtime not initialized - check startup logs for initialization errors")
 	}
 
@@ -224,9 +222,9 @@ func (s *Service) SelectConfidantsAutomatically() error {
 	// Get list of online peers from runtime
 	peers := s.rt.OnlinePeers()
 
-	logrus.Infof("📦 Auto-selecting confidants: found %d online peers", len(peers))
+	s.log.Info("auto-selecting confidants: found %d online peers", len(peers))
 	for i, peer := range peers {
-		logrus.Infof("📦   Peer %d: %s (%s) uptime=%v", i+1, peer.Name, peer.ID, peer.Uptime)
+		s.log.Info("  peer %d: %s (%s) uptime=%v", i+1, peer.Name, peer.ID, peer.Uptime)
 	}
 
 	if len(peers) < s.targetConfidants {
@@ -264,15 +262,13 @@ func (s *Service) SelectConfidantsAutomatically() error {
 
 		// Try to store with this peer
 		testData := []byte(fmt.Sprintf(`{"test":"probe","timestamp":%d}`, time.Now().Unix()))
-		logrus.Infof("📦 Trying peer %s (%s) as first confidant (uptime: %v)...", peer.Name, peer.ID, peer.Uptime)
+		s.log.Info("trying peer %s (%s) as first confidant (uptime: %v)...", peer.Name, peer.ID, peer.Uptime)
 		if err := s.StoreWith(peer.ID, testData); err != nil {
-			logrus.Warnf("📦   ❌ Peer %s declined: %v", peer.Name, err)
-			s.log.Warn("peer %s (uptime: %s) declined: %v", peer.ID, peer.Uptime, err)
+			s.log.Warn("peer %s declined: %v", peer.Name, err)
 			continue
 		}
 
-		logrus.Infof("📦   ✅ Peer %s accepted!", peer.Name)
-		s.log.Info("selected confidant 1/3: %s (uptime: %s)", peer.ID, peer.Uptime)
+		s.log.Info("peer %s accepted! selected confidant 1/3 (uptime: %s)", peer.Name, peer.Uptime)
 		selected = append(selected, peer.ID)
 		used[peer.ID] = true
 	}
@@ -486,7 +482,7 @@ func (s *Service) UnmarshalState(data []byte) error {
 	s.myStashData = state.MyStashData
 	s.myStashTimestamp = state.MyStashTimestamp
 
-	logrus.Infof("[stash] loaded state: %d confidants, %d stored stashes, my stash: %d bytes",
+	s.log.Info("loaded state: %d confidants, %d stored stashes, my stash: %d bytes",
 		len(s.confidants), len(s.stored), len(s.myStashData))
 
 	return nil

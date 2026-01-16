@@ -44,7 +44,7 @@ type Runtime struct {
 	handlers map[string][]func(*Message)
 
 	// Logging
-	logger *Logger
+	logger LoggerInterface
 
 	// Environment
 	env Environment
@@ -71,6 +71,7 @@ type RuntimeConfig struct {
 	Identity    IdentityInterface    // Optional (for public key lookups)
 	Personality *Personality         // Optional
 	NetworkInfo NetworkInfoInterface // Optional (for peer/memory info)
+	Logger      LoggerInterface      // Optional (defaults to simple logger)
 	Environment Environment          // Default: EnvProduction
 }
 
@@ -83,6 +84,12 @@ func NewRuntime(cfg RuntimeConfig) *Runtime {
 		env = EnvProduction
 	}
 
+	// Use provided logger or default to simple logger
+	logger := cfg.Logger
+	if logger == nil {
+		logger = &Logger{}
+	}
+
 	rt := &Runtime{
 		me:             cfg.Me,
 		keypair:        cfg.Keypair,
@@ -93,6 +100,7 @@ func NewRuntime(cfg RuntimeConfig) *Runtime {
 		identity:       cfg.Identity,
 		personality:    cfg.Personality,
 		networkInfo:    cfg.NetworkInfo,
+		logger:         logger,
 		handlers:       make(map[string][]func(*Message)),
 		env:            env,
 		ctx:            ctx,
@@ -100,9 +108,6 @@ func NewRuntime(cfg RuntimeConfig) *Runtime {
 		calls:          &CallRegistry{pending: make(map[string]*pendingCall)},
 		localBehaviors: make(map[string]*Behavior),
 	}
-
-	// Initialize logger
-	rt.logger = &Logger{}
 
 	return rt
 }

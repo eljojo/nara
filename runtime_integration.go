@@ -47,6 +47,9 @@ func (network *Network) initRuntime() error {
 	// Create identity adapter
 	identityAdapter := NewIdentityAdapter(network)
 
+	// Create logger adapter (bridges runtime logging to LogService)
+	loggerAdapter := NewLogServiceAdapter(network.logService)
+
 	// Create the runtime with configuration
 	rt := runtime.NewRuntime(runtime.RuntimeConfig{
 		Me: &runtime.Nara{
@@ -61,6 +64,7 @@ func (network *Network) initRuntime() error {
 		Identity:    identityAdapter,
 		NetworkInfo: networkInfoAdapter,
 		Personality: personality,
+		Logger:      loggerAdapter,
 		Environment: runtime.EnvProduction,
 	})
 
