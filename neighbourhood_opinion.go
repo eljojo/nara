@@ -17,7 +17,7 @@ import (
 type ObservationRecord struct {
 	Observer       types.NaraName // Who made the observation
 	Subject        types.NaraName // Who is being observed
-	Type           string   // "restart" or "first-seen"
+	Type           string         // "restart" or "first-seen"
 	StartTime      int64
 	RestartNum     int64
 	LastRestart    int64

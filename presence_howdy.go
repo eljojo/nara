@@ -17,14 +17,14 @@ type NeighborInfo struct {
 	Name        types.NaraName
 	PublicKey   string
 	MeshIP      string
-	ID          types.NaraID          // Nara ID: deterministic hash of soul+name
+	ID          types.NaraID    // Nara ID: deterministic hash of soul+name
 	Observation NaraObservation // What I know about this neighbor
 }
 
 // HowdyEvent is sent in response to hey_there to help with discovery and start time recovery
 type HowdyEvent struct {
-	From      types.NaraName        // Who's sending this howdy
-	To        types.NaraName        // Who this is in response to (hey_there sender)
+	From      types.NaraName  // Who's sending this howdy
+	To        types.NaraName  // Who this is in response to (hey_there sender)
 	Seq       int             // Sequence number (1-10) for coordination
 	You       NaraObservation // What I know about you (includes StartTime!)
 	Neighbors []NeighborInfo  // ~10 other naras you should know about
@@ -55,7 +55,7 @@ func (h *HowdyEvent) Verify() bool {
 // howdyCoordinator tracks howdy responses for a given hey_there
 type howdyCoordinator struct {
 	target         types.NaraName          // who said hey_there
-	seen           int               // how many howdys we've seen for this target
+	seen           int                     // how many howdys we've seen for this target
 	mentionedNaras map[types.NaraName]bool // naras already mentioned in other howdys
 	timer          *time.Timer
 	responded      bool

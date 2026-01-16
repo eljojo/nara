@@ -11,9 +11,9 @@ import (
 
 type ChauEvent struct {
 	From      types.NaraName
-	PublicKey string // Base64-encoded Ed25519 public key
+	PublicKey string       // Base64-encoded Ed25519 public key
 	ID        types.NaraID // Nara ID: deterministic hash of soul+name
-	Signature string // Base64-encoded signature of "chau:{From}:{PublicKey}:{ID}"
+	Signature string       // Base64-encoded signature of "chau:{From}:{PublicKey}:{ID}"
 }
 
 // Sign signs the ChauEvent with the given keypair

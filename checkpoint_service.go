@@ -380,8 +380,8 @@ func (s *CheckpointService) HandleProposal(proposal *CheckpointProposal) {
 		Subject:              proposal.Subject,
 		SubjectID:            proposal.SubjectID,
 		Observation:          observation,
-		Attester:             s.local.Me.Name, // We are the attester (voter)
-		AttesterID:           s.local.Me.Status.ID,      // Our ID
+		Attester:             s.local.Me.Name,      // We are the attester (voter)
+		AttesterID:           s.local.Me.Status.ID, // Our ID
 		AsOfTime:             proposal.AsOfTime,    // Sign the SAME timestamp as proposal
 		LastSeenCheckpointID: lastSeenCheckpointID, // v2: our reference point for this subject
 	}

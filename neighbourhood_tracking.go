@@ -1,8 +1,8 @@
 package nara
 
 import (
-	"github.com/sirupsen/logrus"
 	"github.com/eljojo/nara/types"
+	"github.com/sirupsen/logrus"
 )
 
 // neighbourhood_tracking.go
