@@ -564,6 +564,14 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 		logrus.Error("❌ Stash service will not work! Check configuration and dependencies.")
 	}
 
+	// Start runtime services immediately (before HTTP handlers can be called)
+	if network.runtime != nil {
+		if err := network.startRuntime(); err != nil {
+			logrus.Errorf("❌ CRITICAL: Failed to start runtime: %v", err)
+			logrus.Error("❌ Stash service will not work! Check logs above for details.")
+		}
+	}
+
 	// Start log service
 	if network.logService != nil {
 		network.logService.Start(network.ctx)
@@ -722,13 +730,7 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 	// 	go network.stashMaintenance()
 	// }
 
-	// Start runtime services
-	if network.runtime != nil {
-		if err := network.startRuntime(); err != nil {
-			logrus.Errorf("❌ CRITICAL: Failed to start runtime: %v", err)
-			logrus.Error("❌ Stash service will not work! Check logs above for details.")
-		}
-	}
+	// Runtime services were already started earlier (before HTTP handlers can be called)
 
 	// Start checkpoint service (consensus-based checkpointing via MQTT)
 	if !network.ReadOnly && network.checkpointService != nil {

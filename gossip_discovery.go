@@ -146,12 +146,8 @@ func (network *Network) discoverMeshPeers() {
 	discovered := 0
 	for _, peer := range peers {
 		// Skip self
-		var peerNaraName types.NaraName
-		if len(peer.Name) >= 5 {
-			peerNaraName = types.NaraName(peer.Name[:len(peer.Name)-5]) // remove random suffix
-		} else {
-			continue
-		}
+		// Note: peer.Name is already clean (suffix removed in conversion or by discovery)
+		peerNaraName := peer.Name
 
 		if peerNaraName == myName {
 			continue

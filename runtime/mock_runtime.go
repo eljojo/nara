@@ -85,6 +85,9 @@ func (m *MockRuntime) Emit(msg *Message) error {
 	if msg.ID == "" {
 		msg.ID = ComputeID(msg)
 	}
+	if msg.FromID == "" {
+		msg.FromID = m.id
+	}
 
 	// Capture for assertions
 	m.Emitted = append(m.Emitted, msg)

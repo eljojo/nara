@@ -65,8 +65,11 @@ func (network *Network) startHttpServer(httpAddr string) error {
 	// Create a mux for handlers (so we can reuse with mesh server)
 	mux := network.createHTTPMux(true) // includeUI = true
 
+	// Store the actual listening address for tests
+	actualAddr := fmt.Sprintf(":%d", port)
 	network.httpServer = &http.Server{
 		Handler: mux,
+		Addr:    actualAddr,
 	}
 
 	go func() {
@@ -147,6 +150,11 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 		mux.HandleFunc("/api/inspector/projection/", network.local.inspectorProjectionDetailHandler)
 		mux.HandleFunc("/api/inspector/event/", network.local.inspectorEventDetailHandler)
 		mux.HandleFunc("/api/inspector/uptime/", network.local.inspectorUptimeHandler)
+
+		// Catch-all for unknown API endpoints - return 404 instead of SPA
+		mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+			http.NotFound(w, r)
+		})
 
 		// SPA handler - serves inspector.html for all app routes
 		// This is the main page at / with all tabs (Home, World, Timeline, etc.)

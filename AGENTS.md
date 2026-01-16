@@ -2,6 +2,8 @@
 
 This file provides guidance for AI agents working with code in this repository.
 
+Make sure to follow the "Test Discipline" detailed in the Testing section below.
+
 ---
 
 ## What is Nara?

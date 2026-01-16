@@ -350,8 +350,8 @@ func TestIntegration_MeshDiscovery(t *testing.T) {
 	// This replaces the real TailscalePeerDiscovery which would scan 100.64.0.1-254
 	mockDiscovery := &MockPeerDiscovery{
 		peers: []DiscoveredPeer{
-			{Name: "discovery-nara-b", MeshIP: "100.64.0.2"},
-			{Name: "discovery-nara-c", MeshIP: "100.64.0.3"},
+			{Name: types.NaraName("discovery-nara-b"), MeshIP: "100.64.0.2"},
+			{Name: types.NaraName("discovery-nara-c"), MeshIP: "100.64.0.3"},
 		},
 	}
 	discoverer.Network.peerDiscovery = mockDiscovery
@@ -388,23 +388,23 @@ func TestIntegration_MeshDiscovery(t *testing.T) {
 	}
 
 	// Verify mesh IPs were stored correctly
-	meshIPb := discoverer.Network.getMeshIPForNara("discovery-nara-b")
+	meshIPb := discoverer.Network.getMeshIPForNara(types.NaraName("discovery-nara-b"))
 	if meshIPb != "100.64.0.2" {
 		t.Errorf("Expected mesh IP 100.64.0.2 for discovery-nara-b, got %s", meshIPb)
 	}
 
-	meshIPc := discoverer.Network.getMeshIPForNara("discovery-nara-c")
+	meshIPc := discoverer.Network.getMeshIPForNara(types.NaraName("discovery-nara-c"))
 	if meshIPc != "100.64.0.3" {
 		t.Errorf("Expected mesh IP 100.64.0.3 for discovery-nara-c, got %s", meshIPc)
 	}
 
 	// Verify observations were created
-	obsB := discoverer.getObservation("discovery-nara-b")
+	obsB := discoverer.getObservation(types.NaraName("discovery-nara-b"))
 	if obsB.Online != "ONLINE" {
 		t.Errorf("Expected discovery-nara-b to be marked ONLINE, got %s", obsB.Online)
 	}
 
-	obsC := discoverer.getObservation("discovery-nara-c")
+	obsC := discoverer.getObservation(types.NaraName("discovery-nara-c"))
 	if obsC.Online != "ONLINE" {
 		t.Errorf("Expected discovery-nara-c to be marked ONLINE, got %s", obsC.Online)
 	}
