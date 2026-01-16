@@ -2,6 +2,7 @@ package nara
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/runtime"
@@ -142,4 +143,42 @@ func (a *IdentityAdapter) RegisterPublicKey(id types.NaraID, key []byte) {
 		}
 		nara.mu.Unlock()
 	}
+}
+
+// === LogService Adapter ===
+
+// LogServiceAdapter bridges runtime.LoggerInterface to LogService.
+type LogServiceAdapter struct {
+	logService *LogService
+}
+
+// NewLogServiceAdapter creates a logger adapter from a LogService.
+func NewLogServiceAdapter(logService *LogService) *LogServiceAdapter {
+	return &LogServiceAdapter{logService: logService}
+}
+
+// Debug logs a debug message to the log service.
+func (a *LogServiceAdapter) Debug(service string, format string, args ...any) {
+	// LogService doesn't have Debug level, use Info
+	// Convert service name to uppercase category dynamically (e.g., "stash" → "STASH")
+	category := LogCategory(strings.ToUpper(service))
+	a.logService.Info(category, format, args...)
+}
+
+// Info logs an info message to the log service.
+func (a *LogServiceAdapter) Info(service string, format string, args ...any) {
+	category := LogCategory(strings.ToUpper(service))
+	a.logService.Info(category, format, args...)
+}
+
+// Warn logs a warning message to the log service.
+func (a *LogServiceAdapter) Warn(service string, format string, args ...any) {
+	category := LogCategory(strings.ToUpper(service))
+	a.logService.Warn(category, format, args...)
+}
+
+// Error logs an error message to the log service.
+func (a *LogServiceAdapter) Error(service string, format string, args ...any) {
+	category := LogCategory(strings.ToUpper(service))
+	a.logService.Error(category, format, args...)
 }

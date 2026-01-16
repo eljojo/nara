@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/eljojo/nara/types"
+	"github.com/sirupsen/logrus"
 )
 
 // RuntimeInterface is what services and stages can access.
@@ -125,29 +126,65 @@ const (
 // Services get this from rt.Log("service_name").
 type ServiceLog struct {
 	name   string
-	logger *Logger
+	logger LoggerInterface
 }
 
-// Logger methods
+// Logger methods forward to the logger with service name prefix
 func (l *ServiceLog) Debug(format string, args ...any) {
-	// Implementation will come in Phase 3
+	if l.logger != nil {
+		l.logger.Debug(l.name, format, args...)
+	}
 }
 
 func (l *ServiceLog) Info(format string, args ...any) {
-	// Implementation will come in Phase 3
+	if l.logger != nil {
+		l.logger.Info(l.name, format, args...)
+	}
 }
 
 func (l *ServiceLog) Warn(format string, args ...any) {
-	// Implementation will come in Phase 3
+	if l.logger != nil {
+		l.logger.Warn(l.name, format, args...)
+	}
 }
 
 func (l *ServiceLog) Error(format string, args ...any) {
-	// Implementation will come in Phase 3
+	if l.logger != nil {
+		l.logger.Error(l.name, format, args...)
+	}
 }
 
-// Logger is the central logging coordinator (owned by Runtime).
-type Logger struct {
-	// Implementation will come in Phase 3
+// LoggerInterface is the interface that the runtime logger must implement.
+// This allows services to log without depending on the concrete logger implementation.
+type LoggerInterface interface {
+	Debug(service string, format string, args ...any)
+	Info(service string, format string, args ...any)
+	Warn(service string, format string, args ...any)
+	Error(service string, format string, args ...any)
+}
+
+// Logger is the default logger implementation that logs to logrus.
+// This is used when no custom logger is provided.
+type Logger struct{}
+
+// Debug logs a debug message.
+func (l *Logger) Debug(service string, format string, args ...any) {
+	logrus.Debugf("[%s] "+format, append([]any{service}, args...)...)
+}
+
+// Info logs an info message.
+func (l *Logger) Info(service string, format string, args ...any) {
+	logrus.Infof("[%s] "+format, append([]any{service}, args...)...)
+}
+
+// Warn logs a warning message.
+func (l *Logger) Warn(service string, format string, args ...any) {
+	logrus.Warnf("[%s] "+format, append([]any{service}, args...)...)
+}
+
+// Error logs an error message.
+func (l *Logger) Error(service string, format string, args ...any) {
+	logrus.Errorf("[%s] "+format, append([]any{service}, args...)...)
 }
 
 // CallResult is returned by CallAsync (Chapter 3).
