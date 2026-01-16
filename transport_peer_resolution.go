@@ -15,7 +15,7 @@ import (
 // Uses HTTP redirects: if a neighbor doesn't know, they redirect us to try someone else.
 
 // resolvePeerBackground triggers resolvePeer in a goroutine with rate limiting
-func (network *Network) resolvePeerBackground(target string) {
+func (network *Network) resolvePeerBackground(target NaraName) {
 	now := time.Now().Unix()
 	const retryInterval = 600 // 10 minutes
 
@@ -38,7 +38,7 @@ func (network *Network) resolvePeerBackground(target string) {
 
 // resolvePeer queries neighbors to discover the identity of an unknown peer.
 // Returns nil if no one knows the target within the timeout.
-func (network *Network) resolvePeer(target string) *PeerResponse {
+func (network *Network) resolvePeer(target NaraName) *PeerResponse {
 	// Double check we don't already have it (e.g. if another resolution finished)
 	if network.getPublicKeyForNara(target) != nil {
 		return nil
@@ -64,7 +64,7 @@ func (network *Network) resolvePeer(target string) *PeerResponse {
 	}
 
 	// Track who we've already asked to prevent loops
-	asked := map[string]bool{network.meName(): true}
+	asked := map[NaraName]bool{network.meName(): true}
 
 	// Get initial neighbors to query
 	neighbors := network.NeighbourhoodOnlineNames()
@@ -82,7 +82,7 @@ func (network *Network) resolvePeer(target string) *PeerResponse {
 	}
 
 	// Try each neighbor, following redirects manually
-	toAsk := make([]string, len(neighbors))
+	toAsk := make([]NaraName, len(neighbors))
 	copy(toAsk, neighbors)
 
 	for len(toAsk) > 0 && len(asked) < 10 { // Max 10 hops
@@ -100,7 +100,7 @@ func (network *Network) resolvePeer(target string) *PeerResponse {
 		}
 
 		// Build asked list for the request
-		askedList := make([]string, 0, len(asked))
+		askedList := make([]NaraName, 0, len(asked))
 		for n := range asked {
 			askedList = append(askedList, n)
 		}
@@ -137,7 +137,7 @@ func (network *Network) resolvePeer(target string) *PeerResponse {
 //
 // queryPeerAt sends a peer query to a specific URL and handles the response.
 // Returns a PeerResponse with PublicKey set if found, or with Target set if redirected.
-func (network *Network) queryPeerAt(client *http.Client, baseURL, target string, asked []string) *PeerResponse {
+func (network *Network) queryPeerAt(client *http.Client, baseURL, target NaraName, asked []NaraName) *PeerResponse {
 	// Build query URL with parameters
 	queryURL := fmt.Sprintf("%s/peer/query?target=%s&asked=%s",
 		baseURL, target, strings.Join(asked, ","))
@@ -198,7 +198,7 @@ func (network *Network) httpPeerQueryHandler(w http.ResponseWriter, r *http.Requ
 
 	// Parse the asked list
 	askedStr := r.URL.Query().Get("asked")
-	asked := make(map[string]bool)
+	asked := make(map[NaraName]bool)
 	if askedStr != "" {
 		for _, name := range strings.Split(askedStr, ",") {
 			asked[name] = true

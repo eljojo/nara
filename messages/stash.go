@@ -1,6 +1,10 @@
 package messages
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/eljojo/nara/types"
+)
 
 // StashStorePayload is sent when storing encrypted data with a confidant.
 //
@@ -14,10 +18,10 @@ import "errors"
 //	v1 (2026-01): Initial version
 type StashStorePayload struct {
 	// OwnerID is who the stash belongs to (primary identifier for retrieval)
-	OwnerID string `json:"owner_id"`
+	OwnerID types.NaraID `json:"owner_id"`
 
 	// Owner is the display name (optional, for logging/debugging)
-	Owner string `json:"owner,omitempty"`
+	Owner types.NaraName `json:"owner,omitempty"`
 
 	// Nonce for XChaCha20-Poly1305 decryption (24 bytes)
 	Nonce []byte `json:"nonce"`
@@ -54,7 +58,7 @@ func (p *StashStorePayload) Validate() error {
 //	v1 (2026-01): Initial version
 type StashStoreAck struct {
 	// OwnerID is echoed back for correlation
-	OwnerID string `json:"owner_id"`
+	OwnerID types.NaraID `json:"owner_id"`
 
 	// StoredAt is when the confidant stored the data (Unix timestamp)
 	StoredAt int64 `json:"stored_at"`
@@ -78,7 +82,7 @@ type StashStoreAck struct {
 //	v1 (2026-01): Initial version
 type StashRequestPayload struct {
 	// OwnerID is who is requesting their stash back
-	OwnerID string `json:"owner_id"`
+	OwnerID types.NaraID `json:"owner_id"`
 
 	// RequestID for correlation (optional, for tracking)
 	RequestID string `json:"request_id,omitempty"`
@@ -103,7 +107,7 @@ func (p *StashRequestPayload) Validate() error {
 //	v1 (2026-01): Initial version
 type StashResponsePayload struct {
 	// OwnerID is who the stash belongs to
-	OwnerID string `json:"owner_id"`
+	OwnerID types.NaraID `json:"owner_id"`
 
 	// RequestID is echoed from the request (for correlation)
 	RequestID string `json:"request_id,omitempty"`
@@ -136,10 +140,10 @@ type StashResponsePayload struct {
 //	v1 (2026-01): Initial version
 type StashRefreshPayload struct {
 	// OwnerID is who wants their stash back
-	OwnerID string `json:"owner_id"`
+	OwnerID types.NaraID `json:"owner_id"`
 
 	// Owner is the display name (optional)
-	Owner string `json:"owner,omitempty"`
+	Owner types.NaraName `json:"owner,omitempty"`
 }
 
 // Validate checks if the payload is well-formed.

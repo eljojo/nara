@@ -38,7 +38,7 @@ import "github.com/sirupsen/logrus"
 //   - Quick existence checks where nil is acceptable
 //   - Single field reads where you can handle nil safely
 //   - Test code where race conditions are acceptable
-func (network *Network) getNara(name string) *Nara {
+func (network *Network) getNara(name NaraName) *Nara {
 	network.local.mu.Lock()
 	nara, present := network.Neighbourhood[name]
 	network.local.mu.Unlock()
@@ -177,19 +177,19 @@ func (network *Network) importNara(nara *Nara) {
 			network.NeighbourhoodByID[naraID] = nara
 		}
 		if network.nameToID != nil {
-			network.nameToID[nara.Name.String()] = naraID
+			network.nameToID[nara.Name] = naraID
 		}
 
 		// Register public key in keyring if available
 		if nara.Status.PublicKey != "" && network.keyring != nil {
-			_ = network.keyring.RegisterBase64(naraID.String(), nara.Status.PublicKey)
+			_ = network.keyring.RegisterBase64(naraID, nara.Status.PublicKey)
 		}
 	}
 }
 
 // getNaraIDByName returns the nara ID for a given name, or empty string if not found.
 // This is a quick O(1) lookup using the nameToID index.
-func (network *Network) getNaraIDByName(name string) NaraID {
+func (network *Network) getNaraIDByName(name NaraName) NaraID {
 	if name == "" {
 		return ""
 	}

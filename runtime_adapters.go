@@ -22,7 +22,7 @@ func NewTransportAdapter(network *Network) *TransportAdapter {
 }
 
 // TrySendDirect sends a message directly to a target nara via mesh.
-func (a *TransportAdapter) TrySendDirect(targetID string, msg *runtime.Message) error {
+func (a *TransportAdapter) TrySendDirect(targetID NaraID, msg *runtime.Message) error {
 	// Resolve targetID to mesh address
 	nara := a.network.getNaraByID(targetID)
 	if nara == nil {
@@ -134,14 +134,14 @@ func (a *IdentityAdapter) LookupPublicKey(id NaraID) []byte {
 }
 
 // LookupPublicKeyByName looks up a public key by nara name.
-func (a *IdentityAdapter) LookupPublicKeyByName(name string) []byte {
+func (a *IdentityAdapter) LookupPublicKeyByName(name NaraName) []byte {
 	return a.network.getPublicKeyForNara(name)
 }
 
 // RegisterPublicKey registers a public key for a nara ID.
 //
 // This updates the network's neighbourhood map.
-func (a *IdentityAdapter) RegisterPublicKey(id string, key []byte) {
+func (a *IdentityAdapter) RegisterPublicKey(id NaraID, key []byte) {
 	// Look up nara by ID
 	nara := a.network.getNaraByID(id)
 	if nara != nil {

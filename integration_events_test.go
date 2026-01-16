@@ -933,7 +933,7 @@ func TestIntegration_PingVerificationBeforeMarkingMissing(t *testing.T) {
 	// Scenario 1: Ping succeeds - target should stay ONLINE
 	t.Run("ping_succeeds_prevents_missing", func(t *testing.T) {
 		pingAttempts = 0
-		network.testPingFunc = func(name string) (bool, error) {
+		network.testPingFunc = func(name NaraName) (bool, error) {
 			pingAttempts++
 			pingResults = append(pingResults, true)
 			return true, nil // Ping succeeds
@@ -979,7 +979,7 @@ func TestIntegration_PingVerificationBeforeMarkingMissing(t *testing.T) {
 
 	// Scenario 2: Ping fails - target should be allowed to be marked MISSING
 	t.Run("ping_fails_allows_missing", func(t *testing.T) {
-		network.testPingFunc = func(name string) (bool, error) {
+		network.testPingFunc = func(name NaraName) (bool, error) {
 			pingAttempts++
 			pingResults = append(pingResults, false)
 			return false, nil // Ping fails
@@ -1004,7 +1004,7 @@ func TestIntegration_PingVerificationBeforeMarkingMissing(t *testing.T) {
 
 	// Scenario 3: Self-ping is skipped
 	t.Run("self_ping_skipped", func(t *testing.T) {
-		network.testPingFunc = func(name string) (bool, error) {
+		network.testPingFunc = func(name NaraName) (bool, error) {
 			pingAttempts++
 			return true, nil
 		}

@@ -27,14 +27,14 @@ const (
 
 // SocialEvent represents an immutable social fact in the network
 type SocialEvent struct {
-	ID        string // hash of content for deduplication
-	Timestamp int64  // when it happened
-	Type      string // "tease", "observed", "gossip"
-	Actor     string // who did it
-	Target    string // who it was about
-	Reason    string // why (e.g., "high-restarts", "trend-abandon")
-	Witness   string // who reported it (empty if self-reported)
-	Signature string // Base64-encoded Ed25519 signature (optional)
+	ID        string   // hash of content for deduplication
+	Timestamp int64    // when it happened
+	Type      string   // "tease", "observed", "gossip"
+	Actor     NaraName // who did it
+	Target    NaraName // who it was about
+	Reason    string   // why (e.g., "high-restarts", "trend-abandon")
+	Witness   NaraName // who reported it (empty if self-reported)
+	Signature string   // Base64-encoded Ed25519 signature (optional)
 }
 
 // SignableContent returns the canonical string for signing (implements Signable)
@@ -266,13 +266,13 @@ func ShouldTeaseForNiceNumber(restarts int64, personality NaraPersonality) bool 
 }
 
 // ShouldRandomTease determines if we should randomly tease (deterministic based on inputs)
-func ShouldRandomTease(soul, target string, timestamp int64, personality NaraPersonality) bool {
+func ShouldRandomTease(soul, target NaraName, timestamp int64, personality NaraPersonality) bool {
 	return ShouldRandomTeaseWithBoost(soul, target, timestamp, personality, 1.0)
 }
 
 // ShouldRandomTeaseWithBoost is like ShouldRandomTease but with a probability multiplier.
 // Use boost > 1.0 to increase probability (e.g., for nearby naras you notice more).
-func ShouldRandomTeaseWithBoost(soul, target string, timestamp int64, personality NaraPersonality, boost float64) bool {
+func ShouldRandomTeaseWithBoost(soul, target NaraName, timestamp int64, personality NaraPersonality, boost float64) bool {
 	// Very low probability: ~1% for average personality
 	hasher := sha256.New()
 	hasher.Write([]byte(soul))
@@ -301,7 +301,7 @@ func ShouldRandomTeaseWithBoost(soul, target string, timestamp int64, personalit
 }
 
 // TeaseMessage returns a tease message for the given reason
-func TeaseMessage(reason, actor, target string) string {
+func TeaseMessage(reason string, actor NaraName, target NaraName) string {
 	templates := map[string][]string{
 		ReasonHighRestarts: {
 			"nice uptime there, %s",
@@ -366,7 +366,7 @@ func containsPlaceholder(s string) bool {
 
 // TeaseState tracks cooldowns to prevent spam
 type TeaseState struct {
-	lastTease map[string]int64 // "actor:target" -> timestamp
+	lastTease map[NaraName]int64 // "actor:target" -> timestamp
 	mu        sync.RWMutex
 	cooldown  int64 // seconds between teases to same target
 }
@@ -374,13 +374,13 @@ type TeaseState struct {
 // NewTeaseState creates a new tease cooldown tracker
 func NewTeaseState() *TeaseState {
 	return &TeaseState{
-		lastTease: make(map[string]int64),
+		lastTease: make(map[NaraName]int64),
 		cooldown:  300, // 5 minutes between teases to same target
 	}
 }
 
 // CanTease checks if the cooldown has passed
-func (s *TeaseState) CanTease(actor, target string) bool {
+func (s *TeaseState) CanTease(actor, target NaraName) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -394,7 +394,7 @@ func (s *TeaseState) CanTease(actor, target string) bool {
 }
 
 // RecordTease records that a tease happened
-func (s *TeaseState) RecordTease(actor, target string) {
+func (s *TeaseState) RecordTease(actor, target NaraName) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -405,7 +405,7 @@ func (s *TeaseState) RecordTease(actor, target string) {
 // TryTease atomically checks if a tease is allowed and records it if so.
 // Returns true if the tease was allowed and recorded, false otherwise.
 // This prevents the TOCTOU race between CanTease and RecordTease.
-func (s *TeaseState) TryTease(actor, target string) bool {
+func (s *TeaseState) TryTease(actor, target NaraName) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -438,8 +438,8 @@ func (s *TeaseState) Cleanup() {
 
 // LedgerRequest is sent to request events from a neighbor
 type LedgerRequest struct {
-	From     NaraName // who is asking
-	Subjects []string // which subjects (naras) we want events about
+	From     NaraName   // who is asking
+	Subjects []NaraName // which subjects (naras) we want events about
 }
 
 // LedgerResponse contains events from a neighbor
@@ -450,7 +450,7 @@ type LedgerResponse struct {
 
 // PartitionSubjects divides subjects into N roughly equal chunks
 // Uses deterministic hashing so different naras get consistent partitions
-func PartitionSubjects(subjects []string, n int) [][]string {
+func PartitionSubjects(subjects []NaraName, n int) [][]NaraName {
 	if n <= 0 {
 		n = 1
 	}
@@ -458,9 +458,9 @@ func PartitionSubjects(subjects []string, n int) [][]string {
 		n = len(subjects)
 	}
 
-	partitions := make([][]string, n)
+	partitions := make([][]NaraName, n)
 	for i := range partitions {
-		partitions[i] = make([]string, 0)
+		partitions[i] = make([]NaraName, 0)
 	}
 
 	for _, subject := range subjects {

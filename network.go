@@ -42,8 +42,8 @@ func (t TransportMode) String() string {
 }
 
 type Network struct {
-	Neighbourhood          map[NaraName]*Nara // Index by name (legacy, to be deprecated)
-	NeighbourhoodByID      map[NaraID]*Nara   // Primary index: by nara ID
+	Neighbourhood          map[NaraName]*Nara  // Index by name (legacy, to be deprecated)
+	NeighbourhoodByID      map[NaraID]*Nara    // Primary index: by nara ID
 	nameToID               map[NaraName]NaraID // Secondary index: name → ID for quick lookup
 	Buzz                   *Buzz
 	LastHeyThere           int64
@@ -88,17 +88,17 @@ type Network struct {
 	// Startup sequencing: operations must complete in order
 	bootRecoveryDone chan struct{}
 	// Test hooks (only used in tests)
-	testHTTPClient            *http.Client                    // Override HTTP client for testing
-	testMeshURLs              map[string]string               // Override mesh URLs for testing (nara name -> URL)
-	testTeaseDelay            *time.Duration                  // Override tease delay for testing (nil = use default 0-5s random)
-	testObservationDelay      *time.Duration                  // Override observation debounce delay for testing
-	testAnnounceCount         int                             // Counter for announce() calls (for testing)
-	testSkipHeyThereSleep     bool                            // Skip the 1s sleep in handleHeyThereEvent (for testing)
-	testSkipJitter            bool                            // Skip jitter delays in hey_there for faster tests
-	testSkipBootRecovery      bool                            // Skip boot recovery entirely (for checkpoint tests)
-	testSkipHeyThereRateLimit bool                            // Skip the 5s rate limit on hey_there (for testing)
-	testSkipCoordinateWait    bool                            // Skip the 30s initial wait in coordinateMaintenance (for testing)
-	testPingFunc              func(name string) (bool, error) // Override ping behavior for testing (returns success, error)
+	testHTTPClient            *http.Client                      // Override HTTP client for testing
+	testMeshURLs              map[string]string                 // Override mesh URLs for testing (nara name -> URL)
+	testTeaseDelay            *time.Duration                    // Override tease delay for testing (nil = use default 0-5s random)
+	testObservationDelay      *time.Duration                    // Override observation debounce delay for testing
+	testAnnounceCount         int                               // Counter for announce() calls (for testing)
+	testSkipHeyThereSleep     bool                              // Skip the 1s sleep in handleHeyThereEvent (for testing)
+	testSkipJitter            bool                              // Skip jitter delays in hey_there for faster tests
+	testSkipBootRecovery      bool                              // Skip boot recovery entirely (for checkpoint tests)
+	testSkipHeyThereRateLimit bool                              // Skip the 5s rate limit on hey_there (for testing)
+	testSkipCoordinateWait    bool                              // Skip the 30s initial wait in coordinateMaintenance (for testing)
+	testPingFunc              func(name NaraName) (bool, error) // Override ping behavior for testing (returns success, error)
 	// HTTP servers for graceful shutdown
 	httpServer        *http.Server
 	meshHttpServer    *http.Server
@@ -131,7 +131,7 @@ type Network struct {
 // PendingJourney tracks a journey we participated in, waiting for completion
 type PendingJourney struct {
 	JourneyID  string
-	Originator string
+	Originator NaraName
 	SeenAt     int64  // when we first saw it
 	Message    string // original message for context
 }
@@ -139,8 +139,8 @@ type PendingJourney struct {
 // JourneyCompletion is the lightweight MQTT signal for journey completion
 type JourneyCompletion struct {
 	JourneyID  string     `json:"journey_id"`
-	Originator string     `json:"originator"`
-	ReportedBy string     `json:"reported_by"`
+	Originator NaraName   `json:"originator"`
+	ReportedBy NaraName   `json:"reported_by"`
 	Message    string     `json:"message,omitempty"`
 	Hops       []WorldHop `json:"hops,omitempty"` // The attestation log
 }
@@ -148,9 +148,9 @@ type JourneyCompletion struct {
 // PeerResponse contains identity information about a peer.
 // Used by the peer resolution protocol to return discovered peer info.
 type PeerResponse struct {
-	Target    string `json:"target"`
-	PublicKey string `json:"public_key"`
-	MeshIP    string `json:"mesh_ip,omitempty"`
+	Target    NaraName `json:"target"`
+	PublicKey string   `json:"public_key"`
+	MeshIP    string   `json:"mesh_ip,omitempty"`
 }
 
 func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Network {
@@ -186,13 +186,14 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 	network.checkpointService = NewCheckpointService(network, localNara.SyncLedger, localNara)
 
 	// Initialize keyring with our identity
-	network.keyring = keyring.New(localNara.Keypair.PrivateKey, localNara.Me.Status.ID.String())
+	network.keyring = keyring.New(localNara.Keypair.PrivateKey, localNara.Me.Status.ID)
 
-	network.Mqtt = network.initializeMQTT(network.mqttOnConnectHandler(), network.meName(), host, user, pass)
+	mqttClientName := network.meName().String()
+	network.Mqtt = network.initializeMQTT(network.mqttOnConnectHandler(), mqttClientName, host, user, pass)
 
 	// Set up pruning priority for unknown naras (events from naras without public keys are pruned first)
 	if localNara.SyncLedger != nil {
-		localNara.SyncLedger.SetUnknownNaraChecker(func(name string) bool {
+		localNara.SyncLedger.SetUnknownNaraChecker(func(name NaraName) bool {
 			return !network.hasPublicKeyFor(name)
 		})
 	}
@@ -233,7 +234,7 @@ func (network *Network) SetVerboseLogging(verbose bool) {
 }
 
 // getMeshIPForNara returns the tailscale IP for a nara (for direct mesh communication)
-func (network *Network) getMeshIPForNara(name string) string {
+func (network *Network) getMeshIPForNara(name NaraName) string {
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
 
@@ -247,7 +248,7 @@ func (network *Network) getMeshIPForNara(name string) string {
 	return nara.Status.MeshIP
 }
 
-func (network *Network) getMyClout() map[string]float64 {
+func (network *Network) getMyClout() map[NaraName]float64 {
 	// Get this nara's clout scores for other naras
 	if network.local.Projections == nil {
 		return nil
@@ -263,14 +264,14 @@ func (network *Network) getMyClout() map[string]float64 {
 	return ApplyProximityToClout(baseClout, myCoords, network.getCoordinatesForPeer)
 }
 
-func (network *Network) getOnlineNaraNames() []string {
+func (network *Network) getOnlineNaraNames() []NaraName {
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
 
 	// Check if we're using real mesh (tsnet) - if so, only include mesh-enabled naras
 	requireMesh := network.tsnetMesh != nil
 
-	names := []string{network.local.Me.Name}
+	names := []NaraName{network.local.Me.Name}
 	skippedCount := 0
 	for name, nara := range network.Neighbourhood {
 		// Check our observation of this peer (not their self-observation)
@@ -300,7 +301,7 @@ func (network *Network) getOnlineNaraNames() []string {
 	return names
 }
 
-func (network *Network) getPublicKeyForNara(name string) []byte {
+func (network *Network) getPublicKeyForNara(name NaraName) []byte {
 	if name == network.local.Me.Name {
 		return network.local.Keypair.PublicKey
 	}
@@ -331,7 +332,7 @@ func (network *Network) getPublicKeyForNara(name string) []byte {
 
 // resolvePublicKeyForNara returns the public key for a nara, attempting to resolve it
 // via neighbors if not already known.
-func (network *Network) resolvePublicKeyForNara(name string) []byte {
+func (network *Network) resolvePublicKeyForNara(name NaraName) []byte {
 	pubKey := network.getPublicKeyForNara(name)
 	if pubKey != nil {
 		return pubKey
@@ -353,7 +354,7 @@ func (network *Network) resolvePublicKeyForNara(name string) []byte {
 
 // hasPublicKeyFor returns true if we have a valid public key for the named nara.
 // Used to determine if a nara is "known" for pruning priority.
-func (network *Network) hasPublicKeyFor(name string) bool {
+func (network *Network) hasPublicKeyFor(name NaraName) bool {
 	return network.getPublicKeyForNara(name) != nil
 }
 
@@ -363,7 +364,7 @@ func (network *Network) getPublicKeyForNaraID(naraID NaraID) []byte {
 	if naraID == "" {
 		return nil
 	}
-	return network.keyring.Lookup(naraID.String())
+	return network.keyring.Lookup(naraID)
 }
 
 // RegisterKey registers a public key for a nara ID.
@@ -374,7 +375,7 @@ func (network *Network) RegisterKey(naraID NaraID, pubkeyBase64 string) {
 	}
 
 	// Register in keyring (source of truth)
-	_ = network.keyring.RegisterBase64(naraID.String(), pubkeyBase64)
+	_ = network.keyring.RegisterBase64(naraID, pubkeyBase64)
 
 	// Also store in nara's Status.PublicKey for JSON serialization
 	nara := network.getNaraByID(naraID)
@@ -452,12 +453,12 @@ func (network *Network) MergeSyncEventsWithVerification(events []SyncEvent) (add
 // This allows us to track observations about naras we hear about through the event stream,
 // even before we know their public key.
 func (network *Network) discoverNarasFromEvents(events []SyncEvent) {
-	seen := make(map[string]bool)
+	seen := make(map[NaraName]bool)
 	myName := network.meName()
 
 	for _, e := range events {
 		// Collect all nara names from this event
-		names := []string{e.Emitter, e.GetActor(), e.GetTarget()}
+		names := []NaraName{e.Emitter, e.GetActor(), e.GetTarget()}
 		for _, name := range names {
 			if name == "" || name == myName || seen[name] {
 				continue
@@ -492,14 +493,14 @@ func (network *Network) markEmittersAsSeen(events []SyncEvent) {
 	// First pass: identify which emitters have chau events in this batch
 	// These naras are shutting down and should NOT be marked as online,
 	// even if they have other events in the batch (e.g., events created before shutdown).
-	shuttingDown := make(map[string]bool)
+	shuttingDown := make(map[NaraName]bool)
 	for _, e := range events {
 		if e.Service == ServiceChau && e.Chau != nil && e.Chau.From != "" {
 			shuttingDown[e.Chau.From] = true
 		}
 	}
 
-	seen := make(map[string]bool)
+	seen := make(map[NaraName]bool)
 	myName := network.meName()
 
 	for _, e := range events {
@@ -622,7 +623,7 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 		if network.worldHandler == nil {
 			network.worldMesh = NewMockMeshNetwork()
 			network.worldTransport = NewMockMeshTransport()
-			network.worldMesh.Register(network.meName(), network.worldTransport)
+			network.worldMesh.Register("my-transport", network.worldTransport)
 			network.InitWorldJourney(network.worldTransport)
 			logrus.Info("World journey using mock mesh (local only)")
 		}
@@ -740,7 +741,7 @@ func (network *Network) meName() NaraName {
 }
 
 // mergeExternalObservation merges an external observation into our local observations
-func (network *Network) mergeExternalObservation(name string, external NaraObservation) {
+func (network *Network) mergeExternalObservation(name NaraName, external NaraObservation) {
 	obs := network.local.getObservation(name)
 
 	// Update fields if they provide more information
@@ -822,7 +823,7 @@ func (network *Network) isShortMemoryMode() bool {
 // This way, active naras prove themselves through their own events,
 // while quiet naras get vouched for by those who interact with them.
 // Also rate-limited to 1 per 2 minutes per subject to avoid spam.
-func (network *Network) emitSeenEvent(subject, via string) {
+func (network *Network) emitSeenEvent(subject NaraName, via string) {
 	if network.local.SyncLedger == nil || network.local.isBooting() {
 		return
 	}

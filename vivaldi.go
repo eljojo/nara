@@ -159,12 +159,12 @@ func (c *NetworkCoordinate) IsValid() bool {
 
 // ApplyProximityToClout adjusts clout scores based on network distance
 // Nearby naras have stronger influence on opinions
-func ApplyProximityToClout(baseClout map[string]float64, myCoords *NetworkCoordinate, getCoords func(string) *NetworkCoordinate) map[string]float64 {
+func ApplyProximityToClout(baseClout map[NaraName]float64, myCoords *NetworkCoordinate, getCoords func(NaraName) *NetworkCoordinate) map[NaraName]float64 {
 	if myCoords == nil || getCoords == nil {
 		return baseClout
 	}
 
-	result := make(map[string]float64)
+	result := make(map[NaraName]float64)
 	for name, clout := range baseClout {
 		result[name] = clout
 

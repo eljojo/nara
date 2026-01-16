@@ -13,7 +13,7 @@ import (
 // - Old events less likely but not zero (fading memory)
 // - Critical events always included
 // - Events emitted/observed by myName have higher weight
-func (l *SyncLedger) SampleEvents(sampleSize int, myName string, services []string, subjects []string) []SyncEvent {
+func (l *SyncLedger) SampleEvents(sampleSize int, myName NaraName, services []string, subjects []NaraName) []SyncEvent {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 

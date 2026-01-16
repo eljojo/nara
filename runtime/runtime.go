@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/eljojo/nara/types"
 	"github.com/sirupsen/logrus"
 )
 
@@ -105,7 +106,7 @@ func (rt *Runtime) Me() *Nara {
 }
 
 // MeID returns the local nara's ID.
-func (rt *Runtime) MeID() string {
+func (rt *Runtime) MeID() types.NaraID {
 	if rt.me != nil {
 		return rt.me.ID
 	}
@@ -113,19 +114,19 @@ func (rt *Runtime) MeID() string {
 }
 
 // LookupPublicKey looks up a public key by nara ID.
-func (rt *Runtime) LookupPublicKey(id string) []byte {
+func (rt *Runtime) LookupPublicKey(id types.NaraID) []byte {
 	// This will be implemented via adapters in Phase 4
 	return nil
 }
 
 // LookupPublicKeyByName looks up a public key by nara name.
-func (rt *Runtime) LookupPublicKeyByName(name string) []byte {
+func (rt *Runtime) LookupPublicKeyByName(name types.NaraName) []byte {
 	// This will be implemented via adapters in Phase 4
 	return nil
 }
 
 // RegisterPublicKey registers a public key for a nara ID.
-func (rt *Runtime) RegisterPublicKey(id string, key []byte) {
+func (rt *Runtime) RegisterPublicKey(id types.NaraID, key []byte) {
 	// This will be implemented via adapters in Phase 4
 }
 
@@ -413,15 +414,16 @@ func (rt *Runtime) deserialize(raw []byte) (*Message, error) {
 	payload := reflect.New(payloadType).Interface()
 
 	// Unmarshal into a temporary struct with typed payload
+	// TODO: question: why not use runtime/message.go?
 	var temp struct {
 		ID         string          `json:"id"`
 		ContentKey string          `json:"content_key,omitempty"`
 		Kind       string          `json:"kind"`
 		Version    int             `json:"version"`
-		From       string          `json:"from,omitempty"`
-		FromID     string          `json:"from_id"`
-		To         string          `json:"to,omitempty"`
-		ToID       string          `json:"to_id,omitempty"`
+		From       types.NaraName  `json:"from,omitempty"`
+		FromID     types.NaraID    `json:"from_id"`
+		To         types.NaraName  `json:"to,omitempty"`
+		ToID       types.NaraID    `json:"to_id,omitempty"`
 		Timestamp  time.Time       `json:"timestamp"`
 		Payload    json.RawMessage `json:"payload"`
 		Signature  []byte          `json:"signature,omitempty"`

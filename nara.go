@@ -31,6 +31,7 @@ type LocalNara struct {
 	mu              sync.Mutex
 }
 
+// Notice there's also Nara struct in runtime/interfaces.go...
 type Nara struct {
 	Name     NaraName
 	Hostname string `json:"-"`
@@ -163,7 +164,7 @@ func (ln *LocalNara) Start(serveUI bool, readOnly bool, httpAddr string, meshCon
 	// Start projections
 	if ln.Projections != nil {
 		// Configure MISSING threshold to account for gossip mode
-		ln.Projections.OnlineStatus().SetMissingThresholdFunc(func(name string) int64 {
+		ln.Projections.OnlineStatus().SetMissingThresholdFunc(func(name NaraName) int64 {
 			threshold := MissingThresholdSeconds
 			nara := ln.Network.getNara(name)
 			// Defensive: nara might not be found or might have been removed

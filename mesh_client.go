@@ -73,12 +73,14 @@ func NewMeshHTTPClient(server *tsnet.Server) *http.Client {
 // to share the same mesh communication logic.
 type MeshClient struct {
 	httpClient *http.Client
-	name       string      // Who we are (for request signing)
+	name       NaraName    // Who we are (for request signing)
 	keypair    NaraKeypair // For signing requests
+
+	peers map[NaraID]string
 }
 
 // NewMeshClient creates a new mesh client with the given identity
-func NewMeshClient(httpClient *http.Client, name string, keypair NaraKeypair) *MeshClient {
+func NewMeshClient(httpClient *http.Client, name NaraName, keypair NaraKeypair) *MeshClient {
 	return &MeshClient{
 		httpClient: httpClient,
 		name:       name,
@@ -130,7 +132,7 @@ func (m *MeshClient) signRequest(req *http.Request) {
 	timestamp := time.Now().UnixMilli()
 	message := fmt.Sprintf("%s%d%s%s", m.name, timestamp, req.Method, req.URL.Path)
 
-	req.Header.Set(HeaderNaraName, m.name)
+	req.Header.Set(HeaderNaraName, m.name.String())
 	req.Header.Set(HeaderNaraTimestamp, strconv.FormatInt(timestamp, 10))
 	req.Header.Set(HeaderNaraSignature, m.keypair.SignBase64([]byte(message)))
 }

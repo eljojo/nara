@@ -51,8 +51,8 @@ When adding a new message type:
 // Version History:
 //   v1 (2024-01): Initial version
 type ExamplePayload struct {
-    ActorID string `json:"actor_id"`           // Primary identifier
-    Actor   string `json:"actor,omitempty"`    // Display name only
+    ActorID NaraID `json:"actor_id"`           // Primary identifier
+    Actor   NaraName `json:"actor,omitempty"`    // Display name only
     Data    []byte `json:"data"`
 }
 

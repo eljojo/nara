@@ -294,7 +294,7 @@ func NewTsnetMesh(config TsnetConfig) (*TsnetMesh, error) {
 
 	// Append random suffix to hostname to avoid conflicts with stale registrations
 	// This helps when restarting quickly or when previous instances didn't clean up
-	suffix := randomSuffix(4)
+	suffix := randomSuffix(4) // keep this in sync with gossip_discovery.go
 	tsnetHostname := config.Hostname + "-" + suffix
 	logrus.Debugf("🌐 Tailscale hostname: %s (base: %s)", tsnetHostname, config.Hostname)
 
@@ -427,7 +427,8 @@ func (t *TsnetMesh) Close() error {
 // Uses HTTP GET to the /ping endpoint and returns the round-trip time
 // Note: TCP handshake time is included, which is correct for Vivaldi coordinates
 // (the handshake itself measures one network RTT)
-func (t *TsnetMesh) Ping(targetIP string, from string, timeout time.Duration) (time.Duration, error) {
+// TODO: we need to unify this with MeshClient somehow
+func (t *TsnetMesh) Ping(targetIP string, from NaraName, timeout time.Duration) (time.Duration, error) {
 	t.mu.Lock()
 	if t.closed {
 		t.mu.Unlock()

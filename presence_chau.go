@@ -8,7 +8,7 @@ import (
 )
 
 type ChauEvent struct {
-	From      string
+	From      NaraName
 	PublicKey string // Base64-encoded Ed25519 public key
 	ID        NaraID // Nara ID: deterministic hash of soul+name
 	Signature string // Base64-encoded signature of "chau:{From}:{PublicKey}:{ID}"
@@ -67,10 +67,10 @@ func (c *ChauEvent) IsValid() bool {
 }
 
 // GetActor implements Payload interface for ChauEvent
-func (c *ChauEvent) GetActor() string { return c.From }
+func (c *ChauEvent) GetActor() NaraName { return c.From }
 
 // GetTarget implements Payload interface for ChauEvent
-func (c *ChauEvent) GetTarget() string { return c.From }
+func (c *ChauEvent) GetTarget() NaraName { return c.From }
 
 // VerifySignature implements Payload using the embedded public key
 func (c *ChauEvent) VerifySignature(event *SyncEvent, lookup PublicKeyLookup) bool {
@@ -103,7 +103,7 @@ func (c *ChauEvent) ToLogEvent() *LogEvent {
 	return &LogEvent{
 		Category: CategoryPresence,
 		Type:     "goodbye",
-		Actor:    c.From,
+		Actor:    c.From.String(),
 		Detail:   c.LogFormat(),
 		GroupFormat: func(actors string) string {
 			return fmt.Sprintf("💨 %s bounced", actors)

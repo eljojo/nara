@@ -11,7 +11,7 @@ import (
 
 // NewspaperEvent represents a signed announcement of status
 type NewspaperEvent struct {
-	From       string
+	From       NaraName
 	Status     NaraStatus
 	Signature  string // Base64-encoded signature of the status JSON
 	StatusJSON []byte `json:"-"` // Raw status JSON for signature verification

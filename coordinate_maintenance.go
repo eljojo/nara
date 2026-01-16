@@ -47,7 +47,7 @@ func (network *Network) coordinateMaintenance() {
 
 // pingTarget holds info about a potential ping target
 type pingTarget struct {
-	name     string
+	name     NaraName
 	meshIP   string
 	priority float64 // higher = more important to ping
 }
@@ -58,7 +58,7 @@ type pingTarget struct {
 // 2. High-error naras (uncertain position) - priority based on error
 // 3. Stale measurements (haven't pinged recently) - priority based on staleness
 // 4. Random sampling for coverage
-func (network *Network) selectPingTarget() string {
+func (network *Network) selectPingTarget() NaraName {
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
 
@@ -102,7 +102,7 @@ func (network *Network) selectPingTarget() string {
 		}
 
 		targets = append(targets, pingTarget{
-			name:     name.String(),
+			name:     name,
 			meshIP:   meshIP,
 			priority: priority,
 		})
@@ -178,14 +178,14 @@ func (network *Network) pingAndUpdateCoordinates(targetName NaraName, config Viv
 	if network.local.SyncLedger != nil {
 		network.local.SyncLedger.AddSignedPingObservationWithReplace(
 			network.meName(), naraName, rttMs,
-			network.meName().String(), network.local.Keypair,
+			network.meName(), network.local.Keypair,
 		)
 	}
 }
 
 // getCoordinatesForPeer returns the coordinates for a peer by name
 // Used by ApplyProximityToClout
-func (network *Network) getCoordinatesForPeer(name string) *NetworkCoordinate {
+func (network *Network) getCoordinatesForPeer(name NaraName) *NetworkCoordinate {
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
 

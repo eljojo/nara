@@ -13,7 +13,7 @@ import (
 // Zine is a batch of recent events passed hand-to-hand between naras
 // Like underground zines at punk shows, these spread organically through mesh network
 type Zine struct {
-	From      string      `json:"from"`       // Publisher nara
+	From      NaraName    `json:"from"`       // Publisher nara
 	CreatedAt int64       `json:"created_at"` // Unix timestamp
 	Events    []SyncEvent `json:"events"`     // Recent events (last ~5 minutes)
 	Signature string      `json:"signature"`  // Cryptographic signature for authenticity

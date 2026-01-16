@@ -21,7 +21,7 @@ import (
 //   - Deterministic: Same soul+name always produces same ID
 //   - Stable: Survives restarts (doesn't depend on ephemeral keypairs)
 //   - Unique: Different souls with same name produce different IDs
-func ComputeNaraID(soulBase58 string, name string) (NaraID, error) {
+func ComputeNaraID(soulBase58 string, name NaraName) (NaraID, error) {
 	// Decode soul from Base58 to get raw 40-byte soul
 	soulBytes := base58.Decode(soulBase58)
 	if len(soulBytes) == 0 {

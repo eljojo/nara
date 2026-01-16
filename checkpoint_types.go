@@ -50,9 +50,9 @@ type CheckpointEventPayload struct {
 // Version-aware: v1 uses original format, v2 includes previous checkpoint ID
 func (p *CheckpointEventPayload) ContentString() string {
 	// Use SubjectID if available, fall back to Subject for backward compatibility
-	id := p.SubjectID
+	id := string(p.SubjectID)
 	if id == "" {
-		id = p.Subject
+		id = p.Subject.String()
 	}
 
 	// v1 format (unchanged for backwards compatibility)
@@ -97,7 +97,7 @@ func (p *CheckpointEventPayload) IsValid() bool {
 // Returns empty string because checkpoint voters are identified by IDs, not names.
 // VoterIDs contain nara IDs (public key hashes), not names, so we cannot use them
 // for name-based operations like discovery or logging.
-func (p *CheckpointEventPayload) GetActor() string {
+func (p *CheckpointEventPayload) GetActor() NaraName {
 	return "" // Don't return VoterIDs - they're IDs, not names
 }
 
@@ -178,8 +178,8 @@ func (p *CheckpointEventPayload) ToLogEvent() *LogEvent {
 	return &LogEvent{
 		Category: CategoryPresence,
 		Type:     "checkpoint",
-		Actor:    p.GetActor(), // Returns "" since VoterIDs are IDs not names
-		Target:   p.Subject,
+		Actor:    p.GetActor().String(), // Returns "" since VoterIDs are IDs not names
+		Target:   p.Subject.String(),
 		Detail:   fmt.Sprintf("restarts: %d", p.Observation.Restarts),
 		GroupFormat: func(actors string) string {
 			// Note: actors will usually be empty since GetActor() returns ""
@@ -337,7 +337,7 @@ func (l *SyncLedger) GetCheckpointEvent(subject NaraName) *SyncEvent {
 //  1. If checkpoint exists: checkpoint.Restarts + count(unique StartTimes after checkpoint)
 //  2. If backfill exists: backfill.RestartNum + count(unique StartTimes after backfill timestamp)
 //  3. Otherwise: count(unique StartTimes from all restart events)
-func (l *SyncLedger) DeriveRestartCount(subject string) int64 {
+func (l *SyncLedger) DeriveRestartCount(subject NaraName) int64 {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 

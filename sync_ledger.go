@@ -19,7 +19,7 @@ type ObservationRateLimit struct {
 // NewObservationRateLimit creates a new rate limiter
 func NewObservationRateLimit() *ObservationRateLimit {
 	return &ObservationRateLimit{
-		SubjectCounts: make(map[string][]int64),
+		SubjectCounts: make(map[NaraName][]int64),
 		WindowSec:     300, // 5 minutes
 		MaxEvents:     10,  // max 10 events per subject per 5 min
 	}
@@ -27,7 +27,7 @@ func NewObservationRateLimit() *ObservationRateLimit {
 
 // CheckAndAdd checks if an event would exceed rate limit, and adds it if not
 // Returns true if the event is allowed, false if rate limit exceeded
-func (r *ObservationRateLimit) CheckAndAdd(subject string, timestamp int64) bool {
+func (r *ObservationRateLimit) CheckAndAdd(subject NaraName, timestamp int64) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -100,7 +100,7 @@ type SyncLedger struct {
 
 	// isUnknownNara is an optional callback to check if a nara is unknown (no public key).
 	// Events from unknown naras are pruned first. Set via SetUnknownNaraChecker.
-	isUnknownNara func(name string) bool
+	isUnknownNara func(name NaraName) bool
 
 	// listeners are notified when new events are added
 	listeners   []EventListener
@@ -139,7 +139,7 @@ func (l *SyncLedger) notifyListeners(event SyncEvent) {
 
 // SetUnknownNaraChecker sets a callback to check if a nara is unknown (no public key).
 // Events from unknown naras are pruned first during storage pressure.
-func (l *SyncLedger) SetUnknownNaraChecker(checker func(name string) bool) {
+func (l *SyncLedger) SetUnknownNaraChecker(checker func(name NaraName) bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.isUnknownNara = checker
@@ -153,7 +153,7 @@ func (l *SyncLedger) isEventFromUnknownNara(e SyncEvent) bool {
 	}
 
 	// Extract the relevant nara name(s) from the event
-	var names []string
+	var names []NaraName
 
 	switch e.Service {
 	case ServiceHeyThere:
@@ -352,11 +352,11 @@ func (l *SyncLedger) MergeSocialEventsFiltered(events []SocialEvent, personality
 }
 
 // GetSocialEventsForSubjects returns social events (legacy format) where any subject is actor or target
-func (l *SyncLedger) GetSocialEventsForSubjects(subjects []string) []SocialEvent {
+func (l *SyncLedger) GetSocialEventsForSubjects(subjects []NaraName) []SocialEvent {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
-	subjectSet := make(map[string]bool)
+	subjectSet := make(map[NaraName]bool)
 	for _, s := range subjects {
 		subjectSet[s] = true
 	}
@@ -376,7 +376,7 @@ func (l *SyncLedger) GetSocialEventsForSubjects(subjects []string) []SocialEvent
 }
 
 // AddPingObservation is a convenience method to add a ping observation
-func (l *SyncLedger) AddPingObservation(observer, target string, rtt float64) bool {
+func (l *SyncLedger) AddPingObservation(observer NaraName, target NaraName, rtt float64) bool {
 	return l.AddEvent(NewPingSyncEvent(observer, target, rtt))
 }
 
@@ -385,12 +385,12 @@ func (l *SyncLedger) AddPingObservation(observer, target string, rtt float64) bo
 const MaxPingsPerTarget = 5
 
 // AddSignedPingObservation adds a signed ping observation
-func (l *SyncLedger) AddSignedPingObservation(observer, target string, rtt float64, emitter string, keypair NaraKeypair) bool {
+func (l *SyncLedger) AddSignedPingObservation(observer NaraName, target NaraName, rtt float64, emitter NaraName, keypair NaraKeypair) bool {
 	return l.AddEvent(NewSignedPingSyncEvent(observer, target, rtt, emitter, keypair))
 }
 
 // AddSignedPingObservationWithReplace adds a signed ping observation, keeping only the last N per target
-func (l *SyncLedger) AddSignedPingObservationWithReplace(observer, target string, rtt float64, emitter string, keypair NaraKeypair) bool {
+func (l *SyncLedger) AddSignedPingObservationWithReplace(observer NaraName, target NaraName, rtt float64, emitter NaraName, keypair NaraKeypair) bool {
 	// Retention is enforced in AddEvent for all ping events.
 	return l.AddEvent(NewSignedPingSyncEvent(observer, target, rtt, emitter, keypair))
 }
@@ -440,7 +440,7 @@ func (l *SyncLedger) GetPingObservations() []PingObservation {
 }
 
 // GetEventsInvolving returns events where the given name is actor or target
-func (l *SyncLedger) GetEventsInvolving(name string) []SyncEvent {
+func (l *SyncLedger) GetEventsInvolving(name NaraName) []SyncEvent {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
@@ -465,7 +465,7 @@ func (l *SyncLedger) GetAllEvents() []SyncEvent {
 
 // RemoveEventsFor removes all events involving a specific nara (as actor or target).
 // Returns the number of events removed.
-func (l *SyncLedger) RemoveEventsFor(name string) int {
+func (l *SyncLedger) RemoveEventsFor(name NaraName) int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -490,7 +490,7 @@ func (l *SyncLedger) RemoveEventsFor(name string) int {
 }
 
 // eventInvolvesNara checks if an event involves a specific nara (as actor or target).
-func (l *SyncLedger) eventInvolvesNara(e SyncEvent, name string) bool {
+func (l *SyncLedger) eventInvolvesNara(e SyncEvent, name NaraName) bool {
 	if e.Emitter == name {
 		return true
 	}
@@ -553,7 +553,7 @@ func (l *SyncLedger) GetVersion() int64 {
 }
 
 // GetObservationEventsAbout returns all observation events about a specific subject
-func (l *SyncLedger) GetObservationEventsAbout(subject string) []SyncEvent {
+func (l *SyncLedger) GetObservationEventsAbout(subject NaraName) []SyncEvent {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
@@ -567,7 +567,7 @@ func (l *SyncLedger) GetObservationEventsAbout(subject string) []SyncEvent {
 }
 
 // GetBackfillEvent returns the backfill event for a subject, or nil if none exists
-func (l *SyncLedger) GetBackfillEvent(subject string) *ObservationEventPayload {
+func (l *SyncLedger) GetBackfillEvent(subject NaraName) *ObservationEventPayload {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
@@ -582,7 +582,7 @@ func (l *SyncLedger) GetBackfillEvent(subject string) *ObservationEventPayload {
 
 // GetLatestCheckpointID returns the ID of the most recent checkpoint for a subject
 // Used for v2 checkpoint chaining - returns empty string if no checkpoint exists
-func (l *SyncLedger) GetLatestCheckpointID(subject string) string {
+func (l *SyncLedger) GetLatestCheckpointID(subject NaraName) string {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
@@ -844,7 +844,7 @@ func (l *SyncLedger) GetEventHashes() []string {
 // - sinceTime: only events after this timestamp (0 = no filter)
 // - sliceIndex/sliceTotal: for interleaved slicing across multiple responders
 // - maxEvents: maximum events to return (0 = no limit)
-func (l *SyncLedger) GetEventsForSync(services []string, subjects []string, sinceTime int64, sliceIndex, sliceTotal, maxEvents int) []SyncEvent {
+func (l *SyncLedger) GetEventsForSync(services []string, subjects []NaraName, sinceTime int64, sliceIndex, sliceTotal, maxEvents int) []SyncEvent {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
@@ -907,7 +907,7 @@ func (l *SyncLedger) GetEventsForSync(services []string, subjects []string, sinc
 // GetEventsPage returns events for cursor-based pagination (mode: "page")
 // Returns events oldest-first with nextCursor for deterministic complete retrieval
 // This is used for backup and checkpoint sync where completeness is required
-func (l *SyncLedger) GetEventsPage(cursor string, pageSize int, services []string, subjects []string) (events []SyncEvent, nextCursor string) {
+func (l *SyncLedger) GetEventsPage(cursor string, pageSize int, services []string, subjects []NaraName) (events []SyncEvent, nextCursor string) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
@@ -975,7 +975,7 @@ func (l *SyncLedger) GetEventsPage(cursor string, pageSize int, services []strin
 
 // GetRecentEvents returns the most recent N events (mode: "recent")
 // This is used for web UI event browsing where only recent activity is needed
-func (l *SyncLedger) GetRecentEvents(limit int, services []string, subjects []string) []SyncEvent {
+func (l *SyncLedger) GetRecentEvents(limit int, services []string, subjects []NaraName) []SyncEvent {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 

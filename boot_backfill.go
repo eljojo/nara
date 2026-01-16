@@ -85,21 +85,21 @@ func (network *Network) seedAvgPingRTTFromHistory() {
 	// We use ALL pings (from any observer) to get initial RTT estimates
 	// This means we learn from the network: if B→C has 50ms RTT, we seed our C observation with that
 	myName := network.meName()
-	pingsByTarget := make(map[string][]float64)
+	pingsByTarget := make(map[NaraName][]float64)
 
 	for _, ping := range allPings {
 		// TODO: ping.Target should be migrated to NaraID instead of string
 		// Currently using string comparison but this should be ID-based
 		// Skip pings TO us (we care about targets we might ping, not pings to us)
-		if ping.Target != myName {
-			pingsByTarget[ping.Target.String()] = append(pingsByTarget[ping.Target.String()], ping.RTT)
+		targetName := NaraName(ping.Target)
+		if targetName != myName {
+			pingsByTarget[targetName] = append(pingsByTarget[targetName], ping.RTT)
 		}
 	}
 
 	// Seed AvgPingRTT for each target
 	seededCount := 0
-	for target, rtts := range pingsByTarget {
-		naraName := NaraName(target)
+	for naraName, rtts := range pingsByTarget {
 		obs := network.local.getObservation(naraName)
 
 		// Only seed if AvgPingRTT is not already set (0 means uninitialized)

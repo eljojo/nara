@@ -88,7 +88,7 @@ func (network *Network) recoverSelfStartTimeFromMesh() {
 		targetCount = 3
 	}
 
-	subjects := []string{network.meName()}
+	subjects := []NaraName{network.meName()}
 	totalAdded := 0
 
 	for _, neighbor := range online[:targetCount] {
