@@ -218,41 +218,19 @@ func TestIntegration_PeerResolutionProtocol(t *testing.T) {
 func TestIntegration_HeyThereSyncEventEmittedOnStartup(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
+	tc := NewTestCoordinator(t)
+
 	// Setup: alice and bob, both in gossip mode
-	alice := testLocalNaraWithParams(t, "alice", 50, 1000)
+	alice := tc.AddNara("alice", WithHandlers("gossip"), NotBooting())
 	alice.Network.TransportMode = TransportGossip
 
-	bob := testLocalNaraWithParams(t, "bob", 50, 1000)
+	bob := tc.AddNara("bob", WithHandlers("gossip"), NotBooting())
 	bob.Network.TransportMode = TransportGossip
 
-	// Set up test servers
-	aliceMux := http.NewServeMux()
-	aliceMux.HandleFunc("/gossip/zine", alice.Network.httpGossipZineHandler)
-	aliceServer := httptest.NewServer(aliceMux)
-	defer aliceServer.Close()
-
-	bobMux := http.NewServeMux()
-	bobMux.HandleFunc("/gossip/zine", bob.Network.httpGossipZineHandler)
-	bobServer := httptest.NewServer(bobMux)
-	defer bobServer.Close()
-
-	sharedClient := &http.Client{Timeout: 5 * time.Second}
-
-	// Alice knows bob's URL but NOT his public key initially
-	alice.Network.testHTTPClient = sharedClient
-	alice.Network.testMeshURLs = map[types.NaraName]string{types.NaraName("bob"): bobServer.URL}
-	bobNaraForAlice := NewNara("bob")
-	// NO public key set - alice doesn't know bob's identity yet
-	alice.Network.importNara(bobNaraForAlice)
-	alice.setObservation("bob", NaraObservation{Online: "ONLINE"})
-
-	// Bob knows alice's URL but NOT her public key initially
-	bob.Network.testHTTPClient = sharedClient
-	bob.Network.testMeshURLs = map[types.NaraName]string{types.NaraName("alice"): aliceServer.URL}
-	aliceNaraForBob := NewNara("alice")
-	// NO public key set - bob doesn't know alice's identity yet
-	bob.Network.importNara(aliceNaraForBob)
-	bob.setObservation("alice", NaraObservation{Online: "ONLINE"})
+	// Connect but WITHOUT importing public keys initially
+	// This tests that hey_there events propagate public keys
+	tc.connectOneWayWithoutPublicKey("alice", "bob")
+	tc.connectOneWayWithoutPublicKey("bob", "alice")
 
 	// Verify neither knows the other's public key
 	if alice.Network.getPublicKeyForNara("bob") != nil {
@@ -314,92 +292,28 @@ func TestIntegration_HeyThereSyncEventEmittedOnStartup(t *testing.T) {
 func TestIntegration_GossipOnlyPeerDiscovery(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
+	tc := NewTestCoordinator(t)
+
 	// Setup: alice, bob, carol in hybrid mode, ghost in gossip-only mode
-	// Network topology: alice <-> bob <-> carol <-> ghost
-	alice := testLocalNaraWithParams(t, "alice", 50, 1000)
+	// Network topology: alice <-> bob <-> carol <-> ghost (chain)
+	alice := tc.AddNara("alice", WithHandlers("gossip"), NotBooting())
 	alice.Network.TransportMode = TransportHybrid
 
-	bob := testLocalNaraWithParams(t, "bob", 50, 1000)
+	bob := tc.AddNara("bob", WithHandlers("gossip"), NotBooting())
 	bob.Network.TransportMode = TransportHybrid
 
-	carol := testLocalNaraWithParams(t, "carol", 50, 1000)
+	carol := tc.AddNara("carol", WithHandlers("gossip"), NotBooting())
 	carol.Network.TransportMode = TransportHybrid
 
-	ghost := testLocalNaraWithParams(t, "ghost", 50, 1000)
+	ghost := tc.AddNara("ghost", WithHandlers("gossip"), NotBooting())
 	ghost.Network.TransportMode = TransportGossip // Gossip-only!
 
-	// Set up test servers
-	aliceMux := http.NewServeMux()
-	aliceMux.HandleFunc("/gossip/zine", alice.Network.httpGossipZineHandler)
-	aliceServer := httptest.NewServer(aliceMux)
-	defer aliceServer.Close()
+	// Create chain topology: alice <-> bob <-> carol <-> ghost
+	tc.Connect("alice", "bob")
+	tc.Connect("bob", "carol")
+	tc.Connect("carol", "ghost")
 
-	bobMux := http.NewServeMux()
-	bobMux.HandleFunc("/gossip/zine", bob.Network.httpGossipZineHandler)
-	bobServer := httptest.NewServer(bobMux)
-	defer bobServer.Close()
-
-	carolMux := http.NewServeMux()
-	carolMux.HandleFunc("/gossip/zine", carol.Network.httpGossipZineHandler)
-	carolServer := httptest.NewServer(carolMux)
-	defer carolServer.Close()
-
-	ghostMux := http.NewServeMux()
-	ghostMux.HandleFunc("/gossip/zine", ghost.Network.httpGossipZineHandler)
-	ghostServer := httptest.NewServer(ghostMux)
-	defer ghostServer.Close()
-
-	sharedClient := &http.Client{Timeout: 5 * time.Second}
-
-	// Alice knows bob
-	alice.Network.testHTTPClient = sharedClient
-	alice.Network.testMeshURLs = map[types.NaraName]string{types.NaraName("bob"): bobServer.URL}
-	bobNara := NewNara("bob")
-	bobNara.ID = bob.ID // Set ID so nameToID mapping is created
-	bobNara.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
-	alice.Network.importNara(bobNara)
-	alice.setObservation("bob", NaraObservation{Online: "ONLINE"})
-
-	// Bob knows alice and carol
-	bob.Network.testHTTPClient = sharedClient
-	bob.Network.testMeshURLs = map[types.NaraName]string{
-		types.NaraName("alice"): aliceServer.URL,
-		types.NaraName("carol"): carolServer.URL,
-	}
-	aliceNara := NewNara("alice")
-	aliceNara.Status.PublicKey = FormatPublicKey(alice.Keypair.PublicKey)
-	bob.Network.importNara(aliceNara)
-	bob.setObservation("alice", NaraObservation{Online: "ONLINE"})
-	carolNaraForBob := NewNara("carol")
-	carolNaraForBob.ID = carol.ID // Set ID so nameToID mapping is created
-	carolNaraForBob.Status.PublicKey = FormatPublicKey(carol.Keypair.PublicKey)
-	bob.Network.importNara(carolNaraForBob)
-	bob.setObservation("carol", NaraObservation{Online: "ONLINE"})
-
-	// Carol knows bob and ghost
-	carol.Network.testHTTPClient = sharedClient
-	carol.Network.testMeshURLs = map[types.NaraName]string{
-		types.NaraName("bob"):   bobServer.URL,
-		types.NaraName("ghost"): ghostServer.URL,
-	}
-	bobNaraForCarol := NewNara("bob")
-	bobNaraForCarol.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
-	carol.Network.importNara(bobNaraForCarol)
-	carol.setObservation("bob", NaraObservation{Online: "ONLINE"})
-	ghostNaraForCarol := NewNara("ghost")
-	ghostNaraForCarol.Status.PublicKey = FormatPublicKey(ghost.Keypair.PublicKey)
-	carol.Network.importNara(ghostNaraForCarol)
-	carol.setObservation("ghost", NaraObservation{Online: "ONLINE"})
-
-	// Ghost knows carol (gossip-only mode)
-	ghost.Network.testHTTPClient = sharedClient
-	ghost.Network.testMeshURLs = map[types.NaraName]string{types.NaraName("carol"): carolServer.URL}
-	carolNaraForGhost := NewNara("carol")
-	carolNaraForGhost.Status.PublicKey = FormatPublicKey(carol.Keypair.PublicKey)
-	ghost.Network.importNara(carolNaraForGhost)
-	ghost.setObservation("carol", NaraObservation{Online: "ONLINE"})
-
-	// Alice doesn't know ghost
+	// Alice doesn't know ghost initially
 	if alice.Network.Neighbourhood["ghost"] != nil {
 		t.Fatal("Alice should not know ghost initially")
 	}
