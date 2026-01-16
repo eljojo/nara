@@ -468,6 +468,34 @@ func (m *MeshClient) PingIP(ctx context.Context, meshIP string) (time.Duration, 
 	return rtt, nil
 }
 
+// SendRuntimeMessage sends a raw runtime message to a peer via POST /mesh/message
+// This is used by the runtime's transport adapter for direct message delivery.
+func (m *MeshClient) SendRuntimeMessage(ctx context.Context, naraID types.NaraID, msgBytes []byte) error {
+	url, err := m.buildURL(naraID, "/mesh/message")
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(msgBytes))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	m.signRequest(req)
+
+	resp, err := m.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("server returned %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
 // Note: Additional mesh client methods can be added as needed.
-// Currently implemented: FetchSyncEvents, FetchCheckpoints, Ping, RelayWorldMessage, SendDM, PostGossipZine
-// Sufficient for boot recovery, checkpoint sync, backup tool, world journeys, and coordinates.
+// Currently implemented: FetchSyncEvents, FetchCheckpoints, Ping, RelayWorldMessage, SendDM, PostGossipZine, SendRuntimeMessage
+// Sufficient for boot recovery, checkpoint sync, backup tool, world journeys, coordinates, and runtime message delivery.

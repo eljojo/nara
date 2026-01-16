@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/eljojo/nara/runtime"
+	"github.com/sirupsen/logrus"
 )
 
 // Correlator tracks pending requests and matches responses.
@@ -62,6 +63,11 @@ func NewCorrelator[Resp any](timeout time.Duration) *Correlator[Resp] {
 func (c *Correlator[Resp]) Send(rt runtime.RuntimeInterface, msg *runtime.Message) <-chan Result[Resp] {
 	ch := make(chan Result[Resp], 1)
 
+	// Ensure timestamp is set (required for ID computation)
+	if msg.Timestamp.IsZero() {
+		msg.Timestamp = time.Now()
+	}
+
 	// Ensure message has an ID before storing in pending map
 	// (Emit() will compute one if empty, but we need it NOW for correlation)
 	if msg.ID == "" {
@@ -98,6 +104,14 @@ func (c *Correlator[Resp]) Receive(requestID string, resp Resp) bool {
 	pending, ok := c.pending[requestID]
 	if ok {
 		delete(c.pending, requestID)
+	}
+	// Debug: log pending requests
+	if !ok {
+		pendingIDs := make([]string, 0, len(c.pending))
+		for id := range c.pending {
+			pendingIDs = append(pendingIDs, id)
+		}
+		logrus.Debugf("[correlator] Response for %s not found. Pending: %v", requestID, pendingIDs)
 	}
 	c.mu.Unlock()
 

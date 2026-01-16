@@ -507,6 +507,7 @@ func testCreateMeshNetwork(t *testing.T, names []string, chattiness, ledgerCapac
 		mux := http.NewServeMux()
 		mux.HandleFunc("/gossip/zine", ln.Network.httpGossipZineHandler)
 		mux.HandleFunc("/api/checkpoints/all", ln.Network.httpCheckpointsAllHandler)
+		mux.HandleFunc("/mesh/message", ln.Network.httpMeshMessageHandler)
 		server := httptest.NewServer(mux)
 
 		mesh.Naras[i] = ln
@@ -579,21 +580,3 @@ func (m *testMeshNetwork) ServerURL(i int) string {
 //
 //	nara, baseURL := testNaraWithHTTP(t, "test-nara")
 //	resp, err := http.Get(baseURL + "/api/stash/status")
-func testNaraWithHTTP(t *testing.T, name string, opts ...TestNaraOption) (*LocalNara, string) {
-	nara := testNara(t, name, opts...)
-
-	// Use a deterministic test port based on test name to avoid conflicts
-	// Hash the test name to get a port in the range 9000-9999
-	h := sha256.Sum256([]byte(t.Name()))
-	testPort := 9000 + int(h[0])%1000
-	httpAddr := fmt.Sprintf(":%d", testPort)
-
-	// Start the server with UI enabled
-	go nara.Start(true, false, httpAddr, nil, TransportGossip)
-
-	// Wait for server to be ready
-	time.Sleep(200 * time.Millisecond)
-
-	baseURL := fmt.Sprintf("http://localhost%s", httpAddr)
-	return nara, baseURL
-}

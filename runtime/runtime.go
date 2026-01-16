@@ -36,6 +36,9 @@ type Runtime struct {
 	// Network information (for automatic confidant selection)
 	networkInfo NetworkInfoInterface
 
+	// Identity lookups
+	identity IdentityInterface
+
 	// Services
 	services []Service
 	handlers map[string][]func(*Message)
@@ -52,6 +55,9 @@ type Runtime struct {
 
 	// Call registry (Chapter 3)
 	calls *CallRegistry
+
+	// Local behavior registry (for per-runtime behavior isolation)
+	localBehaviors map[string]*Behavior
 }
 
 // RuntimeConfig is passed to NewRuntime.
@@ -62,6 +68,7 @@ type RuntimeConfig struct {
 	Transport   TransportInterface   // Required
 	EventBus    EventBusInterface    // Optional
 	GossipQueue GossipQueueInterface // Optional (nil for stash-only)
+	Identity    IdentityInterface    // Optional (for public key lookups)
 	Personality *Personality         // Optional
 	NetworkInfo NetworkInfoInterface // Optional (for peer/memory info)
 	Environment Environment          // Default: EnvProduction
@@ -77,19 +84,21 @@ func NewRuntime(cfg RuntimeConfig) *Runtime {
 	}
 
 	rt := &Runtime{
-		me:          cfg.Me,
-		keypair:     cfg.Keypair,
-		ledger:      cfg.Ledger,
-		transport:   cfg.Transport,
-		eventBus:    cfg.EventBus,
-		gossipQueue: cfg.GossipQueue,
-		personality: cfg.Personality,
-		networkInfo: cfg.NetworkInfo,
-		handlers:    make(map[string][]func(*Message)),
-		env:         env,
-		ctx:         ctx,
-		cancel:      cancel,
-		calls:       &CallRegistry{pending: make(map[string]*pendingCall)},
+		me:             cfg.Me,
+		keypair:        cfg.Keypair,
+		ledger:         cfg.Ledger,
+		transport:      cfg.Transport,
+		eventBus:       cfg.EventBus,
+		gossipQueue:    cfg.GossipQueue,
+		identity:       cfg.Identity,
+		personality:    cfg.Personality,
+		networkInfo:    cfg.NetworkInfo,
+		handlers:       make(map[string][]func(*Message)),
+		env:            env,
+		ctx:            ctx,
+		cancel:         cancel,
+		calls:          &CallRegistry{pending: make(map[string]*pendingCall)},
+		localBehaviors: make(map[string]*Behavior),
 	}
 
 	// Initialize logger
@@ -115,19 +124,25 @@ func (rt *Runtime) MeID() types.NaraID {
 
 // LookupPublicKey looks up a public key by nara ID.
 func (rt *Runtime) LookupPublicKey(id types.NaraID) []byte {
-	// This will be implemented via adapters in Phase 4
-	return nil
+	if rt.identity == nil {
+		return nil
+	}
+	return rt.identity.LookupPublicKey(id)
 }
 
 // LookupPublicKeyByName looks up a public key by nara name.
 func (rt *Runtime) LookupPublicKeyByName(name types.NaraName) []byte {
-	// This will be implemented via adapters in Phase 4
-	return nil
+	if rt.identity == nil {
+		return nil
+	}
+	return rt.identity.LookupPublicKeyByName(name)
 }
 
 // RegisterPublicKey registers a public key for a nara ID.
 func (rt *Runtime) RegisterPublicKey(id types.NaraID, key []byte) {
-	// This will be implemented via adapters in Phase 4
+	if rt.identity != nil {
+		rt.identity.RegisterPublicKey(id, key)
+	}
 }
 
 // Log returns a logger scoped to the given service.
@@ -200,8 +215,8 @@ func (rt *Runtime) Emit(msg *Message) error {
 		msg.From = rt.me.Name
 	}
 
-	// Look up behavior
-	behavior := Lookup(msg.Kind)
+	// Look up behavior (use local registry for this runtime)
+	behavior := rt.LookupBehavior(msg.Kind)
 	if behavior == nil {
 		return fmt.Errorf("unknown message kind: %s", msg.Kind)
 	}
@@ -248,10 +263,12 @@ func (rt *Runtime) Receive(raw []byte) error {
 		// Not a pending call - fall through to normal handling
 	}
 
-	behavior := Lookup(msg.Kind)
+	behavior := rt.LookupBehavior(msg.Kind)
 	if behavior == nil {
 		return fmt.Errorf("unknown message kind: %s", msg.Kind)
 	}
+
+	logrus.Infof("[runtime] processing %s (from: %s, InReplyTo: %s)", msg.Kind, msg.FromID, msg.InReplyTo)
 
 	// Build and run receive pipeline
 	pipeline := rt.buildReceivePipeline(behavior)
@@ -269,6 +286,7 @@ func (rt *Runtime) Receive(raw []byte) error {
 		return nil
 	}
 
+	logrus.Infof("[runtime] invoking handler for %s", msg.Kind)
 	// Invoke version-specific handler
 	rt.invokeHandler(msg, behavior)
 
@@ -509,7 +527,9 @@ func (rt *Runtime) AddService(svc Service) error {
 // Start starts all services.
 func (rt *Runtime) Start() error {
 	for _, svc := range rt.services {
-		if err := svc.Init(rt); err != nil {
+		// Automatically provide logger scoped to service name
+		log := rt.Log(svc.Name())
+		if err := svc.Init(rt, log); err != nil {
 			return fmt.Errorf("init %s: %w", svc.Name(), err)
 		}
 	}
@@ -534,4 +554,24 @@ func (rt *Runtime) Stop() error {
 	}
 
 	return nil
+}
+
+// === BehaviorRegistry implementation ===
+
+// RegisterBehavior registers a behavior locally for this runtime.
+// This allows each runtime to have its own handlers, avoiding conflicts
+// in multi-nara tests where services register handlers with their own state.
+func (rt *Runtime) RegisterBehavior(b *Behavior) {
+	rt.localBehaviors[b.Kind] = b
+	// Also register globally for payload type lookups
+	_ = Register(b)
+}
+
+// LookupBehavior looks up a behavior, preferring local over global.
+// This ensures the correct handler (with the right service state) is called.
+func (rt *Runtime) LookupBehavior(kind string) *Behavior {
+	if b, ok := rt.localBehaviors[kind]; ok {
+		return b
+	}
+	return Lookup(kind)
 }

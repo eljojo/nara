@@ -30,7 +30,7 @@ var ErrTimeout = errors.New("request timed out")
 ```
 
 <a name="Correlator"></a>
-## type [Correlator](<https://github.com/eljojo/nara/blob/main/utilities/correlator.go#L27-L31>)
+## type [Correlator](<https://github.com/eljojo/nara/blob/main/utilities/correlator.go#L28-L32>)
 
 Correlator tracks pending requests and matches responses.
 
@@ -57,7 +57,7 @@ type Correlator[Resp any] struct {
 ```
 
 <a name="NewCorrelator"></a>
-### func [NewCorrelator](<https://github.com/eljojo/nara/blob/main/utilities/correlator.go#L49>)
+### func [NewCorrelator](<https://github.com/eljojo/nara/blob/main/utilities/correlator.go#L50>)
 
 ```go
 func NewCorrelator[Resp any](timeout time.Duration) *Correlator[Resp]
@@ -66,7 +66,7 @@ func NewCorrelator[Resp any](timeout time.Duration) *Correlator[Resp]
 NewCorrelator creates a correlator with the given timeout.
 
 <a name="Correlator[Resp].Receive"></a>
-### func \(\*Correlator\[Resp\]\) [Receive](<https://github.com/eljojo/nara/blob/main/utilities/correlator.go#L96>)
+### func \(\*Correlator\[Resp\]\) [Receive](<https://github.com/eljojo/nara/blob/main/utilities/correlator.go#L102>)
 
 ```go
 func (c *Correlator[Resp]) Receive(requestID string, resp Resp) bool
@@ -77,7 +77,7 @@ Receive is called when a response arrives \- matches it to pending request.
 Returns true if the response matched a pending request, false otherwise. Services call this from their response handlers.
 
 <a name="Correlator[Resp].Send"></a>
-### func \(\*Correlator\[Resp\]\) [Send](<https://github.com/eljojo/nara/blob/main/utilities/correlator.go#L62>)
+### func \(\*Correlator\[Resp\]\) [Send](<https://github.com/eljojo/nara/blob/main/utilities/correlator.go#L63>)
 
 ```go
 func (c *Correlator[Resp]) Send(rt runtime.RuntimeInterface, msg *runtime.Message) <-chan Result[Resp]
@@ -88,7 +88,7 @@ Send emits a request and returns a channel for the response.
 The message is emitted via runtime.Emit\(\), and a channel is returned that will receive either the response or a timeout error.
 
 <a name="Result"></a>
-## type [Result](<https://github.com/eljojo/nara/blob/main/utilities/correlator.go#L40-L43>)
+## type [Result](<https://github.com/eljojo/nara/blob/main/utilities/correlator.go#L41-L44>)
 
 Result is returned by Send.
 

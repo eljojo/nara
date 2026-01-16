@@ -12,6 +12,11 @@ import (
 // initRuntime creates and initializes the Runtime with all services and adapters.
 // This wires the new runtime-based architecture into the existing Network.
 func (network *Network) initRuntime() error {
+	// Skip if already initialized
+	if network.runtime != nil {
+		return nil
+	}
+
 	// Create adapters to bridge old Network to new runtime interfaces
 	transportAdapter := NewTransportAdapter(network)
 	keypairAdapter := NewKeypairAdapter(network.local.Keypair)
@@ -39,6 +44,9 @@ func (network *Network) initRuntime() error {
 		Chill:         network.local.Me.Status.Personality.Chill,
 	}
 
+	// Create identity adapter
+	identityAdapter := NewIdentityAdapter(network)
+
 	// Create the runtime with configuration
 	rt := runtime.NewRuntime(runtime.RuntimeConfig{
 		Me: &runtime.Nara{
@@ -50,6 +58,7 @@ func (network *Network) initRuntime() error {
 		Transport:   transportAdapter,
 		EventBus:    eventBusAdapter,
 		GossipQueue: gossipAdapter,
+		Identity:    identityAdapter,
 		NetworkInfo: networkInfoAdapter,
 		Personality: personality,
 		Environment: runtime.EnvProduction,
