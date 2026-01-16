@@ -115,8 +115,8 @@ func (ln *LocalNara) inspectorEventsHandler(w http.ResponseWriter, r *http.Reque
 		ID        string            `json:"id"`
 		Timestamp int64             `json:"timestamp"`
 		Service   string            `json:"service"`
-		Emitter   types.NaraName          `json:"emitter"`
-		EmitterID types.NaraID            `json:"emitter_id"`
+		Emitter   types.NaraName    `json:"emitter"`
+		EmitterID types.NaraID      `json:"emitter_id"`
 		Signed    bool              `json:"signed"`
 		UIFormat  map[string]string `json:"ui_format,omitempty"`
 	}
@@ -204,17 +204,17 @@ func (ln *LocalNara) inspectorCheckpointsHandler(w http.ResponseWriter, r *http.
 	type CheckpointSummary struct {
 		Subject              types.NaraName `json:"subject"`
 		SubjectID            types.NaraID   `json:"subject_id"`
-		AsOfTime             int64    `json:"as_of_time"`
-		Round                int      `json:"round"`
-		Restarts             int64    `json:"restarts"`
-		TotalUptime          int64    `json:"total_uptime"`
-		StartTime            int64    `json:"start_time"`
-		VoterCount           int      `json:"voter_count"`
-		VerifiedCount        int      `json:"verified_count"`
-		KnownCount           int      `json:"known_count"`
-		Verified             bool     `json:"verified"`
-		Version              int      `json:"version"`                          // v2: checkpoint version
-		PreviousCheckpointID string   `json:"previous_checkpoint_id,omitempty"` // v2: chain link
+		AsOfTime             int64          `json:"as_of_time"`
+		Round                int            `json:"round"`
+		Restarts             int64          `json:"restarts"`
+		TotalUptime          int64          `json:"total_uptime"`
+		StartTime            int64          `json:"start_time"`
+		VoterCount           int            `json:"voter_count"`
+		VerifiedCount        int            `json:"verified_count"`
+		KnownCount           int            `json:"known_count"`
+		Verified             bool           `json:"verified"`
+		Version              int            `json:"version"`                          // v2: checkpoint version
+		PreviousCheckpointID string         `json:"previous_checkpoint_id,omitempty"` // v2: chain link
 	}
 
 	checkpoints := make([]CheckpointSummary, 0)
@@ -289,9 +289,9 @@ func (ln *LocalNara) inspectorCheckpointDetailHandler(w http.ResponseWriter, r *
 	type VoterInfo struct {
 		VoterID           types.NaraID   `json:"voter_id"`
 		VoterName         types.NaraName `json:"voter_name"`
-		Signature         string   `json:"signature"`
-		Verified          bool     `json:"verified"`
-		VerificationError *string  `json:"verification_error"`
+		Signature         string         `json:"signature"`
+		Verified          bool           `json:"verified"`
+		VerificationError *string        `json:"verification_error"`
 	}
 
 	voters := make([]VoterInfo, len(checkpoint.VoterIDs))

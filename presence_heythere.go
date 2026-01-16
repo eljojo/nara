@@ -19,10 +19,10 @@ func truncateKey(key string) string {
 
 type HeyThereEvent struct {
 	From      types.NaraName
-	PublicKey string // Base64-encoded Ed25519 public key
-	MeshIP    string // Tailscale IP for mesh communication
+	PublicKey string       // Base64-encoded Ed25519 public key
+	MeshIP    string       // Tailscale IP for mesh communication
 	ID        types.NaraID // Nara ID: deterministic hash of soul+name
-	Signature string // Base64-encoded signature of "hey_there:{From}:{PublicKey}:{MeshIP}:{ID}"
+	Signature string       // Base64-encoded signature of "hey_there:{From}:{PublicKey}:{MeshIP}:{ID}"
 }
 
 // Sign signs the HeyThereEvent with the given keypair

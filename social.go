@@ -29,14 +29,14 @@ const (
 
 // SocialEvent represents an immutable social fact in the network
 type SocialEvent struct {
-	ID        string   // hash of content for deduplication
-	Timestamp int64    // when it happened
-	Type      string   // "tease", "observed", "gossip"
+	ID        string         // hash of content for deduplication
+	Timestamp int64          // when it happened
+	Type      string         // "tease", "observed", "gossip"
 	Actor     types.NaraName // who did it
 	Target    types.NaraName // who it was about
-	Reason    string   // why (e.g., "high-restarts", "trend-abandon")
+	Reason    string         // why (e.g., "high-restarts", "trend-abandon")
 	Witness   types.NaraName // who reported it (empty if self-reported)
-	Signature string   // Base64-encoded Ed25519 signature (optional)
+	Signature string         // Base64-encoded Ed25519 signature (optional)
 }
 
 // SignableContent returns the canonical string for signing (implements Signable)
@@ -446,8 +446,8 @@ type LedgerRequest struct {
 
 // LedgerResponse contains events from a neighbor
 type LedgerResponse struct {
-	From   types.NaraName      // who is responding
-	Events []SocialEvent // events matching the request
+	From   types.NaraName // who is responding
+	Events []SocialEvent  // events matching the request
 }
 
 // PartitionSubjects divides subjects into N roughly equal chunks

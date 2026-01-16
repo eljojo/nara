@@ -42,7 +42,7 @@ type CheckpointEventPayload struct {
 
 	// Multi-party attestation - voters who participated in checkpoint creation
 	VoterIDs   []types.NaraID `json:"voter_ids,omitempty"`  // Nara IDs who voted for these values
-	Signatures []string `json:"signatures,omitempty"` // Base64 Ed25519 signatures (each verifies the values)
+	Signatures []string       `json:"signatures,omitempty"` // Base64 Ed25519 signatures (each verifies the values)
 }
 
 // Note: Importance is always Critical - no need to store it

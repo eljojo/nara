@@ -75,8 +75,8 @@ func NewMeshHTTPClient(server *tsnet.Server) *http.Client {
 // to share the same mesh communication logic.
 type MeshClient struct {
 	httpClient *http.Client
-	name       types.NaraName    // Who we are (for request signing)
-	keypair    NaraKeypair // For signing requests
+	name       types.NaraName // Who we are (for request signing)
+	keypair    NaraKeypair    // For signing requests
 
 	peers map[types.NaraID]string
 }

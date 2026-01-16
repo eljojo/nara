@@ -19,7 +19,7 @@ func TestCheckpoint_VoterIDsNotUsedAsNames(t *testing.T) {
 
 	// Create a checkpoint event with a VoterID (nara ID, not name)
 	voterID := types.NaraID("EGqUnthqW8bNDb5SzNzPkkyzJbQVnkqo2Z4hjL4nrTVg") // Example nara ID from production
-	voterName := types.NaraName("alice")                                      // The actual nara name
+	voterName := types.NaraName("alice")                                    // The actual nara name
 
 	// Import the real nara with proper name
 	alice := NewNara(voterName)
