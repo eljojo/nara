@@ -5,6 +5,8 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // neighbourhood_opinion.go
@@ -13,8 +15,8 @@ import (
 
 // ObservationRecord stores observation event data for consensus calculation.
 type ObservationRecord struct {
-	Observer       NaraName // Who made the observation
-	Subject        NaraName // Who is being observed
+	Observer       types.NaraName // Who made the observation
+	Subject        types.NaraName // Who is being observed
 	Type           string   // "restart" or "first-seen"
 	StartTime      int64
 	RestartNum     int64
@@ -25,7 +27,7 @@ type ObservationRecord struct {
 // OpinionConsensusProjection tracks restart and first-seen events for consensus derivation.
 type OpinionConsensusProjection struct {
 	// Observations indexed by subject
-	observationsBySubject map[NaraName][]ObservationRecord
+	observationsBySubject map[types.NaraName][]ObservationRecord
 	ledger                *SyncLedger
 	projection            *Projection
 	mu                    sync.RWMutex
@@ -34,7 +36,7 @@ type OpinionConsensusProjection struct {
 // NewOpinionConsensusProjection creates a new opinion consensus projection.
 func NewOpinionConsensusProjection(ledger *SyncLedger) *OpinionConsensusProjection {
 	p := &OpinionConsensusProjection{
-		observationsBySubject: make(map[NaraName][]ObservationRecord),
+		observationsBySubject: make(map[types.NaraName][]ObservationRecord),
 		ledger:                ledger,
 	}
 
@@ -43,7 +45,7 @@ func NewOpinionConsensusProjection(ledger *SyncLedger) *OpinionConsensusProjecti
 	// Register reset handler to clear state when ledger is restructured
 	p.projection.SetOnReset(func() {
 		p.mu.Lock()
-		p.observationsBySubject = make(map[NaraName][]ObservationRecord)
+		p.observationsBySubject = make(map[types.NaraName][]ObservationRecord)
 		p.mu.Unlock()
 	})
 
@@ -91,7 +93,7 @@ func (p *OpinionConsensusProjection) handleEvent(event SyncEvent) error {
 // DeriveOpinion returns consensus opinion about a subject.
 // Uses the same uptime-weighted clustering algorithm as the legacy implementation.
 // Note: Call Trigger() or RunOnce() before this if you need up-to-date data.
-func (p *OpinionConsensusProjection) DeriveOpinion(subject NaraName) OpinionData {
+func (p *OpinionConsensusProjection) DeriveOpinion(subject types.NaraName) OpinionData {
 	p.mu.RLock()
 	observations := p.observationsBySubject[subject]
 	// Make a copy to avoid holding lock during computation
@@ -164,9 +166,9 @@ func deriveProjectionStartTimeConsensus(observations []ObservationRecord, tolera
 
 // deriveProjectionRestartsConsensus returns the restart count using trimmed mean consensus.
 // Filters out outliers and averages the remaining observations for a robust consensus.
-func deriveProjectionRestartsConsensus(observations []ObservationRecord, subject NaraName) int64 {
+func deriveProjectionRestartsConsensus(observations []ObservationRecord, subject types.NaraName) int64 {
 	maxRestarts := int64(0)
-	uniqueObservers := make(map[NaraName]bool)
+	uniqueObservers := make(map[types.NaraName]bool)
 	var values []int64
 
 	for _, obs := range observations {
@@ -225,7 +227,7 @@ func trimmedMeanConsensus(values []int64) int64 {
 }
 
 // GetObservationsFor returns the observation records for a subject.
-func (p *OpinionConsensusProjection) GetObservationsFor(subject NaraName) []ObservationRecord {
+func (p *OpinionConsensusProjection) GetObservationsFor(subject types.NaraName) []ObservationRecord {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	observations := p.observationsBySubject[subject]
@@ -263,14 +265,14 @@ func (p *OpinionConsensusProjection) SubjectCount() int {
 func (p *OpinionConsensusProjection) Reset() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.observationsBySubject = make(map[NaraName][]ObservationRecord)
+	p.observationsBySubject = make(map[types.NaraName][]ObservationRecord)
 	p.projection.Reset()
 }
 
 // DeriveOpinionFromCheckpoint derives opinion using checkpoints as baseline.
 // This is the "new way" that uses checkpoint.Restarts + new observations after checkpoint.
 // Returns the opinion and whether a checkpoint was used.
-func (p *OpinionConsensusProjection) DeriveOpinionFromCheckpoint(subject NaraName) (OpinionData, bool) {
+func (p *OpinionConsensusProjection) DeriveOpinionFromCheckpoint(subject types.NaraName) (OpinionData, bool) {
 	// Get checkpoint from ledger (if any)
 	checkpoint := p.ledger.GetCheckpoint(subject)
 	if checkpoint == nil {
@@ -344,7 +346,7 @@ func (p *OpinionConsensusProjection) DeriveOpinionFromCheckpoint(subject NaraNam
 // DeriveOpinionWithValidation derives opinion and compares observation-based vs checkpoint-based.
 // Logs a warning if the two methods produce significantly different results.
 // Returns the observation-based opinion (current source of truth).
-func (p *OpinionConsensusProjection) DeriveOpinionWithValidation(subject NaraName) OpinionData {
+func (p *OpinionConsensusProjection) DeriveOpinionWithValidation(subject types.NaraName) OpinionData {
 	// Current method: observation-based (source of truth)
 	obsOpinion := p.DeriveOpinion(subject)
 

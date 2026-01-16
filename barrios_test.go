@@ -3,10 +3,12 @@ package nara
 import (
 	"testing"
 	"time"
+
+	"github.com/eljojo/nara/types"
 )
 
 func TestCalculateVibeConsistency(t *testing.T) {
-	name := NaraName("test-nara")
+	name := types.NaraName("test-nara")
 	now := time.Now()
 	vibe1 := calculateVibe(name, now)
 	vibe2 := calculateVibe(name, now)
@@ -18,8 +20,8 @@ func TestCalculateVibeConsistency(t *testing.T) {
 
 func TestCalculateVibeDifferentNames(t *testing.T) {
 	now := time.Now()
-	vibe1 := calculateVibe(NaraName("nara-1"), now)
-	vibe2 := calculateVibe(NaraName("nara-2"), now)
+	vibe1 := calculateVibe(types.NaraName("nara-1"), now)
+	vibe2 := calculateVibe(types.NaraName("nara-2"), now)
 
 	if vibe1 == vibe2 {
 		t.Errorf("calculateVibe should likely be different for different names, both got %d", vibe1)
@@ -27,7 +29,7 @@ func TestCalculateVibeDifferentNames(t *testing.T) {
 }
 
 func TestCalculateVibeChangesOverTime(t *testing.T) {
-	name := NaraName("test-nara")
+	name := types.NaraName("test-nara")
 	t1 := time.Date(2023, time.January, 1, 0, 0, 0, 0, time.UTC)
 	t2 := time.Date(2023, time.February, 1, 0, 0, 0, 0, time.UTC)
 
@@ -40,7 +42,7 @@ func TestCalculateVibeChangesOverTime(t *testing.T) {
 }
 
 func TestCalculateVibeSameMonthDifferentDays(t *testing.T) {
-	name := NaraName("test-nara")
+	name := types.NaraName("test-nara")
 	t1 := time.Date(2023, time.January, 1, 0, 0, 0, 0, time.UTC)
 	t2 := time.Date(2023, time.January, 15, 0, 0, 0, 0, time.UTC)
 
@@ -53,7 +55,7 @@ func TestCalculateVibeSameMonthDifferentDays(t *testing.T) {
 }
 
 func TestCalculateVibeDifferentYears(t *testing.T) {
-	name := NaraName("test-nara")
+	name := types.NaraName("test-nara")
 	t1 := time.Date(2023, time.January, 1, 0, 0, 0, 0, time.UTC)
 	t2 := time.Date(2024, time.January, 1, 0, 0, 0, 0, time.UTC)
 
@@ -67,15 +69,15 @@ func TestCalculateVibeDifferentYears(t *testing.T) {
 
 func TestNeighbourhoodMaintenance(t *testing.T) {
 	localNara := &LocalNara{
-		Me:   NewNara(NaraName("me")),
+		Me:   NewNara(types.NaraName("me")),
 		Soul: "me-soul",
 	}
 	network := &Network{
 		local:         localNara,
-		Neighbourhood: make(map[NaraName]*Nara),
+		Neighbourhood: make(map[types.NaraName]*Nara),
 	}
 
-	neighborName := NaraName("neighbor")
+	neighborName := types.NaraName("neighbor")
 	network.Neighbourhood[neighborName] = NewNara(neighborName)
 
 	// Ensure the neighbor has an observation
@@ -103,12 +105,12 @@ func TestNeighbourhoodMaintenance(t *testing.T) {
 
 func TestNeighbourhoodMaintenance_IncludesMe(t *testing.T) {
 	localNara := &LocalNara{
-		Me:   NewNara(NaraName("me")),
+		Me:   NewNara(types.NaraName("me")),
 		Soul: "me-soul",
 	}
 	network := &Network{
 		local:         localNara,
-		Neighbourhood: make(map[NaraName]*Nara),
+		Neighbourhood: make(map[types.NaraName]*Nara),
 	}
 
 	// Ensure "me" has an observation

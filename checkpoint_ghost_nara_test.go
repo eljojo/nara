@@ -3,6 +3,8 @@ package nara
 import (
 	"testing"
 	"time"
+
+	"github.com/eljojo/nara/types"
 )
 
 // TestCheckpoint_VoterIDsNotUsedAsNames verifies that checkpoint VoterIDs (which are
@@ -16,8 +18,8 @@ func TestCheckpoint_VoterIDsNotUsedAsNames(t *testing.T) {
 	network := ln.Network
 
 	// Create a checkpoint event with a VoterID (nara ID, not name)
-	voterID := NaraID("EGqUnthqW8bNDb5SzNzPkkyzJbQVnkqo2Z4hjL4nrTVg") // Example nara ID from production
-	voterName := NaraName("alice")                                      // The actual nara name
+	voterID := types.NaraID("EGqUnthqW8bNDb5SzNzPkkyzJbQVnkqo2Z4hjL4nrTVg") // Example nara ID from production
+	voterName := types.NaraName("alice")                                      // The actual nara name
 
 	// Import the real nara with proper name
 	alice := NewNara(voterName)
@@ -28,13 +30,13 @@ func TestCheckpoint_VoterIDsNotUsedAsNames(t *testing.T) {
 	// Create a checkpoint event with VoterID (ID, not name)
 	checkpoint := &CheckpointEventPayload{
 		Subject:   "subject-nara",
-		SubjectID: NaraID("subject-id"),
+		SubjectID: types.NaraID("subject-id"),
 		Observation: NaraObservation{
 			Restarts:    5,
 			TotalUptime: 86400,
 			StartTime:   time.Now().Unix() - 86400,
 		},
-		VoterIDs:   []NaraID{voterID}, // This is an ID, not a name!
+		VoterIDs:   []types.NaraID{voterID}, // This is an ID, not a name!
 		Signatures: []string{"fake-signature"},
 		AsOfTime:   time.Now().Unix(),
 		Round:      1,
@@ -53,7 +55,7 @@ func TestCheckpoint_VoterIDsNotUsedAsNames(t *testing.T) {
 
 	// Verify that we did NOT create a ghost nara with the VoterID as name
 	network.local.mu.Lock()
-	_, ghostExists := network.Neighbourhood[NaraName(voterID)]
+	_, ghostExists := network.Neighbourhood[types.NaraName(voterID)]
 	_, realExists := network.Neighbourhood[voterName]
 	network.local.mu.Unlock()
 
@@ -78,13 +80,13 @@ func TestCheckpoint_GetActorReturnsEmpty(t *testing.T) {
 
 	checkpoint := &CheckpointEventPayload{
 		Subject:   "subject",
-		SubjectID: NaraID("subject-id"),
+		SubjectID: types.NaraID("subject-id"),
 		Observation: NaraObservation{
 			Restarts:    5,
 			TotalUptime: 86400,
 			StartTime:   time.Now().Unix(),
 		},
-		VoterIDs:   []NaraID{NaraID("voter-id-1"), NaraID("voter-id-2")}, // IDs, not names
+		VoterIDs:   []types.NaraID{types.NaraID("voter-id-1"), types.NaraID("voter-id-2")}, // IDs, not names
 		Signatures: []string{"sig1", "sig2"},
 		AsOfTime:   time.Now().Unix(),
 		Round:      1,

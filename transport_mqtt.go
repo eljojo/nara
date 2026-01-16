@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"github.com/eljojo/nara/types"
 	"github.com/sirupsen/logrus"
 	"math/rand"
 	"strings"
@@ -89,7 +90,7 @@ func (network *Network) stashRefreshHandler(client mqtt.Client, msg mqtt.Message
 		return
 	}
 
-	fromName, ok := event["from"].(string)
+	fromName, ok := event["from"].(types.NaraName)
 	if !ok || fromName == "" || fromName == network.meName() {
 		return
 	}
@@ -207,7 +208,7 @@ func (network *Network) newspaperHandler(client mqtt.Client, msg mqtt.Message) {
 		return
 	}
 
-	var from = strings.Split(msg.Topic(), "nara/newspaper/")[1]
+	var from = types.NaraName(strings.Split(msg.Topic(), "nara/newspaper/")[1])
 	if from == network.meName() {
 		return
 	}

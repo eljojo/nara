@@ -6,11 +6,12 @@ import (
 	"encoding/json"
 	"math/rand"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // gossipForever periodically exchanges zines with random mesh neighbors
@@ -79,7 +80,7 @@ func (network *Network) performGossipRound() {
 	var wg sync.WaitGroup
 	for _, targetName := range targets {
 		wg.Add(1)
-		go func(name NaraName) {
+		go func(name types.NaraName) {
 			defer wg.Done()
 			network.exchangeZine(name, zine)
 		}(targetName)
@@ -89,7 +90,7 @@ func (network *Network) performGossipRound() {
 
 // exchangeZine sends our zine to a neighbor and receives theirs back
 // TODO: Migrate to MeshClient.PostGossipZine() method to reduce code duplication and improve maintainability
-func (network *Network) exchangeZine(targetName NaraName, myZine *Zine) {
+func (network *Network) exchangeZine(targetName types.NaraName, myZine *Zine) {
 	// Determine URL
 	url := network.buildMeshURL(targetName, "/gossip/zine")
 	if url == "" {
@@ -161,11 +162,11 @@ func (network *Network) exchangeZine(targetName NaraName, myZine *Zine) {
 
 // selectGossipTargets selects random mesh-enabled neighbors for gossip
 // Returns 3-5 random online naras with mesh connectivity
-func (network *Network) selectGossipTargets() []NaraName {
+func (network *Network) selectGossipTargets() []types.NaraName {
 	online := network.NeighbourhoodOnlineNames()
 
 	// Filter to mesh-enabled only
-	var meshEnabled []NaraName
+	var meshEnabled []types.NaraName
 	for _, name := range online {
 		if network.hasMeshConnectivity(name) {
 			meshEnabled = append(meshEnabled, name)
@@ -186,7 +187,7 @@ func (network *Network) selectGossipTargets() []NaraName {
 	}
 
 	// Shuffle and take first N
-	shuffled := make([]NaraName, len(meshEnabled))
+	shuffled := make([]types.NaraName, len(meshEnabled))
 	copy(shuffled, meshEnabled)
 	rand.Shuffle(len(shuffled), func(i, j int) {
 		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]

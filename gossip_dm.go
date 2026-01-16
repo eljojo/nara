@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // SendDM sends a SyncEvent directly to a target nara via HTTP POST to /dm.
@@ -15,7 +17,7 @@ import (
 // If delivery fails, the event should already be in the sender's ledger and
 // will spread via gossip instead.
 // TODO: Migrate to MeshClient.SendDM() method to reduce code duplication and improve maintainability
-func (network *Network) SendDM(targetName NaraName, event SyncEvent) bool {
+func (network *Network) SendDM(targetName types.NaraName, event SyncEvent) bool {
 	// Determine URL - use test override if available
 	url := network.buildMeshURL(targetName, "/dm")
 	if url == "" {

@@ -1,6 +1,9 @@
 package nara
 
-import "github.com/sirupsen/logrus"
+import (
+	"github.com/sirupsen/logrus"
+	"github.com/eljojo/nara/types"
+)
 
 // neighbourhood_tracking.go
 // Extracted from network.go
@@ -38,7 +41,7 @@ import "github.com/sirupsen/logrus"
 //   - Quick existence checks where nil is acceptable
 //   - Single field reads where you can handle nil safely
 //   - Test code where race conditions are acceptable
-func (network *Network) getNara(name NaraName) *Nara {
+func (network *Network) getNara(name types.NaraName) *Nara {
 	network.local.mu.Lock()
 	nara, present := network.Neighbourhood[name]
 	network.local.mu.Unlock()
@@ -56,7 +59,7 @@ func (network *Network) getNara(name NaraName) *Nara {
 // falls back to O(N) search for backwards compatibility with tests.
 //
 // ⚠️ Same race condition warnings as getNara() apply - see that function's docs.
-func (network *Network) getNaraByID(id NaraID) *Nara {
+func (network *Network) getNaraByID(id types.NaraID) *Nara {
 	if id == "" {
 		return nil
 	}
@@ -189,7 +192,7 @@ func (network *Network) importNara(nara *Nara) {
 
 // getNaraIDByName returns the nara ID for a given name, or empty string if not found.
 // This is a quick O(1) lookup using the nameToID index.
-func (network *Network) getNaraIDByName(name NaraName) NaraID {
+func (network *Network) getNaraIDByName(name types.NaraName) types.NaraID {
 	if name == "" {
 		return ""
 	}

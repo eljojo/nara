@@ -5,6 +5,8 @@ import (
 	"math/rand"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // startTimeVote represents a vote for our start time from another nara
@@ -88,7 +90,7 @@ func (network *Network) recoverSelfStartTimeFromMesh() {
 		targetCount = 3
 	}
 
-	subjects := []NaraName{network.meName()}
+	subjects := []types.NaraName{network.meName()}
 	totalAdded := 0
 
 	for _, neighbor := range online[:targetCount] {

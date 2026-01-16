@@ -6,6 +6,8 @@ import (
 	"math"
 	"sort"
 	"time"
+
+	"github.com/eljojo/nara/types"
 )
 
 var clusterNames = []string{"martini", "sand", "ocean", "basil", "watermelon", "sorbet", "wizard", "bohemian", "pizza", "moai", "ufo", "gem", "fish", "surf", "peach", "sandwich"}
@@ -111,7 +113,7 @@ func (network *Network) calculateGridSize() float64 {
 // getGridBasedCluster determines which cluster a nara belongs to based on grid position.
 // Naras in the same grid cell get the same cluster - this is symmetric by design.
 // Returns -1 if coordinates aren't available.
-func (network *Network) getGridBasedCluster(name NaraName, gridSize float64) int {
+func (network *Network) getGridBasedCluster(name types.NaraName, gridSize float64) int {
 	// Get coordinates for this nara
 	var coords *NetworkCoordinate
 
@@ -159,7 +161,7 @@ func gridCellToClusterIndex(cellX, cellY int64) int {
 
 // IsInMyBarrio returns true if the named nara is in the same barrio as me.
 // Used for proximity-based teasing boost.
-func (network *Network) IsInMyBarrio(name NaraName) bool {
+func (network *Network) IsInMyBarrio(name types.NaraName) bool {
 	gridSize := network.calculateGridSize()
 
 	myCluster := network.getGridBasedCluster(network.meName(), gridSize)
@@ -191,12 +193,12 @@ func (network *Network) GetMyBarrioEmoji() string {
 	return ""
 }
 
-func (network *Network) calculateVibe(name NaraName) uint64 {
+func (network *Network) calculateVibe(name types.NaraName) uint64 {
 	return calculateVibe(name, time.Now())
 }
 
 // calculateVibe is the legacy hash-based cluster assignment (used as fallback)
-func calculateVibe(name NaraName, t time.Time) uint64 {
+func calculateVibe(name types.NaraName, t time.Time) uint64 {
 	// vibe is based on the name and the current month
 	// so neighbourhoods shift over time but stay consistent across the network
 	hasher := sha256.New()

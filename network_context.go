@@ -5,6 +5,8 @@ import (
 	"net/http"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // HTTPClient is a minimal interface for HTTP operations (allows mocking in tests)
@@ -22,19 +24,19 @@ type HTTPClient interface {
 // - Reduced coupling between components
 type NetworkContext interface {
 	// Identity
-	MyName() NaraName
+	MyName() types.NaraName
 	Keypair() NaraKeypair
 
 	// Mesh HTTP operations
-	BuildMeshURL(name NaraName, path string) string
+	BuildMeshURL(name types.NaraName, path string) string
 	GetMeshHTTPClient() HTTPClient
 	AddMeshAuthHeaders(req *http.Request)
-	HasMeshConnectivity(name NaraName) bool
+	HasMeshConnectivity(name types.NaraName) bool
 
 	// Peer information
-	GetOnlineMeshPeers() []NaraName
-	GetPeerInfo(names []NaraName) []PeerInfo
-	GetOnlineStatus(name NaraName) *OnlineState
+	GetOnlineMeshPeers() []types.NaraName
+	GetPeerInfo(names []types.NaraName) []PeerInfo
+	GetOnlineStatus(name types.NaraName) *OnlineState
 
 	// State
 	IsReadOnly() bool
@@ -57,7 +59,7 @@ func (network *Network) NewNetworkContext() NetworkContext {
 	return &networkContext{network: network}
 }
 
-func (c *networkContext) MyName() NaraName {
+func (c *networkContext) MyName() types.NaraName {
 	return c.network.meName()
 }
 
@@ -65,7 +67,7 @@ func (c *networkContext) Keypair() NaraKeypair {
 	return c.network.local.Keypair
 }
 
-func (c *networkContext) BuildMeshURL(name NaraName, path string) string {
+func (c *networkContext) BuildMeshURL(name types.NaraName, path string) string {
 	return c.network.buildMeshURL(name, path)
 }
 
@@ -77,19 +79,19 @@ func (c *networkContext) AddMeshAuthHeaders(req *http.Request) {
 	c.network.AddMeshAuthHeaders(req)
 }
 
-func (c *networkContext) HasMeshConnectivity(name NaraName) bool {
+func (c *networkContext) HasMeshConnectivity(name types.NaraName) bool {
 	return c.network.hasMeshConnectivity(name)
 }
 
-func (c *networkContext) GetOnlineMeshPeers() []NaraName {
+func (c *networkContext) GetOnlineMeshPeers() []types.NaraName {
 	return c.network.NeighbourhoodOnlineNames()
 }
 
-func (c *networkContext) GetPeerInfo(names []NaraName) []PeerInfo {
+func (c *networkContext) GetPeerInfo(names []types.NaraName) []PeerInfo {
 	return []PeerInfo{}
 }
 
-func (c *networkContext) GetOnlineStatus(name NaraName) *OnlineState {
+func (c *networkContext) GetOnlineStatus(name types.NaraName) *OnlineState {
 	if c.network.local.Projections == nil {
 		return nil
 	}

@@ -8,21 +8,23 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // NeighborInfo contains information about a neighbor to share in howdy responses
 type NeighborInfo struct {
-	Name        NaraName
+	Name        types.NaraName
 	PublicKey   string
 	MeshIP      string
-	ID          NaraID          // Nara ID: deterministic hash of soul+name
+	ID          types.NaraID          // Nara ID: deterministic hash of soul+name
 	Observation NaraObservation // What I know about this neighbor
 }
 
 // HowdyEvent is sent in response to hey_there to help with discovery and start time recovery
 type HowdyEvent struct {
-	From      NaraName        // Who's sending this howdy
-	To        NaraName        // Who this is in response to (hey_there sender)
+	From      types.NaraName        // Who's sending this howdy
+	To        types.NaraName        // Who this is in response to (hey_there sender)
 	Seq       int             // Sequence number (1-10) for coordination
 	You       NaraObservation // What I know about you (includes StartTime!)
 	Neighbors []NeighborInfo  // ~10 other naras you should know about
@@ -52,9 +54,9 @@ func (h *HowdyEvent) Verify() bool {
 
 // howdyCoordinator tracks howdy responses for a given hey_there
 type howdyCoordinator struct {
-	target         NaraName          // who said hey_there
+	target         types.NaraName          // who said hey_there
 	seen           int               // how many howdys we've seen for this target
-	mentionedNaras map[NaraName]bool // naras already mentioned in other howdys
+	mentionedNaras map[types.NaraName]bool // naras already mentioned in other howdys
 	timer          *time.Timer
 	responded      bool
 	mu             sync.Mutex
@@ -128,14 +130,14 @@ func (network *Network) handleHowdyEvent(howdy HowdyEvent) {
 }
 
 // startHowdyCoordinator begins the self-selection process to potentially respond with howdy
-func (network *Network) startHowdyCoordinator(to NaraName) {
+func (network *Network) startHowdyCoordinator(to types.NaraName) {
 	if network.ReadOnly {
 		return
 	}
 
 	coord := &howdyCoordinator{
 		target:         to,
-		mentionedNaras: make(map[NaraName]bool),
+		mentionedNaras: make(map[types.NaraName]bool),
 	}
 	network.howdyCoordinators.Store(to, coord)
 
@@ -211,14 +213,14 @@ func (network *Network) onHowdySeen(howdy HowdyEvent) {
 
 // selectNeighborsForHowdy selects up to 10 neighbors to share in a howdy response
 // Priority: online naras first (not already mentioned), then offline if needed
-func (network *Network) selectNeighborsForHowdy(exclude NaraName, alreadyMentioned map[NaraName]bool) []NeighborInfo {
+func (network *Network) selectNeighborsForHowdy(exclude types.NaraName, alreadyMentioned map[types.NaraName]bool) []NeighborInfo {
 	maxNeighbors := 10
 	if network.isShortMemoryMode() {
 		maxNeighbors = 5
 	}
 
 	type naraWithLastSeen struct {
-		name     NaraName
+		name     types.NaraName
 		lastSeen int64
 		online   bool
 	}

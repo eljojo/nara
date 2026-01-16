@@ -22,7 +22,11 @@
       "Bash(npm run build:*)",
       "Bash(gofmt:*)",
       "Bash(golangci-lint run:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(python3:*)",
+      "Bash(while read file)",
+      "Bash(do if grep -q \"NaraName\\\\|NaraID\" \"$file\")",
+      "Bash(then python3 /tmp/fix_types.py \"$file\" fi done)"
     ]
   }
 }

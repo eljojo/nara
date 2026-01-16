@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // --- Social Event Handling ---
@@ -56,7 +58,7 @@ func (network *Network) handleSocialEvent(event SyncEvent) {
 // The tease is added to our ledger and DM'd to the target.
 // If the DM fails, the tease will spread via gossip.
 // Returns true if the tease was sent, false if blocked by cooldown or readonly.
-func (network *Network) Tease(target NaraName, reason string) bool {
+func (network *Network) Tease(target types.NaraName, reason string) bool {
 	if network.ReadOnly {
 		return false
 	}
@@ -96,7 +98,7 @@ func (network *Network) Tease(target NaraName, reason string) bool {
 // Waits a random delay, then checks if another nara already teased the target for the same reason.
 // If yes, stays silent. If no, proceeds with the tease.
 // This prevents 10 naras all teasing someone at the exact same moment.
-func (network *Network) TeaseWithDelay(target NaraName, reason string) {
+func (network *Network) TeaseWithDelay(target types.NaraName, reason string) {
 	if network.ReadOnly {
 		return
 	}
@@ -117,7 +119,7 @@ func (network *Network) TeaseWithDelay(target NaraName, reason string) {
 }
 
 // hasRecentTeaseFor checks if there's a recent tease for the target+reason from any nara
-func (network *Network) hasRecentTeaseFor(target NaraName, reason string) bool {
+func (network *Network) hasRecentTeaseFor(target types.NaraName, reason string) bool {
 	if network.local.SyncLedger == nil {
 		return false
 	}
@@ -142,7 +144,7 @@ func (network *Network) hasRecentTeaseFor(target NaraName, reason string) bool {
 // checkAndTease evaluates teasing triggers for a given nara.
 // Uses TeaseWithDelay for triggered teases to implement "if no one says anything, I'll say something"
 // This prevents all naras from piling on with the same tease at the same moment.
-func (network *Network) checkAndTease(name NaraName, previousState string, previousTrend string) {
+func (network *Network) checkAndTease(name types.NaraName, previousState string, previousTrend string) {
 	if network.ReadOnly || name == network.meName() {
 		return
 	}

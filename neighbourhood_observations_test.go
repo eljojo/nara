@@ -3,6 +3,8 @@ package nara
 import (
 	"testing"
 	"time"
+
+	"github.com/eljojo/nara/types"
 )
 
 func TestObservations_Record(t *testing.T) {
@@ -461,7 +463,7 @@ func TestPingVerificationRateLimitBug(t *testing.T) {
 
 	// Configure test ping that succeeds
 	pingCallCount := 0
-	network.testPingFunc = func(name NaraName) (bool, error) {
+	network.testPingFunc = func(name types.NaraName) (bool, error) {
 		pingCallCount++
 		t.Logf("Test ping called (call #%d) for %s", pingCallCount, name)
 		return true, nil // ping succeeds

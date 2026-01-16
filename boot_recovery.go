@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // BootRecoveryTargetEvents is the target number of events to fetch on boot
@@ -12,7 +14,7 @@ const BootRecoveryTargetEvents = 50000
 
 // getNeighborsForBootRecovery returns online neighbors.
 // Only re-discovers if no peers are known (peers are typically discovered at connect time in gossip mode).
-func (network *Network) getNeighborsForBootRecovery() []NaraName {
+func (network *Network) getNeighborsForBootRecovery() []types.NaraName {
 	online := network.NeighbourhoodOnlineNames()
 
 	// In gossip-only mode, only re-discover if we have no peers
@@ -38,7 +40,7 @@ func (network *Network) bootRecovery() {
 
 	// In gossip mode, check if peers are already discovered (from immediate discovery at connect)
 	// If so, skip the 30s wait and start syncing right away
-	var online []NaraName
+	var online []types.NaraName
 	if network.TransportMode == TransportGossip {
 		online = network.NeighbourhoodOnlineNames()
 		if len(online) > 0 {
@@ -101,13 +103,13 @@ func (network *Network) bootRecovery() {
 
 // meshNeighbor holds info needed to communicate with a neighbor via mesh
 type meshNeighbor struct {
-	name NaraName
-	id   NaraID
+	name types.NaraName
+	id   types.NaraID
 	ip   string
 }
 
 // bootRecoveryViaMesh uses direct HTTP to sync events from neighbors (parallelized)
-func (network *Network) bootRecoveryViaMesh(online []NaraName) {
+func (network *Network) bootRecoveryViaMesh(online []types.NaraName) {
 	// Collect ALL mesh-enabled neighbors
 	var meshNeighbors []meshNeighbor
 
@@ -148,7 +150,7 @@ func (network *Network) bootRecoveryViaMesh(online []NaraName) {
 }
 
 // bootRecoveryViaMeshSampleMode uses the new Mode: "sample" API for organic hazy memory reconstruction
-func (network *Network) bootRecoveryViaMeshSampleMode(online []NaraName, meshNeighbors []meshNeighbor) bool {
+func (network *Network) bootRecoveryViaMeshSampleMode(online []types.NaraName, meshNeighbors []meshNeighbor) bool {
 	// Determine boot recovery target based on memory mode
 	// These targets represent the "capacity" we want to fill during boot recovery
 	var capacity, pageSize int
@@ -186,7 +188,7 @@ func (network *Network) bootRecoveryViaMeshSampleMode(online []NaraName, meshNei
 
 	// Execute calls in parallel with concurrency limit
 	type syncResult struct {
-		neighbor NaraName
+		neighbor types.NaraName
 		callNum  int
 		events   []SyncEvent
 		success  bool
@@ -233,7 +235,7 @@ func (network *Network) bootRecoveryViaMeshSampleMode(online []NaraName, meshNei
 	// Process results as they arrive
 	var totalMerged int
 	var failedCalls int
-	respondedNeighbors := make(map[NaraName]bool)
+	respondedNeighbors := make(map[types.NaraName]bool)
 
 	for result := range results {
 		if !result.success {
@@ -271,7 +273,7 @@ func (network *Network) bootRecoveryViaMeshSampleMode(online []NaraName, meshNei
 
 // bootRecoveryViaMeshLegacy uses the old slicing API for backward compatibility
 // TODO: Remove after ~6 months (2026-07) when all naras support Mode: "sample"
-func (network *Network) bootRecoveryViaMeshLegacy(online []NaraName, meshNeighbors []meshNeighbor) {
+func (network *Network) bootRecoveryViaMeshLegacy(online []types.NaraName, meshNeighbors []meshNeighbor) {
 	// Get all known subjects (naras)
 	subjects := append(online, network.meName())
 
@@ -286,7 +288,7 @@ func (network *Network) bootRecoveryViaMeshLegacy(online []NaraName, meshNeighbo
 
 	// Fetch from all neighbors in parallel
 	type syncResult struct {
-		name         NaraName
+		name         types.NaraName
 		sliceIndex   int
 		events       []SyncEvent
 		respVerified bool
@@ -330,7 +332,7 @@ func (network *Network) bootRecoveryViaMeshLegacy(online []NaraName, meshNeighbo
 	// Process results as they arrive (merging is thread-safe)
 	var totalMerged int
 	var failedSlices []int
-	respondedNeighbors := make(map[NaraName]bool)
+	respondedNeighbors := make(map[types.NaraName]bool)
 
 	for result := range results {
 		respondedNeighbors[result.name] = result.success
@@ -427,7 +429,7 @@ func (network *Network) bootRecoveryViaMeshLegacy(online []NaraName, meshNeighbo
 // including signature verification, slice-based fetching, and error handling
 //
 // fetchSyncEventsFromMesh fetches unified SyncEvents with signature verification
-func (network *Network) fetchSyncEventsFromMesh(naraID NaraID, name NaraName, subjects []NaraName, sliceIndex, sliceTotal, maxEvents int) ([]SyncEvent, bool) {
+func (network *Network) fetchSyncEventsFromMesh(naraID types.NaraID, name types.NaraName, subjects []types.NaraName, sliceIndex, sliceTotal, maxEvents int) ([]SyncEvent, bool) {
 	// Use MeshClient for clean, reusable mesh HTTP communication
 	events, err := network.meshClient.FetchSyncEvents(network.ctx, naraID, SyncRequest{
 		Subjects:   subjects,
@@ -475,7 +477,7 @@ func (network *Network) fetchSyncEventsFromMesh(naraID NaraID, name NaraName, su
 }
 
 // bootRecoveryViaMQTT uses MQTT ledger requests to sync events (fallback)
-func (network *Network) bootRecoveryViaMQTT(online []NaraName) {
+func (network *Network) bootRecoveryViaMQTT(online []types.NaraName) {
 	// Get all known subjects (naras)
 	subjects := append(online, network.meName())
 
@@ -513,7 +515,7 @@ func (network *Network) bootRecoveryViaMQTT(online []NaraName) {
 }
 
 // RequestLedgerSync manually triggers a sync request to a specific neighbor
-func (network *Network) RequestLedgerSync(neighbor NaraName, subjects []NaraName) {
+func (network *Network) RequestLedgerSync(neighbor types.NaraName, subjects []types.NaraName) {
 	if network.ReadOnly {
 		return
 	}

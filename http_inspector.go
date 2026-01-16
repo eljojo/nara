@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // Inspector API Endpoints
@@ -22,7 +24,7 @@ func (ln *LocalNara) inspectorEventsHandler(w http.ResponseWriter, r *http.Reque
 	// Parse query parameters
 	query := r.URL.Query()
 	service := query.Get("service")
-	subject := NaraName(query.Get("subject"))
+	subject := types.NaraName(query.Get("subject"))
 	afterStr := query.Get("after")
 	beforeStr := query.Get("before")
 	limitStr := query.Get("limit")
@@ -113,8 +115,8 @@ func (ln *LocalNara) inspectorEventsHandler(w http.ResponseWriter, r *http.Reque
 		ID        string            `json:"id"`
 		Timestamp int64             `json:"timestamp"`
 		Service   string            `json:"service"`
-		Emitter   NaraName          `json:"emitter"`
-		EmitterID NaraID            `json:"emitter_id"`
+		Emitter   types.NaraName          `json:"emitter"`
+		EmitterID types.NaraID            `json:"emitter_id"`
 		Signed    bool              `json:"signed"`
 		UIFormat  map[string]string `json:"ui_format,omitempty"`
 	}
@@ -200,8 +202,8 @@ func (ln *LocalNara) inspectorCheckpointsHandler(w http.ResponseWriter, r *http.
 	ln.SyncLedger.mu.RUnlock()
 
 	type CheckpointSummary struct {
-		Subject              NaraName `json:"subject"`
-		SubjectID            NaraID   `json:"subject_id"`
+		Subject              types.NaraName `json:"subject"`
+		SubjectID            types.NaraID   `json:"subject_id"`
 		AsOfTime             int64    `json:"as_of_time"`
 		Round                int      `json:"round"`
 		Restarts             int64    `json:"restarts"`
@@ -216,7 +218,7 @@ func (ln *LocalNara) inspectorCheckpointsHandler(w http.ResponseWriter, r *http.
 	}
 
 	checkpoints := make([]CheckpointSummary, 0)
-	seen := make(map[NaraName]bool) // Track latest checkpoint per subject
+	seen := make(map[types.NaraName]bool) // Track latest checkpoint per subject
 
 	// Process checkpoints (latest first)
 	for i := len(events) - 1; i >= 0; i-- {
@@ -276,7 +278,7 @@ func (ln *LocalNara) inspectorCheckpointDetailHandler(w http.ResponseWriter, r *
 	}
 
 	// Get latest checkpoint event for subject
-	checkpointEvent := ln.SyncLedger.GetCheckpointEvent(NaraName(subject))
+	checkpointEvent := ln.SyncLedger.GetCheckpointEvent(types.NaraName(subject))
 	if checkpointEvent == nil {
 		http.Error(w, "checkpoint not found", http.StatusNotFound)
 		return
@@ -285,8 +287,8 @@ func (ln *LocalNara) inspectorCheckpointDetailHandler(w http.ResponseWriter, r *
 
 	// Verify each voter signature
 	type VoterInfo struct {
-		VoterID           NaraID   `json:"voter_id"`
-		VoterName         NaraName `json:"voter_name"`
+		VoterID           types.NaraID   `json:"voter_id"`
+		VoterName         types.NaraName `json:"voter_name"`
 		Signature         string   `json:"signature"`
 		Verified          bool     `json:"verified"`
 		VerificationError *string  `json:"verification_error"`
@@ -299,7 +301,7 @@ func (ln *LocalNara) inspectorCheckpointDetailHandler(w http.ResponseWriter, r *
 			signature = checkpoint.Signatures[i]
 		}
 
-		var voterName NaraName
+		var voterName types.NaraName
 		if voterID == checkpoint.SubjectID {
 			voterName = checkpoint.Subject
 		} else {
@@ -398,13 +400,13 @@ func (ln *LocalNara) inspectorProjectionsHandler(w http.ResponseWriter, r *http.
 	}
 
 	// Get all online statuses
-	onlineStatusMap := make(map[NaraName]interface{})
+	onlineStatusMap := make(map[types.NaraName]interface{})
 	if ln.Projections.OnlineStatus() != nil {
 		statuses := ln.Projections.OnlineStatus().GetAllStatuses()
 		for name, status := range statuses {
 			state := ln.Projections.OnlineStatus().GetState(name)
 			totalUptime := ln.SyncLedger.DeriveTotalUptime(name)
-			onlineStatusMap[name] = map[NaraName]interface{}{
+			onlineStatusMap[name] = map[types.NaraName]interface{}{
 				"status":          status,
 				"last_event_time": state.LastEventTime,
 				"last_event_type": state.LastEventType,
@@ -415,7 +417,7 @@ func (ln *LocalNara) inspectorProjectionsHandler(w http.ResponseWriter, r *http.
 	}
 
 	// Get clout scores
-	cloutMap := make(map[NaraName]float64)
+	cloutMap := make(map[types.NaraName]float64)
 	if ln.Projections.Clout() != nil {
 		cloutScores := ln.Projections.Clout().DeriveClout(ln.Soul, ln.Me.Status.Personality)
 		for name, score := range cloutScores {
@@ -424,11 +426,11 @@ func (ln *LocalNara) inspectorProjectionsHandler(w http.ResponseWriter, r *http.
 	}
 
 	// Get opinion consensus for all known naras
-	opinionsMap := make(map[NaraName]interface{})
+	opinionsMap := make(map[types.NaraName]interface{})
 	if ln.Projections.Opinion() != nil {
 		// Get all unique subjects from neighbourhood
 		ln.mu.Lock()
-		subjects := make([]NaraName, 0, len(ln.Network.Neighbourhood))
+		subjects := make([]types.NaraName, 0, len(ln.Network.Neighbourhood))
 		for name := range ln.Network.Neighbourhood {
 			subjects = append(subjects, name)
 		}
@@ -485,7 +487,7 @@ func (ln *LocalNara) inspectorProjectionDetailHandler(w http.ResponseWriter, r *
 	}
 
 	projectionType := parts[0]
-	subject := NaraName(parts[1])
+	subject := types.NaraName(parts[1])
 
 	if ln.Projections == nil {
 		http.Error(w, "projections not available", http.StatusServiceUnavailable)
@@ -679,7 +681,7 @@ func (ln *LocalNara) inspectorEventDetailHandler(w http.ResponseWriter, r *http.
 
 	if isSigned {
 		// Create a lookup function that resolves public keys
-		lookup := func(id NaraID, name NaraName) ed25519.PublicKey {
+		lookup := func(id types.NaraID, name types.NaraName) ed25519.PublicKey {
 			if id != "" {
 				if key := ln.Network.getPublicKeyForNaraID(id); key != nil {
 					return key
@@ -775,7 +777,7 @@ type UptimePeriod struct {
 // Returns timeline of online/offline periods for a nara.
 // Uses checkpoint data when available, falls back to backfill, then real-time events.
 func (ln *LocalNara) inspectorUptimeHandler(w http.ResponseWriter, r *http.Request) {
-	subject := NaraName(strings.TrimPrefix(r.URL.Path, "/api/inspector/uptime/"))
+	subject := types.NaraName(strings.TrimPrefix(r.URL.Path, "/api/inspector/uptime/"))
 	if subject == "" {
 		http.Error(w, "subject required", http.StatusBadRequest)
 		return

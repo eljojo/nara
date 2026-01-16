@@ -6,12 +6,14 @@ import (
 	"encoding/base64"
 	"fmt"
 	"time"
+
+	"github.com/eljojo/nara/types"
 )
 
 type SyncRequest struct {
-	From     NaraName   `json:"from"`     // who is asking
-	Services []string   `json:"services"` // which services (empty = all)
-	Subjects []NaraName `json:"subjects"` // which naras (empty = all)
+	From     types.NaraName   `json:"from"`     // who is asking
+	Services []string         `json:"services"` // which services (empty = all)
+	Subjects []types.NaraName `json:"subjects"` // which naras (empty = all)
 
 	// Mode-based API (recommended)
 	Mode       string `json:"mode,omitempty"`        // "sample", "page", or "recent"
@@ -29,15 +31,15 @@ type SyncRequest struct {
 
 // SyncResponse contains events from a neighbor with optional signature
 type SyncResponse struct {
-	From       string      `json:"from"`
-	Events     []SyncEvent `json:"events"`
-	NextCursor string      `json:"next_cursor,omitempty"` // For "page" mode pagination (timestamp of last event)
-	Timestamp  int64       `json:"ts,omitempty"`          // When response was generated (Unix SECONDS, not nanoseconds)
-	Signature  string      `json:"sig,omitempty"`         // Base64 Ed25519 signature
+	From       types.NaraName `json:"from"`
+	Events     []SyncEvent    `json:"events"`
+	NextCursor string         `json:"next_cursor,omitempty"` // For "page" mode pagination (timestamp of last event)
+	Timestamp  int64          `json:"ts,omitempty"`          // When response was generated (Unix SECONDS, not nanoseconds)
+	Signature  string         `json:"sig,omitempty"`         // Base64 Ed25519 signature
 }
 
 // NewSignedSyncResponse creates a signed sync response
-func NewSignedSyncResponse(from NaraName, events []SyncEvent, keypair NaraKeypair) SyncResponse {
+func NewSignedSyncResponse(from types.NaraName, events []SyncEvent, keypair NaraKeypair) SyncResponse {
 	resp := SyncResponse{
 		From:      from,
 		Events:    events,

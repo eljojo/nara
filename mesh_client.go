@@ -12,6 +12,8 @@ import (
 
 	"tailscale.com/ipn/store/mem"
 	"tailscale.com/tsnet"
+
+	"github.com/eljojo/nara/types"
 )
 
 // MeshConnectionConfig holds configuration for connecting to the mesh
@@ -73,53 +75,53 @@ func NewMeshHTTPClient(server *tsnet.Server) *http.Client {
 // to share the same mesh communication logic.
 type MeshClient struct {
 	httpClient *http.Client
-	name       NaraName    // Who we are (for request signing)
+	name       types.NaraName    // Who we are (for request signing)
 	keypair    NaraKeypair // For signing requests
 
-	peers map[NaraID]string
+	peers map[types.NaraID]string
 }
 
 // NewMeshClient creates a new mesh client with the given identity
-func NewMeshClient(httpClient *http.Client, name NaraName, keypair NaraKeypair) *MeshClient {
+func NewMeshClient(httpClient *http.Client, name types.NaraName, keypair NaraKeypair) *MeshClient {
 	return &MeshClient{
 		httpClient: httpClient,
 		name:       name,
 		keypair:    keypair,
-		peers:      make(map[NaraID]string),
+		peers:      make(map[types.NaraID]string),
 	}
 }
 
 // RegisterPeer registers a peer's base URL by nara ID.
 // For production mesh peers, use RegisterPeerIP which builds the standard mesh URL.
-func (m *MeshClient) RegisterPeer(naraID NaraID, baseURL string) {
+func (m *MeshClient) RegisterPeer(naraID types.NaraID, baseURL string) {
 	m.peers[naraID] = baseURL
 }
 
 // RegisterPeerIP registers a peer by nara ID and mesh IP.
 // Builds the standard mesh URL (http://<ip>:9632).
-func (m *MeshClient) RegisterPeerIP(naraID NaraID, ip string) {
+func (m *MeshClient) RegisterPeerIP(naraID types.NaraID, ip string) {
 	m.peers[naraID] = fmt.Sprintf("http://%s:%d", ip, DefaultMeshPort)
 }
 
 // UnregisterPeer removes a peer from the registry.
-func (m *MeshClient) UnregisterPeer(naraID NaraID) {
+func (m *MeshClient) UnregisterPeer(naraID types.NaraID) {
 	delete(m.peers, naraID)
 }
 
 // HasPeer returns true if a peer is registered.
-func (m *MeshClient) HasPeer(naraID NaraID) bool {
+func (m *MeshClient) HasPeer(naraID types.NaraID) bool {
 	_, ok := m.peers[naraID]
 	return ok
 }
 
 // GetPeerBaseURL returns the base URL for a registered peer (for legacy code paths)
-func (m *MeshClient) GetPeerBaseURL(naraID NaraID) (string, bool) {
+func (m *MeshClient) GetPeerBaseURL(naraID types.NaraID) (string, bool) {
 	url, ok := m.peers[naraID]
 	return url, ok
 }
 
 // buildURL constructs the full URL for a request to a peer.
-func (m *MeshClient) buildURL(naraID NaraID, path string) (string, error) {
+func (m *MeshClient) buildURL(naraID types.NaraID, path string) (string, error) {
 	baseURL, ok := m.peers[naraID]
 	if !ok {
 		return "", fmt.Errorf("peer not registered: %s", naraID)
@@ -174,7 +176,7 @@ func DiscoverMeshPeers(ctx context.Context, server *tsnet.Server) ([]TsnetPeer, 
 
 // FetchSyncEvents fetches events from a peer via POST /events/sync
 // Returns just the events (for backward compatibility)
-func (m *MeshClient) FetchSyncEvents(ctx context.Context, naraID NaraID, req SyncRequest) ([]SyncEvent, error) {
+func (m *MeshClient) FetchSyncEvents(ctx context.Context, naraID types.NaraID, req SyncRequest) ([]SyncEvent, error) {
 	resp, err := m.FetchSyncEventsWithCursor(ctx, naraID, req)
 	if err != nil {
 		return nil, err
@@ -184,7 +186,7 @@ func (m *MeshClient) FetchSyncEvents(ctx context.Context, naraID NaraID, req Syn
 
 // FetchSyncEventsWithCursor fetches events from a peer via POST /events/sync
 // Returns the full response including NextCursor for pagination
-func (m *MeshClient) FetchSyncEventsWithCursor(ctx context.Context, naraID NaraID, req SyncRequest) (*SyncResponse, error) {
+func (m *MeshClient) FetchSyncEventsWithCursor(ctx context.Context, naraID types.NaraID, req SyncRequest) (*SyncResponse, error) {
 	// Ensure From is set to our identity
 	req.From = m.name
 
@@ -224,7 +226,7 @@ func (m *MeshClient) FetchSyncEventsWithCursor(ctx context.Context, naraID NaraI
 
 // FetchCheckpoints fetches checkpoint events from a peer using the unified sync API
 // Returns checkpoints in oldest-first order with cursor-based pagination
-func (m *MeshClient) FetchCheckpoints(ctx context.Context, naraID NaraID, cursor string, pageSize int) (*SyncResponse, error) {
+func (m *MeshClient) FetchCheckpoints(ctx context.Context, naraID types.NaraID, cursor string, pageSize int) (*SyncResponse, error) {
 	if pageSize <= 0 || pageSize > 5000 {
 		pageSize = 1000
 	}
@@ -241,7 +243,7 @@ func (m *MeshClient) FetchCheckpoints(ctx context.Context, naraID NaraID, cursor
 // TODO: Add SendDM when DirectMessage type is confirmed (currently uses SyncEvent)
 
 // Ping sends a ping to a peer and returns the round-trip time
-func (m *MeshClient) Ping(ctx context.Context, naraID NaraID) (time.Duration, error) {
+func (m *MeshClient) Ping(ctx context.Context, naraID types.NaraID) (time.Duration, error) {
 	url, err := m.buildURL(naraID, "/ping")
 	if err != nil {
 		return 0, err

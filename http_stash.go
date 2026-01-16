@@ -6,6 +6,8 @@ import (
 	"net/http"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // GET /api/stash/status - Get current stash data, confidants, and metrics
@@ -63,8 +65,8 @@ func (network *Network) httpStashStatusHandler(w http.ResponseWriter, r *http.Re
 					"status": "confirmed",
 				}
 
-				// Try to get peer details from NeighbourhoodByID (confidantID is a NaraID, not a name!)
-				naraID := NaraID(confidantID)
+				// Try to get peer details from NeighbourhoodByID (confidantID is a types.NaraID, not a name!)
+				naraID := types.NaraID(confidantID)
 				network.local.mu.Lock()
 				nara, exists := network.NeighbourhoodByID[naraID]
 				network.local.mu.Unlock()
@@ -194,8 +196,8 @@ func (network *Network) httpStashConfidantsHandler(w http.ResponseWriter, r *htt
 						"status": "confirmed",
 					}
 
-					// Get peer details if available (confidantID is a NaraID, not a name!)
-					naraID := NaraID(confidantID)
+					// Get peer details if available (confidantID is a types.NaraID, not a name!)
+					naraID := types.NaraID(confidantID)
 					network.local.mu.Lock()
 					nara, exists := network.NeighbourhoodByID[naraID]
 					network.local.mu.Unlock()

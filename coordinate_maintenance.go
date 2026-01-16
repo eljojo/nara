@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // coordinateMaintenance runs periodic pings and coordinate updates
@@ -47,7 +49,7 @@ func (network *Network) coordinateMaintenance() {
 
 // pingTarget holds info about a potential ping target
 type pingTarget struct {
-	name     NaraName
+	name     types.NaraName
 	meshIP   string
 	priority float64 // higher = more important to ping
 }
@@ -58,7 +60,7 @@ type pingTarget struct {
 // 2. High-error naras (uncertain position) - priority based on error
 // 3. Stale measurements (haven't pinged recently) - priority based on staleness
 // 4. Random sampling for coverage
-func (network *Network) selectPingTarget() NaraName {
+func (network *Network) selectPingTarget() types.NaraName {
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
 
@@ -121,7 +123,7 @@ func (network *Network) selectPingTarget() NaraName {
 }
 
 // pingAndUpdateCoordinates pings a peer and updates our coordinates
-func (network *Network) pingAndUpdateCoordinates(targetName NaraName, config VivaldiConfig) {
+func (network *Network) pingAndUpdateCoordinates(targetName types.NaraName, config VivaldiConfig) {
 	network.local.mu.Lock()
 	nara, exists := network.Neighbourhood[targetName]
 	network.local.mu.Unlock()
@@ -140,7 +142,7 @@ func (network *Network) pingAndUpdateCoordinates(targetName NaraName, config Viv
 	}
 
 	// Ping the peer
-	rtt, err := network.tsnetMesh.Ping(meshIP, network.meName().String(), 5*time.Second)
+	rtt, err := network.tsnetMesh.Ping(meshIP, network.meName(), 5*time.Second)
 	if err != nil {
 		logrus.Infof("📍 Ping to %s failed: %v", targetName, err)
 		return
@@ -158,7 +160,7 @@ func (network *Network) pingAndUpdateCoordinates(targetName NaraName, config Viv
 	network.local.Me.mu.Unlock()
 
 	// Update observation with RTT data
-	naraName := NaraName(targetName)
+	naraName := types.NaraName(targetName)
 	obs := network.local.getObservation(naraName)
 	obs.LastPingRTT = rttMs
 	obs.LastPingTime = time.Now().Unix()
@@ -185,11 +187,11 @@ func (network *Network) pingAndUpdateCoordinates(targetName NaraName, config Viv
 
 // getCoordinatesForPeer returns the coordinates for a peer by name
 // Used by ApplyProximityToClout
-func (network *Network) getCoordinatesForPeer(name NaraName) *NetworkCoordinate {
+func (network *Network) getCoordinatesForPeer(name types.NaraName) *NetworkCoordinate {
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
 
-	nara, exists := network.Neighbourhood[NaraName(name)]
+	nara, exists := network.Neighbourhood[types.NaraName(name)]
 	if !exists {
 		return nil
 	}

@@ -5,6 +5,8 @@ import (
 	"math/rand"
 	"sort"
 	"time"
+
+	"github.com/eljojo/nara/types"
 )
 
 // SampleEvents returns a decay-weighted sample of events (mode: "sample")
@@ -13,7 +15,7 @@ import (
 // - Old events less likely but not zero (fading memory)
 // - Critical events always included
 // - Events emitted/observed by myName have higher weight
-func (l *SyncLedger) SampleEvents(sampleSize int, myName NaraName, services []string, subjects []NaraName) []SyncEvent {
+func (l *SyncLedger) SampleEvents(sampleSize int, myName types.NaraName, services []string, subjects []types.NaraName) []SyncEvent {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
@@ -28,7 +30,7 @@ func (l *SyncLedger) SampleEvents(sampleSize int, myName NaraName, services []st
 		serviceSet[s] = true
 	}
 
-	subjectSet := make(map[string]bool)
+	subjectSet := make(map[types.NaraName]bool)
 	filterBySubject := len(subjects) > 0
 	for _, s := range subjects {
 		subjectSet[s] = true
@@ -109,7 +111,7 @@ func isCriticalEvent(e SyncEvent) bool {
 // - Age decay: exponential decay with ~30-day half-life
 // - Importance boost: critical events weighted higher
 // - Self-relevance: events we emitted or are about us
-func calculateEventWeight(e SyncEvent, now time.Time, myName NaraName) float64 {
+func calculateEventWeight(e SyncEvent, now time.Time, myName types.NaraName) float64 {
 	// Age decay (exponential with 30-day half-life)
 	eventTime := time.Unix(0, e.Timestamp)
 	age := now.Sub(eventTime)

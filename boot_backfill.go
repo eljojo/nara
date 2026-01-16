@@ -2,6 +2,8 @@ package nara
 
 import (
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // backfillObservations migrates existing observations to observation events
@@ -13,7 +15,7 @@ func (network *Network) backfillObservations() {
 
 	// Lock Me.mu to safely read Me.Status.Observations
 	network.local.Me.mu.Lock()
-	observations := make(map[NaraName]NaraObservation)
+	observations := make(map[types.NaraName]NaraObservation)
 	for name, obs := range network.local.Me.Status.Observations {
 		observations[name] = obs
 	}
@@ -85,13 +87,13 @@ func (network *Network) seedAvgPingRTTFromHistory() {
 	// We use ALL pings (from any observer) to get initial RTT estimates
 	// This means we learn from the network: if B→C has 50ms RTT, we seed our C observation with that
 	myName := network.meName()
-	pingsByTarget := make(map[NaraName][]float64)
+	pingsByTarget := make(map[types.NaraName][]float64)
 
 	for _, ping := range allPings {
-		// TODO: ping.Target should be migrated to NaraID instead of string
+		// TODO: ping.Target should be migrated to types.NaraID instead of string
 		// Currently using string comparison but this should be ID-based
 		// Skip pings TO us (we care about targets we might ping, not pings to us)
-		targetName := NaraName(ping.Target)
+		targetName := types.NaraName(ping.Target)
 		if targetName != myName {
 			pingsByTarget[targetName] = append(pingsByTarget[targetName], ping.RTT)
 		}

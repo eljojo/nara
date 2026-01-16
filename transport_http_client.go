@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"tailscale.com/tsnet"
+
+	"github.com/eljojo/nara/types"
 )
 
 // buildMeshURLFromIP builds a mesh URL from an IP address and optional path.
@@ -39,7 +41,7 @@ func (network *Network) buildMeshURLFromIP(ip string, path string) string {
 // Examples:
 //   - buildMeshURL("alice", "") -> "http://100.64.0.1:5683"
 //   - buildMeshURL("alice", "/stash/push") -> "http://100.64.0.1:5683/stash/push"
-func (network *Network) buildMeshURL(name NaraName, path string) string {
+func (network *Network) buildMeshURL(name types.NaraName, path string) string {
 	var baseURL string
 	if network.testMeshURLs != nil {
 		baseURL = network.testMeshURLs[name]
@@ -61,13 +63,13 @@ func (network *Network) buildMeshURL(name NaraName, path string) string {
 }
 
 // getMeshURLForNara returns the base mesh URL for a nara (for backwards compatibility)
-func (network *Network) getMeshURLForNara(name NaraName) string {
+func (network *Network) getMeshURLForNara(name types.NaraName) string {
 	return network.buildMeshURL(name, "")
 }
 
 // hasMeshConnectivity returns true if a nara is reachable via mesh
 // Checks both test URLs and production mesh IPs
-func (network *Network) hasMeshConnectivity(name NaraName) bool {
+func (network *Network) hasMeshConnectivity(name types.NaraName) bool {
 	if network.testMeshURLs != nil {
 		return network.testMeshURLs[name] != ""
 	}

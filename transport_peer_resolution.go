@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // --- Peer Resolution Protocol ---
@@ -15,7 +17,7 @@ import (
 // Uses HTTP redirects: if a neighbor doesn't know, they redirect us to try someone else.
 
 // resolvePeerBackground triggers resolvePeer in a goroutine with rate limiting
-func (network *Network) resolvePeerBackground(target NaraName) {
+func (network *Network) resolvePeerBackground(target types.NaraName) {
 	now := time.Now().Unix()
 	const retryInterval = 600 // 10 minutes
 
@@ -38,7 +40,7 @@ func (network *Network) resolvePeerBackground(target NaraName) {
 
 // resolvePeer queries neighbors to discover the identity of an unknown peer.
 // Returns nil if no one knows the target within the timeout.
-func (network *Network) resolvePeer(target NaraName) *PeerResponse {
+func (network *Network) resolvePeer(target types.NaraName) *PeerResponse {
 	// Double check we don't already have it (e.g. if another resolution finished)
 	if network.getPublicKeyForNara(target) != nil {
 		return nil
@@ -64,7 +66,7 @@ func (network *Network) resolvePeer(target NaraName) *PeerResponse {
 	}
 
 	// Track who we've already asked to prevent loops
-	asked := map[NaraName]bool{network.meName(): true}
+	asked := map[types.NaraName]bool{network.meName(): true}
 
 	// Get initial neighbors to query
 	neighbors := network.NeighbourhoodOnlineNames()
@@ -82,7 +84,7 @@ func (network *Network) resolvePeer(target NaraName) *PeerResponse {
 	}
 
 	// Try each neighbor, following redirects manually
-	toAsk := make([]NaraName, len(neighbors))
+	toAsk := make([]types.NaraName, len(neighbors))
 	copy(toAsk, neighbors)
 
 	for len(toAsk) > 0 && len(asked) < 10 { // Max 10 hops
@@ -100,7 +102,7 @@ func (network *Network) resolvePeer(target NaraName) *PeerResponse {
 		}
 
 		// Build asked list for the request
-		askedList := make([]NaraName, 0, len(asked))
+		askedList := make([]types.NaraName, 0, len(asked))
 		for n := range asked {
 			askedList = append(askedList, n)
 		}
@@ -137,10 +139,16 @@ func (network *Network) resolvePeer(target NaraName) *PeerResponse {
 //
 // queryPeerAt sends a peer query to a specific URL and handles the response.
 // Returns a PeerResponse with PublicKey set if found, or with Target set if redirected.
-func (network *Network) queryPeerAt(client *http.Client, baseURL, target NaraName, asked []NaraName) *PeerResponse {
+func (network *Network) queryPeerAt(client *http.Client, baseURL string, target types.NaraName, asked []types.NaraName) *PeerResponse {
+	// Convert asked to string slice for joining
+	askedStr := make([]string, len(asked))
+	for i, name := range asked {
+		askedStr[i] = name.String()
+	}
+
 	// Build query URL with parameters
 	queryURL := fmt.Sprintf("%s/peer/query?target=%s&asked=%s",
-		baseURL, target, strings.Join(asked, ","))
+		baseURL, target, strings.Join(askedStr, ","))
 
 	req, err := http.NewRequest("GET", queryURL, nil)
 	if err != nil {
@@ -168,7 +176,7 @@ func (network *Network) queryPeerAt(client *http.Client, baseURL, target NaraNam
 		// The redirect location contains the suggested neighbor's name
 		location := resp.Header.Get("X-Nara-Redirect-To")
 		if location != "" {
-			return &PeerResponse{Target: location} // Target field used to indicate redirect
+			return &PeerResponse{Target: types.NaraName(location)} // Target field used to indicate redirect
 		}
 		return nil
 
@@ -198,25 +206,26 @@ func (network *Network) httpPeerQueryHandler(w http.ResponseWriter, r *http.Requ
 
 	// Parse the asked list
 	askedStr := r.URL.Query().Get("asked")
-	asked := make(map[NaraName]bool)
+	asked := make(map[types.NaraName]bool)
 	if askedStr != "" {
 		for _, name := range strings.Split(askedStr, ",") {
-			asked[name] = true
+			asked[types.NaraName(name)] = true
 		}
 	}
 	asked[network.meName()] = true // We've now been asked
 
 	// Check if we know the target
-	pubKey := network.getPublicKeyForNara(target)
+	naraName := types.NaraName(target)
+	pubKey := network.getPublicKeyForNara(naraName)
 	if pubKey != nil {
 		network.local.mu.Lock()
-		nara := network.Neighbourhood[target]
+		nara := network.Neighbourhood[naraName]
 		network.local.mu.Unlock()
 
 		if nara != nil {
 			nara.mu.Lock()
 			response := PeerResponse{
-				Target:    target,
+				Target:    naraName,
 				PublicKey: nara.Status.PublicKey,
 				MeshIP:    nara.Status.MeshIP,
 			}
@@ -235,7 +244,7 @@ func (network *Network) httpPeerQueryHandler(w http.ResponseWriter, r *http.Requ
 	for _, name := range neighbors {
 		if !asked[name] {
 			// Redirect to this neighbor
-			w.Header().Set("X-Nara-Redirect-To", name)
+			w.Header().Set("X-Nara-Redirect-To", name.String()) // NaraName to string
 			w.WriteHeader(http.StatusTemporaryRedirect)
 			return
 		}

@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 func (network *Network) httpApiJsonHandler(w http.ResponseWriter, r *http.Request) {
@@ -60,7 +62,7 @@ func (network *Network) httpProfileJsonHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	naraName := NaraName(name)
+	naraName := types.NaraName(name)
 
 	network.local.mu.Lock()
 	nara, exists := network.Neighbourhood[naraName]
@@ -81,8 +83,8 @@ func (network *Network) httpProfileJsonHandler(w http.ResponseWriter, r *http.Re
 	var eventStoreTotal int
 	var eventStoreCritical int
 	var recentTeases []map[string]interface{}
-	fromCounts := make(map[NaraName]int)
-	toCounts := make(map[NaraName]int)
+	fromCounts := make(map[types.NaraName]int)
+	toCounts := make(map[types.NaraName]int)
 	if network.local.SyncLedger != nil {
 		eventStoreByService = network.local.SyncLedger.GetEventCountsByService()
 		eventStoreTotal = network.local.SyncLedger.EventCount()
@@ -185,7 +187,7 @@ func (network *Network) httpNaraeJsonHandler(w http.ResponseWriter, r *http.Requ
 	allNarae := network.getNarae()
 
 	// Get clout scores
-	var cloutScores map[NaraName]float64
+	var cloutScores map[types.NaraName]float64
 	if network.local.Projections != nil {
 		cloutScores = network.local.Projections.Clout().DeriveClout(network.local.Soul, network.local.Me.Status.Personality)
 	}
@@ -246,7 +248,7 @@ func (network *Network) httpNaraeJsonHandler(w http.ResponseWriter, r *http.Requ
 func (network *Network) httpStatusJsonHandler(w http.ResponseWriter, r *http.Request) {
 	name := r.URL.Path[len("/status/") : len(r.URL.Path)-len(".json")]
 	network.local.mu.Lock()
-	nara, exists := network.Neighbourhood[NaraName(name)]
+	nara, exists := network.Neighbourhood[types.NaraName(name)]
 	network.local.mu.Unlock()
 
 	if !exists {

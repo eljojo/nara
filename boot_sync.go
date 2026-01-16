@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // backgroundSync performs lightweight periodic syncing to strengthen collective memory
@@ -49,7 +51,7 @@ func (network *Network) performBackgroundSync() {
 	}
 
 	// Prefer neighbors that advertise medium/hog memory profiles
-	eligible := make([]NaraName, 0, len(online))
+	eligible := make([]types.NaraName, 0, len(online))
 	for _, name := range online {
 		if network.neighborSupportsBackgroundSync(name) {
 			eligible = append(eligible, name)
@@ -93,7 +95,7 @@ func (network *Network) performBackgroundSync() {
 	}
 }
 
-func (network *Network) neighborSupportsBackgroundSync(name NaraName) bool {
+func (network *Network) neighborSupportsBackgroundSync(name types.NaraName) bool {
 	nara := network.getNara(name)
 	// Defensive: nara might not be found or might have been removed
 	if nara == nil || nara.Name == "" {
@@ -116,7 +118,7 @@ func (network *Network) neighborSupportsBackgroundSync(name NaraName) bool {
 //
 // Boot recovery (bootRecoveryViaMesh) syncs ALL events without filtering.
 // This background sync maintains eventual consistency for recent events.
-func (network *Network) performBackgroundSyncViaMesh(neighbor NaraName, naraID NaraID) {
+func (network *Network) performBackgroundSyncViaMesh(neighbor types.NaraName, naraID types.NaraID) {
 	logrus.Infof("🔄 background sync: requesting events from %s (%s)", neighbor, naraID)
 
 	// Fetch recent events from this neighbor using the new "recent" mode

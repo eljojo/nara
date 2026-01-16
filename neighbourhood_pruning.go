@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // neighbourhood_pruning.go
@@ -27,7 +29,7 @@ func (network *Network) pruneInactiveNaras() {
 		// Veterans (30d+) are never auto-pruned - they're part of the community
 	)
 
-	var toRemove []NaraName
+	var toRemove []types.NaraName
 	var established, veterans, zombies int
 	var prunedNewcomers, prunedEstablished int
 
