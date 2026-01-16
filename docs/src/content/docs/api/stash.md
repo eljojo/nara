@@ -19,6 +19,7 @@ import "github.com/eljojo/nara/services/stash"
   - [func \(s \*Service\) ClearMyStash\(\)](<#Service.ClearMyStash>)
   - [func \(s \*Service\) DistributeToConfidants\(\) error](<#Service.DistributeToConfidants>)
   - [func \(s \*Service\) GetStashData\(\) \(data \[\]byte, timestamp int64\)](<#Service.GetStashData>)
+  - [func \(s \*Service\) GetStoredStash\(ownerID types.NaraID\) \*EncryptedStash](<#Service.GetStoredStash>)
   - [func \(s \*Service\) HasStashData\(\) bool](<#Service.HasStashData>)
   - [func \(s \*Service\) HasStashFor\(ownerID types.NaraID\) bool](<#Service.HasStashFor>)
   - [func \(s \*Service\) Init\(rt runtime.RuntimeInterface, log \*runtime.ServiceLog\) error](<#Service.Init>)
@@ -99,6 +100,15 @@ func (s *Service) GetStashData() (data []byte, timestamp int64)
 ```
 
 GetStashData returns the current stash data.
+
+<a name="Service.GetStoredStash"></a>
+### func \(\*Service\) [GetStoredStash](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L436>)
+
+```go
+func (s *Service) GetStoredStash(ownerID types.NaraID) *EncryptedStash
+```
+
+
 
 <a name="Service.HasStashData"></a>
 ### func \(\*Service\) [HasStashData](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L354>)

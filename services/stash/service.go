@@ -433,7 +433,7 @@ func (s *Service) store(ownerID types.NaraID, nonce, ciphertext []byte) {
 	s.log.Info("stored stash for %s (%d bytes)", ownerID, len(ciphertext))
 }
 
-func (s *Service) retrieve(ownerID types.NaraID) *EncryptedStash {
+func (s *Service) GetStoredStash(ownerID types.NaraID) *EncryptedStash {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.stored[ownerID]

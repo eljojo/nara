@@ -73,9 +73,7 @@ func TestVerifyMeshRequest_ValidSignature(t *testing.T) {
 		return nil
 	}
 
-	sender, err := VerifyMeshRequest(req, func(name string) []byte {
-		return getPublicKey(types.NaraName(name))
-	})
+	sender, err := VerifyMeshRequest(req, getPublicKey)
 	if err != nil {
 		t.Errorf("expected valid signature, got error: %v", err)
 	}
@@ -105,9 +103,7 @@ func TestVerifyMeshRequest_InvalidSignature(t *testing.T) {
 		return nil
 	}
 
-	_, err := VerifyMeshRequest(req, func(name string) []byte {
-		return getPublicKey(types.NaraName(name))
-	})
+	_, err := VerifyMeshRequest(req, getPublicKey)
 	if err == nil {
 		t.Error("expected signature verification to fail")
 	}
@@ -119,9 +115,7 @@ func TestVerifyMeshRequest_MissingHeaders(t *testing.T) {
 
 	getPublicKey := func(name types.NaraName) []byte { return nil }
 
-	_, err := VerifyMeshRequest(req, func(name string) []byte {
-		return getPublicKey(types.NaraName(name))
-	})
+	_, err := VerifyMeshRequest(req, getPublicKey)
 	if err == nil {
 		t.Error("expected error for missing headers")
 	}
@@ -148,9 +142,7 @@ func TestVerifyMeshRequest_ExpiredTimestamp(t *testing.T) {
 		return nil
 	}
 
-	_, err := VerifyMeshRequest(req, func(name string) []byte {
-		return getPublicKey(types.NaraName(name))
-	})
+	_, err := VerifyMeshRequest(req, getPublicKey)
 	if err == nil {
 		t.Error("expected error for expired timestamp")
 	}
@@ -172,9 +164,7 @@ func TestVerifyMeshRequest_UnknownSender(t *testing.T) {
 		return nil // Don't know this nara
 	}
 
-	_, err := VerifyMeshRequest(req, func(name string) []byte {
-		return getPublicKey(types.NaraName(name))
-	})
+	_, err := VerifyMeshRequest(req, getPublicKey)
 	if err == nil {
 		t.Error("expected error for unknown sender")
 	}

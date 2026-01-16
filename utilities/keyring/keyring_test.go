@@ -15,7 +15,13 @@ func TestKeyring_Identity(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	kr := New(priv, "test-nara-id")
+	// Wrap in NaraKeypair
+	keypair := identity.NaraKeypair{
+		PrivateKey: priv,
+		PublicKey:  pub,
+	}
+
+	kr := New(keypair, "test-nara-id")
 
 	// Verify identity methods
 	if kr.MyID() != "test-nara-id" {
@@ -35,7 +41,11 @@ func TestKeyring_Identity(t *testing.T) {
 
 func TestKeyring_SignAndVerify(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
-	kr := New(priv, "signer-id")
+	keypair := identity.NaraKeypair{
+		PrivateKey: priv,
+		PublicKey:  pub,
+	}
+	kr := New(keypair, "signer-id")
 
 	// Register our own key for verification
 	kr.Register("signer-id", pub)
@@ -61,8 +71,12 @@ func TestKeyring_SignAndVerify(t *testing.T) {
 }
 
 func TestKeyring_RegisterAndLookup(t *testing.T) {
-	_, priv, _ := ed25519.GenerateKey(rand.Reader)
-	kr := New(priv, "my-id")
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	keypair := identity.NaraKeypair{
+		PrivateKey: priv,
+		PublicKey:  pub,
+	}
+	kr := New(keypair, "my-id")
 
 	// Generate another keypair for a peer
 	peerPub, _, _ := ed25519.GenerateKey(rand.Reader)
@@ -97,8 +111,12 @@ func TestKeyring_RegisterAndLookup(t *testing.T) {
 }
 
 func TestKeyring_RegisterBase64(t *testing.T) {
-	_, priv, _ := ed25519.GenerateKey(rand.Reader)
-	kr := New(priv, "my-id")
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	keypair := identity.NaraKeypair{
+		PrivateKey: priv,
+		PublicKey:  pub,
+	}
+	kr := New(keypair, "my-id")
 
 	// Generate peer keypair and encode
 	peerPub, _, _ := ed25519.GenerateKey(rand.Reader)

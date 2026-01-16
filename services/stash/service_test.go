@@ -89,12 +89,13 @@ func TestStashStoreAndAck(t *testing.T) {
 
 	// Verify Bob stored the stash
 	if !bobStash.HasStashFor("alice-id-123") {
-		t.Fatal("bob should have stash for alice")
+		t.Fatal("Bob should be storing Alice's stash")
 	}
 
-	stored := bobStash.retrieve("alice-id-123")
+	// Verify Bob is storing Alice's stash
+	stored := bobStash.GetStoredStash("alice-id-123")
 	if stored == nil {
-		t.Fatal("stored stash is nil")
+		t.Fatal("Bob should be storing Alice's stash")
 	}
 	if stored.OwnerID != "alice-id-123" {
 		t.Fatalf("expected OwnerID=alice-id-123, got %s", stored.OwnerID)
@@ -363,12 +364,12 @@ func TestStashStateMarshaling(t *testing.T) {
 		t.Fatal("expected stash for owner-2")
 	}
 
-	stash1 := svc2.retrieve("owner-1")
+	stash1 := svc2.GetStoredStash("owner-1")
 	if string(stash1.Ciphertext) != "cipher1" {
 		t.Fatalf("expected cipher1, got %s", stash1.Ciphertext)
 	}
 
-	stash2 := svc2.retrieve("owner-2")
+	stash2 := svc2.GetStoredStash("owner-2")
 	if string(stash2.Ciphertext) != "cipher2" {
 		t.Fatalf("expected cipher2, got %s", stash2.Ciphertext)
 	}
