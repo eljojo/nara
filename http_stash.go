@@ -169,6 +169,10 @@ func (network *Network) httpStashRecoverHandler(w http.ResponseWriter, r *http.R
 			logrus.Errorf("📦 Stash recovery failed: %v", err)
 		} else {
 			logrus.Infof("📦 Stash recovered successfully (%d bytes)", len(data))
+			// Store the recovered data locally
+			if err := network.stashService.SetStashData(data); err != nil {
+				logrus.Errorf("📦 Failed to store recovered stash: %v", err)
+			}
 		}
 	}()
 
