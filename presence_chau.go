@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sirupsen/logrus"
-
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
+	"github.com/sirupsen/logrus"
 )
 
 type ChauEvent struct {
@@ -17,7 +17,7 @@ type ChauEvent struct {
 }
 
 // Sign signs the ChauEvent with the given keypair
-func (c *ChauEvent) Sign(kp NaraKeypair) {
+func (c *ChauEvent) Sign(kp identity.NaraKeypair) {
 	message := c.signatureMessage()
 	c.Signature = kp.SignBase64([]byte(message))
 }
@@ -27,21 +27,21 @@ func (c *ChauEvent) Verify() bool {
 	if c.PublicKey == "" || c.Signature == "" {
 		return false
 	}
-	pubKey, err := ParsePublicKey(c.PublicKey)
+	pubKey, err := identity.ParsePublicKey(c.PublicKey)
 	if err != nil {
 		return false
 	}
 
 	// Try new format first (with ID)
 	message := c.signatureMessage()
-	if VerifySignatureBase64(pubKey, []byte(message), c.Signature) {
+	if identity.VerifySignatureBase64(pubKey, []byte(message), c.Signature) {
 		return true
 	}
 
 	// Fall back to old format (without ID) for backwards compatibility
 	if c.ID != "" {
 		oldMessage := fmt.Sprintf("chau:%s:%s", c.From, c.PublicKey)
-		return VerifySignatureBase64(pubKey, []byte(oldMessage), c.Signature)
+		return identity.VerifySignatureBase64(pubKey, []byte(oldMessage), c.Signature)
 	}
 
 	return false
@@ -79,7 +79,7 @@ func (c *ChauEvent) VerifySignature(event *SyncEvent, lookup PublicKeyLookup) bo
 	if c.PublicKey == "" {
 		return false
 	}
-	pubKey, err := ParsePublicKey(c.PublicKey)
+	pubKey, err := identity.ParsePublicKey(c.PublicKey)
 	if err != nil {
 		return false
 	}
@@ -160,7 +160,7 @@ func (network *Network) processChauSyncEvents(events []SyncEvent) {
 // emitChauSyncEvent creates and adds a chau sync event to our ledger.
 // This allows graceful shutdown to propagate through gossip.
 func (network *Network) emitChauSyncEvent() {
-	publicKey := FormatPublicKey(network.local.Keypair.PublicKey)
+	publicKey := identity.FormatPublicKey(network.local.Keypair.PublicKey)
 	event := NewChauSyncEvent(network.meName(), publicKey, network.local.ID, network.local.Keypair)
 	network.local.SyncLedger.MergeEvents([]SyncEvent{event})
 	if network.local.Projections != nil {
@@ -197,7 +197,7 @@ func (network *Network) handleChauEvent(syncEvent SyncEvent) {
 		var pubKey []byte
 		if chau.PublicKey != "" {
 			var err error
-			pubKey, err = ParsePublicKey(chau.PublicKey)
+			pubKey, err = identity.ParsePublicKey(chau.PublicKey)
 			if err != nil {
 				logrus.Warnf("⚠️  Invalid public key in chau from %s: %v", chau.From, err)
 				return

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
 )
 
@@ -21,7 +22,7 @@ func TestCheckpointV1BackwardsCompat(t *testing.T) {
 	subject := types.NaraName("lisa")
 	subjectID := types.NaraID("lisa-id-abc")
 	voterIDs := []types.NaraID{types.NaraID("homer-id"), types.NaraID("marge-id"), types.NaraID("bart-id")}
-	keypairs := make([]NaraKeypair, 3)
+	keypairs := make([]identity.NaraKeypair, 3)
 	publicKeys := make(map[types.NaraID]string)
 
 	for i, voterID := range voterIDs {
@@ -55,7 +56,7 @@ func TestCheckpointV1BackwardsCompat(t *testing.T) {
 			AsOfTime:    checkpoint.AsOfTime,
 		}
 
-		signature := SignContent(&attestation, keypairs[i])
+		signature := identity.SignContent(&attestation, keypairs[i])
 		checkpoint.VoterIDs = append(checkpoint.VoterIDs, voterID)
 		checkpoint.Signatures = append(checkpoint.Signatures, signature)
 	}
@@ -97,7 +98,7 @@ func TestCheckpointV1WithVersionZero(t *testing.T) {
 	subject := types.NaraName("lisa")
 	subjectID := types.NaraID("lisa-id-abc")
 	voterIDs := []types.NaraID{types.NaraID("homer-id"), types.NaraID("marge-id")}
-	keypairs := make([]NaraKeypair, 2)
+	keypairs := make([]identity.NaraKeypair, 2)
 	for i := range keypairs {
 		keypairs[i] = generateTestKeypair()
 	}
@@ -127,7 +128,7 @@ func TestCheckpointV1WithVersionZero(t *testing.T) {
 			AsOfTime:    checkpoint.AsOfTime,
 		}
 
-		signature := SignContent(&attestation, keypairs[i])
+		signature := identity.SignContent(&attestation, keypairs[i])
 		checkpoint.VoterIDs = append(checkpoint.VoterIDs, voterID)
 		checkpoint.Signatures = append(checkpoint.Signatures, signature)
 	}
@@ -154,7 +155,7 @@ func TestCheckpointV2Format(t *testing.T) {
 	subjectID := types.NaraID("lisa-id-abc")
 	previousCheckpointID := "prev-checkpoint-123"
 	voterIDs := []types.NaraID{"homer-id", "marge-id"}
-	keypairs := make([]NaraKeypair, 2)
+	keypairs := make([]identity.NaraKeypair, 2)
 	for i := range keypairs {
 		keypairs[i] = generateTestKeypair()
 	}
@@ -186,7 +187,7 @@ func TestCheckpointV2Format(t *testing.T) {
 			LastSeenCheckpointID: previousCheckpointID,
 		}
 
-		signature := SignContent(&attestation, keypairs[i])
+		signature := identity.SignContent(&attestation, keypairs[i])
 		checkpoint.VoterIDs = append(checkpoint.VoterIDs, voterID)
 		checkpoint.Signatures = append(checkpoint.Signatures, signature)
 	}
@@ -229,7 +230,7 @@ func TestCheckpointV2TamperDetection(t *testing.T) {
 	subjectID := types.NaraID("lisa-id-abc")
 	previousCheckpointID := "prev-checkpoint-123"
 	voterIDs := []types.NaraID{"homer-id", "marge-id"}
-	keypairs := make([]NaraKeypair, 2)
+	keypairs := make([]identity.NaraKeypair, 2)
 	for i := range keypairs {
 		keypairs[i] = generateTestKeypair()
 	}
@@ -261,7 +262,7 @@ func TestCheckpointV2TamperDetection(t *testing.T) {
 			LastSeenCheckpointID: previousCheckpointID,
 		}
 
-		signature := SignContent(&attestation, keypairs[i])
+		signature := identity.SignContent(&attestation, keypairs[i])
 		checkpoint.VoterIDs = append(checkpoint.VoterIDs, voterID)
 		checkpoint.Signatures = append(checkpoint.Signatures, signature)
 	}
@@ -300,7 +301,7 @@ func TestCheckpointV2FirstCheckpoint(t *testing.T) {
 	subject := types.NaraName("lisa")
 	subjectID := types.NaraID("lisa-id-abc")
 	voterIDs := []types.NaraID{"homer-id", "marge-id"}
-	keypairs := make([]NaraKeypair, 2)
+	keypairs := make([]identity.NaraKeypair, 2)
 	for i := range keypairs {
 		keypairs[i] = generateTestKeypair()
 	}
@@ -332,7 +333,7 @@ func TestCheckpointV2FirstCheckpoint(t *testing.T) {
 			LastSeenCheckpointID: "", // Empty for first checkpoint
 		}
 
-		signature := SignContent(&attestation, keypairs[i])
+		signature := identity.SignContent(&attestation, keypairs[i])
 		checkpoint.VoterIDs = append(checkpoint.VoterIDs, voterID)
 		checkpoint.Signatures = append(checkpoint.Signatures, signature)
 	}
@@ -570,7 +571,7 @@ func TestCheckpointV2NodeIgnoresV1Votes(t *testing.T) {
 	}
 
 	// Sign the v1 attestation
-	v1Attestation.Signature = SignContent(&v1Attestation, voterKeypair)
+	v1Attestation.Signature = identity.SignContent(&v1Attestation, voterKeypair)
 
 	v1Vote := &CheckpointVote{
 		Attestation: v1Attestation,
@@ -623,7 +624,7 @@ func TestCheckpointV2NodeIgnoresV1Votes(t *testing.T) {
 	}
 
 	// Sign the v2 attestation
-	v2Attestation.Signature = SignContent(&v2Attestation, voterKeypair)
+	v2Attestation.Signature = identity.SignContent(&v2Attestation, voterKeypair)
 
 	v2Vote := &CheckpointVote{
 		Attestation: v2Attestation,

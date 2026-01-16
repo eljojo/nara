@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eljojo/nara/identity"
+	"github.com/eljojo/nara/types"
 	"tailscale.com/ipn/store/mem"
 	"tailscale.com/tsnet"
-
-	"github.com/eljojo/nara/types"
 )
 
 // MeshConnectionConfig holds configuration for connecting to the mesh
@@ -80,8 +80,8 @@ func NewMeshHTTPClient(server *tsnet.Server) *http.Client {
 // mesh URLs. It supports test mode for unit tests via optional URL overrides.
 type MeshClient struct {
 	httpClient *http.Client
-	name       types.NaraName // Who we are (for request signing)
-	keypair    NaraKeypair    // For signing requests
+	name       types.NaraName       // Who we are (for request signing)
+	keypair    identity.NaraKeypair // For signing requests
 
 	peers map[types.NaraID]string // naraID -> baseURL (e.g., "http://100.64.0.1:9632")
 
@@ -90,7 +90,7 @@ type MeshClient struct {
 }
 
 // NewMeshClient creates a new mesh client with the given identity
-func NewMeshClient(httpClient *http.Client, name types.NaraName, keypair NaraKeypair) *MeshClient {
+func NewMeshClient(httpClient *http.Client, name types.NaraName, keypair identity.NaraKeypair) *MeshClient {
 	return &MeshClient{
 		httpClient: httpClient,
 		name:       name,

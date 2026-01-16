@@ -9,6 +9,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
 )
 
@@ -866,8 +867,8 @@ func TestIntegration_ZineMergeMarksEmittersAsSeen(t *testing.T) {
 
 	// Create events that r2d2 emitted (like a tease)
 	// These are events we'd receive via zine merge
-	r2d2Soul := NativeSoulCustom([]byte("test-hw-r2d2"), "r2d2")
-	r2d2Keypair := DeriveKeypair(r2d2Soul)
+	r2d2Soul := identity.NativeSoulCustom([]byte("test-hw-r2d2"), "r2d2")
+	r2d2Keypair := identity.DeriveKeypair(r2d2Soul)
 	teaseEvent := NewSignedSocialSyncEvent("tease", "r2d2", "observer", ReasonHighRestarts, "witness", "r2d2", r2d2Keypair)
 
 	// Simulate receiving these events via zine merge
@@ -1045,7 +1046,7 @@ func TestIntegration_ChauEventShouldNotMarkOnline(t *testing.T) {
 	departing := testLocalNara(t, "departing-nara")
 	// Observer knows about departing nara
 	departingNara := NewNara("departing-nara")
-	departingNara.Status.PublicKey = FormatPublicKey(departing.Keypair.PublicKey)
+	departingNara.Status.PublicKey = identity.FormatPublicKey(departing.Keypair.PublicKey)
 	observer.Network.importNara(departingNara)
 
 	// Mark departing nara as online initially
@@ -1067,7 +1068,7 @@ func TestIntegration_ChauEventShouldNotMarkOnline(t *testing.T) {
 	}
 
 	// Create a chau event from departing-nara
-	chauEvent := NewChauSyncEvent("departing-nara", FormatPublicKey(departing.Keypair.PublicKey), departing.ID, departing.Keypair)
+	chauEvent := NewChauSyncEvent("departing-nara", identity.FormatPublicKey(departing.Keypair.PublicKey), departing.ID, departing.Keypair)
 
 	// Process the chau event via MergeSyncEventsWithVerification (simulates receiving via gossip)
 	observer.Network.MergeSyncEventsWithVerification([]SyncEvent{chauEvent})
@@ -1101,7 +1102,7 @@ func TestIntegration_ChauWithOtherEventsFromSameNara(t *testing.T) {
 	departing := testLocalNara(t, "condorito")
 	// Observer knows about condorito - CRITICAL: Set public key for signature verification
 	condoritoNara := NewNara("condorito")
-	condoritoNara.Status.PublicKey = FormatPublicKey(departing.Keypair.PublicKey)
+	condoritoNara.Status.PublicKey = identity.FormatPublicKey(departing.Keypair.PublicKey)
 	observer.Network.importNara(condoritoNara)
 
 	// Mark condorito as online initially
@@ -1154,7 +1155,7 @@ func TestIntegration_ChauWithOtherEventsFromSameNara(t *testing.T) {
 		Emitter:   "condorito",
 		Chau: &ChauEvent{
 			From:      "condorito",
-			PublicKey: FormatPublicKey(departing.Keypair.PublicKey),
+			PublicKey: identity.FormatPublicKey(departing.Keypair.PublicKey),
 		},
 	}
 	chauEvent.ComputeID()
@@ -1195,19 +1196,19 @@ func TestIntegration_SeenEventsOnlyForQuietNaras(t *testing.T) {
 	ln.setMeObservation(me)
 
 	// Create keypairs for test naras
-	activeSoul := NativeSoulCustom([]byte("test-hw-active"), "active-nara")
-	activeKeypair := DeriveKeypair(activeSoul)
+	activeSoul := identity.NativeSoulCustom([]byte("test-hw-active"), "active-nara")
+	activeKeypair := identity.DeriveKeypair(activeSoul)
 
-	quietSoul := NativeSoulCustom([]byte("test-hw-quiet"), "quiet-nara")
-	quietKeypair := DeriveKeypair(quietSoul)
+	quietSoul := identity.NativeSoulCustom([]byte("test-hw-quiet"), "quiet-nara")
+	quietKeypair := identity.DeriveKeypair(quietSoul)
 
 	// Import both naras with their public keys
 	activeNara := NewNara("active-nara")
-	activeNara.Status.PublicKey = FormatPublicKey(activeKeypair.PublicKey)
+	activeNara.Status.PublicKey = identity.FormatPublicKey(activeKeypair.PublicKey)
 	network.importNara(activeNara)
 
 	quietNara := NewNara("quiet-nara")
-	quietNara.Status.PublicKey = FormatPublicKey(quietKeypair.PublicKey)
+	quietNara.Status.PublicKey = identity.FormatPublicKey(quietKeypair.PublicKey)
 	network.importNara(quietNara)
 
 	// Active nara has emitted a recent event (within last 5 minutes)
@@ -1321,8 +1322,8 @@ func TestIntegration_MissingToOnlineViaSeenEvent_NoRestartIncrement(t *testing.T
 	ln.setObservation("bob", bobObs)
 
 	// Create a seen event from Alice saying she saw Bob
-	aliceSoul := NativeSoulCustom([]byte("test-hw-alice"), "alice")
-	aliceKeypair := DeriveKeypair(aliceSoul)
+	aliceSoul := identity.NativeSoulCustom([]byte("test-hw-alice"), "alice")
+	aliceKeypair := identity.DeriveKeypair(aliceSoul)
 	seenEvent := NewSeenSyncEvent("alice", "bob", "mesh", aliceKeypair)
 
 	// Simulate receiving this event through MergeSyncEventsWithVerification
@@ -1379,19 +1380,19 @@ func TestIntegration_NoRedundantSeenEventsForActiveNaras(t *testing.T) {
 	observer.setMeObservation(me)
 
 	// Create keypairs for test naras
-	aliceSoul := NativeSoulCustom([]byte("test-hw-alice"), "alice")
-	aliceKeypair := DeriveKeypair(aliceSoul)
+	aliceSoul := identity.NativeSoulCustom([]byte("test-hw-alice"), "alice")
+	aliceKeypair := identity.DeriveKeypair(aliceSoul)
 
-	bobSoul := NativeSoulCustom([]byte("test-hw-bob"), "bob")
-	bobKeypair := DeriveKeypair(bobSoul)
+	bobSoul := identity.NativeSoulCustom([]byte("test-hw-bob"), "bob")
+	bobKeypair := identity.DeriveKeypair(bobSoul)
 
 	// Import them
 	aliceNara := NewNara("alice")
-	aliceNara.Status.PublicKey = FormatPublicKey(aliceKeypair.PublicKey)
+	aliceNara.Status.PublicKey = identity.FormatPublicKey(aliceKeypair.PublicKey)
 	network.importNara(aliceNara)
 
 	bobNara := NewNara("bob")
-	bobNara.Status.PublicKey = FormatPublicKey(bobKeypair.PublicKey)
+	bobNara.Status.PublicKey = identity.FormatPublicKey(bobKeypair.PublicKey)
 	network.importNara(bobNara)
 
 	// Count seen events before processing
@@ -1438,10 +1439,10 @@ func TestIntegration_NoRedundantSeenEventsForActiveNaras(t *testing.T) {
 	// (naras we interact with who haven't emitted recently)
 
 	// Charlie is quiet (no recent events)
-	charlieSoul := NativeSoulCustom([]byte("test-hw-charlie"), "charlie")
-	charlieKeypair := DeriveKeypair(charlieSoul)
+	charlieSoul := identity.NativeSoulCustom([]byte("test-hw-charlie"), "charlie")
+	charlieKeypair := identity.DeriveKeypair(charlieSoul)
 	charlieNara := NewNara("charlie")
-	charlieNara.Status.PublicKey = FormatPublicKey(charlieKeypair.PublicKey)
+	charlieNara.Status.PublicKey = identity.FormatPublicKey(charlieKeypair.PublicKey)
 	network.importNara(charlieNara)
 
 	// Charlie had events 10 minutes ago (old, beyond the 5 minute threshold)

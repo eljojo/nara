@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/eljojo/nara/identity"
 )
 
 func TestHttpNaraeJsonHandler(t *testing.T) {
@@ -433,7 +435,7 @@ func TestHttpEventsSyncHandler(t *testing.T) {
 	}
 
 	// Verify signature with the nara's public key
-	pubKey, err := ParsePublicKey(ln.Me.Status.PublicKey)
+	pubKey, err := identity.ParsePublicKey(ln.Me.Status.PublicKey)
 	if err != nil {
 		t.Fatalf("failed to parse public key: %v", err)
 	}
@@ -537,7 +539,7 @@ func TestHttpDMHandler(t *testing.T) {
 	sender := testLocalNara(t, "sender")
 	// Receiver must know about sender (public key) to verify signature
 	senderNara := NewNara("sender")
-	senderNara.Status.PublicKey = FormatPublicKey(sender.Keypair.PublicKey)
+	senderNara.Status.PublicKey = identity.FormatPublicKey(sender.Keypair.PublicKey)
 	receiver.Network.importNara(senderNara)
 
 	// Create a signed tease event from sender to receiver
@@ -634,7 +636,7 @@ func TestHttpDMHandler_InvalidSignature(t *testing.T) {
 	wrongSender := testLocalNara(t, "wrong-sender")
 	// Receiver knows about sender
 	senderNara := NewNara("sender")
-	senderNara.Status.PublicKey = FormatPublicKey(sender.Keypair.PublicKey)
+	senderNara.Status.PublicKey = identity.FormatPublicKey(sender.Keypair.PublicKey)
 	receiver.Network.importNara(senderNara)
 
 	// Create event claiming to be from sender but signed by wrong keypair

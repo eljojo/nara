@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/sirupsen/logrus"
 )
 
@@ -69,7 +70,7 @@ func (network *Network) verifySoulAuth(req SoulAuthenticatedRequest) error {
 		return fmt.Errorf("invalid signature encoding: %w", err)
 	}
 
-	if !VerifySignature(network.local.Keypair.PublicKey, data, sig) {
+	if !identity.VerifySignature(network.local.Keypair.PublicKey, data, sig) {
 		return fmt.Errorf("signature verification failed")
 	}
 

@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
 )
 
@@ -45,8 +46,8 @@ func (e *SocialEvent) SignableContent() string {
 }
 
 // Sign signs the social event with the given keypair
-func (e *SocialEvent) Sign(kp NaraKeypair) {
-	e.Signature = SignContent(e, kp)
+func (e *SocialEvent) Sign(kp identity.NaraKeypair) {
+	e.Signature = identity.SignContent(e, kp)
 }
 
 // Verify verifies the social event signature
@@ -54,7 +55,7 @@ func (e *SocialEvent) Verify(publicKey []byte) bool {
 	if e.Signature == "" {
 		return false
 	}
-	return VerifyContent(e, publicKey, e.Signature)
+	return identity.VerifyContent(e, publicKey, e.Signature)
 }
 
 // ComputeID generates a deterministic ID from event content

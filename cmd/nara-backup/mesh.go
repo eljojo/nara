@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/eljojo/nara"
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
 	"github.com/sirupsen/logrus"
 	"tailscale.com/tsnet"
@@ -20,8 +21,8 @@ type BackupMesh struct {
 
 // NewBackupMesh creates a new mesh connection
 // Connects with ephemeral identity but signs requests as the provided nara
-func NewBackupMesh(ctx context.Context, naraName string, naraSoul nara.SoulV1) (*BackupMesh, error) {
-	naraKeypair := nara.DeriveKeypair(naraSoul)
+func NewBackupMesh(ctx context.Context, naraName string, naraSoul identity.SoulV1) (*BackupMesh, error) {
+	naraKeypair := identity.DeriveKeypair(naraSoul)
 
 	// Connect with ephemeral hostname (won't conflict with actual nara)
 	meshHostname := fmt.Sprintf("nara-backup-%d", time.Now().Unix()%100000)

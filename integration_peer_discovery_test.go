@@ -9,15 +9,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
 	"github.com/sirupsen/logrus"
 )
 
 // testPeerDiscoverySoul creates a unique soul for peer discovery tests
 func testPeerDiscoverySoul(name string) string {
-	hw := hashBytes([]byte("peer-discovery-test-" + name))
-	soul := NativeSoulCustom(hw, types.NaraName(name))
-	return FormatSoul(soul)
+	hw := identity.HashBytes([]byte("peer-discovery-test-" + name))
+	soul := identity.NativeSoulCustom(hw, types.NaraName(name))
+	return identity.FormatSoul(soul)
 }
 
 // TestIntegration_DiscoverNarasFromEventStream verifies that naras mentioned in
@@ -151,7 +152,7 @@ func TestIntegration_PeerResolutionProtocol(t *testing.T) {
 	}
 	bobNara := NewNara("bob")
 	bobNara.ID = bob.ID // Set ID so nameToID mapping is created
-	bobNara.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
+	bobNara.Status.PublicKey = identity.FormatPublicKey(bob.Keypair.PublicKey)
 	alice.Network.importNara(bobNara)
 	alice.setObservation("bob", NaraObservation{Online: "ONLINE"})
 
@@ -162,12 +163,12 @@ func TestIntegration_PeerResolutionProtocol(t *testing.T) {
 		types.NaraName("carol"): carolServer.URL,
 	}
 	aliceNara := NewNara("alice")
-	aliceNara.Status.PublicKey = FormatPublicKey(alice.Keypair.PublicKey)
+	aliceNara.Status.PublicKey = identity.FormatPublicKey(alice.Keypair.PublicKey)
 	bob.Network.importNara(aliceNara)
 	bob.setObservation("alice", NaraObservation{Online: "ONLINE"})
 	carolNaraForBob := NewNara("carol")
 	carolNaraForBob.ID = carol.ID // Set ID so nameToID mapping is created
-	carolNaraForBob.Status.PublicKey = FormatPublicKey(carol.Keypair.PublicKey)
+	carolNaraForBob.Status.PublicKey = identity.FormatPublicKey(carol.Keypair.PublicKey)
 	bob.Network.importNara(carolNaraForBob)
 	bob.setObservation("carol", NaraObservation{Online: "ONLINE"})
 
@@ -178,12 +179,12 @@ func TestIntegration_PeerResolutionProtocol(t *testing.T) {
 		types.NaraName("alice"): aliceServer.URL, // For responding directly to alice
 	}
 	bobNaraForCarol := NewNara("bob")
-	bobNaraForCarol.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
+	bobNaraForCarol.Status.PublicKey = identity.FormatPublicKey(bob.Keypair.PublicKey)
 	carol.Network.importNara(bobNaraForCarol)
 	carol.setObservation("bob", NaraObservation{Online: "ONLINE"})
 	// Carol knows ghost's identity
 	ghostNara := NewNara("ghost")
-	ghostNara.Status.PublicKey = FormatPublicKey(ghost.Keypair.PublicKey)
+	ghostNara.Status.PublicKey = identity.FormatPublicKey(ghost.Keypair.PublicKey)
 	ghostNara.Status.MeshIP = "100.64.0.99"
 	carol.Network.importNara(ghostNara)
 
@@ -202,7 +203,7 @@ func TestIntegration_PeerResolutionProtocol(t *testing.T) {
 	if response.PublicKey == "" {
 		t.Error("Response should contain ghost's public key")
 	}
-	if response.PublicKey != FormatPublicKey(ghost.Keypair.PublicKey) {
+	if response.PublicKey != identity.FormatPublicKey(ghost.Keypair.PublicKey) {
 		t.Error("Response public key should match ghost's actual public key")
 	}
 
@@ -432,7 +433,7 @@ func TestIntegration_ZineVerificationTriggersResolution(t *testing.T) {
 	}
 	bobNara := NewNara("bob")
 	bobNara.ID = bob.ID // Set ID so nameToID mapping is created
-	bobNara.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
+	bobNara.Status.PublicKey = identity.FormatPublicKey(bob.Keypair.PublicKey)
 	alice.Network.importNara(bobNara)
 	alice.setObservation("bob", NaraObservation{Online: "ONLINE"})
 
@@ -443,7 +444,7 @@ func TestIntegration_ZineVerificationTriggersResolution(t *testing.T) {
 	}
 	carolNaraForBob := NewNara("carol")
 	carolNaraForBob.ID = carol.ID // Set ID so nameToID mapping is created
-	carolNaraForBob.Status.PublicKey = FormatPublicKey(carol.Keypair.PublicKey)
+	carolNaraForBob.Status.PublicKey = identity.FormatPublicKey(carol.Keypair.PublicKey)
 	bob.Network.importNara(carolNaraForBob)
 	bob.setObservation("carol", NaraObservation{Online: "ONLINE"})
 
@@ -522,7 +523,7 @@ func TestIntegration_WorldJourneyTriggersResolution(t *testing.T) {
 	}
 	bobNara := NewNara("bob")
 	bobNara.ID = bob.ID // Set ID so nameToID mapping is created
-	bobNara.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
+	bobNara.Status.PublicKey = identity.FormatPublicKey(bob.Keypair.PublicKey)
 	alice.Network.importNara(bobNara)
 	alice.setObservation("bob", NaraObservation{Online: "ONLINE"})
 
@@ -534,13 +535,13 @@ func TestIntegration_WorldJourneyTriggersResolution(t *testing.T) {
 	}
 	aliceNaraForBob := NewNara("alice")
 	aliceNaraForBob.ID = alice.ID // Set ID so nameToID mapping is created
-	aliceNaraForBob.Status.PublicKey = FormatPublicKey(alice.Keypair.PublicKey)
+	aliceNaraForBob.Status.PublicKey = identity.FormatPublicKey(alice.Keypair.PublicKey)
 	bob.Network.importNara(aliceNaraForBob)
 	bob.setObservation("alice", NaraObservation{Online: "ONLINE"})
 
 	carolNaraForBob := NewNara("carol")
 	carolNaraForBob.ID = carol.ID // Set ID so nameToID mapping is created
-	carolNaraForBob.Status.PublicKey = FormatPublicKey(carol.Keypair.PublicKey)
+	carolNaraForBob.Status.PublicKey = identity.FormatPublicKey(carol.Keypair.PublicKey)
 	bob.Network.importNara(carolNaraForBob)
 	bob.setObservation("carol", NaraObservation{Online: "ONLINE"})
 
@@ -552,12 +553,12 @@ func TestIntegration_WorldJourneyTriggersResolution(t *testing.T) {
 	}
 	aliceNaraForCarol := NewNara("alice")
 	aliceNaraForCarol.ID = alice.ID // Set ID so nameToID mapping is created
-	aliceNaraForCarol.Status.PublicKey = FormatPublicKey(alice.Keypair.PublicKey)
+	aliceNaraForCarol.Status.PublicKey = identity.FormatPublicKey(alice.Keypair.PublicKey)
 	carol.Network.importNara(aliceNaraForCarol)
 
 	bobNaraForCarol := NewNara("bob")
 	bobNaraForCarol.ID = bob.ID // Set ID so nameToID mapping is created
-	bobNaraForCarol.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
+	bobNaraForCarol.Status.PublicKey = identity.FormatPublicKey(bob.Keypair.PublicKey)
 	carol.Network.importNara(bobNaraForCarol)
 
 	// Initialize world journey for alice, bob, and carol
@@ -586,7 +587,7 @@ func TestIntegration_WorldJourneyTriggersResolution(t *testing.T) {
 	// Bob needs to know carol to answer the query
 	carolNara := NewNara("carol")
 	carolNara.ID = carol.ID // Set ID so nameToID mapping is created
-	carolNara.Status.PublicKey = FormatPublicKey(carol.Keypair.PublicKey)
+	carolNara.Status.PublicKey = identity.FormatPublicKey(carol.Keypair.PublicKey)
 	bob.Network.importNara(carolNara)
 
 	// Alice DOES NOT know carol
@@ -653,20 +654,20 @@ func TestIntegration_MeshAuthTriggersResolution(t *testing.T) {
 	}
 	bobNara := NewNara("bob")
 	bobNara.ID = bob.ID // Set ID so nameToID mapping is created
-	bobNara.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
+	bobNara.Status.PublicKey = identity.FormatPublicKey(bob.Keypair.PublicKey)
 	alice.Network.importNara(bobNara)
 	alice.setObservation("bob", NaraObservation{Online: "ONLINE"})
 
 	// Bob knows carol
 	carolNaraForBob := NewNara("carol")
 	carolNaraForBob.ID = carol.ID // Set ID so nameToID mapping is created
-	carolNaraForBob.Status.PublicKey = FormatPublicKey(carol.Keypair.PublicKey)
+	carolNaraForBob.Status.PublicKey = identity.FormatPublicKey(carol.Keypair.PublicKey)
 	bob.Network.importNara(carolNaraForBob)
 	bob.setObservation("carol", NaraObservation{Online: "ONLINE"})
 
 	// Bob also needs to know Alice so his HandleIncoming doesn't log errors
 	aliceNaraForBob := NewNara("alice")
-	aliceNaraForBob.Status.PublicKey = FormatPublicKey(alice.Keypair.PublicKey)
+	aliceNaraForBob.Status.PublicKey = identity.FormatPublicKey(alice.Keypair.PublicKey)
 	bob.Network.importNara(aliceNaraForBob)
 
 	// Bob needs to be ONLINE for Alice to query him

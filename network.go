@@ -10,6 +10,7 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/sirupsen/logrus"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/runtime"
 	"github.com/eljojo/nara/services/stash"
 	"github.com/eljojo/nara/types"
@@ -330,7 +331,7 @@ func (network *Network) getPublicKeyForNara(name types.NaraName) []byte {
 		return nil
 	}
 
-	pubKey, err := ParsePublicKey(publicKey)
+	pubKey, err := identity.ParsePublicKey(publicKey)
 	if err != nil {
 		return nil
 	}

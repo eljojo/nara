@@ -9,6 +9,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
 	"github.com/sirupsen/logrus"
 )
@@ -44,7 +45,7 @@ func NewWorldMessage(message string, originator types.NaraName) *WorldMessage {
 }
 
 // AddHop adds a new hop to the journey, signing the current state
-func (wm *WorldMessage) AddHop(nara types.NaraName, keypair NaraKeypair, stamp string) error {
+func (wm *WorldMessage) AddHop(nara types.NaraName, keypair identity.NaraKeypair, stamp string) error {
 	hop := WorldHop{
 		Nara:      nara,
 		Timestamp: time.Now().Unix(),
@@ -134,7 +135,7 @@ func (wm *WorldMessage) VerifyChain(getPublicKey func(types.NaraName) []byte) er
 		}
 
 		dataToVerify := wm.dataToSignForHop(i)
-		if !VerifySignature(pubKey, dataToVerify, signature) {
+		if !identity.VerifySignature(pubKey, dataToVerify, signature) {
 			return fmt.Errorf("invalid signature from %s at hop %d", hop.Nara, i)
 		}
 	}

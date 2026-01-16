@@ -11,6 +11,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
 )
 
@@ -341,7 +342,7 @@ func (ln *LocalNara) inspectorCheckpointDetailHandler(w http.ResponseWriter, r *
 				}
 
 				signableContent := attestation.SignableContent()
-				if VerifySignatureBase64(pubKey, []byte(signableContent), signature) {
+				if identity.VerifySignatureBase64(pubKey, []byte(signableContent), signature) {
 					verified = true
 				} else {
 					errMsg := "signature verification failed"
@@ -699,14 +700,14 @@ func (ln *LocalNara) inspectorEventDetailHandler(w http.ResponseWriter, r *http.
 		case *HeyThereEvent:
 			// Embedded key - known if it parses
 			if p != nil && p.PublicKey != "" {
-				if _, err := ParsePublicKey(p.PublicKey); err == nil {
+				if _, err := identity.ParsePublicKey(p.PublicKey); err == nil {
 					publicKeyKnown = true
 				}
 			}
 		case *ChauEvent:
 			// Embedded key - known if it parses
 			if p != nil && p.PublicKey != "" {
-				if _, err := ParsePublicKey(p.PublicKey); err == nil {
+				if _, err := identity.ParsePublicKey(p.PublicKey); err == nil {
 					publicKeyKnown = true
 				}
 			}

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
 )
 
@@ -282,11 +283,11 @@ func TestSyncLedger_MaxEventsLimit(t *testing.T) {
 
 func TestSyncResponse_Signing(t *testing.T) {
 	// Create a keypair from a valid soul (use GenerateSoul or create bytes directly)
-	soul1 := SoulV1{}
+	soul1 := identity.SoulV1{}
 	for i := 0; i < 32; i++ {
 		soul1.Seed[i] = byte(i) // deterministic seed
 	}
-	keypair := DeriveKeypair(soul1)
+	keypair := identity.DeriveKeypair(soul1)
 
 	// Create some events
 	ledger := NewSyncLedger(1000)
@@ -304,11 +305,11 @@ func TestSyncResponse_Signing(t *testing.T) {
 	}
 
 	// Verify should fail with wrong public key
-	soul2 := SoulV1{}
+	soul2 := identity.SoulV1{}
 	for i := 0; i < 32; i++ {
 		soul2.Seed[i] = byte(255 - i) // different seed
 	}
-	otherKeypair := DeriveKeypair(soul2)
+	otherKeypair := identity.DeriveKeypair(soul2)
 	if response.VerifySignature(otherKeypair.PublicKey) {
 		t.Error("expected signature verification to fail with wrong key")
 	}
@@ -646,7 +647,7 @@ func TestSyncEvent_LegacyConversion(t *testing.T) {
 func TestSyncEvent_SignAndVerify(t *testing.T) {
 	// Create a keypair
 	pub, priv, _ := ed25519.GenerateKey(nil)
-	keypair := NaraKeypair{PrivateKey: priv, PublicKey: pub}
+	keypair := identity.NaraKeypair{PrivateKey: priv, PublicKey: pub}
 
 	// Test signing a social event
 	event := NewSocialSyncEvent("tease", "alice", "bob", "high-restarts", "")
@@ -680,7 +681,7 @@ func TestSyncEvent_SignAndVerify(t *testing.T) {
 
 func TestSyncEvent_SignedConstructors(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(nil)
-	keypair := NaraKeypair{PrivateKey: priv, PublicKey: pub}
+	keypair := identity.NaraKeypair{PrivateKey: priv, PublicKey: pub}
 
 	// Test signed social event constructor
 	social := NewSignedSocialSyncEvent("tease", "alice", "bob", "reason", "", "alice", keypair)
@@ -722,7 +723,7 @@ func TestSyncEvent_VerifyUnsigned(t *testing.T) {
 
 func TestSyncEvent_TamperedSignature(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(nil)
-	keypair := NaraKeypair{PrivateKey: priv, PublicKey: pub}
+	keypair := identity.NaraKeypair{PrivateKey: priv, PublicKey: pub}
 
 	// Create and sign an event
 	event := NewSignedSocialSyncEvent("tease", "alice", "bob", "reason", "", "alice", keypair)
@@ -738,7 +739,7 @@ func TestSyncEvent_TamperedSignature(t *testing.T) {
 
 func TestSyncLedger_AddSignedPingObservation(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(nil)
-	keypair := NaraKeypair{PrivateKey: priv, PublicKey: pub}
+	keypair := identity.NaraKeypair{PrivateKey: priv, PublicKey: pub}
 
 	ledger := NewSyncLedger(100)
 
@@ -763,7 +764,7 @@ func TestSyncLedger_AddSignedPingObservation(t *testing.T) {
 
 func TestSyncLedger_AddSignedPingObservationWithReplace(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(nil)
-	keypair := NaraKeypair{PrivateKey: priv, PublicKey: pub}
+	keypair := identity.NaraKeypair{PrivateKey: priv, PublicKey: pub}
 
 	ledger := NewSyncLedger(100)
 
@@ -1561,7 +1562,7 @@ func TestSyncLedger_SampleMode_CriticalEvents(t *testing.T) {
 
 	// Create a hey_there event
 	pub, priv, _ := ed25519.GenerateKey(nil)
-	keypair := NaraKeypair{PrivateKey: priv, PublicKey: pub}
+	keypair := identity.NaraKeypair{PrivateKey: priv, PublicKey: pub}
 	heyThere := NewHeyThereSyncEvent("bob", "bob-id", "100.64.0.1", "bob-id", keypair)
 	heyThere.Timestamp = baseTime + 1000
 	heyThere.ComputeID()

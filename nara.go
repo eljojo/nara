@@ -2,16 +2,16 @@ package nara
 
 import (
 	"fmt"
-
-	"github.com/eljojo/nara/types"
-	"github.com/shirou/gopsutil/v3/host"
-	"github.com/sirupsen/logrus"
-
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/eljojo/nara/identity"
+	"github.com/eljojo/nara/types"
+	"github.com/shirou/gopsutil/v3/host"
+	"github.com/sirupsen/logrus"
 )
 
 const NaraVersion = "0.2.0"
@@ -21,7 +21,7 @@ type LocalNara struct {
 	Network         *Network
 	Soul            string
 	ID              types.NaraID // Nara ID: deterministic hash of soul+name for unique identity
-	Keypair         NaraKeypair
+	Keypair         identity.NaraKeypair
 	SyncLedger      *SyncLedger      // Unified event store for all syncable data (social + ping + future types)
 	Projections     *ProjectionStore // Event-sourced projections for derived state
 	MemoryProfile   MemoryProfile
@@ -81,18 +81,18 @@ type NaraStatus struct {
 	// NOTE: Soul was removed - NEVER serialize private keys!
 }
 
-func NewLocalNara(identity IdentityResult, mqtt_host string, mqtt_user string, mqtt_pass string, forceChattiness int, memoryProfile MemoryProfile) (*LocalNara, error) {
-	logrus.Printf("📟 Booting nara: %s (%s)", identity.Name, identity.ID)
+func NewLocalNara(identityResult identity.IdentityResult, mqtt_host string, mqtt_user string, mqtt_pass string, forceChattiness int, memoryProfile MemoryProfile) (*LocalNara, error) {
+	logrus.Printf("📟 Booting nara: %s (%s)", identityResult.Name, identityResult.ID)
 
-	soulStr := FormatSoul(identity.Soul)
+	soulStr := identity.FormatSoul(identityResult.Soul)
 	if memoryProfile.MaxEvents <= 0 {
 		memoryProfile = DefaultMemoryProfile()
 	}
 
 	ln := &LocalNara{
-		Me:              NewNara(identity.Name),
+		Me:              NewNara(identityResult.Name),
 		Soul:            soulStr,
-		ID:              identity.ID,
+		ID:              identityResult.ID,
 		MemoryProfile:   memoryProfile,
 		forceChattiness: forceChattiness,
 		isRaspberryPi:   isRaspberryPi(),
@@ -102,15 +102,15 @@ func NewLocalNara(identity IdentityResult, mqtt_host string, mqtt_user string, m
 	ln.Me.Version = NaraVersion
 	ln.Me.Status.Version = NaraVersion
 	ln.Me.Status.Coordinates = NewNetworkCoordinate() // Initialize Vivaldi coordinates
-	ln.Me.Status.ID = identity.ID
+	ln.Me.Status.ID = identityResult.ID
 	ln.Me.Status.MemoryMode = string(memoryProfile.Mode)
 	ln.Me.Status.MemoryBudgetMB = memoryProfile.BudgetMB
 	ln.Me.Status.MemoryMaxEvents = memoryProfile.MaxEvents
 	// NOTE: Soul is NEVER set in Status - private keys must not be serialized!
 
 	// Derive Ed25519 keypair from soul
-	ln.Keypair = DeriveKeypair(identity.Soul)
-	ln.Me.Status.PublicKey = FormatPublicKey(ln.Keypair.PublicKey)
+	ln.Keypair = identity.DeriveKeypair(identityResult.Soul)
+	ln.Me.Status.PublicKey = identity.FormatPublicKey(ln.Keypair.PublicKey)
 	logrus.Printf("🔑 Keypair derived from soul")
 
 	ln.seedPersonality()

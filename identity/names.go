@@ -1,4 +1,4 @@
-package nara
+package identity
 
 import (
 	"crypto/sha256"
@@ -88,10 +88,11 @@ func CollectSoulFragments() string {
 
 // HashHardware creates a hardware fingerprint hash
 func HashHardware(fragments string) []byte {
-	return hashBytes([]byte(fragments))
+	return HashBytes([]byte(fragments))
 }
 
-func hashBytes(data []byte) []byte {
+// HashBytes creates a SHA256 hash of the given data
+func HashBytes(data []byte) []byte {
 	hasher := sha256.New()
 	hasher.Write(data)
 	return hasher.Sum(nil)

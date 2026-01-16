@@ -222,16 +222,27 @@ func (m *MockRuntime) Clear() {
 
 // MockKeypair is a fake keypair for testing.
 type MockKeypair struct {
-	pub  ed25519.PublicKey
-	priv ed25519.PrivateKey
+	pub          ed25519.PublicKey
+	priv         ed25519.PrivateKey
+	symmetricKey []byte // Cached encryption key
 }
 
 // NewMockKeypair creates a new mock keypair.
 func NewMockKeypair() *MockKeypair {
 	pub, priv, _ := ed25519.GenerateKey(nil)
+
+	// Derive and cache encryption key (same HKDF as production)
+	seed := priv.Seed()
+	hkdfReader := hkdf.New(sha256.New, seed, []byte("nara:stash:v1"), []byte("symmetric"))
+	symmetricKey := make([]byte, 32)
+	if _, err := io.ReadFull(hkdfReader, symmetricKey); err != nil {
+		panic("hkdf failed: " + err.Error())
+	}
+
 	return &MockKeypair{
-		pub:  pub,
-		priv: priv,
+		pub:          pub,
+		priv:         priv,
+		symmetricKey: symmetricKey,
 	}
 }
 

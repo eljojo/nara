@@ -6,6 +6,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
 )
 
@@ -459,7 +460,7 @@ func (network *Network) fetchSyncEventsFromMesh(naraID types.NaraID, name types.
 			publicKey := nara.Status.PublicKey
 			nara.mu.Unlock()
 			if publicKey != "" {
-				pubKey, err := ParsePublicKey(publicKey)
+				pubKey, err := identity.ParsePublicKey(publicKey)
 				if err == nil {
 					if response.VerifySignature(pubKey) {
 						verified = true

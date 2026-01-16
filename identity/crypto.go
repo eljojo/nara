@@ -1,4 +1,4 @@
-package nara
+package identity
 
 import (
 	"crypto/ed25519"
@@ -15,19 +15,23 @@ import (
 
 // NaraKeypair holds an Ed25519 keypair derived from a soul
 type NaraKeypair struct {
-	PrivateKey ed25519.PrivateKey
-	PublicKey  ed25519.PublicKey
+	PrivateKey    ed25519.PrivateKey
+	PublicKey     ed25519.PublicKey
+	EncryptionKey EncryptionKeypair // Cached encryption key for self-encryption
 }
 
 // DeriveKeypair deterministically derives an Ed25519 keypair from a soul's seed.
 // The soul's 32-byte seed is exactly Ed25519's SeedSize, so same soul = same keypair.
+// Also derives and caches the encryption key for efficiency.
 func DeriveKeypair(soul SoulV1) NaraKeypair {
 	privateKey := ed25519.NewKeyFromSeed(soul.Seed[:])
 	publicKey := privateKey.Public().(ed25519.PublicKey)
+	encryptionKey := DeriveEncryptionKeys(privateKey)
 
 	return NaraKeypair{
-		PrivateKey: privateKey,
-		PublicKey:  publicKey,
+		PrivateKey:    privateKey,
+		PublicKey:     publicKey,
+		EncryptionKey: encryptionKey,
 	}
 }
 
@@ -106,57 +110,81 @@ func VerifyContent(s Signable, publicKey []byte, signature string) bool {
 	return VerifySignatureBase64(publicKey, []byte(s.SignableContent()), signature)
 }
 
-// Seal encrypts plaintext using XChaCha20-Poly1305.
-// The encryption key is derived from the keypair's private key seed using HKDF.
-// This provides self-encryption: only the owner of the keypair can decrypt.
-func (kp NaraKeypair) Seal(plaintext []byte) (nonce, ciphertext []byte, err error) {
-	// Derive a 32-byte symmetric key from the Ed25519 seed using HKDF
-	seed := kp.PrivateKey.Seed()
-	hkdfReader := hkdf.New(sha256.New, seed, nil, []byte("nara-self-encryption"))
-	symmetricKey := make([]byte, chacha20poly1305.KeySize)
+// EncryptionKeypair holds a symmetric key derived from an Ed25519 private key
+// Used for self-encryption (encrypt data that only the owner can decrypt)
+type EncryptionKeypair struct {
+	SymmetricKey []byte // 32-byte key for XChaCha20-Poly1305
+}
+
+// DeriveEncryptionKeys derives a symmetric encryption key from an Ed25519 private key
+// Uses HKDF with SHA-256 to derive a 32-byte key for XChaCha20-Poly1305
+func DeriveEncryptionKeys(privateKey ed25519.PrivateKey) EncryptionKeypair {
+	// Extract the seed from the private key (first 32 bytes)
+	seed := privateKey.Seed()
+
+	// Use HKDF to derive the encryption key
+	// Salt: "nara:stash:v1" (domain separation)
+	// Info: "symmetric" (key purpose)
+	hkdfReader := hkdf.New(sha256.New, seed, []byte("nara:stash:v1"), []byte("symmetric"))
+
+	symmetricKey := make([]byte, 32)
 	if _, err := io.ReadFull(hkdfReader, symmetricKey); err != nil {
-		return nil, nil, err
+		// This should never happen with HKDF
+		panic("hkdf failed: " + err.Error())
 	}
 
-	// Create AEAD cipher
-	aead, err := chacha20poly1305.NewX(symmetricKey)
+	return EncryptionKeypair{
+		SymmetricKey: symmetricKey,
+	}
+}
+
+// EncryptForSelf encrypts plaintext using XChaCha20-Poly1305 with a random nonce
+// Returns the nonce and ciphertext separately so the nonce can be stored with the payload
+func (kp EncryptionKeypair) EncryptForSelf(plaintext []byte) (nonce, ciphertext []byte, err error) {
+	aead, err := chacha20poly1305.NewX(kp.SymmetricKey)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// Generate random nonce
+	// Generate random nonce (24 bytes for XChaCha20)
 	nonce = make([]byte, aead.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
 		return nil, nil, err
 	}
 
-	// Encrypt
+	// Encrypt (ciphertext includes auth tag)
 	ciphertext = aead.Seal(nil, nonce, plaintext, nil)
+
 	return nonce, ciphertext, nil
 }
 
-// Open decrypts ciphertext using XChaCha20-Poly1305.
-// Only the owner of the keypair can decrypt (same seed derives same key).
-func (kp NaraKeypair) Open(nonce, ciphertext []byte) ([]byte, error) {
-	// Derive the same symmetric key from the Ed25519 seed
-	seed := kp.PrivateKey.Seed()
-	hkdfReader := hkdf.New(sha256.New, seed, nil, []byte("nara-self-encryption"))
-	symmetricKey := make([]byte, chacha20poly1305.KeySize)
-	if _, err := io.ReadFull(hkdfReader, symmetricKey); err != nil {
-		return nil, err
-	}
-
-	// Create AEAD cipher
-	aead, err := chacha20poly1305.NewX(symmetricKey)
+// DecryptForSelf decrypts ciphertext using XChaCha20-Poly1305
+func (kp EncryptionKeypair) DecryptForSelf(nonce, ciphertext []byte) ([]byte, error) {
+	aead, err := chacha20poly1305.NewX(kp.SymmetricKey)
 	if err != nil {
 		return nil, err
 	}
 
-	// Decrypt
+	if len(nonce) != aead.NonceSize() {
+		return nil, errors.New("invalid nonce size")
+	}
+
 	plaintext, err := aead.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("decryption failed: invalid ciphertext or wrong key")
 	}
 
 	return plaintext, nil
+}
+
+// Seal encrypts plaintext using the cached encryption key.
+// Convenience method on NaraKeypair that delegates to EncryptionKey.
+func (kp NaraKeypair) Seal(plaintext []byte) (nonce, ciphertext []byte, err error) {
+	return kp.EncryptionKey.EncryptForSelf(plaintext)
+}
+
+// Open decrypts ciphertext using the cached encryption key.
+// Convenience method on NaraKeypair that delegates to EncryptionKey.
+func (kp NaraKeypair) Open(nonce, ciphertext []byte) ([]byte, error) {
+	return kp.EncryptionKey.DecryptForSelf(nonce, ciphertext)
 }

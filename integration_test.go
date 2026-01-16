@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
 )
 
@@ -40,7 +41,7 @@ func TestIntegration_MultiNaraNetwork(t *testing.T) {
 	for i := 0; i < numNaras; i++ {
 		name := fmt.Sprintf("test-nara-%d", i)
 		hwFingerprint := []byte(fmt.Sprintf("test-hw-fingerprint-%d", i))
-		identity := DetermineIdentity(types.NaraName(""), "", name, hwFingerprint)
+		identity := identity.DetermineIdentity(types.NaraName(""), "", name, hwFingerprint)
 
 		// Create LocalNara with embedded MQTT broker address
 		profile := DefaultMemoryProfile()
@@ -556,7 +557,7 @@ func TestIntegration_CheckpointSync(t *testing.T) {
 	// Import Alice's identity into Bob's network so signature verification works
 	aliceNara := NewNara(types.NaraName("alice"))
 	aliceNara.Status.ID = alice.Me.Status.ID
-	aliceNara.Status.PublicKey = FormatPublicKey(alice.Keypair.PublicKey)
+	aliceNara.Status.PublicKey = identity.FormatPublicKey(alice.Keypair.PublicKey)
 	aliceNara.Status.MeshIP = aliceAddr // Use just the addr (no http:// prefix)
 	bob.Network.importNara(aliceNara)
 
@@ -658,7 +659,7 @@ func TestIntegration_CheckpointSync(t *testing.T) {
 		// Import nara
 		naraObj := NewNara(types.NaraName(tn.name))
 		naraObj.Status.ID = tn.ln.Me.Status.ID
-		naraObj.Status.PublicKey = FormatPublicKey(tn.ln.Keypair.PublicKey)
+		naraObj.Status.PublicKey = identity.FormatPublicKey(tn.ln.Keypair.PublicKey)
 		naraObj.Status.MeshIP = tn.server.URL[7:] // Strip http://
 		charlie.Network.importNara(naraObj)
 

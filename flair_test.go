@@ -1,9 +1,10 @@
 package nara
 
 import (
-	"github.com/eljojo/nara/types"
 	"strings"
 	"testing"
+
+	"github.com/eljojo/nara/types"
 )
 
 // TestStartTimeConsensus_DeferredToFormOpinion verifies that:

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
 )
 
@@ -35,7 +36,7 @@ func TestCheckpoint_VoteAsOfTimeMismatch(t *testing.T) {
 		AttesterID: proposerID,
 		AsOfTime:   proposalAsOfTime,
 	}
-	proposalAttestation.Signature = SignContent(&proposalAttestation, proposerKeypair)
+	proposalAttestation.Signature = identity.SignContent(&proposalAttestation, proposerKeypair)
 
 	proposal := &CheckpointProposal{
 		Attestation: proposalAttestation,
@@ -57,7 +58,7 @@ func TestCheckpoint_VoteAsOfTimeMismatch(t *testing.T) {
 		AttesterID: voterID,
 		AsOfTime:   voteAsOfTime, // BUG: Different timestamp!
 	}
-	voteAttestation.Signature = SignContent(&voteAttestation, voterKeypair)
+	voteAttestation.Signature = identity.SignContent(&voteAttestation, voterKeypair)
 
 	vote := &CheckpointVote{
 		Attestation: voteAttestation,
@@ -160,7 +161,7 @@ func TestCheckpoint_SignatureFormatMismatch(t *testing.T) {
 		AttesterID: proposerID,
 		AsOfTime:   asOfTime,
 	}
-	proposalAttestation.Signature = SignContent(&proposalAttestation, proposerKeypair)
+	proposalAttestation.Signature = identity.SignContent(&proposalAttestation, proposerKeypair)
 
 	proposal := &CheckpointProposal{
 		Attestation: proposalAttestation,
@@ -181,7 +182,7 @@ func TestCheckpoint_SignatureFormatMismatch(t *testing.T) {
 		AttesterID: voterID,
 		AsOfTime:   asOfTime, // Same as proposal for now
 	}
-	voteAttestation.Signature = SignContent(&voteAttestation, voterKeypair)
+	voteAttestation.Signature = identity.SignContent(&voteAttestation, voterKeypair)
 
 	vote := &CheckpointVote{
 		Attestation: voteAttestation,

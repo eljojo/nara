@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/eljojo/nara"
+	"github.com/eljojo/nara/identity"
 	"github.com/sirupsen/logrus"
 )
 
@@ -63,11 +64,11 @@ Examples:
 
 	// Parse soul to derive keypair for signing
 	logrus.Info("🔑 Parsing soul...")
-	soul, err := nara.ParseSoul(*soulStr)
+	soul, err := identity.ParseSoul(*soulStr)
 	if err != nil {
 		logrus.Fatalf("❌ Invalid soul: %v", err)
 	}
-	keypair := nara.DeriveKeypair(soul)
+	keypair := identity.DeriveKeypair(soul)
 
 	// Read events from stdin (JSON Lines format - one JSON object per line)
 	logrus.Info("📖 Reading events from stdin...")

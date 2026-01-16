@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
 )
 
@@ -152,7 +153,7 @@ func (p *CheckpointEventPayload) VerifySignatureWithCounts(lookup PublicKeyLooku
 		}
 
 		signableContent := attestation.SignableContent()
-		if VerifySignatureBase64(pubKey, []byte(signableContent), p.Signatures[i]) {
+		if identity.VerifySignatureBase64(pubKey, []byte(signableContent), p.Signatures[i]) {
 			result.ValidCount++
 		}
 	}
@@ -251,7 +252,7 @@ func NewTestCheckpointEvent(subject types.NaraName, asOfTime, firstSeen, restart
 // Multiple naras can vote on the same checkpoint data,
 // making it a trusted anchor for historical state.
 // voterID is the nara's unique ID (not name).
-func (e *SyncEvent) AddCheckpointVoter(voterID types.NaraID, keypair NaraKeypair) {
+func (e *SyncEvent) AddCheckpointVoter(voterID types.NaraID, keypair identity.NaraKeypair) {
 	if e.Service != ServiceCheckpoint || e.Checkpoint == nil {
 		return
 	}
@@ -297,7 +298,7 @@ func (e *SyncEvent) VerifyCheckpointSignatures(publicKeys map[types.NaraID]strin
 			continue
 		}
 
-		if VerifySignature(ed25519.PublicKey(pubKeyBytes), data, sigBytes) {
+		if identity.VerifySignature(ed25519.PublicKey(pubKeyBytes), data, sigBytes) {
 			validCount++
 		}
 	}

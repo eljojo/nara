@@ -2,22 +2,24 @@ package nara
 
 import (
 	"encoding/hex"
-	"github.com/eljojo/nara/types"
 	"testing"
+
+	"github.com/eljojo/nara/identity"
+	"github.com/eljojo/nara/types"
 )
 
 // Test hardware fingerprints for deterministic testing
 var (
-	hw1 = hashBytes([]byte("hardware-1"))
-	hw2 = hashBytes([]byte("hardware-2"))
+	hw1 = identity.HashBytes([]byte("hardware-1"))
+	hw2 = identity.HashBytes([]byte("hardware-2"))
 )
 
 func TestSoulV1Format(t *testing.T) {
 	t.Parallel()
 	// Test that a soul can be created, formatted, and parsed back
-	soul := NativeSoulCustom(hw1, "jojo")
+	soul := identity.NativeSoulCustom(hw1, "jojo")
 
-	formatted := FormatSoul(soul)
+	formatted := identity.FormatSoul(soul)
 	t.Logf("Formatted soul: %s (len=%d)", formatted, len(formatted))
 
 	// Base58 encoding of 40 bytes should be roughly 54 chars
@@ -26,7 +28,7 @@ func TestSoulV1Format(t *testing.T) {
 	}
 
 	// Parse it back
-	parsed, err := ParseSoul(formatted)
+	parsed, err := identity.ParseSoul(formatted)
 	if err != nil {
 		t.Fatalf("Failed to parse soul: %v", err)
 	}
@@ -42,13 +44,13 @@ func TestSoulV1Format(t *testing.T) {
 func TestSoulV1InvalidFormat(t *testing.T) {
 	t.Parallel()
 	// Invalid Base58 should fail
-	_, err := ParseSoul("invalid!@#$")
+	_, err := identity.ParseSoul("invalid!@#$")
 	if err == nil {
 		t.Error("Expected error for invalid Base58")
 	}
 
 	// Too short should fail
-	_, err = ParseSoul("abc")
+	_, err = identity.ParseSoul("abc")
 	if err == nil {
 		t.Error("Expected error for too-short soul")
 	}
@@ -57,20 +59,20 @@ func TestSoulV1InvalidFormat(t *testing.T) {
 func TestBondValidation(t *testing.T) {
 	t.Parallel()
 	// Create a soul for "jojo"
-	soul := NativeSoulCustom(hw1, "jojo")
+	soul := identity.NativeSoulCustom(hw1, "jojo")
 
 	// Should be valid for "jojo"
-	if !ValidateBond(soul, "jojo") {
+	if !identity.ValidateBond(soul, "jojo") {
 		t.Error("Expected valid bond for correct name")
 	}
 
 	// Should be invalid for different name
-	if ValidateBond(soul, "other") {
+	if identity.ValidateBond(soul, "other") {
 		t.Error("Expected invalid bond for wrong name")
 	}
 
 	// Should be invalid for empty name
-	if ValidateBond(soul, "") {
+	if identity.ValidateBond(soul, "") {
 		t.Error("Expected invalid bond for empty name")
 	}
 }
@@ -78,21 +80,21 @@ func TestBondValidation(t *testing.T) {
 func TestNativeSoulDeterminism(t *testing.T) {
 	t.Parallel()
 	// Same hw + name should always produce same soul
-	soul1 := NativeSoulCustom(hw1, "jojo")
-	soul2 := NativeSoulCustom(hw1, "jojo")
+	soul1 := identity.NativeSoulCustom(hw1, "jojo")
+	soul2 := identity.NativeSoulCustom(hw1, "jojo")
 
 	if soul1.Seed != soul2.Seed || soul1.Tag != soul2.Tag {
 		t.Error("NativeSoulCustom should be deterministic")
 	}
 
 	// Different hw should produce different soul
-	soul3 := NativeSoulCustom(hw2, "jojo")
+	soul3 := identity.NativeSoulCustom(hw2, "jojo")
 	if soul1.Seed == soul3.Seed {
 		t.Error("Different hardware should produce different seed")
 	}
 
 	// Different name should produce different soul
-	soul4 := NativeSoulCustom(hw1, "other")
+	soul4 := identity.NativeSoulCustom(hw1, "other")
 	if soul1.Seed == soul4.Seed {
 		t.Error("Different name should produce different seed")
 	}
@@ -101,8 +103,8 @@ func TestNativeSoulDeterminism(t *testing.T) {
 func TestNativeSoulGenerated(t *testing.T) {
 	t.Parallel()
 	// Generated soul mode (no name provided)
-	soul1 := NativeSoulGenerated(hw1)
-	soul2 := NativeSoulGenerated(hw1)
+	soul1 := identity.NativeSoulGenerated(hw1)
+	soul2 := identity.NativeSoulGenerated(hw1)
 
 	// Should be deterministic
 	if soul1.Seed != soul2.Seed || soul1.Tag != soul2.Tag {
@@ -110,21 +112,21 @@ func TestNativeSoulGenerated(t *testing.T) {
 	}
 
 	// Different hw should produce different soul
-	soul3 := NativeSoulGenerated(hw2)
+	soul3 := identity.NativeSoulGenerated(hw2)
 	if soul1.Seed == soul3.Seed {
 		t.Error("Different hardware should produce different generated soul")
 	}
 
 	// The generated name should be derivable from the seed
-	name1 := GenerateName(hex.EncodeToString(soul1.Seed[:]))
-	name2 := GenerateName(hex.EncodeToString(soul3.Seed[:]))
+	name1 := identity.GenerateName(hex.EncodeToString(soul1.Seed[:]))
+	name2 := identity.GenerateName(hex.EncodeToString(soul3.Seed[:]))
 
 	if name1 == name2 {
 		t.Error("Different hw should produce different generated names")
 	}
 
 	// The soul should be valid for its generated name
-	if !ValidateBond(soul1, types.NaraName(name1)) {
+	if !identity.ValidateBond(soul1, types.NaraName(name1)) {
 		t.Error("Generated soul should be valid for its derived name")
 	}
 }
@@ -134,16 +136,16 @@ func TestCrossHardwareValidity(t *testing.T) {
 	// Core requirement: soul from HW1 is VALID on HW2 (foreign but valid bond)
 
 	// Create soul for "jojo" on HW1
-	soulHW1 := NativeSoulCustom(hw1, "jojo")
+	soulHW1 := identity.NativeSoulCustom(hw1, "jojo")
 
 	// Create soul for "jojo" on HW2
-	soulHW2 := NativeSoulCustom(hw2, "jojo")
+	soulHW2 := identity.NativeSoulCustom(hw2, "jojo")
 
 	// Both should be valid bonds for "jojo"
-	if !ValidateBond(soulHW1, "jojo") {
+	if !identity.ValidateBond(soulHW1, "jojo") {
 		t.Error("HW1 soul should be valid for jojo")
 	}
-	if !ValidateBond(soulHW2, "jojo") {
+	if !identity.ValidateBond(soulHW2, "jojo") {
 		t.Error("HW2 soul should be valid for jojo")
 	}
 
@@ -153,8 +155,8 @@ func TestCrossHardwareValidity(t *testing.T) {
 	}
 
 	// A random/wrong soul should NOT be valid for "jojo"
-	wrongSoul := NativeSoulCustom(hw1, "wrongname")
-	if ValidateBond(wrongSoul, "jojo") {
+	wrongSoul := identity.NativeSoulCustom(hw1, "wrongname")
+	if identity.ValidateBond(wrongSoul, "jojo") {
 		t.Error("Soul for 'wrongname' should not be valid for 'jojo'")
 	}
 }
@@ -162,7 +164,7 @@ func TestCrossHardwareValidity(t *testing.T) {
 func TestDetermineIdentityCustomName(t *testing.T) {
 	t.Parallel()
 	// ./nara -name jojo on HW1
-	result := DetermineIdentity(types.NaraName("jojo"), "", "nixos", hw1)
+	result := identity.DetermineIdentity(types.NaraName("jojo"), "", "nixos", hw1)
 
 	if result.Name != "jojo" {
 		t.Errorf("Expected name 'jojo', got '%s'", result.Name)
@@ -175,8 +177,8 @@ func TestDetermineIdentityCustomName(t *testing.T) {
 	}
 
 	// Same soul should work on HW2 (foreign but valid)
-	soulStr := FormatSoul(result.Soul)
-	result2 := DetermineIdentity(types.NaraName("jojo"), soulStr, "nixos", hw2)
+	soulStr := identity.FormatSoul(result.Soul)
+	result2 := identity.DetermineIdentity(types.NaraName("jojo"), soulStr, "nixos", hw2)
 
 	if result2.Name != "jojo" {
 		t.Errorf("Expected name 'jojo', got '%s'", result2.Name)
@@ -192,7 +194,7 @@ func TestDetermineIdentityCustomName(t *testing.T) {
 func TestDetermineIdentityGeneratedName(t *testing.T) {
 	t.Parallel()
 	// ./nara (no name, generic hostname) on HW1
-	result1 := DetermineIdentity("", "", "nixos", hw1)
+	result1 := identity.DetermineIdentity("", "", "nixos", hw1)
 
 	// Should have generated a name
 	if result1.Name == "" || result1.Name == "nixos" {
@@ -208,14 +210,14 @@ func TestDetermineIdentityGeneratedName(t *testing.T) {
 	}
 
 	// Same on HW2 should get different name
-	result2 := DetermineIdentity("", "", "nixos", hw2)
+	result2 := identity.DetermineIdentity("", "", "nixos", hw2)
 	if result1.Name == result2.Name {
 		t.Error("Different hardware should produce different generated names")
 	}
 
 	// Passing HW1's soul to HW2 should preserve the name
-	soulStr := FormatSoul(result1.Soul)
-	result3 := DetermineIdentity("", soulStr, "nixos", hw2)
+	soulStr := identity.FormatSoul(result1.Soul)
+	result3 := identity.DetermineIdentity("", soulStr, "nixos", hw2)
 
 	if result3.Name != result1.Name {
 		t.Errorf("Expected preserved name '%s', got '%s'", result1.Name, result3.Name)
@@ -231,10 +233,10 @@ func TestDetermineIdentityGeneratedName(t *testing.T) {
 func TestDetermineIdentityInvalidSoul(t *testing.T) {
 	t.Parallel()
 	// ./nara -name jojo -soul <soul-for-other-name>
-	wrongSoul := NativeSoulCustom(hw1, "wrongname")
-	wrongSoulStr := FormatSoul(wrongSoul)
+	wrongSoul := identity.NativeSoulCustom(hw1, "wrongname")
+	wrongSoulStr := identity.FormatSoul(wrongSoul)
 
-	result := DetermineIdentity(types.NaraName("jojo"), wrongSoulStr, "nixos", hw1)
+	result := identity.DetermineIdentity(types.NaraName("jojo"), wrongSoulStr, "nixos", hw1)
 
 	if result.Name != "jojo" {
 		t.Errorf("Name should still be 'jojo', got '%s'", result.Name)
@@ -247,7 +249,7 @@ func TestDetermineIdentityInvalidSoul(t *testing.T) {
 func TestDetermineIdentityHostnameAsName(t *testing.T) {
 	t.Parallel()
 	// ./nara (no -name flag, but hostname is "myserver")
-	result := DetermineIdentity("", "", "myserver", hw1)
+	result := identity.DetermineIdentity("", "", "myserver", hw1)
 
 	if result.Name != "myserver" {
 		t.Errorf("Expected hostname 'myserver', got '%s'", result.Name)
@@ -266,8 +268,8 @@ func TestGeneratedNameRegexProtection(t *testing.T) {
 	// Name: "fuzzy-cat-123" (looks generated)
 	// Soul: random soul not minted for this name
 
-	randomSoul := NativeSoulCustom(hw1, "attacker")
-	result := DetermineIdentity(types.NaraName("fuzzy-cat-123"), FormatSoul(randomSoul), "nixos", hw1)
+	randomSoul := identity.NativeSoulCustom(hw1, "attacker")
+	result := identity.DetermineIdentity(types.NaraName("fuzzy-cat-123"), identity.FormatSoul(randomSoul), "nixos", hw1)
 
 	if result.IsValidBond {
 		t.Error("Generated-style name with wrong soul should be invalid")
