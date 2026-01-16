@@ -38,7 +38,7 @@ import "github.com/eljojo/nara/services/stash"
 
 
 <a name="EncryptedStash"></a>
-## type [EncryptedStash](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L50-L55>)
+## type [EncryptedStash](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L48-L53>)
 
 EncryptedStash is what we store for other naras.
 
@@ -52,7 +52,7 @@ type EncryptedStash struct {
 ```
 
 <a name="Service"></a>
-## type [Service](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L24-L47>)
+## type [Service](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L22-L45>)
 
 Service implements distributed encrypted storage \(stash\).
 
@@ -65,7 +65,7 @@ type Service struct {
 ```
 
 <a name="NewService"></a>
-### func [NewService](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L58>)
+### func [NewService](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L56>)
 
 ```go
 func NewService() *Service
@@ -74,7 +74,7 @@ func NewService() *Service
 NewService creates a new stash service.
 
 <a name="Service.ClearMyStash"></a>
-### func \(\*Service\) [ClearMyStash](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L365>)
+### func \(\*Service\) [ClearMyStash](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L361>)
 
 ```go
 func (s *Service) ClearMyStash()
@@ -83,7 +83,7 @@ func (s *Service) ClearMyStash()
 ClearMyStash clears the local stash data \(used for testing restart scenarios\).
 
 <a name="Service.DistributeToConfidants"></a>
-### func \(\*Service\) [DistributeToConfidants](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L373>)
+### func \(\*Service\) [DistributeToConfidants](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L369>)
 
 ```go
 func (s *Service) DistributeToConfidants() error
@@ -92,7 +92,7 @@ func (s *Service) DistributeToConfidants() error
 DistributeToConfidants distributes the current stash to all configured confidants.
 
 <a name="Service.GetStashData"></a>
-### func \(\*Service\) [GetStashData](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L351>)
+### func \(\*Service\) [GetStashData](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L347>)
 
 ```go
 func (s *Service) GetStashData() (data []byte, timestamp int64)
@@ -101,7 +101,7 @@ func (s *Service) GetStashData() (data []byte, timestamp int64)
 GetStashData returns the current stash data.
 
 <a name="Service.HasStashData"></a>
-### func \(\*Service\) [HasStashData](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L358>)
+### func \(\*Service\) [HasStashData](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L354>)
 
 ```go
 func (s *Service) HasStashData() bool
@@ -110,7 +110,7 @@ func (s *Service) HasStashData() bool
 HasStashData returns true if we have stash data configured.
 
 <a name="Service.HasStashFor"></a>
-### func \(\*Service\) [HasStashFor](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L417>)
+### func \(\*Service\) [HasStashFor](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L413>)
 
 ```go
 func (s *Service) HasStashFor(ownerID types.NaraID) bool
@@ -119,7 +119,7 @@ func (s *Service) HasStashFor(ownerID types.NaraID) bool
 HasStashFor returns true if we're storing a stash for the given owner.
 
 <a name="Service.Init"></a>
-### func \(\*Service\) [Init](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L74>)
+### func \(\*Service\) [Init](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L72>)
 
 ```go
 func (s *Service) Init(rt runtime.RuntimeInterface, log *runtime.ServiceLog) error
@@ -128,7 +128,7 @@ func (s *Service) Init(rt runtime.RuntimeInterface, log *runtime.ServiceLog) err
 
 
 <a name="Service.MarshalState"></a>
-### func \(\*Service\) [MarshalState](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L449>)
+### func \(\*Service\) [MarshalState](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L445>)
 
 ```go
 func (s *Service) MarshalState() ([]byte, error)
@@ -137,7 +137,7 @@ func (s *Service) MarshalState() ([]byte, error)
 MarshalState returns the service's state as JSON for persistence.
 
 <a name="Service.Name"></a>
-### func \(\*Service\) [Name](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L70>)
+### func \(\*Service\) [Name](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L68>)
 
 ```go
 func (s *Service) Name() string
@@ -146,7 +146,7 @@ func (s *Service) Name() string
 
 
 <a name="Service.RecoverFromAny"></a>
-### func \(\*Service\) [RecoverFromAny](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L182>)
+### func \(\*Service\) [RecoverFromAny](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L180>)
 
 ```go
 func (s *Service) RecoverFromAny() ([]byte, error)
@@ -170,7 +170,7 @@ This is called during service initialization to declare how each stash message k
 If the runtime implements BehaviorRegistry \(like MockRuntime\), behaviors are registered locally for test isolation. Otherwise, uses the global registry.
 
 <a name="Service.RequestFrom"></a>
-### func \(\*Service\) [RequestFrom](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L147>)
+### func \(\*Service\) [RequestFrom](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L145>)
 
 ```go
 func (s *Service) RequestFrom(confidantID types.NaraID) ([]byte, error)
@@ -181,7 +181,7 @@ RequestFrom requests stored data from a confidant.
 Returns the decrypted data if the confidant has it, or an error.
 
 <a name="Service.SelectConfidantsAutomatically"></a>
-### func \(\*Service\) [SelectConfidantsAutomatically](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L213>)
+### func \(\*Service\) [SelectConfidantsAutomatically](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L211>)
 
 ```go
 func (s *Service) SelectConfidantsAutomatically() error
@@ -190,7 +190,7 @@ func (s *Service) SelectConfidantsAutomatically() error
 SelectConfidantsAutomatically picks 3 confidants automatically: \- First: peer with highest uptime \- Second and third: random peers Returns error if unable to find 3 willing peers.
 
 <a name="Service.SetConfidants"></a>
-### func \(\*Service\) [SetConfidants](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L199>)
+### func \(\*Service\) [SetConfidants](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L197>)
 
 ```go
 func (s *Service) SetConfidants(confidantIDs []types.NaraID)
@@ -199,7 +199,7 @@ func (s *Service) SetConfidants(confidantIDs []types.NaraID)
 SetConfidants configures the list of confidants to use.
 
 <a name="Service.SetStashData"></a>
-### func \(\*Service\) [SetStashData](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L328>)
+### func \(\*Service\) [SetStashData](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L324>)
 
 ```go
 func (s *Service) SetStashData(data []byte) error
@@ -208,7 +208,7 @@ func (s *Service) SetStashData(data []byte) error
 SetStashData updates the stash data and distributes it to all confidants. If fewer than targetConfidants are configured, it automatically selects peers.
 
 <a name="Service.Start"></a>
-### func \(\*Service\) [Start](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L88>)
+### func \(\*Service\) [Start](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L86>)
 
 ```go
 func (s *Service) Start() error
@@ -217,7 +217,7 @@ func (s *Service) Start() error
 
 
 <a name="Service.Stop"></a>
-### func \(\*Service\) [Stop](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L93>)
+### func \(\*Service\) [Stop](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L91>)
 
 ```go
 func (s *Service) Stop() error
@@ -226,7 +226,7 @@ func (s *Service) Stop() error
 
 
 <a name="Service.StoreWith"></a>
-### func \(\*Service\) [StoreWith](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L109>)
+### func \(\*Service\) [StoreWith](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L107>)
 
 ```go
 func (s *Service) StoreWith(confidantID types.NaraID, data []byte) error
@@ -237,7 +237,7 @@ StoreWith stores encrypted data with a confidant.
 This is a synchronous call that blocks until the confidant acknowledges receipt or the request times out.
 
 <a name="Service.TargetConfidants"></a>
-### func \(\*Service\) [TargetConfidants](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L205>)
+### func \(\*Service\) [TargetConfidants](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L203>)
 
 ```go
 func (s *Service) TargetConfidants() int
@@ -246,7 +246,7 @@ func (s *Service) TargetConfidants() int
 TargetConfidants returns the target number of confidants.
 
 <a name="Service.UnmarshalState"></a>
-### func \(\*Service\) [UnmarshalState](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L469>)
+### func \(\*Service\) [UnmarshalState](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L465>)
 
 ```go
 func (s *Service) UnmarshalState(data []byte) error

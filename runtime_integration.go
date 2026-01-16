@@ -12,8 +12,12 @@ import (
 // initRuntime creates and initializes the Runtime with all services and adapters.
 // This wires the new runtime-based architecture into the existing Network.
 func (network *Network) initRuntime() error {
+	start := time.Now()
+	logrus.Debugf("🎯 [TIMING] initRuntime() starting...")
+
 	// Skip if already initialized
 	if network.runtime != nil {
+		logrus.Debugf("🎯 [TIMING] initRuntime() skipped (already initialized) - took %v", time.Since(start))
 		return nil
 	}
 
@@ -82,7 +86,7 @@ func (network *Network) initRuntime() error {
 	network.runtime = rt
 	network.stashService = stashService
 
-	logrus.Info("🎯 Runtime initialized with stash service")
+	logrus.Infof("🎯 [TIMING] initRuntime() completed - took %v", time.Since(start))
 
 	return nil
 }
@@ -90,7 +94,11 @@ func (network *Network) initRuntime() error {
 // startRuntime starts the runtime and all registered services.
 // This should be called during Network.Start() after other initialization.
 func (network *Network) startRuntime() error {
+	start := time.Now()
+	logrus.Debugf("🎯 [TIMING] startRuntime() starting...")
+
 	if network.runtime == nil {
+		logrus.Debugf("🎯 [TIMING] startRuntime() skipped (no runtime) - took %v", time.Since(start))
 		return nil // No runtime configured
 	}
 
@@ -98,7 +106,7 @@ func (network *Network) startRuntime() error {
 		return err
 	}
 
-	logrus.Info("🎯 Runtime started")
+	logrus.Infof("🎯 [TIMING] startRuntime() completed - took %v", time.Since(start))
 	return nil
 }
 

@@ -7,6 +7,7 @@ import (
 	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/runtime"
 	"github.com/eljojo/nara/types"
+	"github.com/sirupsen/logrus"
 )
 
 // === Transport Adapter ===
@@ -159,6 +160,11 @@ func NewLogServiceAdapter(logService *LogService) *LogServiceAdapter {
 
 // Debug logs a debug message to the log service.
 func (a *LogServiceAdapter) Debug(service string, format string, args ...any) {
+	if a.logService == nil {
+		// Fallback to logrus if log service not initialized
+		logrus.Debugf("[%s] "+format, append([]any{service}, args...)...)
+		return
+	}
 	// LogService doesn't have Debug level, use Info
 	// Convert service name to uppercase category dynamically (e.g., "stash" → "STASH")
 	category := LogCategory(strings.ToUpper(service))
@@ -167,18 +173,33 @@ func (a *LogServiceAdapter) Debug(service string, format string, args ...any) {
 
 // Info logs an info message to the log service.
 func (a *LogServiceAdapter) Info(service string, format string, args ...any) {
+	if a.logService == nil {
+		// Fallback to logrus if log service not initialized
+		logrus.Infof("[%s] "+format, append([]any{service}, args...)...)
+		return
+	}
 	category := LogCategory(strings.ToUpper(service))
 	a.logService.Info(category, format, args...)
 }
 
 // Warn logs a warning message to the log service.
 func (a *LogServiceAdapter) Warn(service string, format string, args ...any) {
+	if a.logService == nil {
+		// Fallback to logrus if log service not initialized
+		logrus.Warnf("[%s] "+format, append([]any{service}, args...)...)
+		return
+	}
 	category := LogCategory(strings.ToUpper(service))
 	a.logService.Warn(category, format, args...)
 }
 
 // Error logs an error message to the log service.
 func (a *LogServiceAdapter) Error(service string, format string, args ...any) {
+	if a.logService == nil {
+		// Fallback to logrus if log service not initialized
+		logrus.Errorf("[%s] "+format, append([]any{service}, args...)...)
+		return
+	}
 	category := LogCategory(strings.ToUpper(service))
 	a.logService.Error(category, format, args...)
 }
