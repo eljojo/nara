@@ -17,7 +17,7 @@ func (s *Service) handleRefreshV1(msg *runtime.Message, p *messages.StashRefresh
 	s.log.Debug("received refresh request from %s", p.OwnerID)
 
 	// Check if we have a stash for this owner
-	stash := s.retrieve(p.OwnerID)
+	stash := s.GetStoredStash(p.OwnerID)
 	if stash == nil {
 		s.log.Debug("no stash for %s", p.OwnerID)
 		return
@@ -117,12 +117,10 @@ func (s *Service) handleRequestV1(msg *runtime.Message, p *messages.StashRequest
 		return
 	}
 
-	// Look up their stash
-	stash := s.retrieve(p.OwnerID)
+	stash := s.GetStoredStash(p.OwnerID)
 	if stash == nil {
-		s.log.Debug("no stash for %s", p.OwnerID)
-
-		// Send not-found response
+		s.log.Warn("request failed: no stash found for %s", p.OwnerID)
+		// Respond anyway but with Found=false
 		_ = s.rt.Emit(msg.Reply("stash:response", &messages.StashResponsePayload{
 			OwnerID:   p.OwnerID,
 			RequestID: p.RequestID,
