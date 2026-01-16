@@ -151,6 +151,11 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 		mux.HandleFunc("/api/inspector/event/", network.local.inspectorEventDetailHandler)
 		mux.HandleFunc("/api/inspector/uptime/", network.local.inspectorUptimeHandler)
 
+		// Catch-all for unknown API endpoints - return 404 instead of SPA
+		mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+			http.NotFound(w, r)
+		})
+
 		// SPA handler - serves inspector.html for all app routes
 		// This is the main page at / with all tabs (Home, World, Timeline, etc.)
 		spaHandler := func(w http.ResponseWriter, r *http.Request) {

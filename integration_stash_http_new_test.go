@@ -228,12 +228,7 @@ func TestStashHTTPEndpoints_NotFound(t *testing.T) {
 
 	logrus.SetLevel(logrus.WarnLevel)
 
-	nara := testNara(t, "test-nara")
-	go nara.Start(true, false, ":0", nil, TransportGossip)
-	time.Sleep(200 * time.Millisecond)
-
-	port := ":8080" // Default
-	baseURL := fmt.Sprintf("http://localhost%s", port)
+	_, baseURL := testNaraWithHTTP(t, "test-nara")
 
 	// Test that a non-existent endpoint returns 404
 	resp, err := http.Get(baseURL + "/api/stash/nonexistent")

@@ -1035,7 +1035,7 @@ func (m *Message) VerifySignature(pubKey []byte) bool
 VerifySignature checks if the signature is valid for this message.
 
 <a name="MockKeypair"></a>
-## type [MockKeypair](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L221-L224>)
+## type [MockKeypair](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L224-L227>)
 
 MockKeypair is a fake keypair for testing.
 
@@ -1046,7 +1046,7 @@ type MockKeypair struct {
 ```
 
 <a name="NewMockKeypair"></a>
-### func [NewMockKeypair](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L227>)
+### func [NewMockKeypair](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L230>)
 
 ```go
 func NewMockKeypair() *MockKeypair
@@ -1055,7 +1055,7 @@ func NewMockKeypair() *MockKeypair
 NewMockKeypair creates a new mock keypair.
 
 <a name="MockKeypair.Open"></a>
-### func \(\*MockKeypair\) [Open](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L271>)
+### func \(\*MockKeypair\) [Open](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L274>)
 
 ```go
 func (k *MockKeypair) Open(nonce, ciphertext []byte) ([]byte, error)
@@ -1064,7 +1064,7 @@ func (k *MockKeypair) Open(nonce, ciphertext []byte) ([]byte, error)
 Open decrypts ciphertext using XChaCha20\-Poly1305.
 
 <a name="MockKeypair.PublicKey"></a>
-### func \(\*MockKeypair\) [PublicKey](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L239>)
+### func \(\*MockKeypair\) [PublicKey](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L242>)
 
 ```go
 func (k *MockKeypair) PublicKey() []byte
@@ -1073,7 +1073,7 @@ func (k *MockKeypair) PublicKey() []byte
 
 
 <a name="MockKeypair.Seal"></a>
-### func \(\*MockKeypair\) [Seal](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L244>)
+### func \(\*MockKeypair\) [Seal](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L247>)
 
 ```go
 func (k *MockKeypair) Seal(plaintext []byte) (nonce, ciphertext []byte, err error)
@@ -1082,7 +1082,7 @@ func (k *MockKeypair) Seal(plaintext []byte) (nonce, ciphertext []byte, err erro
 Seal encrypts plaintext using XChaCha20\-Poly1305.
 
 <a name="MockKeypair.Sign"></a>
-### func \(\*MockKeypair\) [Sign](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L235>)
+### func \(\*MockKeypair\) [Sign](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L238>)
 
 ```go
 func (k *MockKeypair) Sign(data []byte) []byte
@@ -1114,7 +1114,7 @@ func NewMockRuntime(t *testing.T, name types.NaraName, id types.NaraID) *MockRun
 NewMockRuntime creates a mock runtime with auto\-cleanup via t.Cleanup\(\).
 
 <a name="MockRuntime.Clear"></a>
-### func \(\*MockRuntime\) [Clear](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L214>)
+### func \(\*MockRuntime\) [Clear](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L217>)
 
 ```go
 func (m *MockRuntime) Clear()
@@ -1123,7 +1123,7 @@ func (m *MockRuntime) Clear()
 Clear clears all captured messages.
 
 <a name="MockRuntime.Deliver"></a>
-### func \(\*MockRuntime\) [Deliver](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L138>)
+### func \(\*MockRuntime\) [Deliver](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L141>)
 
 ```go
 func (m *MockRuntime) Deliver(msg *Message)
@@ -1143,7 +1143,7 @@ func (m *MockRuntime) Emit(msg *Message) error
 Emit captures messages for test assertions.
 
 <a name="MockRuntime.EmittedCount"></a>
-### func \(\*MockRuntime\) [EmittedCount](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L190>)
+### func \(\*MockRuntime\) [EmittedCount](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L193>)
 
 ```go
 func (m *MockRuntime) EmittedCount() int
@@ -1152,7 +1152,7 @@ func (m *MockRuntime) EmittedCount() int
 EmittedCount returns the number of emitted messages.
 
 <a name="MockRuntime.EmittedOfKind"></a>
-### func \(\*MockRuntime\) [EmittedOfKind](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L203>)
+### func \(\*MockRuntime\) [EmittedOfKind](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L206>)
 
 ```go
 func (m *MockRuntime) EmittedOfKind(kind string) []*Message
@@ -1161,7 +1161,7 @@ func (m *MockRuntime) EmittedOfKind(kind string) []*Message
 EmittedOfKind returns all emitted messages of a given kind.
 
 <a name="MockRuntime.Env"></a>
-### func \(\*MockRuntime\) [Env](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L107>)
+### func \(\*MockRuntime\) [Env](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L110>)
 
 ```go
 func (m *MockRuntime) Env() Environment
@@ -1170,7 +1170,7 @@ func (m *MockRuntime) Env() Environment
 
 
 <a name="MockRuntime.LastEmitted"></a>
-### func \(\*MockRuntime\) [LastEmitted](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L195>)
+### func \(\*MockRuntime\) [LastEmitted](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L198>)
 
 ```go
 func (m *MockRuntime) LastEmitted() *Message
@@ -1179,7 +1179,7 @@ func (m *MockRuntime) LastEmitted() *Message
 LastEmitted returns the most recently emitted message.
 
 <a name="MockRuntime.Log"></a>
-### func \(\*MockRuntime\) [Log](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L100>)
+### func \(\*MockRuntime\) [Log](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L103>)
 
 ```go
 func (m *MockRuntime) Log(service string) *ServiceLog
@@ -1224,7 +1224,7 @@ func (m *MockRuntime) MeID() types.NaraID
 
 
 <a name="MockRuntime.MemoryMode"></a>
-### func \(\*MockRuntime\) [MemoryMode](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L115>)
+### func \(\*MockRuntime\) [MemoryMode](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L118>)
 
 ```go
 func (m *MockRuntime) MemoryMode() string
@@ -1233,7 +1233,7 @@ func (m *MockRuntime) MemoryMode() string
 
 
 <a name="MockRuntime.OnlinePeers"></a>
-### func \(\*MockRuntime\) [OnlinePeers](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L111>)
+### func \(\*MockRuntime\) [OnlinePeers](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L114>)
 
 ```go
 func (m *MockRuntime) OnlinePeers() []*PeerInfo
@@ -1242,7 +1242,7 @@ func (m *MockRuntime) OnlinePeers() []*PeerInfo
 
 
 <a name="MockRuntime.Open"></a>
-### func \(\*MockRuntime\) [Open](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L129>)
+### func \(\*MockRuntime\) [Open](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L132>)
 
 ```go
 func (m *MockRuntime) Open(nonce, ciphertext []byte) ([]byte, error)
@@ -1251,7 +1251,7 @@ func (m *MockRuntime) Open(nonce, ciphertext []byte) ([]byte, error)
 Open decrypts ciphertext using the keypair.
 
 <a name="MockRuntime.RegisterBehavior"></a>
-### func \(\*MockRuntime\) [RegisterBehavior](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L177>)
+### func \(\*MockRuntime\) [RegisterBehavior](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L180>)
 
 ```go
 func (m *MockRuntime) RegisterBehavior(b *Behavior)
@@ -1269,7 +1269,7 @@ func (m *MockRuntime) RegisterPublicKey(id types.NaraID, key []byte)
 
 
 <a name="MockRuntime.Seal"></a>
-### func \(\*MockRuntime\) [Seal](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L124>)
+### func \(\*MockRuntime\) [Seal](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L127>)
 
 ```go
 func (m *MockRuntime) Seal(plaintext []byte) (nonce, ciphertext []byte, err error)
@@ -1278,7 +1278,7 @@ func (m *MockRuntime) Seal(plaintext []byte) (nonce, ciphertext []byte, err erro
 Seal encrypts plaintext using the keypair.
 
 <a name="MockRuntime.Stop"></a>
-### func \(\*MockRuntime\) [Stop](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L182>)
+### func \(\*MockRuntime\) [Stop](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L185>)
 
 ```go
 func (m *MockRuntime) Stop()
@@ -1287,7 +1287,7 @@ func (m *MockRuntime) Stop()
 Stop cleans up the mock runtime.
 
 <a name="MockRuntime.StorageLimit"></a>
-### func \(\*MockRuntime\) [StorageLimit](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L119>)
+### func \(\*MockRuntime\) [StorageLimit](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L122>)
 
 ```go
 func (m *MockRuntime) StorageLimit() int
@@ -1296,7 +1296,7 @@ func (m *MockRuntime) StorageLimit() int
 
 
 <a name="MockRuntime.Subscribe"></a>
-### func \(\*MockRuntime\) [Subscribe](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L172>)
+### func \(\*MockRuntime\) [Subscribe](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L175>)
 
 ```go
 func (m *MockRuntime) Subscribe(kind string, handler func(*Message))

@@ -1,11 +1,11 @@
-.PHONY: all build test run run2 clean build-nix test-v test-fast lint-report build-web watch-web build-backup format
+.PHONY: all build test run run2 clean build-nix test-fast lint-report build-web watch-web build-backup format api-docs
 
 # Default target: build and test
 all: format build test lint-report
 
 # Build web assets (JS + CSS bundles)
 # Bundles Preact, D3, dayjs - no CDN dependencies
-build-web:
+build-web: api-docs
 	@echo "Building web assets..."
 	@npm run build
 	@./scripts/gen-api-docs.sh
@@ -37,17 +37,12 @@ build-backup:
 # Run all tests (includes slow integration tests)
 test: lint-report
 	@echo "Running all tests..."
-	@go test ./... -timeout 3m
-
-# Run tests with verbose output
-test-v:
-	@echo "Running tests with verbose output..."
-	@go test -v ./... -timeout 3m
+	@go test -timeout 3m -v|grep -E '^--- FAIL:|panic:|^PASS|^ok '
 
 # Run only fast tests (skip slow integration tests)
 test-fast:
 	@echo "Running fast tests (skipping integration tests)..."
-	@go test -short ./... -timeout 3m
+	@go test -short -timeout 3m -v|grep -E '^--- FAIL:|panic:|^PASS|^ok '
 
 # Run nara with web UI on port 8080
 run: build
@@ -84,3 +79,7 @@ lint-report:
 format:
 	@gofmt -s -w .
 	@echo "✓ Formatted Go code"
+
+api-docs:
+	@./scripts/gen-api-docs.sh
+	@echo "✓ Generated API docs"

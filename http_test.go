@@ -217,7 +217,7 @@ func TestHttpCoordinatesHandler(t *testing.T) {
 	}
 
 	// Should have name
-	if response["name"] != ln.Me.Name {
+	if response["name"] != ln.Me.Name.String() {
 		t.Errorf("expected name to be %s, got %v", ln.Me.Name, response["name"])
 	}
 

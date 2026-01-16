@@ -155,19 +155,20 @@ func TestHeyThere_StartsHowdyCoordinator(t *testing.T) {
 	}
 
 	// Simulate receiving a hey_there from another nara
+	newcomer := types.NaraName("newcomer")
 	network.handleHeyThereEvent(SyncEvent{
 		Service:  ServiceHeyThere,
-		HeyThere: &HeyThereEvent{From: "newcomer", PublicKey: "dummykey"},
+		HeyThere: &HeyThereEvent{From: newcomer, PublicKey: "dummykey"},
 	})
 
 	// Verify that a howdy coordinator was started
-	_, exists := network.howdyCoordinators.Load("newcomer")
+	_, exists := network.howdyCoordinators.Load(newcomer)
 	if !exists {
 		t.Errorf("expected howdy coordinator to be started for 'newcomer'")
 	}
 
 	// Verify the newcomer was recorded as online
-	obs := network.local.getObservation("newcomer")
+	obs := network.local.getObservation(newcomer)
 	if obs.Online != "ONLINE" {
 		t.Errorf("expected newcomer to be ONLINE, got %s", obs.Online)
 	}
