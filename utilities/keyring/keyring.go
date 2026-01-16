@@ -17,6 +17,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"errors"
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
 	"sync"
 )
@@ -24,24 +25,20 @@ import (
 // Keyring manages cryptographic identity and keys.
 type Keyring struct {
 	// Our identity
-	privateKey ed25519.PrivateKey
-	publicKey  ed25519.PublicKey
-	myID       types.NaraID
+	keypair identity.NaraKeypair
+	myID    types.NaraID
 
 	// Others' keys (cached, already parsed)
 	keys map[types.NaraID]ed25519.PublicKey // id -> pubkey
 	mu   sync.RWMutex
 }
 
-// New creates a new Keyring from an Ed25519 private key and our ID.
-func New(privateKey ed25519.PrivateKey, myID types.NaraID) *Keyring {
-	publicKey := privateKey.Public().(ed25519.PublicKey)
-
+// New creates a new Keyring from a NaraKeypair and our ID.
+func New(keypair identity.NaraKeypair, myID types.NaraID) *Keyring {
 	return &Keyring{
-		privateKey: privateKey,
-		publicKey:  publicKey,
-		myID:       myID,
-		keys:       make(map[types.NaraID]ed25519.PublicKey),
+		keypair: keypair,
+		myID:    myID,
+		keys:    make(map[types.NaraID]ed25519.PublicKey),
 	}
 }
 
@@ -54,17 +51,17 @@ func (k *Keyring) MyID() types.NaraID {
 
 // MyPublicKey returns our public key.
 func (k *Keyring) MyPublicKey() ed25519.PublicKey {
-	return k.publicKey
+	return k.keypair.PublicKey
 }
 
 // MyPublicKeyBase64 returns our public key as a base64 string.
 func (k *Keyring) MyPublicKeyBase64() string {
-	return base64.StdEncoding.EncodeToString(k.publicKey)
+	return base64.StdEncoding.EncodeToString(k.keypair.PublicKey)
 }
 
-// Sign signs data with our private key.
+// Sign signs data with our keypair.
 func (k *Keyring) Sign(data []byte) []byte {
-	return ed25519.Sign(k.privateKey, data)
+	return k.keypair.Sign(data)
 }
 
 // SignBase64 signs data and returns a base64-encoded signature.
@@ -108,7 +105,7 @@ func (k *Keyring) Lookup(id types.NaraID) ed25519.PublicKey {
 		return nil
 	}
 	if id == k.myID {
-		return k.publicKey
+		return k.keypair.PublicKey
 	}
 	k.mu.RLock()
 	defer k.mu.RUnlock()
