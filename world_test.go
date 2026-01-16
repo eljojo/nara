@@ -2,6 +2,8 @@ package nara
 
 import (
 	"testing"
+
+	"github.com/eljojo/nara/types"
 )
 
 // Test hardware fingerprints for deterministic testing
@@ -172,7 +174,7 @@ func TestWorldMessage_VerifyChain(t *testing.T) {
 	}
 
 	// Create a public key lookup function
-	getPublicKey := func(name string) []byte {
+	getPublicKey := func(name types.NaraName) []byte {
 		switch name {
 		case "bob":
 			return bobKeypair.PublicKey
@@ -202,7 +204,7 @@ func TestWorldMessage_VerifyChain_TamperedMessage(t *testing.T) {
 	// Tamper with the message
 	wm.OriginalMessage = "Tampered!"
 
-	getPublicKey := func(name string) []byte {
+	getPublicKey := func(name types.NaraName) []byte {
 		if name == "bob" {
 			return bobKeypair.PublicKey
 		}
@@ -254,17 +256,17 @@ func TestWorldJourney_CloutRouting(t *testing.T) {
 	// Alice likes: Bob (10), Carol (5), Dave (2)
 	// Should route Alice -> Bob -> Carol -> Dave -> Alice
 
-	clout := map[string]map[string]float64{
-		"alice": {"bob": 10, "carol": 5, "dave": 2},
-		"bob":   {"carol": 8, "dave": 3, "alice": 5},
-		"carol": {"dave": 7, "alice": 4, "bob": 2},
-		"dave":  {"alice": 9, "bob": 1, "carol": 3},
+	clout := map[string]map[types.NaraName]float64{
+		"alice": {types.NaraName("bob"): 10, types.NaraName("carol"): 5, types.NaraName("dave"): 2},
+		"bob":   {types.NaraName("carol"): 8, types.NaraName("dave"): 3, types.NaraName("alice"): 5},
+		"carol": {types.NaraName("dave"): 7, types.NaraName("alice"): 4, types.NaraName("bob"): 2},
+		"dave":  {types.NaraName("alice"): 9, types.NaraName("bob"): 1, types.NaraName("carol"): 3},
 	}
 
 	wm := NewWorldMessage("Hello!", "alice")
 
 	// Alice chooses next (should be Bob - highest clout)
-	next := ChooseNextNara("alice", wm, clout["alice"], []string{"alice", "bob", "carol", "dave"})
+	next := ChooseNextNara("alice", wm, clout["alice"], []types.NaraName{types.NaraName("alice"), types.NaraName("bob"), types.NaraName("carol"), types.NaraName("dave")})
 	if next != "bob" {
 		t.Errorf("Alice should choose bob, got %s", next)
 	}
@@ -276,7 +278,7 @@ func TestWorldJourney_CloutRouting(t *testing.T) {
 	}
 
 	// Bob chooses next (should be Carol - highest unvisited)
-	next = ChooseNextNara("bob", wm, clout["bob"], []string{"alice", "bob", "carol", "dave"})
+	next = ChooseNextNara("bob", wm, clout["bob"], []types.NaraName{types.NaraName("alice"), types.NaraName("bob"), types.NaraName("carol"), types.NaraName("dave")})
 	if next != "carol" {
 		t.Errorf("Bob should choose carol, got %s", next)
 	}
@@ -288,7 +290,7 @@ func TestWorldJourney_CloutRouting(t *testing.T) {
 	}
 
 	// Carol chooses next (should be Dave - only unvisited non-originator)
-	next = ChooseNextNara("carol", wm, clout["carol"], []string{"alice", "bob", "carol", "dave"})
+	next = ChooseNextNara("carol", wm, clout["carol"], []types.NaraName{types.NaraName("alice"), types.NaraName("bob"), types.NaraName("carol"), types.NaraName("dave")})
 	if next != "dave" {
 		t.Errorf("Carol should choose dave, got %s", next)
 	}
@@ -300,7 +302,7 @@ func TestWorldJourney_CloutRouting(t *testing.T) {
 	}
 
 	// Dave chooses next (should be Alice - only option is to return home)
-	next = ChooseNextNara("dave", wm, clout["dave"], []string{"alice", "bob", "carol", "dave"})
+	next = ChooseNextNara("dave", wm, clout["dave"], []types.NaraName{types.NaraName("alice"), types.NaraName("bob"), types.NaraName("carol"), types.NaraName("dave")})
 	if next != "alice" {
 		t.Errorf("Dave should choose alice (return home), got %s", next)
 	}
@@ -322,9 +324,9 @@ func TestWorldJourney_EndToEnd(t *testing.T) {
 	}
 
 	// Public key lookup
-	getPublicKey := func(name string) []byte {
+	getPublicKey := func(name types.NaraName) []byte {
 		for _, n := range naras {
-			if n.name == name {
+			if n.name == name.String() {
 				return n.keypair.PublicKey
 			}
 		}
@@ -332,30 +334,30 @@ func TestWorldJourney_EndToEnd(t *testing.T) {
 	}
 
 	// Mock clout - creates path: alice -> bob -> carol -> dave -> alice
-	clout := map[string]map[string]float64{
-		"alice": {"bob": 10, "carol": 5, "dave": 2},
-		"bob":   {"carol": 8, "dave": 3, "alice": 5},
-		"carol": {"dave": 7, "alice": 4, "bob": 2},
-		"dave":  {"alice": 9, "bob": 1, "carol": 3},
+	clout := map[string]map[types.NaraName]float64{
+		"alice": {types.NaraName("bob"): 10, types.NaraName("carol"): 5, types.NaraName("dave"): 2},
+		"bob":   {types.NaraName("carol"): 8, types.NaraName("dave"): 3, types.NaraName("alice"): 5},
+		"carol": {types.NaraName("dave"): 7, types.NaraName("alice"): 4, types.NaraName("bob"): 2},
+		"dave":  {types.NaraName("alice"): 9, types.NaraName("bob"): 1, types.NaraName("carol"): 3},
 	}
-	onlineNaras := []string{"alice", "bob", "carol", "dave"}
+	onlineNaras := []types.NaraName{types.NaraName("alice"), types.NaraName("bob"), types.NaraName("carol"), types.NaraName("dave")}
 
 	// Alice starts the journey
 	wm := NewWorldMessage("Going around the world!", "alice")
 
 	// Simulate the journey
-	currentNara := "alice"
+	currentNara := types.NaraName("alice")
 	for !wm.IsComplete() {
-		next := ChooseNextNara(currentNara, wm, clout[currentNara], onlineNaras)
+		next := ChooseNextNara(currentNara, wm, clout[currentNara.String()], onlineNaras)
 		if next == "" {
 			t.Fatal("Journey stuck - no next nara")
 		}
 
 		// Find the nara and add hop
 		for _, n := range naras {
-			if n.name == next {
+			if n.name == next.String() {
 				stamps := map[string]string{"alice": "🏠", "bob": "🌟", "carol": "🎉", "dave": "🚀"}
-				err := wm.AddHop(next, n.keypair, stamps[next])
+				err := wm.AddHop(next, n.keypair, stamps[next.String()])
 				if err != nil {
 					t.Fatalf("Failed to add hop for %s: %v", next, err)
 				}
@@ -378,7 +380,7 @@ func TestWorldJourney_EndToEnd(t *testing.T) {
 	}
 
 	// Check the path
-	expectedPath := []string{"bob", "carol", "dave", "alice"}
+	expectedPath := []types.NaraName{types.NaraName("bob"), types.NaraName("carol"), types.NaraName("dave"), types.NaraName("alice")}
 	if len(wm.Hops) != len(expectedPath) {
 		t.Errorf("Expected %d hops, got %d", len(expectedPath), len(wm.Hops))
 	}
@@ -436,7 +438,7 @@ func formatPath(hops []WorldHop) string {
 		if i > 0 {
 			result += " -> "
 		}
-		result += hop.Nara + hop.Stamp
+		result += hop.Nara.String() + hop.Stamp
 	}
 	return result
 }

@@ -20,7 +20,7 @@ import (
 // This ensures all test naras have valid keypairs for signing.
 func testSoul(name string) string {
 	hw := hashTestBytes([]byte("test-hardware-" + name))
-	soul := NativeSoulCustom(hw, name)
+	soul := NativeSoulCustom(hw, types.NaraName(name))
 	return FormatSoul(soul)
 }
 
@@ -120,9 +120,9 @@ func testNara(t *testing.T, name string, opts ...TestNaraOption) *LocalNara {
 	var identity IdentityResult
 	if config.soul != "" {
 		parsed, _ := ParseSoul(config.soul)
-		id, _ := ComputeNaraID(config.soul, name)
+		id, _ := ComputeNaraID(config.soul, types.NaraName(name))
 		identity = IdentityResult{
-			Name:        name,
+			Name:        types.NaraName(name),
 			Soul:        parsed,
 			ID:          id,
 			IsValidBond: true,
@@ -192,9 +192,9 @@ func testLocalNaraWithSoul(t *testing.T, name string, soul string) *LocalNara {
 func testIdentity(name string) IdentityResult {
 	soulStr := testSoul(name)
 	parsed, _ := ParseSoul(soulStr)
-	id, _ := ComputeNaraID(soulStr, name)
+	id, _ := ComputeNaraID(soulStr, types.NaraName(name))
 	return IdentityResult{
-		Name:        name,
+		Name:        types.NaraName(name),
 		Soul:        parsed,
 		ID:          id,
 		IsValidBond: true,
@@ -322,7 +322,7 @@ func waitForCheckpoint(t *testing.T, ledger *SyncLedger, subject types.NaraName,
 	ok := waitForCondition(t, func() bool {
 		checkpoint = ledger.GetCheckpoint(subject)
 		return checkpoint != nil
-	}, timeout, "checkpoint for "+subject)
+	}, timeout, "checkpoint for "+subject.String())
 	if ok {
 		return checkpoint
 	}
@@ -422,11 +422,11 @@ func testCheckpointEvent(subject types.NaraName, attester types.NaraName, attest
 	checkpoint := &CheckpointEventPayload{
 		Version:     1,
 		Subject:     subject,
-		SubjectID:   "test-id-" + subject,
+		SubjectID:   types.NaraID("test-id-" + subject.String()),
 		Observation: observation,
 		AsOfTime:    now.Unix(),
 		Round:       1,
-		VoterIDs:    []string{"test-id-" + attester},
+		VoterIDs:    []types.NaraID{types.NaraID("test-id-" + attester.String())},
 	}
 
 	// Create and sign attestation
@@ -436,7 +436,7 @@ func testCheckpointEvent(subject types.NaraName, attester types.NaraName, attest
 		SubjectID:   checkpoint.SubjectID,
 		Observation: checkpoint.Observation,
 		Attester:    attester,
-		AttesterID:  "test-id-" + attester,
+		AttesterID:  types.NaraID("test-id-" + attester.String()),
 		AsOfTime:    checkpoint.AsOfTime,
 	}
 	attestation.Signature = SignContent(&attestation, attesterKeypair)
@@ -447,7 +447,7 @@ func testCheckpointEvent(subject types.NaraName, attester types.NaraName, attest
 		Timestamp:  now.UnixNano(),
 		Service:    ServiceCheckpoint,
 		Emitter:    attester,
-		EmitterID:  "test-id-" + attester,
+		EmitterID:  types.NaraID("test-id-" + attester.String()),
 		Checkpoint: checkpoint,
 	}
 	event.ComputeID()
@@ -513,7 +513,7 @@ func testCreateMeshNetwork(t *testing.T, names []string, chattiness, ledgerCapac
 
 		// Configure test hooks
 		ln.Network.testHTTPClient = mesh.Client
-		ln.Network.testMeshURLs = make(map[string]string)
+		ln.Network.testMeshURLs = make(map[types.NaraName]string)
 		ln.Network.TransportMode = TransportGossip
 	}
 
@@ -549,7 +549,7 @@ func (m *testMeshNetwork) Get(i int) *LocalNara {
 // GetByName finds a nara by name.
 func (m *testMeshNetwork) GetByName(name string) *LocalNara {
 	for _, ln := range m.Naras {
-		if ln.Me.Name == name {
+		if ln.Me.Name == types.NaraName(name) {
 			return ln
 		}
 	}

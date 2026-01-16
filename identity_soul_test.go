@@ -1,8 +1,8 @@
 package nara
 
 import (
-	"github.com/eljojo/nara/types"
 	"encoding/hex"
+	"github.com/eljojo/nara/types"
 	"testing"
 )
 

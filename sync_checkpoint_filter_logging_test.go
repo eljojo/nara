@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eljojo/nara/types"
 	"github.com/sirupsen/logrus"
 )
 
@@ -35,7 +36,7 @@ func TestCheckpointFilterLogging(t *testing.T) {
 				TotalUptime: 86400,
 				StartTime:   1639996062,
 			},
-			VoterIDs:   []string{"voter1"},
+			VoterIDs:   []types.NaraID{types.NaraID("voter1")},
 			Signatures: []string{"sig1"},
 			Round:      1,
 		},

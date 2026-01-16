@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/eljojo/nara/types"
 )
 
 func TestTeaseTrigger_HighRestarts(t *testing.T) {
@@ -130,11 +132,11 @@ func TestTeaseTrigger_TrendAbandon(t *testing.T) {
 }
 
 func TestTeaseSyncEvent_Creation(t *testing.T) {
-	actor := "alice"
-	target := "bob"
+	actor := types.NaraName("alice")
+	target := types.NaraName("bob")
 	reason := ReasonHighRestarts
 
-	event := NewSocialSyncEvent("tease", actor, target, reason, "")
+	event := NewSocialSyncEvent("tease", actor, target, reason, types.NaraName(""))
 
 	if event.Social.Type != "tease" {
 		t.Errorf("Expected type 'tease', got '%s'", event.Social.Type)
@@ -175,8 +177,8 @@ func TestTeaseMessage_Templates(t *testing.T) {
 func TestTeaseCooldown(t *testing.T) {
 	state := NewTeaseState()
 
-	actor := "alice"
-	target := "bob"
+	actor := types.NaraName("alice")
+	target := types.NaraName("bob")
 
 	// First tease should be allowed
 	if !state.CanTease(actor, target) {
@@ -205,7 +207,7 @@ func TestTeaseCooldown(t *testing.T) {
 func TestTeaseRandomTrigger_Deterministic(t *testing.T) {
 	personality := NaraPersonality{Sociability: 50, Agreeableness: 50, Chill: 50}
 	soul := "test-soul"
-	target := "bob"
+	target := types.NaraName("bob")
 	timestamp := int64(1000)
 
 	// Same inputs should produce same result

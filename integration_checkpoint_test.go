@@ -1,8 +1,8 @@
 package nara
 
 import (
-	"github.com/eljojo/nara/types"
 	"fmt"
+	"github.com/eljojo/nara/types"
 	"testing"
 	"time"
 

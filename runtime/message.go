@@ -60,12 +60,12 @@ func ComputeID(msg *Message) string {
 // This ensures consistent signing across the network.
 func (m *Message) SignableContent() []byte {
 	data := struct {
-		ID        string         `json:"id"`
-		Kind      string         `json:"kind"`
-		FromID    types.NaraID   `json:"from_id"`
-		ToID      types.NaraID   `json:"to_id,omitempty"`
-		Timestamp time.Time      `json:"timestamp"`
-		Payload   any            `json:"payload"`
+		ID        string       `json:"id"`
+		Kind      string       `json:"kind"`
+		FromID    types.NaraID `json:"from_id"`
+		ToID      types.NaraID `json:"to_id,omitempty"`
+		Timestamp time.Time    `json:"timestamp"`
+		Payload   any          `json:"payload"`
 	}{
 		ID:        m.ID,
 		Kind:      m.Kind,

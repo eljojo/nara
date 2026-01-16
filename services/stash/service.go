@@ -31,7 +31,7 @@ type Service struct {
 
 	// Our confidants (peers who hold our stash)
 	confidants       []types.NaraID // List of nara IDs
-	targetConfidants int      // Target number of confidants (default: 3)
+	targetConfidants int            // Target number of confidants (default: 3)
 
 	// Our own stash data (to be encrypted and distributed to confidants)
 	myStashData      []byte // Arbitrary JSON payload

@@ -83,7 +83,7 @@ func (m *BackupMesh) FetchEvents(ctx context.Context, peerIP string, peerName st
 		// Fetch next page
 		resp, err := m.meshClient.FetchSyncEventsWithCursor(ctx, peerID, nara.SyncRequest{
 			Mode:     "page",
-			PageSize:     pageSize,
+			PageSize: pageSize,
 			Cursor:   cursor,
 		})
 

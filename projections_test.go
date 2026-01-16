@@ -5,6 +5,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/eljojo/nara/types"
 )
 
 // TestProjectionResetsOnPrune verifies that projections correctly reset
@@ -478,7 +480,7 @@ func TestOnlineStatusOwnHeyThereInLedger(t *testing.T) {
 	}
 
 	// Simulate what HeyThere() does: create and "send" a hey_there event
-	myName := "test-nara"
+	myName := types.NaraName("test-nara")
 	heyThereEvent := SyncEvent{
 		Timestamp: time.Now().UnixNano(),
 		Service:   ServiceHeyThere,
@@ -513,7 +515,7 @@ func TestOnlineStatusWithoutOwnHeyThere(t *testing.T) {
 		t.Fatalf("Failed to run projection: %v", err)
 	}
 
-	myName := "test-nara"
+	myName := types.NaraName("test-nara")
 	// Simulate OLD bug: hey_there was sent to MQTT but NOT added to local ledger
 	// (no event added)
 
@@ -762,8 +764,8 @@ func TestOnlineStatusRaceWithVersionChange(t *testing.T) {
 			Timestamp: now - int64(15-i)*int64(time.Second),
 			Service:   ServiceSeen,
 			Seen: &SeenEvent{
-				Observer: "observer",
-				Subject:  "other" + string(rune('0'+i)),
+				Observer: types.NaraName("observer"),
+				Subject:  types.NaraName("other" + string(rune('0'+i))),
 				Via:      "test",
 			},
 		})
@@ -802,8 +804,8 @@ func TestOnlineStatusRaceWithVersionChange(t *testing.T) {
 			Timestamp: now + int64(i*1000), // Recent timestamps
 			Service:   ServiceSeen,
 			Seen: &SeenEvent{
-				Observer: "other-observer",
-				Subject:  "new-nara" + string(rune('0'+i)),
+				Observer: types.NaraName("other-observer"),
+				Subject:  types.NaraName("new-nara" + string(rune('0'+i))),
 				Via:      "zine",
 			},
 		})
