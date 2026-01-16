@@ -6,14 +6,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
 )
 
 // TestNara represents a test nara with all necessary components
 type TestNara struct {
 	Name        string
-	Soul        SoulV1
-	Keypair     NaraKeypair
+	Soul        identity.SoulV1
+	Keypair     identity.NaraKeypair
 	LocalNara   *LocalNara
 	MeshClient  *MeshClient
 	Handler     *WorldJourneyHandler
@@ -41,17 +42,17 @@ func NewTestWorld(names []string) *TestWorld {
 
 	// Create test naras
 	for i, name := range names {
-		hw := hashBytes([]byte("integration-test-hw-" + name))
-		soul := NativeSoulCustom(hw, types.NaraName(name))
-		keypair := DeriveKeypair(soul)
+		hw := identity.HashBytes([]byte("integration-test-hw-" + name))
+		soul := identity.NativeSoulCustom(hw, types.NaraName(name))
+		keypair := identity.DeriveKeypair(soul)
 
 		// Compute nara ID
-		naraID, _ := ComputeNaraID(FormatSoul(soul), types.NaraName(name))
+		naraID, _ := identity.ComputeNaraID(identity.FormatSoul(soul), types.NaraName(name))
 
 		// Create a minimal LocalNara (without full network setup)
 		ln := &LocalNara{
 			Me:      NewNara(types.NaraName(name)),
-			Soul:    FormatSoul(soul),
+			Soul:    identity.FormatSoul(soul),
 			Keypair: keypair,
 			ID:      naraID,
 		}
@@ -60,7 +61,7 @@ func NewTestWorld(names []string) *TestWorld {
 			ctx:        ctx,
 			cancelFunc: cancel,
 		}
-		ln.Me.Status.PublicKey = FormatPublicKey(keypair.PublicKey)
+		ln.Me.Status.PublicKey = identity.FormatPublicKey(keypair.PublicKey)
 		ln.Me.Status.ID = naraID
 
 		// Create message channel for this nara

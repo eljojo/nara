@@ -3,21 +3,22 @@ package nara
 import (
 	"testing"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
 )
 
 // Test hardware fingerprints for deterministic testing
 var (
-	worldHW1 = hashBytes([]byte("world-test-hw-1"))
-	worldHW2 = hashBytes([]byte("world-test-hw-2"))
-	worldHW3 = hashBytes([]byte("world-test-hw-3"))
-	worldHW4 = hashBytes([]byte("world-test-hw-4"))
+	worldHW1 = identity.HashBytes([]byte("world-test-hw-1"))
+	worldHW2 = identity.HashBytes([]byte("world-test-hw-2"))
+	worldHW3 = identity.HashBytes([]byte("world-test-hw-3"))
+	worldHW4 = identity.HashBytes([]byte("world-test-hw-4"))
 )
 
 func TestDeriveKeypair(t *testing.T) {
 	// Create a soul and derive a keypair
-	soul := NativeSoulCustom(worldHW1, "alice")
-	keypair := DeriveKeypair(soul)
+	soul := identity.NativeSoulCustom(worldHW1, "alice")
+	keypair := identity.DeriveKeypair(soul)
 
 	// Keypair should have valid keys
 	if keypair.PrivateKey == nil {
@@ -35,53 +36,53 @@ func TestDeriveKeypair(t *testing.T) {
 
 func TestKeypairDeterminism(t *testing.T) {
 	// Same soul should always produce same keypair
-	soul := NativeSoulCustom(worldHW1, "alice")
+	soul := identity.NativeSoulCustom(worldHW1, "alice")
 
-	keypair1 := DeriveKeypair(soul)
-	keypair2 := DeriveKeypair(soul)
+	keypair1 := identity.DeriveKeypair(soul)
+	keypair2 := identity.DeriveKeypair(soul)
 
-	if FormatPublicKey(keypair1.PublicKey) != FormatPublicKey(keypair2.PublicKey) {
+	if identity.FormatPublicKey(keypair1.PublicKey) != identity.FormatPublicKey(keypair2.PublicKey) {
 		t.Error("Same soul should produce same keypair")
 	}
 }
 
 func TestKeypairSignVerify(t *testing.T) {
-	soul := NativeSoulCustom(worldHW1, "alice")
-	keypair := DeriveKeypair(soul)
+	soul := identity.NativeSoulCustom(worldHW1, "alice")
+	keypair := identity.DeriveKeypair(soul)
 
 	message := []byte("hello world")
 	signature := keypair.Sign(message)
 
 	// Should verify with correct public key
-	if !VerifySignature(keypair.PublicKey, message, signature) {
+	if !identity.VerifySignature(keypair.PublicKey, message, signature) {
 		t.Error("Signature should verify with correct key")
 	}
 
 	// Should not verify with wrong message
-	if VerifySignature(keypair.PublicKey, []byte("wrong message"), signature) {
+	if identity.VerifySignature(keypair.PublicKey, []byte("wrong message"), signature) {
 		t.Error("Signature should not verify with wrong message")
 	}
 
 	// Should not verify with wrong public key
-	otherSoul := NativeSoulCustom(worldHW2, "bob")
-	otherKeypair := DeriveKeypair(otherSoul)
-	if VerifySignature(otherKeypair.PublicKey, message, signature) {
+	otherSoul := identity.NativeSoulCustom(worldHW2, "bob")
+	otherKeypair := identity.DeriveKeypair(otherSoul)
+	if identity.VerifySignature(otherKeypair.PublicKey, message, signature) {
 		t.Error("Signature should not verify with wrong key")
 	}
 }
 
 func TestPublicKeyFormatParse(t *testing.T) {
-	soul := NativeSoulCustom(worldHW1, "alice")
-	keypair := DeriveKeypair(soul)
+	soul := identity.NativeSoulCustom(worldHW1, "alice")
+	keypair := identity.DeriveKeypair(soul)
 
 	// Format and parse should round-trip
-	formatted := FormatPublicKey(keypair.PublicKey)
-	parsed, err := ParsePublicKey(formatted)
+	formatted := identity.FormatPublicKey(keypair.PublicKey)
+	parsed, err := identity.ParsePublicKey(formatted)
 	if err != nil {
 		t.Fatalf("Failed to parse public key: %v", err)
 	}
 
-	if FormatPublicKey(parsed) != formatted {
+	if identity.FormatPublicKey(parsed) != formatted {
 		t.Error("Public key should round-trip through format/parse")
 	}
 }
@@ -107,8 +108,8 @@ func TestWorldMessage_AddHop(t *testing.T) {
 	wm := NewWorldMessage("Hello!", "alice")
 
 	// Bob receives and adds a hop
-	bobSoul := NativeSoulCustom(worldHW2, "bob")
-	bobKeypair := DeriveKeypair(bobSoul)
+	bobSoul := identity.NativeSoulCustom(worldHW2, "bob")
+	bobKeypair := identity.DeriveKeypair(bobSoul)
 
 	err := wm.AddHop("bob", bobKeypair, "🌟")
 	if err != nil {
@@ -141,8 +142,8 @@ func TestWorldMessage_HasVisited(t *testing.T) {
 	}
 
 	// Add Bob's hop
-	bobSoul := NativeSoulCustom(worldHW2, "bob")
-	bobKeypair := DeriveKeypair(bobSoul)
+	bobSoul := identity.NativeSoulCustom(worldHW2, "bob")
+	bobKeypair := identity.DeriveKeypair(bobSoul)
 	if err := wm.AddHop("bob", bobKeypair, "🌟"); err != nil {
 		t.Fatalf("Failed to add hop: %v", err)
 	}
@@ -160,10 +161,10 @@ func TestWorldMessage_VerifyChain(t *testing.T) {
 	wm := NewWorldMessage("Hello!", "alice")
 
 	// Create keypairs
-	bobSoul := NativeSoulCustom(worldHW2, "bob")
-	bobKeypair := DeriveKeypair(bobSoul)
-	carolSoul := NativeSoulCustom(worldHW3, "carol")
-	carolKeypair := DeriveKeypair(carolSoul)
+	bobSoul := identity.NativeSoulCustom(worldHW2, "bob")
+	bobKeypair := identity.DeriveKeypair(bobSoul)
+	carolSoul := identity.NativeSoulCustom(worldHW3, "carol")
+	carolKeypair := identity.DeriveKeypair(carolSoul)
 
 	// Build the chain
 	if err := wm.AddHop("bob", bobKeypair, "🌟"); err != nil {
@@ -195,8 +196,8 @@ func TestWorldMessage_VerifyChain(t *testing.T) {
 func TestWorldMessage_VerifyChain_TamperedMessage(t *testing.T) {
 	wm := NewWorldMessage("Hello!", "alice")
 
-	bobSoul := NativeSoulCustom(worldHW2, "bob")
-	bobKeypair := DeriveKeypair(bobSoul)
+	bobSoul := identity.NativeSoulCustom(worldHW2, "bob")
+	bobKeypair := identity.DeriveKeypair(bobSoul)
 	if err := wm.AddHop("bob", bobKeypair, "🌟"); err != nil {
 		t.Fatalf("Failed to add hop: %v", err)
 	}
@@ -227,8 +228,8 @@ func TestWorldMessage_IsComplete(t *testing.T) {
 	}
 
 	// Add some hops
-	bobSoul := NativeSoulCustom(worldHW2, "bob")
-	bobKeypair := DeriveKeypair(bobSoul)
+	bobSoul := identity.NativeSoulCustom(worldHW2, "bob")
+	bobKeypair := identity.DeriveKeypair(bobSoul)
 	if err := wm.AddHop("bob", bobKeypair, "🌟"); err != nil {
 		t.Fatalf("Failed to add hop: %v", err)
 	}
@@ -239,8 +240,8 @@ func TestWorldMessage_IsComplete(t *testing.T) {
 	}
 
 	// Add alice's final hop
-	aliceSoul := NativeSoulCustom(worldHW1, "alice")
-	aliceKeypair := DeriveKeypair(aliceSoul)
+	aliceSoul := identity.NativeSoulCustom(worldHW1, "alice")
+	aliceKeypair := identity.DeriveKeypair(aliceSoul)
 	if err := wm.AddHop("alice", aliceKeypair, "🏠"); err != nil {
 		t.Fatalf("Failed to add hop: %v", err)
 	}
@@ -272,8 +273,8 @@ func TestWorldJourney_CloutRouting(t *testing.T) {
 	}
 
 	// Add Bob's hop
-	bobSoul := NativeSoulCustom(worldHW2, "bob")
-	if err := wm.AddHop("bob", DeriveKeypair(bobSoul), "🌟"); err != nil {
+	bobSoul := identity.NativeSoulCustom(worldHW2, "bob")
+	if err := wm.AddHop("bob", identity.DeriveKeypair(bobSoul), "🌟"); err != nil {
 		t.Fatalf("Failed to add Bob's hop: %v", err)
 	}
 
@@ -284,8 +285,8 @@ func TestWorldJourney_CloutRouting(t *testing.T) {
 	}
 
 	// Add Carol's hop
-	carolSoul := NativeSoulCustom(worldHW3, "carol")
-	if err := wm.AddHop("carol", DeriveKeypair(carolSoul), "🎉"); err != nil {
+	carolSoul := identity.NativeSoulCustom(worldHW3, "carol")
+	if err := wm.AddHop("carol", identity.DeriveKeypair(carolSoul), "🎉"); err != nil {
 		t.Fatalf("Failed to add Carol's hop: %v", err)
 	}
 
@@ -296,8 +297,8 @@ func TestWorldJourney_CloutRouting(t *testing.T) {
 	}
 
 	// Add Dave's hop
-	daveSoul := NativeSoulCustom(worldHW4, "dave")
-	if err := wm.AddHop("dave", DeriveKeypair(daveSoul), "🚀"); err != nil {
+	daveSoul := identity.NativeSoulCustom(worldHW4, "dave")
+	if err := wm.AddHop("dave", identity.DeriveKeypair(daveSoul), "🚀"); err != nil {
 		t.Fatalf("Failed to add Dave's hop: %v", err)
 	}
 
@@ -312,15 +313,15 @@ func TestWorldJourney_EndToEnd(t *testing.T) {
 	// Create 4 test naras with souls and keypairs
 	type testNara struct {
 		name    string
-		soul    SoulV1
-		keypair NaraKeypair
+		soul    identity.SoulV1
+		keypair identity.NaraKeypair
 	}
 
 	naras := []testNara{
-		{"alice", NativeSoulCustom(worldHW1, "alice"), DeriveKeypair(NativeSoulCustom(worldHW1, "alice"))},
-		{"bob", NativeSoulCustom(worldHW2, "bob"), DeriveKeypair(NativeSoulCustom(worldHW2, "bob"))},
-		{"carol", NativeSoulCustom(worldHW3, "carol"), DeriveKeypair(NativeSoulCustom(worldHW3, "carol"))},
-		{"dave", NativeSoulCustom(worldHW4, "dave"), DeriveKeypair(NativeSoulCustom(worldHW4, "dave"))},
+		{"alice", identity.NativeSoulCustom(worldHW1, "alice"), identity.DeriveKeypair(identity.NativeSoulCustom(worldHW1, "alice"))},
+		{"bob", identity.NativeSoulCustom(worldHW2, "bob"), identity.DeriveKeypair(identity.NativeSoulCustom(worldHW2, "bob"))},
+		{"carol", identity.NativeSoulCustom(worldHW3, "carol"), identity.DeriveKeypair(identity.NativeSoulCustom(worldHW3, "carol"))},
+		{"dave", identity.NativeSoulCustom(worldHW4, "dave"), identity.DeriveKeypair(identity.NativeSoulCustom(worldHW4, "dave"))},
 	}
 
 	// Public key lookup
@@ -400,9 +401,9 @@ func TestWorldJourney_CloutRewards(t *testing.T) {
 	wm := NewWorldMessage("Hello!", "alice")
 
 	// Build a complete journey
-	bobKeypair := DeriveKeypair(NativeSoulCustom(worldHW2, "bob"))
-	carolKeypair := DeriveKeypair(NativeSoulCustom(worldHW3, "carol"))
-	aliceKeypair := DeriveKeypair(NativeSoulCustom(worldHW1, "alice"))
+	bobKeypair := identity.DeriveKeypair(identity.NativeSoulCustom(worldHW2, "bob"))
+	carolKeypair := identity.DeriveKeypair(identity.NativeSoulCustom(worldHW3, "carol"))
+	aliceKeypair := identity.DeriveKeypair(identity.NativeSoulCustom(worldHW1, "alice"))
 
 	if err := wm.AddHop("bob", bobKeypair, "🌟"); err != nil {
 		t.Fatalf("Failed to add bob's hop: %v", err)

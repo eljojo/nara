@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
 )
 
@@ -591,7 +592,7 @@ func (e *SyncEvent) signableData() []byte {
 }
 
 // Sign signs this event with the given keypair and sets Emitter
-func (e *SyncEvent) Sign(emitter types.NaraName, keypair NaraKeypair) {
+func (e *SyncEvent) Sign(emitter types.NaraName, keypair identity.NaraKeypair) {
 	e.Emitter = emitter
 	e.Signature = keypair.SignBase64(e.signableData())
 }
@@ -623,7 +624,7 @@ func (e *SyncEvent) VerifyWithKey(publicKey ed25519.PublicKey) bool {
 	}
 
 	data := e.signableData()
-	return VerifySignature(publicKey, data, sig)
+	return identity.VerifySignature(publicKey, data, sig)
 }
 
 // DefaultVerifySignature is the default verification logic for payloads without
@@ -688,7 +689,7 @@ func NewPingSyncEvent(observer, target types.NaraName, rtt float64) SyncEvent {
 }
 
 // NewSignedSocialSyncEvent creates a signed SyncEvent for social events
-func NewSignedSocialSyncEvent(eventType string, actor types.NaraName, target types.NaraName, reason string, witness types.NaraName, emitter types.NaraName, keypair NaraKeypair) SyncEvent {
+func NewSignedSocialSyncEvent(eventType string, actor types.NaraName, target types.NaraName, reason string, witness types.NaraName, emitter types.NaraName, keypair identity.NaraKeypair) SyncEvent {
 	e := NewSocialSyncEvent(eventType, actor, target, reason, witness)
 	e.Sign(emitter, keypair)
 	return e
@@ -832,7 +833,7 @@ func NewStatusChangeObservationEventWithIDs(observer types.NaraName, observerID 
 }
 
 // NewSeenSyncEventWithIDs creates a signed seen event with explicit IDs
-func NewSeenSyncEventWithIDs(observer types.NaraName, observerID types.NaraID, subject types.NaraName, subjectID types.NaraID, via string, keypair NaraKeypair) SyncEvent {
+func NewSeenSyncEventWithIDs(observer types.NaraName, observerID types.NaraID, subject types.NaraName, subjectID types.NaraID, via string, keypair identity.NaraKeypair) SyncEvent {
 	e := SyncEvent{
 		Timestamp: time.Now().UnixNano(),
 		Service:   ServiceSeen,
@@ -850,7 +851,7 @@ func NewSeenSyncEventWithIDs(observer types.NaraName, observerID types.NaraID, s
 }
 
 // NewTeaseSyncEventWithIDs creates a signed tease event with explicit IDs
-func NewTeaseSyncEventWithIDs(actor types.NaraName, actorID types.NaraID, target types.NaraName, targetID types.NaraID, reason string, keypair NaraKeypair) SyncEvent {
+func NewTeaseSyncEventWithIDs(actor types.NaraName, actorID types.NaraID, target types.NaraName, targetID types.NaraID, reason string, keypair identity.NaraKeypair) SyncEvent {
 	e := SyncEvent{
 		Timestamp: time.Now().UnixNano(),
 		Service:   ServiceSocial,
@@ -889,7 +890,7 @@ func NewBackfillObservationEvent(observer, subject types.NaraName, startTime, re
 }
 
 // NewSignedPingSyncEvent creates a signed SyncEvent for ping observations
-func NewSignedPingSyncEvent(observer types.NaraName, target types.NaraName, rtt float64, emitter types.NaraName, keypair NaraKeypair) SyncEvent {
+func NewSignedPingSyncEvent(observer types.NaraName, target types.NaraName, rtt float64, emitter types.NaraName, keypair identity.NaraKeypair) SyncEvent {
 	e := NewPingSyncEvent(observer, target, rtt)
 	e.Sign(emitter, keypair)
 	return e
@@ -899,7 +900,7 @@ func NewSignedPingSyncEvent(observer types.NaraName, target types.NaraName, rtt 
 // This allows hey_there events to propagate through gossip, enabling peer discovery
 // without MQTT broadcasts. The SyncEvent signature is the attestation - inner event
 // is just payload data.
-func NewHeyThereSyncEvent(name types.NaraName, publicKey string, meshIP string, id types.NaraID, keypair NaraKeypair) SyncEvent {
+func NewHeyThereSyncEvent(name types.NaraName, publicKey string, meshIP string, id types.NaraID, keypair identity.NaraKeypair) SyncEvent {
 	heyThere := &HeyThereEvent{
 		From:      name,
 		PublicKey: publicKey,
@@ -921,7 +922,7 @@ func NewHeyThereSyncEvent(name types.NaraName, publicKey string, meshIP string, 
 // This allows chau events to propagate through gossip, enabling gossip-only naras
 // to distinguish OFFLINE (graceful) from MISSING (timeout). The SyncEvent signature
 // is the attestation - inner event is just payload data.
-func NewChauSyncEvent(name types.NaraName, publicKey string, id types.NaraID, keypair NaraKeypair) SyncEvent {
+func NewChauSyncEvent(name types.NaraName, publicKey string, id types.NaraID, keypair identity.NaraKeypair) SyncEvent {
 	chau := &ChauEvent{
 		From:      name,
 		PublicKey: publicKey,
@@ -941,7 +942,7 @@ func NewChauSyncEvent(name types.NaraName, publicKey string, id types.NaraID, ke
 // NewSeenSyncEvent creates a signed SyncEvent for when a nara is seen through some interaction.
 // The via parameter indicates how they were seen: "zine", "mesh", "ping", "sync".
 // Signed so other naras can verify who made the observation when events propagate.
-func NewSeenSyncEvent(observer types.NaraName, subject types.NaraName, via string, keypair NaraKeypair) SyncEvent {
+func NewSeenSyncEvent(observer types.NaraName, subject types.NaraName, via string, keypair identity.NaraKeypair) SyncEvent {
 	e := SyncEvent{
 		Timestamp: time.Now().UnixNano(),
 		Service:   ServiceSeen,
@@ -957,19 +958,19 @@ func NewSeenSyncEvent(observer types.NaraName, subject types.NaraName, via strin
 }
 
 // NewTeaseSyncEvent creates a signed SyncEvent for teasing another nara.
-func NewTeaseSyncEvent(actor types.NaraName, target types.NaraName, reason string, keypair NaraKeypair) SyncEvent {
+func NewTeaseSyncEvent(actor types.NaraName, target types.NaraName, reason string, keypair identity.NaraKeypair) SyncEvent {
 	return NewSignedSocialSyncEvent("tease", actor, target, reason, "", actor, keypair)
 }
 
 // NewObservationSocialSyncEvent creates a signed SyncEvent for system observations.
-func NewObservationSocialSyncEvent(actor types.NaraName, target types.NaraName, reason string, keypair NaraKeypair) SyncEvent {
+func NewObservationSocialSyncEvent(actor types.NaraName, target types.NaraName, reason string, keypair identity.NaraKeypair) SyncEvent {
 	return NewSignedSocialSyncEvent("observation", actor, target, reason, "", actor, keypair)
 }
 
 // NewJourneyObservationSyncEvent creates a signed SyncEvent for journey observations.
 // The journeyID is stored in the Witness field for tracking.
 // TODO: the journey used to be stored in the Witness field but now it's not stored there anyore, this is likely breaking somethign...
-func NewJourneyObservationSyncEvent(observer types.NaraName, journeyOriginator types.NaraName, reason, journeyID string, keypair NaraKeypair) SyncEvent {
+func NewJourneyObservationSyncEvent(observer types.NaraName, journeyOriginator types.NaraName, reason, journeyID string, keypair identity.NaraKeypair) SyncEvent {
 	return NewSignedSocialSyncEvent("observation", observer, journeyOriginator, reason, "", observer, keypair)
 }
 

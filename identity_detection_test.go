@@ -3,6 +3,7 @@ package nara
 import (
 	"testing"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
 )
 
@@ -11,12 +12,12 @@ func TestComputeNaraID_Deterministic(t *testing.T) {
 	soul := testSoul("test-nara")
 	name := types.NaraName("test-nara")
 
-	id1, err1 := ComputeNaraID(soul, name)
+	id1, err1 := identity.ComputeNaraID(soul, name)
 	if err1 != nil {
 		t.Fatalf("Failed to compute ID (attempt 1): %v", err1)
 	}
 
-	id2, err2 := ComputeNaraID(soul, name)
+	id2, err2 := identity.ComputeNaraID(soul, name)
 	if err2 != nil {
 		t.Fatalf("Failed to compute ID (attempt 2): %v", err2)
 	}
@@ -37,12 +38,12 @@ func TestComputeNaraID_DifferentSouls(t *testing.T) {
 	soul1 := testSoul("soul1")
 	soul2 := testSoul("soul2")
 
-	id1, err1 := ComputeNaraID(soul1, name)
+	id1, err1 := identity.ComputeNaraID(soul1, name)
 	if err1 != nil {
 		t.Fatalf("Failed to compute ID for soul1: %v", err1)
 	}
 
-	id2, err2 := ComputeNaraID(soul2, name)
+	id2, err2 := identity.ComputeNaraID(soul2, name)
 	if err2 != nil {
 		t.Fatalf("Failed to compute ID for soul2: %v", err2)
 	}
@@ -58,12 +59,12 @@ func TestComputeNaraID_DifferentNames(t *testing.T) {
 	name1 := types.NaraName("nara1")
 	name2 := types.NaraName("nara2")
 
-	id1, err1 := ComputeNaraID(soul, name1)
+	id1, err1 := identity.ComputeNaraID(soul, name1)
 	if err1 != nil {
 		t.Fatalf("Failed to compute ID for name1: %v", err1)
 	}
 
-	id2, err2 := ComputeNaraID(soul, name2)
+	id2, err2 := identity.ComputeNaraID(soul, name2)
 	if err2 != nil {
 		t.Fatalf("Failed to compute ID for name2: %v", err2)
 	}
@@ -78,7 +79,7 @@ func TestComputeNaraID_InvalidSoul(t *testing.T) {
 	invalidSoul := "not-valid-base58!!!"
 	name := types.NaraName("test-nara")
 
-	_, err := ComputeNaraID(invalidSoul, name)
+	_, err := identity.ComputeNaraID(invalidSoul, name)
 	if err == nil {
 		t.Error("Expected error for invalid soul encoding, got nil")
 	}
@@ -90,7 +91,7 @@ func TestComputeNaraID_WrongSoulLength(t *testing.T) {
 	shortSoul := "3vQB7B6MrGQZaxCuFg4oh" // This is valid Base58 but too short
 	name := types.NaraName("test-nara")
 
-	_, err := ComputeNaraID(shortSoul, name)
+	_, err := identity.ComputeNaraID(shortSoul, name)
 	if err == nil {
 		t.Error("Expected error for wrong soul length, got nil")
 	}
@@ -100,7 +101,7 @@ func TestComputeNaraID_WrongSoulLength(t *testing.T) {
 func TestLocalNara_IDInitialization(t *testing.T) {
 	name := types.NaraName("test-nara")
 	soul := testSoul(name.String())
-	identity := DetermineIdentity(name, soul, name.String(), nil)
+	identity := identity.DetermineIdentity(name, soul, name.String(), nil)
 
 	profile := DefaultMemoryProfile()
 	ln, err := NewLocalNara(identity, "", "", "", -1, profile)
@@ -129,8 +130,8 @@ func TestLocalNara_IDUniqueness(t *testing.T) {
 	soul1 := testSoul("soul1")
 	soul2 := testSoul("soul2")
 
-	identity1 := DetermineIdentity(name, soul1, name.String(), nil)
-	identity2 := DetermineIdentity(name, soul2, name.String(), nil)
+	identity1 := identity.DetermineIdentity(name, soul1, name.String(), nil)
+	identity2 := identity.DetermineIdentity(name, soul2, name.String(), nil)
 
 	profile := DefaultMemoryProfile()
 	ln1, err := NewLocalNara(identity1, "", "", "", -1, profile)

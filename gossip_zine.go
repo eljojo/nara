@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sirupsen/logrus"
-
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
+	"github.com/sirupsen/logrus"
 )
 
 // Zine is a batch of recent events passed hand-to-hand between naras
@@ -61,7 +61,7 @@ func (network *Network) createZine() *Zine {
 }
 
 // SignZine computes the signature for a zine
-func SignZine(z *Zine, keypair NaraKeypair) (string, error) {
+func SignZine(z *Zine, keypair identity.NaraKeypair) (string, error) {
 	if len(keypair.PrivateKey) == 0 {
 		return "", fmt.Errorf("no private key available")
 	}

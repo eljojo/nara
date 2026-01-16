@@ -4,9 +4,9 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/sirupsen/logrus"
-
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
+	"github.com/sirupsen/logrus"
 )
 
 // HTTPClient is a minimal interface for HTTP operations (allows mocking in tests)
@@ -25,7 +25,7 @@ type HTTPClient interface {
 type NetworkContext interface {
 	// Identity
 	MyName() types.NaraName
-	Keypair() NaraKeypair
+	Keypair() identity.NaraKeypair
 
 	// Mesh HTTP operations
 	BuildMeshURL(name types.NaraName, path string) string
@@ -63,7 +63,7 @@ func (c *networkContext) MyName() types.NaraName {
 	return c.network.meName()
 }
 
-func (c *networkContext) Keypair() NaraKeypair {
+func (c *networkContext) Keypair() identity.NaraKeypair {
 	return c.network.local.Keypair
 }
 

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
 	"github.com/sirupsen/logrus"
 )
@@ -485,7 +486,7 @@ func TestIntegration_TeaseDM(t *testing.T) {
 	bobNara := NewNara(types.NaraName("bob"))
 	bobNara.ID = bob.ID // Set ID so nameToID mapping is created
 	bobNara.Status.ID = bob.ID
-	bobNara.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
+	bobNara.Status.PublicKey = identity.FormatPublicKey(bob.Keypair.PublicKey)
 	alice.Network.importNara(bobNara)
 	alice.Network.testHTTPClient = &http.Client{Timeout: 5 * time.Second}
 	alice.Network.testMeshURLs = map[types.NaraName]string{types.NaraName("bob"): server.URL}
@@ -499,7 +500,7 @@ func TestIntegration_TeaseDM(t *testing.T) {
 	aliceNara := NewNara("alice")
 	aliceNara.ID = alice.ID // Set ID so nameToID mapping is created
 	aliceNara.Status.ID = alice.ID
-	aliceNara.Status.PublicKey = FormatPublicKey(alice.Keypair.PublicKey)
+	aliceNara.Status.PublicKey = identity.FormatPublicKey(alice.Keypair.PublicKey)
 	bob.Network.importNara(aliceNara)
 
 	// Alice teases bob
@@ -555,7 +556,7 @@ func TestIntegration_TeaseDM_SpreadViaGossip(t *testing.T) {
 	bobNara := NewNara("bob")
 	bobNara.ID = bob.ID
 	bobNara.Status.ID = bob.ID
-	bobNara.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
+	bobNara.Status.PublicKey = identity.FormatPublicKey(bob.Keypair.PublicKey)
 	alice.Network.importNara(bobNara)
 	tc.SetOnline("alice", "bob")
 
@@ -563,7 +564,7 @@ func TestIntegration_TeaseDM_SpreadViaGossip(t *testing.T) {
 	bobNaraForCharlie := NewNara("bob")
 	bobNaraForCharlie.ID = bob.ID
 	bobNaraForCharlie.Status.ID = bob.ID
-	bobNaraForCharlie.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
+	bobNaraForCharlie.Status.PublicKey = identity.FormatPublicKey(bob.Keypair.PublicKey)
 	charlie.Network.importNara(bobNaraForCharlie)
 	tc.SetOnline("charlie", "bob")
 
@@ -571,7 +572,7 @@ func TestIntegration_TeaseDM_SpreadViaGossip(t *testing.T) {
 	aliceNaraForBob := NewNara("alice")
 	aliceNaraForBob.ID = alice.ID
 	aliceNaraForBob.Status.ID = alice.ID
-	aliceNaraForBob.Status.PublicKey = FormatPublicKey(alice.Keypair.PublicKey)
+	aliceNaraForBob.Status.PublicKey = identity.FormatPublicKey(alice.Keypair.PublicKey)
 	bob.Network.importNara(aliceNaraForBob)
 
 	// Set transport mode to gossip

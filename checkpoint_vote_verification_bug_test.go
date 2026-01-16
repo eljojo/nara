@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
 )
 
@@ -33,7 +34,7 @@ func TestCheckpoint_VoteSignatureVerificationBug(t *testing.T) {
 		AttesterID: voterID,
 		AsOfTime:   asOfTime,
 	}
-	attestation.Signature = SignContent(&attestation, voterKeypair)
+	attestation.Signature = identity.SignContent(&attestation, voterKeypair)
 
 	// Create a vote with this attestation
 	vote := &CheckpointVote{
@@ -105,7 +106,7 @@ func TestCheckpoint_VoteSignatureNameSpoofing(t *testing.T) {
 		AsOfTime:   asOfTime,
 	}
 	// Attacker signs with their own key
-	attestation.Signature = SignContent(&attestation, attackerKeypair)
+	attestation.Signature = identity.SignContent(&attestation, attackerKeypair)
 
 	vote := &CheckpointVote{
 		Attestation: attestation,
@@ -183,7 +184,7 @@ func TestCheckpoint_VoteNameVsIDLookup(t *testing.T) {
 		AttesterID: voterID, // But ID is stable
 		AsOfTime:   asOfTime,
 	}
-	attestation.Signature = SignContent(&attestation, voterKeypair)
+	attestation.Signature = identity.SignContent(&attestation, voterKeypair)
 
 	vote := &CheckpointVote{
 		Attestation: attestation,
@@ -243,7 +244,7 @@ func TestCheckpoint_ProposalSignatureVerification(t *testing.T) {
 		AttesterID: proposerID,
 		AsOfTime:   asOfTime,
 	}
-	attestation.Signature = SignContent(&attestation, proposerKeypair)
+	attestation.Signature = identity.SignContent(&attestation, proposerKeypair)
 
 	proposal := &CheckpointProposal{
 		Attestation: attestation,

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
 )
 
@@ -190,7 +191,7 @@ func (tc *TestCoordinator) connectOneWay(sourceName, targetName string) {
 	targetNara := NewNara(types.NaraName(targetName))
 	targetNara.ID = target.ID
 	targetNara.Status.ID = target.ID
-	targetNara.Status.PublicKey = FormatPublicKey(target.Keypair.PublicKey)
+	targetNara.Status.PublicKey = identity.FormatPublicKey(target.Keypair.PublicKey)
 	source.Network.importNara(targetNara)
 
 	// Mark target as online so gossip can find them

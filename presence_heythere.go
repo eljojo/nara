@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sirupsen/logrus"
-
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
+	"github.com/sirupsen/logrus"
 )
 
 // truncateKey returns first 8 chars of a key for logging
@@ -26,7 +26,7 @@ type HeyThereEvent struct {
 }
 
 // Sign signs the HeyThereEvent with the given keypair
-func (h *HeyThereEvent) Sign(kp NaraKeypair) {
+func (h *HeyThereEvent) Sign(kp identity.NaraKeypair) {
 	message := h.signatureMessage()
 	h.Signature = kp.SignBase64([]byte(message))
 }
@@ -36,21 +36,21 @@ func (h *HeyThereEvent) Verify() bool {
 	if h.PublicKey == "" || h.Signature == "" {
 		return false
 	}
-	pubKey, err := ParsePublicKey(h.PublicKey)
+	pubKey, err := identity.ParsePublicKey(h.PublicKey)
 	if err != nil {
 		return false
 	}
 
 	// Try new format first (with ID)
 	message := h.signatureMessage()
-	if VerifySignatureBase64(pubKey, []byte(message), h.Signature) {
+	if identity.VerifySignatureBase64(pubKey, []byte(message), h.Signature) {
 		return true
 	}
 
 	// Fall back to old format (without ID) for backwards compatibility
 	if h.ID != "" {
 		oldMessage := fmt.Sprintf("hey_there:%s:%s:%s", h.From.String(), h.PublicKey, h.MeshIP)
-		return VerifySignatureBase64(pubKey, []byte(oldMessage), h.Signature)
+		return identity.VerifySignatureBase64(pubKey, []byte(oldMessage), h.Signature)
 	}
 
 	return false
@@ -88,7 +88,7 @@ func (h *HeyThereEvent) VerifySignature(event *SyncEvent, lookup PublicKeyLookup
 	if h.PublicKey == "" {
 		return false
 	}
-	pubKey, err := ParsePublicKey(h.PublicKey)
+	pubKey, err := identity.ParsePublicKey(h.PublicKey)
 	if err != nil {
 		return false
 	}
@@ -143,7 +143,7 @@ func (network *Network) processHeyThereSyncEvents(events []SyncEvent) {
 		// This is the bootstrap case - hey_there is how we learn public keys.
 		// The payload contains the public key, and the SyncEvent is signed with it.
 		if e.IsSigned() && h.PublicKey != "" {
-			pubKey, err := ParsePublicKey(h.PublicKey)
+			pubKey, err := identity.ParsePublicKey(h.PublicKey)
 			if err != nil {
 				logrus.Warnf("📡 Invalid public key in hey_there from %s: %v", h.From, err)
 				continue
@@ -196,7 +196,7 @@ func (network *Network) processHeyThereSyncEvents(events []SyncEvent) {
 // emitHeyThereSyncEvent creates and adds a hey_there sync event to our ledger.
 // This allows our identity to propagate through gossip (new mechanism replacing MQTT hey_there).
 func (network *Network) emitHeyThereSyncEvent() {
-	publicKey := FormatPublicKey(network.local.Keypair.PublicKey)
+	publicKey := identity.FormatPublicKey(network.local.Keypair.PublicKey)
 	meshIP := network.local.Me.Status.MeshIP
 
 	event := NewHeyThereSyncEvent(network.meName(), publicKey, meshIP, network.local.ID, network.local.Keypair)
@@ -242,7 +242,7 @@ func (network *Network) handleHeyThereEvent(event SyncEvent) {
 
 	// Verify SyncEvent signature using the public key from the payload
 	if event.IsSigned() && heyThere.PublicKey != "" {
-		pubKey, err := ParsePublicKey(heyThere.PublicKey)
+		pubKey, err := identity.ParsePublicKey(heyThere.PublicKey)
 		if err != nil {
 			logrus.Warnf("🚨 Invalid public key in hey_there from %s: %v", heyThere.From, err)
 			return

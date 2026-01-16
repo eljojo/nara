@@ -3,6 +3,8 @@ package nara
 import (
 	"fmt"
 	"testing"
+
+	"github.com/eljojo/nara/identity"
 )
 
 // TestHeyThereEvent_BackwardsCompatibleSignature verifies that a new nara
@@ -16,7 +18,7 @@ func TestHeyThereEvent_BackwardsCompatibleSignature(t *testing.T) {
 	// The old nara would sign: "hey_there:name:publicKey:meshIP"
 	oldFormatEvent := &HeyThereEvent{
 		From:      "old-nara",
-		PublicKey: FormatPublicKey(ln.Keypair.PublicKey),
+		PublicKey: identity.FormatPublicKey(ln.Keypair.PublicKey),
 		MeshIP:    "100.64.0.1",
 		// ID is intentionally empty - old naras don't set this
 	}
@@ -27,7 +29,7 @@ func TestHeyThereEvent_BackwardsCompatibleSignature(t *testing.T) {
 
 	// Now simulate a NEW nara receiving this event and populating the ID field
 	// (because the new nara computed an ID for the old nara based on its soul+name)
-	newNaraID, err := ComputeNaraID(testSoul("old-nara"), "old-nara")
+	newNaraID, err := identity.ComputeNaraID(testSoul("old-nara"), "old-nara")
 	if err != nil {
 		t.Fatalf("Failed to compute ID: %v", err)
 	}
@@ -50,7 +52,7 @@ func TestHeyThereEvent_NewFormatSignature(t *testing.T) {
 	// New nara creates event WITH ID
 	newEvent := &HeyThereEvent{
 		From:      "new-nara",
-		PublicKey: FormatPublicKey(ln.Keypair.PublicKey),
+		PublicKey: identity.FormatPublicKey(ln.Keypair.PublicKey),
 		MeshIP:    "100.64.0.2",
 		ID:        ln.ID,
 	}
@@ -74,7 +76,7 @@ func TestHeyThereEvent_OldFormatWithoutID(t *testing.T) {
 
 	oldEvent := &HeyThereEvent{
 		From:      "ancient-nara",
-		PublicKey: FormatPublicKey(ln.Keypair.PublicKey),
+		PublicKey: identity.FormatPublicKey(ln.Keypair.PublicKey),
 		MeshIP:    "100.64.0.3",
 		// ID is empty - old nara never sets this
 	}
@@ -98,7 +100,7 @@ func TestChauEvent_BackwardsCompatibleSignature(t *testing.T) {
 	// Old nara creates chau event WITHOUT ID in signature
 	oldFormatEvent := &ChauEvent{
 		From:      "old-nara",
-		PublicKey: FormatPublicKey(ln.Keypair.PublicKey),
+		PublicKey: identity.FormatPublicKey(ln.Keypair.PublicKey),
 		// ID is intentionally empty
 	}
 
@@ -107,7 +109,7 @@ func TestChauEvent_BackwardsCompatibleSignature(t *testing.T) {
 	oldFormatEvent.Signature = ln.Keypair.SignBase64([]byte(oldMessage))
 
 	// New nara populates ID field after receiving
-	newNaraID, err := ComputeNaraID(testSoul("old-nara"), "old-nara")
+	newNaraID, err := identity.ComputeNaraID(testSoul("old-nara"), "old-nara")
 	if err != nil {
 		t.Fatalf("Failed to compute ID: %v", err)
 	}
@@ -127,7 +129,7 @@ func TestChauEvent_NewFormatSignature(t *testing.T) {
 
 	newEvent := &ChauEvent{
 		From:      "new-nara",
-		PublicKey: FormatPublicKey(ln.Keypair.PublicKey),
+		PublicKey: identity.FormatPublicKey(ln.Keypair.PublicKey),
 		ID:        ln.ID,
 	}
 
@@ -146,7 +148,7 @@ func TestChauEvent_OldFormatWithoutID(t *testing.T) {
 
 	oldEvent := &ChauEvent{
 		From:      "ancient-nara",
-		PublicKey: FormatPublicKey(ln.Keypair.PublicKey),
+		PublicKey: identity.FormatPublicKey(ln.Keypair.PublicKey),
 		// ID is empty
 	}
 
@@ -170,7 +172,7 @@ func TestMixedRollout_OldAndNewNaras(t *testing.T) {
 	// Old nara sends hey_there (old format signature)
 	oldHeyThere := &HeyThereEvent{
 		From:      "old-nara",
-		PublicKey: FormatPublicKey(oldNara.Keypair.PublicKey),
+		PublicKey: identity.FormatPublicKey(oldNara.Keypair.PublicKey),
 		MeshIP:    "100.64.0.1",
 	}
 	// Sign with old format
@@ -178,7 +180,7 @@ func TestMixedRollout_OldAndNewNaras(t *testing.T) {
 	oldHeyThere.Signature = oldNara.Keypair.SignBase64([]byte(oldMessage))
 
 	// New nara receives it and adds ID (because new nara computes IDs for everyone)
-	oldNaraID, _ := ComputeNaraID(testSoul("old-nara"), "old-nara")
+	oldNaraID, _ := identity.ComputeNaraID(testSoul("old-nara"), "old-nara")
 	oldHeyThere.ID = oldNaraID
 
 	// New nara should verify old signature
@@ -189,7 +191,7 @@ func TestMixedRollout_OldAndNewNaras(t *testing.T) {
 	// New nara sends hey_there (new format with ID)
 	newHeyThere := &HeyThereEvent{
 		From:      "new-nara",
-		PublicKey: FormatPublicKey(newNara.Keypair.PublicKey),
+		PublicKey: identity.FormatPublicKey(newNara.Keypair.PublicKey),
 		MeshIP:    "100.64.0.2",
 		ID:        newNara.ID,
 	}
@@ -213,7 +215,7 @@ func TestHeyThereEvent_SignatureMustIncludeID(t *testing.T) {
 	ln := testLocalNara(t, "new-nara")
 	event := &HeyThereEvent{
 		From:      "new-nara",
-		PublicKey: FormatPublicKey(ln.Keypair.PublicKey),
+		PublicKey: identity.FormatPublicKey(ln.Keypair.PublicKey),
 		MeshIP:    "100.64.0.2",
 		ID:        ln.ID,
 	}
@@ -239,7 +241,7 @@ func TestChauEvent_SignatureMustIncludeID(t *testing.T) {
 	ln := testLocalNara(t, "new-nara")
 	event := &ChauEvent{
 		From:      "new-nara",
-		PublicKey: FormatPublicKey(ln.Keypair.PublicKey),
+		PublicKey: identity.FormatPublicKey(ln.Keypair.PublicKey),
 		ID:        ln.ID,
 	}
 

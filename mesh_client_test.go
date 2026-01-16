@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
 )
 
@@ -92,7 +93,7 @@ func CreateMockWorldMessageHandler(inbox chan *WorldMessage) func(req *http.Requ
 }
 
 // NewMockMeshClientForTesting creates a mesh client with in-memory routing for tests
-func NewMockMeshClientForTesting(name types.NaraName, keypair NaraKeypair, transport *MockMeshHTTPTransport) *MeshClient {
+func NewMockMeshClientForTesting(name types.NaraName, keypair identity.NaraKeypair, transport *MockMeshHTTPTransport) *MeshClient {
 	client := &http.Client{
 		Transport: transport,
 	}

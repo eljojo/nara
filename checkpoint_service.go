@@ -12,6 +12,7 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/sirupsen/logrus"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
 )
 
@@ -262,7 +263,7 @@ func (s *CheckpointService) proposeCheckpointRound(round int, consensusValues *r
 	}
 
 	// Sign the attestation
-	attestation.Signature = SignContent(&attestation, s.local.Keypair)
+	attestation.Signature = identity.SignContent(&attestation, s.local.Keypair)
 
 	// Create proposal (attestation + round context)
 	proposal := &CheckpointProposal{
@@ -387,7 +388,7 @@ func (s *CheckpointService) HandleProposal(proposal *CheckpointProposal) {
 	}
 
 	// Sign the attestation
-	attestation.Signature = SignContent(&attestation, s.local.Keypair)
+	attestation.Signature = identity.SignContent(&attestation, s.local.Keypair)
 
 	// Build vote (attestation + vote context)
 	vote := &CheckpointVote{
@@ -504,7 +505,7 @@ func (s *CheckpointService) verifyVoteSignature(vote *CheckpointVote) bool {
 	}
 
 	// Verify the attestation signature (not the wrapper)
-	return VerifyContent(&vote.Attestation, pubKey, vote.Attestation.Signature)
+	return identity.VerifyContent(&vote.Attestation, pubKey, vote.Attestation.Signature)
 }
 
 // verifyProposalSignature verifies that a proposal has a valid signature from the proposer
@@ -523,7 +524,7 @@ func (s *CheckpointService) verifyProposalSignature(proposal *CheckpointProposal
 	}
 
 	// Verify the attestation signature (not the wrapper)
-	return VerifyContent(&proposal.Attestation, pubKey, proposal.Attestation.Signature)
+	return identity.VerifyContent(&proposal.Attestation, pubKey, proposal.Attestation.Signature)
 }
 
 // finalizeProposal attempts to finalize the current pending proposal

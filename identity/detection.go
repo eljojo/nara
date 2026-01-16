@@ -1,4 +1,4 @@
-package nara
+package identity
 
 import (
 	"crypto/sha256"

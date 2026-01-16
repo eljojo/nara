@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/runtime"
-
 	"github.com/eljojo/nara/types"
 )
 
@@ -59,13 +59,13 @@ func (a *TransportAdapter) PublishMQTT(topic string, data []byte) error {
 
 // === Keypair Adapter ===
 
-// KeypairAdapter bridges NaraKeypair to runtime.KeypairInterface.
+// KeypairAdapter bridges identity.NaraKeypair to runtime.KeypairInterface.
 type KeypairAdapter struct {
-	keypair NaraKeypair
+	keypair identity.NaraKeypair
 }
 
 // NewKeypairAdapter creates a keypair adapter.
-func NewKeypairAdapter(keypair NaraKeypair) *KeypairAdapter {
+func NewKeypairAdapter(keypair identity.NaraKeypair) *KeypairAdapter {
 	return &KeypairAdapter{keypair: keypair}
 }
 
@@ -79,12 +79,12 @@ func (a *KeypairAdapter) PublicKey() []byte {
 	return a.keypair.PublicKey
 }
 
-// Seal encrypts plaintext using XChaCha20-Poly1305.
+// Seal encrypts plaintext using the keypair's cached encryption key.
 func (a *KeypairAdapter) Seal(plaintext []byte) (nonce, ciphertext []byte, err error) {
 	return a.keypair.Seal(plaintext)
 }
 
-// Open decrypts ciphertext using XChaCha20-Poly1305.
+// Open decrypts ciphertext using the keypair's cached encryption key.
 func (a *KeypairAdapter) Open(nonce, ciphertext []byte) ([]byte, error) {
 	return a.keypair.Open(nonce, ciphertext)
 }

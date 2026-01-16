@@ -8,6 +8,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
 )
 
@@ -46,7 +47,7 @@ func (event *NewspaperEvent) Verify(publicKey []byte) bool {
 			return false
 		}
 	}
-	return VerifySignatureBase64(publicKey, statusJSON, event.Signature)
+	return identity.VerifySignatureBase64(publicKey, statusJSON, event.Signature)
 }
 
 // announce broadcasts this nara's current status as a newspaper event
@@ -115,7 +116,7 @@ func (network *Network) handleNewspaperEvent(event NewspaperEvent) {
 		var pubKey []byte
 		if event.Status.PublicKey != "" {
 			var err error
-			pubKey, err = ParsePublicKey(event.Status.PublicKey)
+			pubKey, err = identity.ParsePublicKey(event.Status.PublicKey)
 			if err != nil {
 				logrus.Warnf("🚨 Invalid public key in newspaper from %s", event.From)
 				return

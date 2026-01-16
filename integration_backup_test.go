@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/sirupsen/logrus"
 )
 
@@ -36,11 +37,11 @@ func TestIntegration_EventImport_ValidSoul(t *testing.T) {
 	}
 
 	// Create import request signed with the same soul
-	soul, err := ParseSoul(soulStr)
+	soul, err := identity.ParseSoul(soulStr)
 	if err != nil {
 		t.Fatalf("Failed to parse soul: %v", err)
 	}
-	keypair := DeriveKeypair(soul)
+	keypair := identity.DeriveKeypair(soul)
 
 	request := EventImportRequest{
 		Events:    events,
@@ -109,11 +110,11 @@ func TestIntegration_EventImport_InvalidSoul(t *testing.T) {
 
 	// Create import request signed with a DIFFERENT soul
 	differentSoulStr := testSoul("different-nara")
-	differentSoul, err := ParseSoul(differentSoulStr)
+	differentSoul, err := identity.ParseSoul(differentSoulStr)
 	if err != nil {
 		t.Fatalf("Failed to parse different soul: %v", err)
 	}
-	differentKeypair := DeriveKeypair(differentSoul)
+	differentKeypair := identity.DeriveKeypair(differentSoul)
 
 	events := []SyncEvent{
 		NewPingSyncEvent("alice", "bob", 10.5),
@@ -168,8 +169,8 @@ func TestIntegration_EventImport_ExpiredTimestamp(t *testing.T) {
 	server := httptest.NewServer(ln.Network.createHTTPMux(false))
 	defer server.Close()
 
-	soul, _ := ParseSoul(soulStr)
-	keypair := DeriveKeypair(soul)
+	soul, _ := identity.ParseSoul(soulStr)
+	keypair := identity.DeriveKeypair(soul)
 
 	events := []SyncEvent{
 		NewPingSyncEvent("alice", "bob", 10.5),
@@ -220,8 +221,8 @@ func TestIntegration_EventImport_Deduplication(t *testing.T) {
 	server := httptest.NewServer(ln.Network.createHTTPMux(false))
 	defer server.Close()
 
-	soul, _ := ParseSoul(soulStr)
-	keypair := DeriveKeypair(soul)
+	soul, _ := identity.ParseSoul(soulStr)
+	keypair := identity.DeriveKeypair(soul)
 
 	// Create events
 	events := []SyncEvent{

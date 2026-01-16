@@ -4,6 +4,8 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"testing"
+
+	"github.com/eljojo/nara/identity"
 )
 
 func TestKeyring_Identity(t *testing.T) {
@@ -100,7 +102,7 @@ func TestKeyring_RegisterBase64(t *testing.T) {
 
 	// Generate peer keypair and encode
 	peerPub, _, _ := ed25519.GenerateKey(rand.Reader)
-	encoded := FormatPublicKey(peerPub)
+	encoded := identity.FormatPublicKey(peerPub)
 
 	// Register via base64
 	if err := kr.RegisterBase64("peer-id", encoded); err != nil {
@@ -123,24 +125,24 @@ func TestKeyring_RegisterBase64(t *testing.T) {
 
 func TestParsePublicKey(t *testing.T) {
 	pub, _, _ := ed25519.GenerateKey(rand.Reader)
-	encoded := FormatPublicKey(pub)
+	encoded := identity.FormatPublicKey(pub)
 
-	parsed, err := ParsePublicKey(encoded)
+	parsed, err := identity.ParsePublicKey(encoded)
 	if err != nil {
-		t.Fatalf("ParsePublicKey() failed: %v", err)
+		t.Fatalf("identity.ParsePublicKey() failed: %v", err)
 	}
 
 	if string(parsed) != string(pub) {
-		t.Error("ParsePublicKey() didn't return original key")
+		t.Error("identity.ParsePublicKey() didn't return original key")
 	}
 
 	// Invalid input
-	if _, err := ParsePublicKey("invalid"); err == nil {
-		t.Error("ParsePublicKey() should fail for invalid input")
+	if _, err := identity.ParsePublicKey("invalid"); err == nil {
+		t.Error("identity.ParsePublicKey() should fail for invalid input")
 	}
 
 	// Wrong size
-	if _, err := ParsePublicKey("YWJj"); err == nil { // "abc" in base64
-		t.Error("ParsePublicKey() should fail for wrong size")
+	if _, err := identity.ParsePublicKey("YWJj"); err == nil { // "abc" in base64
+		t.Error("identity.ParsePublicKey() should fail for wrong size")
 	}
 }

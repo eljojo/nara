@@ -1035,7 +1035,7 @@ func (m *Message) VerifySignature(pubKey []byte) bool
 VerifySignature checks if the signature is valid for this message.
 
 <a name="MockKeypair"></a>
-## type [MockKeypair](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L224-L227>)
+## type [MockKeypair](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L224-L228>)
 
 MockKeypair is a fake keypair for testing.
 
@@ -1046,7 +1046,7 @@ type MockKeypair struct {
 ```
 
 <a name="NewMockKeypair"></a>
-### func [NewMockKeypair](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L230>)
+### func [NewMockKeypair](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L231>)
 
 ```go
 func NewMockKeypair() *MockKeypair
@@ -1055,7 +1055,7 @@ func NewMockKeypair() *MockKeypair
 NewMockKeypair creates a new mock keypair.
 
 <a name="MockKeypair.Open"></a>
-### func \(\*MockKeypair\) [Open](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L274>)
+### func \(\*MockKeypair\) [Open](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L285>)
 
 ```go
 func (k *MockKeypair) Open(nonce, ciphertext []byte) ([]byte, error)
@@ -1064,7 +1064,7 @@ func (k *MockKeypair) Open(nonce, ciphertext []byte) ([]byte, error)
 Open decrypts ciphertext using XChaCha20\-Poly1305.
 
 <a name="MockKeypair.PublicKey"></a>
-### func \(\*MockKeypair\) [PublicKey](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L242>)
+### func \(\*MockKeypair\) [PublicKey](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L253>)
 
 ```go
 func (k *MockKeypair) PublicKey() []byte
@@ -1073,7 +1073,7 @@ func (k *MockKeypair) PublicKey() []byte
 
 
 <a name="MockKeypair.Seal"></a>
-### func \(\*MockKeypair\) [Seal](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L247>)
+### func \(\*MockKeypair\) [Seal](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L258>)
 
 ```go
 func (k *MockKeypair) Seal(plaintext []byte) (nonce, ciphertext []byte, err error)
@@ -1082,7 +1082,7 @@ func (k *MockKeypair) Seal(plaintext []byte) (nonce, ciphertext []byte, err erro
 Seal encrypts plaintext using XChaCha20\-Poly1305.
 
 <a name="MockKeypair.Sign"></a>
-### func \(\*MockKeypair\) [Sign](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L238>)
+### func \(\*MockKeypair\) [Sign](<https://github.com/eljojo/nara/blob/main/runtime/mock_runtime.go#L249>)
 
 ```go
 func (k *MockKeypair) Sign(data []byte) []byte

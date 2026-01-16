@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
 	mqttserver "github.com/mochi-mqtt/server/v2"
 	"github.com/mochi-mqtt/server/v2/hooks/auth"
@@ -20,8 +21,8 @@ import (
 // This ensures all test naras have valid keypairs for signing.
 func testSoul(name string) string {
 	hw := hashTestBytes([]byte("test-hardware-" + name))
-	soul := NativeSoulCustom(hw, types.NaraName(name))
-	return FormatSoul(soul)
+	soul := identity.NativeSoulCustom(hw, types.NaraName(name))
+	return identity.FormatSoul(soul)
 }
 
 func hashTestBytes(b []byte) []byte {
@@ -117,11 +118,11 @@ func testNara(t *testing.T, name string, opts ...TestNaraOption) *LocalNara {
 	}
 
 	// Create identity
-	var identity IdentityResult
+	var identityResult identity.IdentityResult
 	if config.soul != "" {
-		parsed, _ := ParseSoul(config.soul)
-		id, _ := ComputeNaraID(config.soul, types.NaraName(name))
-		identity = IdentityResult{
+		parsed, _ := identity.ParseSoul(config.soul)
+		id, _ := identity.ComputeNaraID(config.soul, types.NaraName(name))
+		identityResult = identity.IdentityResult{
 			Name:        types.NaraName(name),
 			Soul:        parsed,
 			ID:          id,
@@ -129,7 +130,7 @@ func testNara(t *testing.T, name string, opts ...TestNaraOption) *LocalNara {
 			IsNative:    true,
 		}
 	} else {
-		identity = testIdentity(name)
+		identityResult = testIdentity(name)
 	}
 
 	// Create memory profile
@@ -140,7 +141,7 @@ func testNara(t *testing.T, name string, opts ...TestNaraOption) *LocalNara {
 	}
 
 	// Create LocalNara
-	ln, err := NewLocalNara(identity, config.mqttHost, "", "", config.chattiness, profile)
+	ln, err := NewLocalNara(identityResult, config.mqttHost, "", "", config.chattiness, profile)
 	if err != nil {
 		panic(err)
 	}
@@ -189,11 +190,11 @@ func testLocalNaraWithSoul(t *testing.T, name string, soul string) *LocalNara {
 	return testNara(t, name, WithSoul(soul))
 }
 
-func testIdentity(name string) IdentityResult {
+func testIdentity(name string) identity.IdentityResult {
 	soulStr := testSoul(name)
-	parsed, _ := ParseSoul(soulStr)
-	id, _ := ComputeNaraID(soulStr, types.NaraName(name))
-	return IdentityResult{
+	parsed, _ := identity.ParseSoul(soulStr)
+	id, _ := identity.ComputeNaraID(soulStr, types.NaraName(name))
+	return identity.IdentityResult{
 		Name:        types.NaraName(name),
 		Soul:        parsed,
 		ID:          id,
@@ -416,7 +417,7 @@ func waitForFullDiscovery(t *testing.T, naras []*LocalNara, timeout time.Duratio
 // attester: the nara creating/signing this checkpoint
 // attesterKeypair: the keypair to sign with
 // observation: the checkpoint data (restarts, uptime, start_time)
-func testCheckpointEvent(subject types.NaraName, attester types.NaraName, attesterKeypair NaraKeypair, observation NaraObservation) SyncEvent {
+func testCheckpointEvent(subject types.NaraName, attester types.NaraName, attesterKeypair identity.NaraKeypair, observation NaraObservation) SyncEvent {
 	now := time.Now()
 
 	checkpoint := &CheckpointEventPayload{
@@ -439,7 +440,7 @@ func testCheckpointEvent(subject types.NaraName, attester types.NaraName, attest
 		AttesterID:  types.NaraID("test-id-" + attester.String()),
 		AsOfTime:    checkpoint.AsOfTime,
 	}
-	attestation.Signature = SignContent(&attestation, attesterKeypair)
+	attestation.Signature = identity.SignContent(&attestation, attesterKeypair)
 	checkpoint.Signatures = []string{attestation.Signature}
 
 	// Create sync event
@@ -457,7 +458,7 @@ func testCheckpointEvent(subject types.NaraName, attester types.NaraName, attest
 }
 
 // testAddCheckpointToLedger creates and adds a checkpoint event to a ledger
-func testAddCheckpointToLedger(ledger *SyncLedger, subject types.NaraName, attester types.NaraName, attesterKeypair NaraKeypair, observation NaraObservation) SyncEvent {
+func testAddCheckpointToLedger(ledger *SyncLedger, subject types.NaraName, attester types.NaraName, attesterKeypair identity.NaraKeypair, observation NaraObservation) SyncEvent {
 	event := testCheckpointEvent(subject, attester, attesterKeypair, observation)
 	// Manually add to ledger to avoid deduplication issues in tests
 	ledger.mu.Lock()
@@ -526,7 +527,7 @@ func testCreateMeshNetwork(t *testing.T, names []string, chattiness, ledgerCapac
 			if i != j {
 				neighbor := NewNara(mesh.Naras[j].Me.Name)
 				neighbor.Status.ID = mesh.Naras[j].Me.Status.ID
-				neighbor.Status.PublicKey = FormatPublicKey(mesh.Naras[j].Keypair.PublicKey)
+				neighbor.Status.PublicKey = identity.FormatPublicKey(mesh.Naras[j].Keypair.PublicKey)
 				mesh.Naras[i].Network.importNara(neighbor)
 				mesh.Naras[i].setObservation(mesh.Naras[j].Me.Name, NaraObservation{Online: "ONLINE"})
 				mesh.Naras[i].Network.testMeshURLs[mesh.Naras[j].Me.Name] = mesh.Servers[j].URL

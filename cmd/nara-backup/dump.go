@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/eljojo/nara"
+	"github.com/eljojo/nara/identity"
 	"github.com/sirupsen/logrus"
 )
 
@@ -81,7 +82,7 @@ Examples:
 
 	// Parse soul
 	logrus.Info("🔑 Parsing soul...")
-	soul, err := nara.ParseSoul(*soulStr)
+	soul, err := identity.ParseSoul(*soulStr)
 	if err != nil {
 		logrus.Fatalf("❌ Invalid soul: %v", err)
 	}

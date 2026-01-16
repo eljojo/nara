@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sirupsen/logrus"
-
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
+	"github.com/sirupsen/logrus"
 )
 
 // Mesh HTTP Authentication
@@ -48,7 +48,7 @@ const (
 )
 
 // MeshAuthRequest creates signed request headers
-func MeshAuthRequest(name types.NaraName, keypair NaraKeypair, method, path string) http.Header {
+func MeshAuthRequest(name types.NaraName, keypair identity.NaraKeypair, method, path string) http.Header {
 	timestamp := time.Now().UnixMilli()
 	message := fmt.Sprintf("%s%d%s%s", name, timestamp, method, path)
 
@@ -60,7 +60,7 @@ func MeshAuthRequest(name types.NaraName, keypair NaraKeypair, method, path stri
 }
 
 // MeshAuthResponse creates signed response headers for a response body
-func MeshAuthResponse(name types.NaraName, keypair NaraKeypair, body []byte) http.Header {
+func MeshAuthResponse(name types.NaraName, keypair identity.NaraKeypair, body []byte) http.Header {
 	timestamp := time.Now().UnixMilli()
 	bodyHash := sha256.Sum256(body)
 	message := fmt.Sprintf("%s%d%s", name, timestamp, base64.StdEncoding.EncodeToString(bodyHash[:]))
@@ -108,7 +108,7 @@ func VerifyMeshRequest(r *http.Request, getPublicKey func(string) []byte) (strin
 
 	// Verify signature
 	message := fmt.Sprintf("%s%d%s%s", name, timestamp, r.Method, r.URL.Path)
-	if !VerifySignature(pubKey, []byte(message), signature) {
+	if !identity.VerifySignature(pubKey, []byte(message), signature) {
 		return "", fmt.Errorf("signature verification failed")
 	}
 
@@ -146,7 +146,7 @@ func VerifyMeshResponse(resp *http.Response, body []byte, getPublicKey func(type
 	// Verify signature (over name + timestamp + sha256(body))
 	bodyHash := sha256.Sum256(body)
 	message := fmt.Sprintf("%s%d%s", name, timestamp, base64.StdEncoding.EncodeToString(bodyHash[:]))
-	if !VerifySignature(pubKey, []byte(message), signature) {
+	if !identity.VerifySignature(pubKey, []byte(message), signature) {
 		return "", fmt.Errorf("response signature verification failed")
 	}
 

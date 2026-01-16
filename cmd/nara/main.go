@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/eljojo/nara"
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
 	"github.com/shirou/gopsutil/v3/host"
 	"github.com/sirupsen/logrus"
@@ -94,10 +95,10 @@ func main() {
 	}
 
 	info, _ := host.Info()
-	macs := nara.CollectSoulFragments()
-	hwFingerprint := nara.HashHardware(strings.Join([]string{info.HostID, macs}, "-"))
+	macs := identity.CollectSoulFragments()
+	hwFingerprint := identity.HashHardware(strings.Join([]string{info.HostID, macs}, "-"))
 
-	identity := nara.DetermineIdentity(types.NaraName(*naraIdPtr), *soulPtr, getHostname(), hwFingerprint)
+	identityResult := identity.DetermineIdentity(types.NaraName(*naraIdPtr), *soulPtr, getHostname(), hwFingerprint)
 
 	// Use NewLocalNara with the identity result
 	memoryMode := nara.ParseMemoryMode(*memoryModePtr)
@@ -129,22 +130,22 @@ func main() {
 			logrus.Infof("🧠 GOGC set to 50 (short memory mode)")
 		}
 	}
-	localNara, err := nara.NewLocalNara(identity, *mqttHostPtr, *mqttUserPtr, *mqttPassPtr, *forceChattinessPtr, memoryProfile)
+	localNara, err := nara.NewLocalNara(identityResult, *mqttHostPtr, *mqttUserPtr, *mqttPassPtr, *forceChattinessPtr, memoryProfile)
 	if err != nil {
 		logrus.Fatalf("Failed to initialize nara: %v", err)
 	}
 	localNara.Me.Status.PublicUrl = *publicUrlPtr
 
 	// Log identity status
-	if identity.ID == "" {
+	if identityResult.ID == "" {
 		logrus.Warn("⚠️  Identity initialization failed: ID is empty")
-	} else if !identity.IsValidBond {
+	} else if !identityResult.IsValidBond {
 		logrus.Warn("⚠️  Inauthentic: soul does not match name")
-	} else if !identity.IsNative {
+	} else if !identityResult.IsNative {
 		logrus.Info("🧳 Traveler: foreign soul (valid bond)")
 	}
 
-	logrus.Infof("🔮 Soul: %s", nara.FormatSoul(identity.Soul))
+	logrus.Infof("🔮 Soul: %s", identity.FormatSoul(identityResult.Soul))
 
 	// Parse transport mode
 	transportMode := parseTransportMode(*transportModePtr)
@@ -154,7 +155,7 @@ func main() {
 	var meshConfig *nara.TsnetConfig
 	if !*noMeshPtr {
 		meshConfig = &nara.TsnetConfig{
-			Hostname:   identity.Name.String(),
+			Hostname:   identityResult.Name.String(),
 			ControlURL: *headscaleUrlPtr,
 			AuthKey:    *authKeyPtr,
 			Verbose:    *extraVerbosePtr,

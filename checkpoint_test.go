@@ -6,13 +6,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
 )
 
 // Helper to generate a keypair for testing
-func generateTestKeypair() NaraKeypair {
+func generateTestKeypair() identity.NaraKeypair {
 	pub, priv, _ := ed25519.GenerateKey(nil)
-	return NaraKeypair{PrivateKey: priv, PublicKey: pub}
+	return identity.NaraKeypair{PrivateKey: priv, PublicKey: pub}
 }
 
 // Helper to convert public key to base64 string for verification maps
@@ -222,7 +223,7 @@ func TestCheckpoint_SingleVoter(t *testing.T) {
 func TestCheckpoint_MultipleVoters(t *testing.T) {
 	subject := types.NaraName("lisa")
 	voterIDs := []types.NaraID{types.NaraID("homer-id"), types.NaraID("marge-id"), types.NaraID("bart-id")}
-	keypairs := make([]NaraKeypair, 3)
+	keypairs := make([]identity.NaraKeypair, 3)
 	for i := range keypairs {
 		keypairs[i] = generateTestKeypair()
 	}
@@ -246,7 +247,7 @@ func TestCheckpoint_MultipleVoters(t *testing.T) {
 func TestCheckpoint_VerifySignatures(t *testing.T) {
 	subject := types.NaraName("lisa")
 	voterIDs := []types.NaraID{types.NaraID("homer-id"), types.NaraID("marge-id"), types.NaraID("bart-id")}
-	keypairs := make([]NaraKeypair, 3)
+	keypairs := make([]identity.NaraKeypair, 3)
 	publicKeys := make(map[types.NaraID]string)
 
 	for i, voterID := range voterIDs {
@@ -586,7 +587,7 @@ func TestCheckpoint_Round2SignatureVerification(t *testing.T) {
 		AttesterID: proposerID,
 		AsOfTime:   asOfTime,
 	}
-	proposerSig := SignContent(&proposerAttestation, proposerKeypair)
+	proposerSig := identity.SignContent(&proposerAttestation, proposerKeypair)
 
 	// Voters create third-party attestations
 	voter1Attestation := Attestation{
@@ -602,7 +603,7 @@ func TestCheckpoint_Round2SignatureVerification(t *testing.T) {
 		AttesterID: voter1ID,
 		AsOfTime:   asOfTime,
 	}
-	voter1Sig := SignContent(&voter1Attestation, voter1Keypair)
+	voter1Sig := identity.SignContent(&voter1Attestation, voter1Keypair)
 
 	voter2Attestation := Attestation{
 		Version:   1,
@@ -617,7 +618,7 @@ func TestCheckpoint_Round2SignatureVerification(t *testing.T) {
 		AttesterID: voter2ID,
 		AsOfTime:   asOfTime,
 	}
-	voter2Sig := SignContent(&voter2Attestation, voter2Keypair)
+	voter2Sig := identity.SignContent(&voter2Attestation, voter2Keypair)
 
 	// Create checkpoint with round 2 signatures
 	checkpoint := &CheckpointEventPayload{
@@ -712,7 +713,7 @@ func TestCheckpoint_PartialSignatureVerification(t *testing.T) {
 		AttesterID: proposerID,
 		AsOfTime:   asOfTime,
 	}
-	proposerSig := SignContent(&proposerAttestation, proposerKeypair)
+	proposerSig := identity.SignContent(&proposerAttestation, proposerKeypair)
 
 	voter1Attestation := Attestation{
 		Version:   1,
@@ -727,7 +728,7 @@ func TestCheckpoint_PartialSignatureVerification(t *testing.T) {
 		AttesterID: voter1ID,
 		AsOfTime:   asOfTime,
 	}
-	voter1Sig := SignContent(&voter1Attestation, voter1Keypair)
+	voter1Sig := identity.SignContent(&voter1Attestation, voter1Keypair)
 
 	voter2Attestation := Attestation{
 		Version:   1,
@@ -742,7 +743,7 @@ func TestCheckpoint_PartialSignatureVerification(t *testing.T) {
 		AttesterID: voter2ID,
 		AsOfTime:   asOfTime,
 	}
-	voter2Sig := SignContent(&voter2Attestation, voter2Keypair)
+	voter2Sig := identity.SignContent(&voter2Attestation, voter2Keypair)
 
 	// Create checkpoint with all 3 signatures
 	checkpoint := &CheckpointEventPayload{

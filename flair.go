@@ -6,6 +6,8 @@ import (
 	"math/rand"
 	"os"
 	"strings"
+
+	"github.com/eljojo/nara/identity"
 )
 
 func (ln *LocalNara) Flair() string {
@@ -59,7 +61,7 @@ func (nara *Nara) Flair(soul string, isRaspberryPi bool, isNixOs bool, isKuberne
 	awards := ""
 
 	if nara.IsInHarmony(soul) {
-		awards = Gemstone(nara.Name.String(), soul)
+		awards = identity.Gemstone(nara.Name.String(), soul)
 	} else {
 		awards = "👤"
 	}
@@ -100,12 +102,12 @@ func (nara *Nara) IsInHarmony(soulStr string) bool {
 		return false
 	}
 
-	soul, err := ParseSoul(soulStr)
+	soul, err := identity.ParseSoul(soulStr)
 	if err != nil {
 		return false
 	}
 
-	return ValidateBond(soul, nara.Name)
+	return identity.ValidateBond(soul, nara.Name)
 }
 
 func (ln *LocalNara) LicensePlate() string {

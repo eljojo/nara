@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
-
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
+	"github.com/sirupsen/logrus"
 )
 
 type ObservationRateLimit struct {
@@ -387,12 +387,12 @@ func (l *SyncLedger) AddPingObservation(observer types.NaraName, target types.Na
 const MaxPingsPerTarget = 5
 
 // AddSignedPingObservation adds a signed ping observation
-func (l *SyncLedger) AddSignedPingObservation(observer types.NaraName, target types.NaraName, rtt float64, emitter types.NaraName, keypair NaraKeypair) bool {
+func (l *SyncLedger) AddSignedPingObservation(observer types.NaraName, target types.NaraName, rtt float64, emitter types.NaraName, keypair identity.NaraKeypair) bool {
 	return l.AddEvent(NewSignedPingSyncEvent(observer, target, rtt, emitter, keypair))
 }
 
 // AddSignedPingObservationWithReplace adds a signed ping observation, keeping only the last N per target
-func (l *SyncLedger) AddSignedPingObservationWithReplace(observer types.NaraName, target types.NaraName, rtt float64, emitter types.NaraName, keypair NaraKeypair) bool {
+func (l *SyncLedger) AddSignedPingObservationWithReplace(observer types.NaraName, target types.NaraName, rtt float64, emitter types.NaraName, keypair identity.NaraKeypair) bool {
 	// Retention is enforced in AddEvent for all ping events.
 	return l.AddEvent(NewSignedPingSyncEvent(observer, target, rtt, emitter, keypair))
 }

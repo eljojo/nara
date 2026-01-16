@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
-
+	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
+	"github.com/sirupsen/logrus"
 )
 
 // NeighborInfo contains information about a neighbor to share in howdy responses
@@ -33,7 +33,7 @@ type HowdyEvent struct {
 }
 
 // Sign signs the HowdyEvent with the given keypair
-func (h *HowdyEvent) Sign(kp NaraKeypair) {
+func (h *HowdyEvent) Sign(kp identity.NaraKeypair) {
 	// Sign a deterministic representation of the event
 	message := fmt.Sprintf("howdy:%s:%s:%d", h.From, h.To, h.Seq)
 	h.Signature = kp.SignBase64([]byte(message))
@@ -44,12 +44,12 @@ func (h *HowdyEvent) Verify() bool {
 	if h.Me.PublicKey == "" || h.Signature == "" {
 		return false
 	}
-	pubKey, err := ParsePublicKey(h.Me.PublicKey)
+	pubKey, err := identity.ParsePublicKey(h.Me.PublicKey)
 	if err != nil {
 		return false
 	}
 	message := fmt.Sprintf("howdy:%s:%s:%d", h.From, h.To, h.Seq)
-	return VerifySignatureBase64(pubKey, []byte(message), h.Signature)
+	return identity.VerifySignatureBase64(pubKey, []byte(message), h.Signature)
 }
 
 // howdyCoordinator tracks howdy responses for a given hey_there
