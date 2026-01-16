@@ -6,15 +6,15 @@ description: Hazy memory, event-sourced state, and priority-based forgetting in 
 nara uses a "hazy memory" model: all network state is in-memory (RAM-only) and derived from signed events. Memory is strictly bounded to mimic human-like forgetting and maintain a lightweight footprint.
 
 ## 1. Purpose
-- Maintain a subjective but consistent view of the network state.
+- Maintain a subjective but consistent view of the network state. See **[Projections](/docs/spec/projections/)**.
 - Ensure the software can run on resource-constrained hardware (e.g., small VMs, Raspberry Pis).
 - Model "social forgetting" where non-critical data is naturally lost over time.
 - Rely on collective replication across peers rather than local disk persistence.
 
 ## 2. Conceptual Model
-- **SyncLedger**: The primary in-memory store for all syncable events.
-- **Hazy Memory**: By design, there is no disk persistence for network data. Memory is recovered from peers on restart.
-- **Subjectivity**: Every nara's memory is unique, shaped by its personality and the specific set of peers it has synced with.
+- **SyncLedger**: The primary in-memory store for all syncable events. See **[Events](/docs/spec/events/)**.
+- **Hazy Memory**: By design, there is no disk persistence for network data. Memory is recovered from peers on restart. See **[Boot Sequence](/docs/spec/boot-sequence/)**.
+- **Subjectivity**: Every nara's memory is unique, shaped by its personality and the specific set of peers it has synced with. See **[Personality](/docs/spec/personality/)**.
 - **Volatility**: Once an event is pruned from all ledgers in the network, it is lost forever.
 
 ### Invariants
@@ -44,7 +44,7 @@ Memory management does not define its own events but dictates the lifecycle of a
 ## 6. Algorithms
 
 ### Priority-Based Pruning
-When `len(ledger) > MaxEvents`, events are sorted by priority (lowest first) and removed.
+When `len(ledger) > MaxEvents`, events are sorted by priority (lowest first) and removed. See **[Events](/docs/spec/events/#service-types)** for the priority levels.
 - **Priority 4 (Lowest)**: `ping` measurements.
 - **Priority 3**: `seen` proofs-of-contact.
 - **Priority 2**: `social` (teases, gossip).
@@ -52,7 +52,7 @@ When `len(ledger) > MaxEvents`, events are sorted by priority (lowest first) and
 - **Priority 0 (Never Pruned)**: `checkpoint`, `restart`, `first-seen`.
 
 ### Neighbourhood Pruning (Peer Tracking)
-Naras are removed from the local "neighbourhood" map based on their status and age:
+Naras are removed from the local "neighbourhood" map based on their status and age. See **[Observations](/docs/spec/observations/#tiered-neighbourhood-pruning)** for the algorithm.
 - **Zombies**: Entries seen briefly without meaningful data are purged early.
 - **Newcomers** (< 2 days old): Pruned after 24 hours of being `MISSING`.
 - **Established** (2-30 days old): Pruned after 7 days of being `MISSING`.
