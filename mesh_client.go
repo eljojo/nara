@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"tailscale.com/ipn/store/mem"
@@ -73,12 +74,18 @@ func NewMeshHTTPClient(server *tsnet.Server) *http.Client {
 // It encapsulates the HTTP client and identity used for signing requests.
 // This allows both the main nara app and external tools (like nara-backup)
 // to share the same mesh communication logic.
+//
+// MeshClient works exclusively with Nara IDs and internally resolves them to
+// mesh URLs. It supports test mode for unit tests via optional URL overrides.
 type MeshClient struct {
 	httpClient *http.Client
 	name       types.NaraName // Who we are (for request signing)
 	keypair    NaraKeypair    // For signing requests
 
-	peers map[types.NaraID]string
+	peers map[types.NaraID]string // naraID -> baseURL (e.g., "http://100.64.0.1:9632")
+
+	// Test mode support
+	testURLs map[types.NaraID]string // Override URLs for tests (bypasses IP resolution)
 }
 
 // NewMeshClient creates a new mesh client with the given identity
@@ -88,7 +95,21 @@ func NewMeshClient(httpClient *http.Client, name types.NaraName, keypair NaraKey
 		name:       name,
 		keypair:    keypair,
 		peers:      make(map[types.NaraID]string),
+		testURLs:   make(map[types.NaraID]string),
 	}
+}
+
+// EnableTestMode enables test mode with optional URL overrides.
+// When test URLs are provided, they bypass normal IP resolution.
+func (m *MeshClient) EnableTestMode(testURLs map[types.NaraID]string) {
+	if testURLs != nil {
+		m.testURLs = testURLs
+	}
+}
+
+// UpdateHTTPClient updates the HTTP client (used when tsnet becomes available)
+func (m *MeshClient) UpdateHTTPClient(client *http.Client) {
+	m.httpClient = client
 }
 
 // RegisterPeer registers a peer's base URL by nara ID.
@@ -99,8 +120,28 @@ func (m *MeshClient) RegisterPeer(naraID types.NaraID, baseURL string) {
 
 // RegisterPeerIP registers a peer by nara ID and mesh IP.
 // Builds the standard mesh URL (http://<ip>:9632).
+// Handles both production IPs (adds port) and test IPs (with port already included).
 func (m *MeshClient) RegisterPeerIP(naraID types.NaraID, ip string) {
-	m.peers[naraID] = fmt.Sprintf("http://%s:%d", ip, DefaultMeshPort)
+	m.peers[naraID] = buildMeshURLFromIP(ip)
+}
+
+// buildMeshURLFromIP builds a mesh base URL from an IP address.
+// Handles both test URLs (with port already included) and production IPs (adds DefaultMeshPort).
+// Examples:
+//   - buildMeshURLFromIP("100.64.0.1") -> "http://100.64.0.1:9632"
+//   - buildMeshURLFromIP("127.0.0.1:12345") -> "http://127.0.0.1:12345" (test)
+func buildMeshURLFromIP(ip string) string {
+	if ip == "" {
+		return ""
+	}
+
+	// Check if port is already included (test mode)
+	if strings.Contains(ip, ":") {
+		return "http://" + ip
+	}
+
+	// Production IP without port - add DefaultMeshPort
+	return fmt.Sprintf("http://%s:%d", ip, DefaultMeshPort)
 }
 
 // UnregisterPeer removes a peer from the registry.
@@ -121,11 +162,25 @@ func (m *MeshClient) GetPeerBaseURL(naraID types.NaraID) (string, bool) {
 }
 
 // buildURL constructs the full URL for a request to a peer.
+// Checks testURLs first (for test mode), then peers registry.
 func (m *MeshClient) buildURL(naraID types.NaraID, path string) (string, error) {
-	baseURL, ok := m.peers[naraID]
+	var baseURL string
+	var ok bool
+
+	// Check test URLs first (test mode override)
+	if len(m.testURLs) > 0 {
+		baseURL, ok = m.testURLs[naraID]
+	}
+
+	// Fall back to peers registry
+	if !ok {
+		baseURL, ok = m.peers[naraID]
+	}
+
 	if !ok {
 		return "", fmt.Errorf("peer not registered: %s", naraID)
 	}
+
 	return baseURL + path, nil
 }
 
@@ -269,12 +324,109 @@ func (m *MeshClient) Ping(ctx context.Context, naraID types.NaraID) (time.Durati
 	return time.Since(start), nil
 }
 
-// TODO: Add RelayWorldMessage when needed
-// TODO: Add FetchCoordinates when needed
-// TODO: Add StashStore when needed
-// TODO: Add StashRetrieve when needed
-// TODO: Add StashPush when needed
+// RelayWorldMessage sends a world message to a peer via POST /world/relay
+func (m *MeshClient) RelayWorldMessage(ctx context.Context, naraID types.NaraID, msg *WorldMessage) error {
+	jsonBody, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("marshal world message: %w", err)
+	}
+
+	url, err := m.buildURL(naraID, "/world/relay")
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonBody))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	m.signRequest(req)
+
+	resp, err := m.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("server returned %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+// SendDM sends a direct message to a peer via POST /dm
+func (m *MeshClient) SendDM(ctx context.Context, naraID types.NaraID, dm interface{}) error {
+	jsonBody, err := json.Marshal(dm)
+	if err != nil {
+		return fmt.Errorf("marshal DM: %w", err)
+	}
+
+	url, err := m.buildURL(naraID, "/dm")
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonBody))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	m.signRequest(req)
+
+	resp, err := m.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("server returned %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+// PostGossipZine sends a gossip zine to a peer via POST /gossip/zine
+// Returns the response zine from the peer (for zine exchange)
+func (m *MeshClient) PostGossipZine(ctx context.Context, naraID types.NaraID, zine interface{}) (*Zine, error) {
+	jsonBody, err := json.Marshal(zine)
+	if err != nil {
+		return nil, fmt.Errorf("marshal zine: %w", err)
+	}
+
+	url, err := m.buildURL(naraID, "/gossip/zine")
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonBody))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	m.signRequest(req)
+
+	resp, err := m.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("server returned %d", resp.StatusCode)
+	}
+
+	// Decode response zine
+	var responseZine Zine
+	if err := json.NewDecoder(resp.Body).Decode(&responseZine); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	return &responseZine, nil
+}
 
 // Note: Additional mesh client methods can be added as needed.
-// Currently implemented: FetchSyncEvents, FetchCheckpoints, Ping
-// Sufficient for boot recovery, checkpoint sync, and backup tool.
+// Currently implemented: FetchSyncEvents, FetchCheckpoints, Ping, RelayWorldMessage, SendDM, PostGossipZine
+// Sufficient for boot recovery, checkpoint sync, backup tool, and world journeys.

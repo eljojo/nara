@@ -122,9 +122,7 @@ func (network *Network) bootRecoveryViaMesh(online []types.NaraName) {
 		if ip != "" && naraID != "" {
 			meshNeighbors = append(meshNeighbors, meshNeighbor{name, naraID, ip})
 			// Register peer for mesh client lookups
-			if network.meshClient != nil {
-				network.meshClient.RegisterPeerIP(naraID, ip)
-			}
+			network.meshClient.RegisterPeerIP(naraID, ip)
 		}
 	}
 	if len(meshNeighbors) > maxMeshNeighbors {

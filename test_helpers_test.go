@@ -519,6 +519,9 @@ func testCreateMeshNetwork(t *testing.T, names []string, chattiness, ledgerCapac
 
 	// Create full mesh: each nara knows all others
 	for i := 0; i < count; i++ {
+		// Build testURLs map for meshClient
+		testURLsForMeshClient := make(map[types.NaraID]string)
+
 		for j := 0; j < count; j++ {
 			if i != j {
 				neighbor := NewNara(mesh.Naras[j].Me.Name)
@@ -527,8 +530,14 @@ func testCreateMeshNetwork(t *testing.T, names []string, chattiness, ledgerCapac
 				mesh.Naras[i].Network.importNara(neighbor)
 				mesh.Naras[i].setObservation(mesh.Naras[j].Me.Name, NaraObservation{Online: "ONLINE"})
 				mesh.Naras[i].Network.testMeshURLs[mesh.Naras[j].Me.Name] = mesh.Servers[j].URL
+
+				// Also register in meshClient by ID
+				testURLsForMeshClient[mesh.Naras[j].Me.Status.ID] = mesh.Servers[j].URL
 			}
 		}
+
+		// Configure meshClient with test URLs
+		mesh.Naras[i].Network.meshClient.EnableTestMode(testURLsForMeshClient)
 	}
 
 	// Register cleanup

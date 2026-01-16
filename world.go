@@ -1,6 +1,7 @@
 package nara
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -215,11 +216,11 @@ func CalculateWorldRewards(wm *WorldMessage) map[types.NaraName]float64 {
 // WorldJourneyHandler manages world journeys for a nara
 type WorldJourneyHandler struct {
 	localNara      *LocalNara
-	mesh           MeshTransport
+	meshClient     *MeshClient // Mesh client for sending world messages
 	getMyClout     func() map[types.NaraName]float64 // This nara's clout scores for others
 	getOnlineNaras func() []types.NaraName
 	getPublicKey   func(types.NaraName) []byte
-	getMeshIP      func(types.NaraName) string // Resolve nara name to mesh IP
+	resolveNaraID  func(types.NaraName) types.NaraID // Resolve nara name to ID
 	onComplete     func(*WorldMessage)
 	onJourneyPass  func(*WorldMessage) // Called when a journey passes through (before forwarding)
 	stamps         []string            // Available stamps for this nara
@@ -228,21 +229,21 @@ type WorldJourneyHandler struct {
 // NewWorldJourneyHandler creates a new journey handler
 func NewWorldJourneyHandler(
 	localNara *LocalNara,
-	mesh MeshTransport,
+	meshClient *MeshClient,
 	getMyClout func() map[types.NaraName]float64,
 	getOnlineNaras func() []types.NaraName,
 	getPublicKey func(types.NaraName) []byte,
-	getMeshIP func(types.NaraName) string,
+	resolveNaraID func(types.NaraName) types.NaraID,
 	onComplete func(*WorldMessage),
 	onJourneyPass func(*WorldMessage),
 ) *WorldJourneyHandler {
 	return &WorldJourneyHandler{
 		localNara:      localNara,
-		mesh:           mesh,
+		meshClient:     meshClient,
 		getMyClout:     getMyClout,
 		getOnlineNaras: getOnlineNaras,
 		getPublicKey:   getPublicKey,
-		getMeshIP:      getMeshIP,
+		resolveNaraID:  resolveNaraID,
 		onComplete:     onComplete,
 		onJourneyPass:  onJourneyPass,
 		stamps:         defaultStamps(),
@@ -261,10 +262,19 @@ func (h *WorldJourneyHandler) pickStamp(wm *WorldMessage) string {
 	return h.stamps[idx]
 }
 
-// sendToNara sends a message to a nara, resolving name to IP if available
+// sendToNara sends a message to a nara via the mesh client
 func (h *WorldJourneyHandler) sendToNara(name types.NaraName, wm *WorldMessage) error {
-	// TODO: this is likely broken
-	return h.mesh.Send(name, wm)
+	// Resolve nara name to nara ID
+	naraID := h.resolveNaraID(name)
+	if naraID == "" {
+		return fmt.Errorf("could not resolve nara ID for %s", name)
+	}
+
+	// Send via mesh client with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	return h.meshClient.RelayWorldMessage(ctx, naraID, wm)
 }
 
 // StartJourney begins a new world journey
@@ -340,23 +350,3 @@ func (h *WorldJourneyHandler) chooseNext(wm *WorldMessage) types.NaraName {
 	return next
 }
 
-// Listen starts listening for incoming world messages
-func (h *WorldJourneyHandler) Listen() {
-	done := h.localNara.Network.ctx.Done()
-	go func() {
-		for {
-			select {
-			case msg, ok := <-h.mesh.Receive():
-				if !ok {
-					return
-				}
-				if err := h.HandleIncoming(msg); err != nil {
-					// Log error but continue
-					logrus.Errorf("world journey error: %v", err)
-				}
-			case <-done:
-				return
-			}
-		}
-	}()
-}

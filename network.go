@@ -71,10 +71,8 @@ type Network struct {
 	worldJourneys   []*WorldMessage // Completed journeys
 	worldJourneysMu sync.RWMutex
 	worldHandler    *WorldJourneyHandler
-	worldMesh       *MockMeshNetwork   // Used when no tsnet configured
-	worldTransport  *MockMeshTransport // Used when no tsnet configured
-	tsnetMesh       *TsnetMesh         // Used when Headscale is configured
-	meshClient      *MeshClient        // Reusable mesh HTTP client for authenticated requests
+	tsnetMesh       *TsnetMesh  // Used when Headscale is configured
+	meshClient      *MeshClient // Reusable mesh HTTP client for authenticated requests
 	// Transport mode (MQTT, Gossip, or Hybrid)
 	TransportMode TransportMode
 	// Peer discovery strategy for gossip-only mode
@@ -188,6 +186,14 @@ func NewNetwork(localNara *LocalNara, host string, user string, pass string) *Ne
 
 	// Initialize keyring with our identity
 	network.keyring = keyring.New(localNara.Keypair.PrivateKey, localNara.Me.Status.ID)
+
+	// Initialize mesh client (always required)
+	// Initially uses a simple HTTP client, will be updated when tsnet is ready
+	network.meshClient = NewMeshClient(
+		&http.Client{Timeout: 5 * time.Second},
+		localNara.Me.Name,
+		localNara.Keypair,
+	)
 
 	mqttClientName := network.meName().String()
 	network.Mqtt = network.initializeMQTT(network.mqttOnConnectHandler(), mqttClientName, host, user, pass)
@@ -597,12 +603,8 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 					network.initMeshHTTPClients(tsnetMesh.Server())
 					tsnetMesh.SetHTTPClient(network.getMeshHTTPClient())
 
-					// Initialize mesh client for authenticated mesh HTTP requests
-					network.meshClient = NewMeshClient(
-						network.getMeshHTTPClient(),
-						network.meName(),
-						network.local.Keypair,
-					)
+					// Update mesh client with tsnet HTTP client
+					network.meshClient.UpdateHTTPClient(network.getMeshHTTPClient())
 
 					// Initialize peer discovery for gossip-only mode
 					network.peerDiscovery = &TailscalePeerDiscovery{
@@ -614,10 +616,9 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 						logrus.Errorf("Failed to start mesh HTTP server: %v", err)
 					}
 
-					// Use HTTP-based transport for world messages (unified with other mesh HTTP)
-					httpTransport := NewHTTPMeshTransport(tsnetMesh.Server(), network, DefaultMeshPort)
-					network.InitWorldJourney(httpTransport)
-					logrus.Infof("🌍 World journey using HTTP over tsnet (IP: %s)", tsnetMesh.IP())
+					// Initialize world journey handler using meshClient
+					network.InitWorldJourney()
+					logrus.Infof("🌍 World journey using mesh client (IP: %s)", tsnetMesh.IP())
 
 					// In gossip-only mode, discover peers immediately (don't wait 30s)
 					if network.TransportMode == TransportGossip {
@@ -628,13 +629,13 @@ func (network *Network) Start(serveUI bool, httpAddr string, meshConfig *TsnetCo
 			}
 		}
 
-		// Fall back to mock mesh if tsnet not configured or failed
+		// Fall back to local-only mode if tsnet not configured
+		// World journeys will use meshClient (test mode requires setup of testURLs)
 		if network.worldHandler == nil {
-			network.worldMesh = NewMockMeshNetwork()
-			network.worldTransport = NewMockMeshTransport()
-			network.worldMesh.Register("my-transport", network.worldTransport)
-			network.InitWorldJourney(network.worldTransport)
-			logrus.Info("World journey using mock mesh (local only)")
+			// World journey handler will be initialized via InitWorldJourney()
+			// Tests must set up meshClient with test URLs before this runs
+			network.InitWorldJourney()
+			logrus.Info("World journey using mesh client (local mode)")
 		}
 	}
 

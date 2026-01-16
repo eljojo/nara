@@ -11,17 +11,17 @@ import (
 
 // TestNara represents a test nara with all necessary components
 type TestNara struct {
-	Name      string
-	Soul      SoulV1
-	Keypair   NaraKeypair
-	LocalNara *LocalNara
-	Transport *MockMeshTransport
-	Handler   *WorldJourneyHandler
+	Name        string
+	Soul        SoulV1
+	Keypair     NaraKeypair
+	LocalNara   *LocalNara
+	MeshClient  *MeshClient
+	Handler     *WorldJourneyHandler
+	MessageChan chan *WorldMessage // For receiving world messages in tests
 }
 
 // TestWorld sets up a complete test environment for world journey testing
 type TestWorld struct {
-	Network    *MockMeshNetwork
 	Naras      map[string]*TestNara
 	Clout      map[string]map[types.NaraName]float64
 	Completed  []*WorldMessage
@@ -31,11 +31,13 @@ type TestWorld struct {
 // NewTestWorld creates a test world with the given nara names
 func NewTestWorld(names []string) *TestWorld {
 	tw := &TestWorld{
-		Network:   NewMockMeshNetwork(),
 		Naras:     make(map[string]*TestNara),
 		Clout:     make(map[string]map[types.NaraName]float64),
 		Completed: []*WorldMessage{},
 	}
+
+	// Create shared mock HTTP transport for all test naras
+	mockTransport := NewMockMeshHTTPTransport()
 
 	// Create test naras
 	for i, name := range names {
@@ -43,11 +45,15 @@ func NewTestWorld(names []string) *TestWorld {
 		soul := NativeSoulCustom(hw, types.NaraName(name))
 		keypair := DeriveKeypair(soul)
 
+		// Compute nara ID
+		naraID, _ := ComputeNaraID(FormatSoul(soul), types.NaraName(name))
+
 		// Create a minimal LocalNara (without full network setup)
 		ln := &LocalNara{
 			Me:      NewNara(types.NaraName(name)),
 			Soul:    FormatSoul(soul),
 			Keypair: keypair,
+			ID:      naraID,
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		ln.Network = &Network{
@@ -55,16 +61,25 @@ func NewTestWorld(names []string) *TestWorld {
 			cancelFunc: cancel,
 		}
 		ln.Me.Status.PublicKey = FormatPublicKey(keypair.PublicKey)
+		ln.Me.Status.ID = naraID
 
-		transport := NewMockMeshTransport()
-		tw.Network.Register(name, transport)
+		// Create message channel for this nara
+		messageChan := make(chan *WorldMessage, 10)
+
+		// Register handler for this nara in the mock transport
+		mockTransport.RegisterHandler(naraID, CreateMockWorldMessageHandler(messageChan))
+
+		// Create mesh client for this nara using the shared mock transport
+		meshClient := NewMockMeshClientForTesting(types.NaraName(name), keypair, mockTransport)
 
 		testNara := &TestNara{
-			Name:      name,
-			Soul:      soul,
-			Keypair:   keypair,
-			LocalNara: ln,
-			Transport: transport,
+			Name:        name,
+			Soul:        soul,
+			Keypair:     keypair,
+			LocalNara:   ln,
+			MeshClient:  meshClient,
+			Handler:     nil, // Set later
+			MessageChan: messageChan,
 		}
 
 		tw.Naras[name] = testNara
@@ -81,20 +96,28 @@ func NewTestWorld(names []string) *TestWorld {
 		}
 	}
 
+	// Register all peers in each mesh client
+	for _, sender := range tw.Naras {
+		for name, receiver := range tw.Naras {
+			if name != sender.Name {
+				sender.MeshClient.RegisterPeer(receiver.LocalNara.ID, "mock://"+receiver.LocalNara.ID.String())
+			}
+		}
+	}
+
 	// Create handlers for each nara
 	for _, testNara := range tw.Naras {
 		handler := tw.createHandler(testNara)
 		testNara.Handler = handler
-		handler.Listen()
 	}
 
 	return tw
 }
 
 func (tw *TestWorld) createHandler(tn *TestNara) *WorldJourneyHandler {
-	return NewWorldJourneyHandler(
+	handler := NewWorldJourneyHandler(
 		tn.LocalNara,
-		tn.Transport,
+		tn.MeshClient,
 		func() map[types.NaraName]float64 {
 			// Return this nara's clout scores
 			if tw.Clout != nil {
@@ -115,7 +138,13 @@ func (tw *TestWorld) createHandler(tn *TestNara) *WorldJourneyHandler {
 			}
 			return nil
 		},
-		nil, // getMeshIP - not needed for mock transport
+		func(name types.NaraName) types.NaraID {
+			// Resolve nara name to ID
+			if nara, ok := tw.Naras[name.String()]; ok {
+				return nara.LocalNara.ID
+			}
+			return ""
+		},
 		func(wm *WorldMessage) {
 			tw.CompleteMu.Lock()
 			tw.Completed = append(tw.Completed, wm)
@@ -123,6 +152,15 @@ func (tw *TestWorld) createHandler(tn *TestNara) *WorldJourneyHandler {
 		},
 		nil, // onJourneyPass - not needed for these tests
 	)
+
+	// Start goroutine to route messages from channel to handler
+	go func() {
+		for wm := range tn.MessageChan {
+			_ = handler.HandleIncoming(wm) // Errors are logged by the handler
+		}
+	}()
+
+	return handler
 }
 
 // SetClout sets up clout relationships
@@ -130,10 +168,13 @@ func (tw *TestWorld) SetClout(clout map[string]map[types.NaraName]float64) {
 	tw.Clout = clout
 }
 
-// Close shuts down all transports
+// Close shuts down all test naras
 func (tw *TestWorld) Close() {
 	for _, tn := range tw.Naras {
-		tn.Transport.Close()
+		close(tn.MessageChan)
+		if tn.LocalNara.Network.cancelFunc != nil {
+			tn.LocalNara.Network.cancelFunc()
+		}
 	}
 }
 

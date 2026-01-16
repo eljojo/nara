@@ -81,9 +81,7 @@ func (network *Network) performBackgroundSync() {
 			ip, naraID := network.getMeshInfoForNara(neighbor)
 			if ip != "" && naraID != "" {
 				// Register peer for mesh client lookups
-				if network.meshClient != nil {
-					network.meshClient.RegisterPeerIP(naraID, ip)
-				}
+				network.meshClient.RegisterPeerIP(naraID, ip)
 				network.performBackgroundSyncViaMesh(neighbor, naraID)
 			} else {
 				logrus.Debugf("🔄 Background sync: neighbor %s not mesh-enabled, skipping", neighbor)
