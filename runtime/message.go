@@ -16,24 +16,24 @@ import (
 // ephemeral broadcasts, protocol exchanges, and internal service communication.
 type Message struct {
 	// Core identity (always present)
-	ID         string         // Unique envelope identifier (always unique per message instance)
-	ContentKey string         // Semantic identity for dedup (optional, stable across observers)
-	Kind       string         // Message type: "hey-there", "observation:restart", "checkpoint", etc.
-	Version    int            // Schema version for this kind (default 1, increment on breaking changes)
-	From       types.NaraName // Sender name (for display)
-	FromID     types.NaraID   // Sender nara ID (primary identifier)
-	To         types.NaraName // Target name (for direct messages, display only)
-	ToID       types.NaraID   // Target nara ID (for direct messages, primary identifier)
-	Timestamp  time.Time      // When it was created
+	ID         string         `json:"id"`                    // Unique envelope identifier (always unique per message instance)
+	ContentKey string         `json:"content_key,omitempty"` // Semantic identity for dedup (optional, stable across observers)
+	Kind       string         `json:"kind"`                  // Message type: "hey-there", "observation:restart", "checkpoint", etc.
+	Version    int            `json:"version"`               // Schema version for this kind (default 1, increment on breaking changes)
+	From       types.NaraName `json:"from,omitempty"`        // Sender name (for display)
+	FromID     types.NaraID   `json:"from_id"`               // Sender nara ID (primary identifier)
+	To         types.NaraName `json:"to,omitempty"`          // Target name (for direct messages, display only)
+	ToID       types.NaraID   `json:"to_id,omitempty"`       // Target nara ID (for direct messages, primary identifier)
+	Timestamp  time.Time      `json:"timestamp"`             // When it was created
 
 	// Content
-	Payload any // Kind-specific data (Go struct, runtime handles serialization)
+	Payload any `json:"payload"` // Kind-specific data (Go struct, runtime handles serialization)
 
 	// Cryptographic (attached by runtime)
-	Signature []byte // Creator's signature (may be nil for some kinds)
+	Signature []byte `json:"signature,omitempty"` // Creator's signature (may be nil for some kinds)
 
 	// Correlation (for Call/response pattern - Chapter 3)
-	InReplyTo string // Links response to request (for Call/response pattern)
+	InReplyTo string `json:"in_reply_to,omitempty"` // Links response to request (for Call/response pattern)
 }
 
 // ComputeID generates a unique envelope ID from message content.

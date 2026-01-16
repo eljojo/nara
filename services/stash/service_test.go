@@ -26,10 +26,10 @@ func TestStashStoreAndAck(t *testing.T) {
 	bobStash.RegisterBehaviors(bobRT)
 
 	// Initialize services
-	if err := aliceStash.Init(aliceRT); err != nil {
+	if err := aliceStash.Init(aliceRT, aliceRT.Log("stash")); err != nil {
 		t.Fatalf("failed to init alice stash: %v", err)
 	}
-	if err := bobStash.Init(bobRT); err != nil {
+	if err := bobStash.Init(bobRT, bobRT.Log("stash")); err != nil {
 		t.Fatalf("failed to init bob stash: %v", err)
 	}
 
@@ -137,10 +137,10 @@ func TestStashRequestAndResponse(t *testing.T) {
 	bobStash.RegisterBehaviors(bobRT)
 
 	// Initialize
-	if err := aliceStash.Init(aliceRT); err != nil {
+	if err := aliceStash.Init(aliceRT, aliceRT.Log("stash")); err != nil {
 		t.Fatalf("failed to init alice stash: %v", err)
 	}
-	if err := bobStash.Init(bobRT); err != nil {
+	if err := bobStash.Init(bobRT, bobRT.Log("stash")); err != nil {
 		t.Fatalf("failed to init bob stash: %v", err)
 	}
 
@@ -257,10 +257,10 @@ func TestStashRequestNotFound(t *testing.T) {
 	bobStash.RegisterBehaviors(bobRT)
 
 	// Initialize
-	if err := aliceStash.Init(aliceRT); err != nil {
+	if err := aliceStash.Init(aliceRT, aliceRT.Log("stash")); err != nil {
 		t.Fatalf("failed to init alice stash: %v", err)
 	}
-	if err := bobStash.Init(bobRT); err != nil {
+	if err := bobStash.Init(bobRT, bobRT.Log("stash")); err != nil {
 		t.Fatalf("failed to init bob stash: %v", err)
 	}
 
@@ -322,7 +322,7 @@ func TestStashStateMarshaling(t *testing.T) {
 	rt := runtime.NewMockRuntime(t, "test", "test-id-123")
 
 	svc := NewService()
-	if err := svc.Init(rt); err != nil {
+	if err := svc.Init(rt, rt.Log("stash")); err != nil {
 		t.Fatalf("failed to init: %v", err)
 	}
 
@@ -339,7 +339,7 @@ func TestStashStateMarshaling(t *testing.T) {
 
 	// Create new service and unmarshal
 	svc2 := NewService()
-	if err := svc2.Init(rt); err != nil {
+	if err := svc2.Init(rt, rt.Log("stash")); err != nil {
 		t.Fatalf("failed to init svc2: %v", err)
 	}
 
@@ -481,7 +481,7 @@ func TestStashInvalidPayloads(t *testing.T) {
 
 	svc := NewService()
 	svc.RegisterBehaviors(rt) // Register behaviors before Init
-	if err := svc.Init(rt); err != nil {
+	if err := svc.Init(rt, rt.Log("stash")); err != nil {
 		t.Fatalf("failed to init: %v", err)
 	}
 	if err := svc.Start(); err != nil {

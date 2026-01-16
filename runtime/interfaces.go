@@ -80,6 +80,13 @@ type KeypairInterface interface {
 	Open(nonce, ciphertext []byte) ([]byte, error)
 }
 
+// IdentityInterface provides public key lookups for message verification.
+type IdentityInterface interface {
+	LookupPublicKey(id types.NaraID) []byte
+	LookupPublicKeyByName(name types.NaraName) []byte
+	RegisterPublicKey(id types.NaraID, key []byte)
+}
+
 // EventBusInterface is what notification stages use.
 type EventBusInterface interface {
 	Emit(msg *Message)
@@ -157,7 +164,9 @@ type Service interface {
 	Name() string
 
 	// Lifecycle
-	Init(rt RuntimeInterface) error
+	// Init is called by the runtime with the runtime interface and a logger
+	// scoped to this service's name. Services should NOT call rt.Log() themselves.
+	Init(rt RuntimeInterface, log *ServiceLog) error
 	Start() error
 	Stop() error
 }

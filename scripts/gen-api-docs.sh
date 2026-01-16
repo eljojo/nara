@@ -1,6 +1,10 @@
 #!/bin/bash
 # Generate API documentation from Go source code
 # Output: docs/src/content/docs/api/*.md
+#
+# Automatically discovers packages in:
+# - identity/, messages/, runtime/, utilities/, types/
+# - services/*/ (all service subdirectories)
 
 set -e
 
@@ -16,14 +20,38 @@ fi
 
 echo "Generating API docs..."
 
-# Generate docs for messages package
-gomarkdoc --output "$API_DIR/messages.md" ./messages 2>/dev/null || true
+# Find all documented packages
+# - Top-level directories with .go files (identity, messages, runtime, utilities, types)
+# - Service packages (services/*/  subdirectories)
+packages=()
 
-# Generate docs for runtime package
-gomarkdoc --output "$API_DIR/runtime.md" ./runtime 2>/dev/null || true
+# Top-level packages
+for dir in identity messages runtime utilities types; do
+    if [ -d "$dir" ] && ls "$dir"/*.go &> /dev/null; then
+        packages+=("$dir")
+    fi
+done
 
-# Generate docs for utilities package
-gomarkdoc --output "$API_DIR/utilities.md" ./utilities 2>/dev/null || true
+# Service packages
+if [ -d "services" ]; then
+    for service_dir in services/*/; do
+        if [ -d "$service_dir" ] && ls "$service_dir"*.go &> /dev/null; then
+            packages+=("$service_dir")
+        fi
+    done
+fi
+
+# Generate docs for each package
+for pkg in "${packages[@]}"; do
+    # Get package name for output file
+    # For services/stash/ -> stash
+    # For identity/ -> identity
+    pkg_name=$(basename "$pkg")
+    output_file="$API_DIR/${pkg_name}.md"
+
+    echo "  Generating docs for $pkg..."
+    gomarkdoc --output "$output_file" "./$pkg" 2>/dev/null || true
+done
 
 # Add frontmatter for Starlight
 for file in "$API_DIR"/*.md; do
@@ -49,4 +77,4 @@ EOF
     fi
 done
 
-echo "Generated API docs in $API_DIR"
+echo "Generated API docs in $API_DIR for ${#packages[@]} packages"

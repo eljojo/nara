@@ -1,9 +1,7 @@
 package nara
 
 import (
-	"bytes"
 	"fmt"
-	"net/http"
 
 	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/runtime"
@@ -24,26 +22,17 @@ func NewTransportAdapter(network *Network) *TransportAdapter {
 
 // TrySendDirect sends a message directly to a target nara via mesh.
 func (a *TransportAdapter) TrySendDirect(targetID types.NaraID, msg *runtime.Message) error {
-	// Resolve targetID to mesh address
-	nara := a.network.getNaraByID(targetID)
-	if nara == nil {
-		return fmt.Errorf("nara %s not found", targetID)
-	}
-
-	// Get mesh IP
-	nara.mu.Lock()
-	meshIP := nara.Status.MeshIP
-	nara.mu.Unlock()
-
-	if meshIP == "" {
-		return fmt.Errorf("nara %s has no mesh IP", targetID)
+	// Check if meshClient is available
+	if a.network.meshClient == nil {
+		return fmt.Errorf("mesh client not initialized")
 	}
 
 	// Marshal message
 	msgBytes := msg.Marshal()
 
-	// Send via mesh HTTP client
-	return a.network.sendMeshMessage(meshIP, msgBytes)
+	// Send via meshClient (which handles test mode automatically)
+	ctx := a.network.Context()
+	return a.network.meshClient.SendRuntimeMessage(ctx, targetID, msgBytes)
 }
 
 // PublishMQTT publishes a message to an MQTT topic.
@@ -153,37 +142,4 @@ func (a *IdentityAdapter) RegisterPublicKey(id types.NaraID, key []byte) {
 		}
 		nara.mu.Unlock()
 	}
-}
-
-// === Helper: Send mesh message ===
-
-// sendMeshMessage sends a raw message via mesh HTTP.
-func (n *Network) sendMeshMessage(meshIP string, data []byte) error {
-	// Use existing mesh HTTP client logic
-	url := fmt.Sprintf("http://%s/mesh/message", meshIP)
-
-	// Create a simple HTTP POST request
-	client := n.getMeshHTTPClient()
-	if client == nil {
-		return fmt.Errorf("mesh HTTP client not configured")
-	}
-
-	// Use standard HTTP POST
-	req, err := http.NewRequest("POST", url, bytes.NewReader(data))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status: %d", resp.StatusCode)
-	}
-
-	return nil
 }

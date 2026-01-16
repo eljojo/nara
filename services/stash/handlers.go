@@ -5,6 +5,7 @@ import (
 
 	"github.com/eljojo/nara/messages"
 	"github.com/eljojo/nara/runtime"
+	"github.com/sirupsen/logrus"
 )
 
 // === Version-specific handlers ===
@@ -47,11 +48,11 @@ func (s *Service) handleRefreshV1(msg *runtime.Message, p *messages.StashRefresh
 //
 // Someone wants to store their encrypted stash with us (we're their confidant).
 func (s *Service) handleStoreV1(msg *runtime.Message, p *messages.StashStorePayload) {
-	s.log.Debug("received store request from %s", p.OwnerID)
+	logrus.Infof("[stash] received store request from %s (msgID: %s)", p.OwnerID, msg.ID)
 
 	// Validate payload
 	if err := p.Validate(); err != nil {
-		s.log.Warn("invalid store payload from %s: %v", p.OwnerID, err)
+		logrus.Warnf("[stash] invalid store payload from %s: %v", p.OwnerID, err)
 
 		// Send failure ack
 		_ = s.rt.Emit(msg.Reply("stash:ack", &messages.StashStoreAck{
@@ -66,12 +67,18 @@ func (s *Service) handleStoreV1(msg *runtime.Message, p *messages.StashStorePayl
 	// Store the encrypted stash
 	s.store(p.OwnerID, p.Nonce, p.Ciphertext)
 
+	logrus.Infof("[stash] sending success ack to %s (InReplyTo: %s)", p.OwnerID, msg.ID)
 	// Send success ack
-	_ = s.rt.Emit(msg.Reply("stash:ack", &messages.StashStoreAck{
+	err := s.rt.Emit(msg.Reply("stash:ack", &messages.StashStoreAck{
 		OwnerID:  p.OwnerID,
 		Success:  true,
 		StoredAt: time.Now().Unix(),
 	}))
+	if err != nil {
+		logrus.Errorf("[stash] failed to send ack: %v", err)
+	} else {
+		logrus.Infof("[stash] ack sent successfully to %s", p.OwnerID)
+	}
 }
 
 // handleStoreAckV1 handles stash:ack responses.
@@ -79,14 +86,16 @@ func (s *Service) handleStoreV1(msg *runtime.Message, p *messages.StashStorePayl
 // This is called when a confidant acknowledges our store request.
 // We use the correlator to match this to the pending request.
 func (s *Service) handleStoreAckV1(msg *runtime.Message, p *messages.StashStoreAck) {
-	s.log.Debug("received store ack from %s", msg.FromID)
+	logrus.Infof("[stash] received store ack from %s (InReplyTo: %s, Success: %v)", msg.FromID, msg.InReplyTo, p.Success)
 
 	// Match to pending request via correlator
 	// The correlator uses msg.InReplyTo to find the original request
 	matched := s.storeCorrelator.Receive(msg.InReplyTo, *p)
 
 	if !matched {
-		s.log.Warn("received unexpected store ack from %s (no pending request)", msg.FromID)
+		logrus.Warnf("[stash] received unexpected store ack from %s (no pending request, InReplyTo: %s)", msg.FromID, msg.InReplyTo)
+	} else {
+		logrus.Infof("[stash] successfully matched ack to pending request %s", msg.InReplyTo)
 	}
 }
 

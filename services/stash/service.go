@@ -71,12 +71,15 @@ func (s *Service) Name() string {
 	return "stash"
 }
 
-func (s *Service) Init(rt runtime.RuntimeInterface) error {
+func (s *Service) Init(rt runtime.RuntimeInterface, log *runtime.ServiceLog) error {
 	s.rt = rt
-	s.log = rt.Log("stash")
+	s.log = log
 
 	// Encryption is provided by runtime.Seal/Open (no local encryptor needed)
 	s.ctx, s.cancel = context.WithCancel(context.Background())
+
+	// Register message behaviors
+	s.RegisterBehaviors(rt)
 
 	logrus.Info("📦 Stash service initialized successfully")
 	return nil
@@ -356,6 +359,14 @@ func (s *Service) HasStashData() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.myStashData) > 0
+}
+
+// ClearMyStash clears the local stash data (used for testing restart scenarios).
+func (s *Service) ClearMyStash() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.myStashData = nil
+	s.myStashTimestamp = 0
 }
 
 // DistributeToConfidants distributes the current stash to all configured confidants.
