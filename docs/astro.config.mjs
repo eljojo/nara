@@ -62,6 +62,18 @@ export default defineConfig({
           ]
         },
         {
+          label: 'Developer Section',
+          items: [
+            { label: 'Developer Guide', link: '/spec/developer-guide/' },
+            { label: 'Runtime & Test Helpers', link: '/spec/developer/runtime/' },
+            { label: 'Pipelines & Stages', link: '/spec/developer/pipelines/' },
+            { label: 'Behaviors & Patterns', link: '/spec/developer/behaviors/' },
+            { label: 'Cryptography (Keyring)', link: '/spec/developer/cryptography/' },
+            { label: 'Mesh Client', link: '/spec/developer/mesh-client/' },
+            { label: 'Sample Service (Stash)', link: '/spec/developer/sample-service/' }
+          ]
+        },
+        {
           label: 'Concepts',
           items: [
             { label: 'Events', link: '/concepts/events/' },

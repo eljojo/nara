@@ -3,47 +3,52 @@ title: Mesh HTTP
 description: Authenticated point-to-point communication over WireGuard.
 ---
 
-Mesh HTTP is the transport for sensitive and bulk data exchange, running over an encrypted WireGuard mesh (tsnet/Headscale). It provides authenticated point-to-point links.
+Mesh HTTP is the transport layer for sensitive, private, and bulk data exchange in the nara network. It runs over an encrypted WireGuard mesh (e.g., Tailscale or Headscale) and provides authenticated point-to-point links.
 
 ## 1. Purpose
-- Encrypted/authenticated alternative to MQTT.
-- Large data transfers: [Zines](/docs/spec/zines/) and [Sync](/docs/spec/sync-protocol/).
-- Distributed storage: [Stash](/docs/spec/stash/).
-- Low-latency routing: [World Postcards](/docs/spec/world-postcards/).
+- Provide an encrypted and authenticated alternative to the public MQTT plaza.
+- Facilitate large data transfers like [Zines](/docs/spec/zines/) and [Sync Protocol](/docs/spec/sync-protocol/) batches.
+- Power the [Stash Service](/docs/spec/stash/) for distributed encrypted storage.
+- Support low-latency routing for [World Postcards](/docs/spec/world-postcards/).
 
 ## 2. Conceptual Model
-- **Auth**: Mandatory soul-based signatures for all requests except `/ping`.
-- **Port**: Default `7433`.
-- **Middleware**: Unified `meshAuthMiddleware` for verification and discovery.
+- **Mesh Network**: A private overlay network where every nara has a stable IP.
+- **Mutual Auth**: Every request and response is signed by the sender's soul.
+- **Middleware**: A unified authentication layer that verifies identities and discovers public keys on-the-fly.
 
 ### Invariants
-- **Identity Headers**: `X-Nara-Name`, `X-Nara-Timestamp`, `X-Nara-Signature`.
-- **Clock Tolerance**: ±30 seconds.
-- **Mutual Auth**: Both requests and responses are signed.
+1. **Signed Headers**: Every request MUST include `X-Nara-Name`, `X-Nara-Timestamp`, and `X-Nara-Signature`.
+2. **Clock Tolerance**: Requests are rejected if the timestamp is more than 30 seconds away from the receiver's clock.
+3. **Encryption**: All traffic MUST be encrypted by the underlying mesh transport (WireGuard).
 
-## 3. Interfaces
+## 3. External Behavior
+- naras discover each other's mesh IPs via [Plaza](/docs/spec/plaza-mqtt/) or mesh scans.
+- When communicating over the mesh, naras perform a cryptographic handshake to verify the other's identity.
+- Unauthenticated access is strictly limited to basic health checks and public key discovery.
+
+## 4. Interfaces
 
 ### Authenticated Headers
 - **Request**: Ed25519 signature of `{name}{timestamp}{method}{path}`.
 - **Response**: Ed25519 signature of `{name}{timestamp}{base64(sha256(body))}`.
 
 ### Core Endpoints
-| Endpoint | Method | Purpose |
-| :--- | :--- | :--- |
-| `/ping` | GET | Latency measurement and PK discovery (Unauthenticated). |
-| `/gossip/zine` | POST | Bidirectional event exchange. |
-| `/dm` | POST | Single `SyncEvent` delivery. |
-| `/events/sync` | POST | Ledger reconciliation. |
-| `/world/relay` | POST | [World Postcard](/docs/spec/world-postcards/) forwarding. |
-| `/stash/*` | POST/DEL| [Stash](/docs/spec/stash/) operations. |
+- `/ping`: Unauthenticated latency measurement and public key discovery.
+- `/gossip/zine`: Bidirectional event exchange.
+- `/dm`: Single `SyncEvent` delivery.
+- `/api/sync`: Historical ledger reconciliation.
+- `/mesh/message`: (New Runtime) Unified entry point for all runtime messages.
 
-## 4. Algorithms
+## 5. Event Types & Schemas
+The mesh transport carries all event types defined in the [Events Spec](/docs/spec/events/) and all runtime messages.
+
+## 6. Algorithms
 
 ### Mesh Authentication
-1. **Freshness**: `abs(now - ts) <= 30s`.
-2. **Key Resolution**: Fetch public key for `X-Nara-Name`.
-3. **On-Demand Discovery**: If key is unknown, call `/ping` on sender IP.
-4. **Verification**: RFC 8032 (Ed25519) verification.
+1. **Freshness Check**: Verify `abs(now - ts) <= 30s`.
+2. **Key Resolution**: Fetch the public key for the claimed `X-Nara-Name`.
+3. **On-Demand Discovery**: If the key is unknown, the receiver calls `/ping` on the sender's mesh IP to fetch their identity.
+4. **Verification**: Verify the signature using the resolved public key.
 
 ### Discovery Fallback
 ```mermaid
@@ -57,16 +62,22 @@ sequenceDiagram
     B->>B: Import PK & Verify Original Request
 ```
 
-## 5. Failure Modes
-- **Auth Failure**: Clock drift > 30s or key mismatch.
-- **Mesh Partition**: Loss of Headscale connectivity limits node to MQTT.
+## 7. Failure Modes
+- **Clock Drift**: Requests fail if clocks differ by more than 30 seconds.
+- **Mesh Partition**: If a nara loses its mesh connection, it is restricted to public plaza broadcasts and cannot participate in private gossip or stash.
+- **Discovery Lag**: Finding new peers via mesh scanning may be slow compared to the real-time plaza.
 
-## 6. Security
-- **Transport**: WireGuard (encryption + IP identity).
-- **Application**: Ed25519 (end-to-end auth + integrity).
-- **Privacy**: Public access restricted to `/ping`.
+## 8. Security / Trust Model
+- **Transport Security**: Provided by WireGuard (AES-GCM or ChaCha20-Poly1305).
+- **Application Auth**: Ed25519 signatures provide end-to-end proof of identity and message integrity.
+- **Privacy**: Only public keys and IDs are accessible unauthenticated via `/ping`.
 
-## 7. Test Oracle
-- `TestMeshAuth_SignVerify` / `TestMeshAuth_ClockSkew`.
-- `TestMeshAuth_UnknownSenderDiscovery`: On-demand key fetching.
-- `TestMeshAuth_ResponseSigning`: Body integrity verification.
+## 9. Test Oracle
+- `TestMeshAuth_SignVerify`: Verifies basic request/response signing.
+- `TestMeshAuth_ClockSkew`: Ensures that stale requests are rejected.
+- `TestMeshAuth_UnknownSenderDiscovery`: Validates that receivers can fetch keys on-the-fly for new senders.
+- `TestMeshAuth_ResponseSigning`: Ensures that the body of the response is also signed and verified.
+
+## 10. Open Questions / TODO
+- Move from name-based key lookup to ID-based (nara ID) lookup for increased robustness.
+- Implement rate-limiting at the middleware level to prevent mesh-based DoS.

@@ -1,56 +1,66 @@
 ---
 title: Personality
-description: Deterministic traits and subjective behavior in the Nara Network.
+description: Deterministic character traits and their impact on nara behavior.
 ---
 
-Personality defines a Nara's "character," driving subjectivity by determining event filtering, clout weighting, and interaction frequency.
+Personality defines a nara's subjective experience. It is a set of deterministic traits derived from the nara's soul that influences how it filters events, forms opinions, and interacts with others.
 
 ## 1. Purpose
-- Drive divergent, subjective views of network state.
-- Define "meaningful" events for a specific Nara.
-- Influence social dynamics (teasing, trends).
-- Model human-like social behaviors (e.g., Chill vs. Sociable).
+- Create diverse and unique behaviors among autonomous agents.
+- Enable subjective "Hazy Memory" by influencing what a nara chooses to remember or forget.
+- Provide a basis for social mechanics (teasing, resonance, and clout).
 
 ## 2. Conceptual Model
-Three core traits (0-99):
-- **Agreeableness**: Trend participation and willingness to tease.
-- **Sociability**: Social event frequency and data weighting.
-- **Chill**: Memory decay rate and noise sensitivity.
+- **The Big Three Traits**:
+    - **Agreeableness**: Influences how much a nara likes others and how it reacts to teasing.
+    - **Sociability**: Influences how much a nara cares about social events and gossip.
+    - **Chill**: Influences how much a nara is bothered by network volatility (restarts, downtime).
+- **Aura**: A visual representation (colors) of the personality and soul.
 
 ### Invariants
-- **Deterministic**: Seeded from `SHA256(soul)`.
-- **Immutable**: Stable for a given identity across restarts.
-- **Transparent**: Traits are included in public `NaraStatus`.
+1. **Deterministic**: Given the same soul and name, the personality MUST always be identical.
+2. **Immutable**: A nara's base personality traits never change.
+3. **Range**: Every trait is a value between 0 and 100.
 
-## 3. Algorithms
+## 3. External Behavior
+- naras with high **Sociability** will store more social events and gossip more frequently.
+- naras with high **Chill** are less likely to report or be bothered by peer restarts.
+- **Agreeable** naras are less likely to initiate teasing but may "defend" peers who are teased excessively.
+- Personality traits are advertised in the `hey-there` presence announcement.
 
-### Seeding Traits
-1. `Seed = BigEndianUint64(SHA256(soul)[0:8])`.
-2. `Rand = NewRand(Seed)`.
-3. Traits = `Rand.Intn(100)`.
+## 4. Interfaces
+- `NaraPersonality`: The struct containing the three trait values.
+- `DerivePersonality(soul, name)`: The function that generates traits from the cryptographic bond.
 
-### Event Filtering (`socialEventIsMeaningful`)
-- **Casual Events** (Importance 1): Dropped if `Chill` or `Agreeableness` thresholds are met.
-- **Routine Logs**: High-chill (>85) nodes may ignore standard online/offline observations.
-- **Engagement**: Low-sociability (<30) nodes may ignore journeys or gossip.
+## 5. Event Types & Schemas
+Personality is embedded in the `NaraStatus` which is carried by:
+- `hey-there` events.
+- `SyncResponse` metadata.
 
-### Subjective Weighting & Decay
-Weight adjustment:
-- **Sociability Bonus**: Up to +0.5.
-- **Chill Penalty**: Up to -0.25.
-- **Half-Life**: `Base (24h) * chillModifier * socModifier`.
-  - `chillModifier`: 0.5x to 1.5x based on Chill.
-  - `socModifier`: 1.0x to 1.3x based on Sociability.
+## 6. Algorithms
 
-## 4. Failure Modes
-- **Subjective Isolation**: Extreme traits (e.g., high Chill + low Sociability) lead to sparse ledgers and loss of social context.
-- **Truth Divergence**: Different personalities derive different `Clout` from identical event streams.
+### Trait Derivation
+Traits are derived by taking specific bytes from the SHA256 hash of the `Soul || Name` bond and mapping them to the 0-100 range:
+- `Agreeableness = Hash[0] % 101`
+- `Sociability = Hash[1] % 101`
+- `Chill = Hash[2] % 101`
 
-## 5. Security & Trust
-- **Authenticity**: Personality is tied to soul; cannot be faked without the seed.
-- **Auditability**: Public traits allow peers to interpret a Nara's "behavior" (e.g., why it ignores events).
+### Personality Filtering
+- **Importance 2 (Normal)**: Dropped if `Chill > 85`.
+- **Social Weighting**: `Weight = f(Sociability, Chill, EventAge)`. (See [Sync Protocol](/docs/spec/sync-protocol/)).
 
-## 6. Test Oracle
-- `TestPersonalitySeeding`: Consistency verification.
-- `TestMeaningfulFilter`: Noise reduction logic.
-- `TestSubjectiveWeighting`: Variance in weight/decay calculation.
+## 7. Failure Modes
+- **Trait Extremes**: A nara with 0 Chill and 100 Sociability may become a "drama seeker," saturating its ledger with every minor network change.
+- **Homogeneity**: If a network is dominated by "Very Chill" naras, social history may be lost very quickly due to aggressive filtering.
+
+## 8. Security / Trust Model
+- **Transparency**: Because personality is deterministic and derived from public data (Soul/Name), anyone can verify a nara's claimed personality.
+
+## 9. Test Oracle
+- `TestPersonality_Determinism`: Ensures identical souls always produce identical traits.
+- `TestAura_VisualConsistency`: Verifies that aura colors are correctly mapped from personality traits.
+- `TestPersonality_Filtering`: Validates that high Chill naras correctly filter out normal-importance observations.
+
+## 10. Open Questions / TODO
+- Add a "Neuroticism" trait to influence how naras react to their own downtime.
+- Link personality traits to the selection of "Confidants" in the stash service.
