@@ -246,7 +246,7 @@ func TestStashDistribution_Integration(t *testing.T) {
 		var state struct {
 			Confidants []string `json:"confidants"`
 		}
-		json.Unmarshal(stateBytes, &state)
+		_ = json.Unmarshal(stateBytes, &state)
 		if len(state.Confidants) != 0 {
 			t.Errorf("Rebooted nara should have empty confidant list, got %d", len(state.Confidants))
 		}

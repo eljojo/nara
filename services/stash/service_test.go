@@ -89,6 +89,7 @@ func TestStashStoreAndAck(t *testing.T) {
 
 	// Verify Bob stored the stash
 	if !bobStash.HasStashFor("alice-id-123") {
+		t.Fatal("Bob should be storing Alice's stash")
 	}
 
 	// Verify Bob is storing Alice's stash
