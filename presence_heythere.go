@@ -7,6 +7,7 @@ import (
 	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
 	"github.com/sirupsen/logrus"
+	"math/rand"
 )
 
 // truncateKey returns first 8 chars of a key for logging
@@ -190,6 +191,9 @@ func (network *Network) processHeyThereSyncEvents(events []SyncEvent) {
 			network.importNara(newNara)
 			logrus.Infof("📡 Discovered new peer %s via hey_there event (🔑)", h.From)
 		}
+
+		// Stash recovery: Check if we have a stash for this returning nara
+		network.checkAndPushStash(h.ID, h.From)
 	}
 }
 
@@ -266,6 +270,10 @@ func (network *Network) handleHeyThereEvent(event SyncEvent) {
 		network.broadcastSSE(event)
 	}
 
+	// Stash recovery: Check if we have a stash for this returning nara
+	// If so, proactively push it to them via mesh
+	network.checkAndPushStash(heyThere.ID, heyThere.From)
+
 	// Store PublicKey and MeshIP from the hey_there event
 	if heyThere.PublicKey != "" || heyThere.MeshIP != "" {
 		network.local.mu.Lock()
@@ -313,6 +321,23 @@ func (network *Network) handleHeyThereEvent(event SyncEvent) {
 		network.startHowdyCoordinator(heyThere.From)
 	}
 	network.Buzz.increase(1)
+}
+
+// checkAndPushStash checks if we have a stash for a nara and pushes it to them.
+func (network *Network) checkAndPushStash(naraID types.NaraID, naraName types.NaraName) {
+	if network.stashService != nil && naraID != "" {
+		if network.stashService.HasStashFor(naraID) {
+			go func() {
+				// Add small random delay to avoid thundering herd if many confidants push at once
+				time.Sleep(time.Duration(100+rand.Intn(500)) * time.Millisecond)
+				if err := network.stashService.PushTo(naraID); err != nil {
+					logrus.Warnf("📦 Failed to push stash to %s: %v", naraName, err)
+				} else {
+					logrus.Infof("📦 Proactively pushed stash to returning nara %s", naraName)
+				}
+			}()
+		}
+	}
 }
 
 // heyThere broadcasts identity via MQTT as a signed SyncEvent.

@@ -204,6 +204,45 @@ func (s *Service) TargetConfidants() int {
 	return s.targetConfidants
 }
 
+// Confidants returns the list of current confidants.
+// PushTo sends the stored stash to the owner.
+// This is used for recovery - when we see a peer come online (hey-there),
+// we proactively send them their stash if we have it.
+func (s *Service) PushTo(ownerID types.NaraID) error {
+	stash := s.GetStoredStash(ownerID)
+	if stash == nil {
+		return fmt.Errorf("no stash for %s", ownerID)
+	}
+
+	// Send the stash back via mesh
+	msg := &runtime.Message{
+		Kind: "stash:response",
+		ToID: ownerID,
+		Payload: &messages.StashResponsePayload{
+			OwnerID:    ownerID,
+			Found:      true,
+			Nonce:      stash.Nonce,
+			Ciphertext: stash.Ciphertext,
+			StoredAt:   stash.StoredAt.Unix(),
+		},
+	}
+
+	if err := s.rt.Emit(msg); err != nil {
+		return fmt.Errorf("emit stash response: %w", err)
+	}
+
+	s.log.Info("pushed stash to %s (%d bytes)", ownerID, len(stash.Ciphertext))
+	return nil
+}
+
+func (s *Service) Confidants() []types.NaraID {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]types.NaraID, len(s.confidants))
+	copy(result, s.confidants)
+	return result
+}
+
 // SelectConfidantsAutomatically picks 3 confidants automatically:
 // - First: peer with highest uptime
 // - Second and third: random peers

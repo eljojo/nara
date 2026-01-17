@@ -528,6 +528,7 @@ func testCreateMeshNetwork(t *testing.T, names []string, chattiness, ledgerCapac
 			if i != j {
 				neighbor := NewNara(mesh.Naras[j].Me.Name)
 				neighbor.Status.ID = mesh.Naras[j].Me.Status.ID
+				neighbor.ID = mesh.Naras[j].Me.Status.ID // Important: set top-level ID too
 				neighbor.Status.PublicKey = identity.FormatPublicKey(mesh.Naras[j].Keypair.PublicKey)
 				mesh.Naras[i].Network.importNara(neighbor)
 				mesh.Naras[i].setObservation(mesh.Naras[j].Me.Name, NaraObservation{Online: "ONLINE"})
@@ -624,6 +625,7 @@ func (m *testMeshNetwork) RestartNara(index int) *LocalNara {
 		if j != index {
 			neighbor := NewNara(m.Naras[j].Me.Name)
 			neighbor.Status.ID = m.Naras[j].Me.Status.ID
+			neighbor.ID = m.Naras[j].Me.Status.ID // Important: set top-level ID too
 			neighbor.Status.PublicKey = identity.FormatPublicKey(m.Naras[j].Keypair.PublicKey)
 			fresh.Network.importNara(neighbor)
 			fresh.setObservation(m.Naras[j].Me.Name, NaraObservation{Online: "ONLINE"})

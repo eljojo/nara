@@ -28,8 +28,7 @@ func TestStashDistribution_Integration(t *testing.T) {
 	}
 
 	logrus.SetLevel(logrus.DebugLevel)
-
-	// Create mesh with 4 naras: owner + 3 confidants
+	// Create mesh with 4 naras
 	names := []string{"owner", "confidant-a", "confidant-b", "confidant-c"}
 	mesh := testCreateMeshNetwork(t, names, 50, 1000)
 
@@ -59,14 +58,11 @@ func TestStashDistribution_Integration(t *testing.T) {
 	}
 	t.Logf("✅ Owner knows %d peers (peer discovery working)", peerCount)
 
-	// Manually configure confidants for now
-	// Note: Automatic selection (SelectConfidantsAutomatically) requires mesh messages
-	// to be fully wired during test setup, which needs additional work.
-	owner.Network.stashService.SetConfidants([]types.NaraID{
-		confidantA.Me.Status.ID,
-		confidantB.Me.Status.ID,
-		confidantC.Me.Status.ID,
-	})
+	// Verify owner has 0 confidants initially
+	initialConfidants := owner.Network.stashService.Confidants()
+	if len(initialConfidants) != 0 {
+		t.Fatalf("Owner should have 0 confidants initially, found %d", len(initialConfidants))
+	}
 
 	// Owner creates stash data
 	stashData := map[string]interface{}{
@@ -235,7 +231,7 @@ func TestStashDistribution_Integration(t *testing.T) {
 
 		t.Logf("Rebooted nara with same identity, checking for empty stash...")
 
-		// Verify: Rebooted nara has no local stash and no confidants configured
+		// Verify: Rebooted nara has no local stash
 		localData, _ := rebooted.Network.stashService.GetStashData()
 		if len(localData) > 0 {
 			t.Error("Rebooted nara should start with no local stash")
@@ -253,42 +249,25 @@ func TestStashDistribution_Integration(t *testing.T) {
 
 		t.Logf("✅ Rebooted nara has empty stash and empty confidant list")
 
-		// Simulate hey-there announcement (in real system, this happens automatically on boot)
+		// Send hey-there announcement (in real system, this happens automatically on boot)
 		// Confidants detect the hey-there and automatically push stash back
-		t.Logf("Simulating confidants detecting hey-there and pushing stash back...")
+		t.Logf("Sending hey-there so confidants push stash back...")
 
-		ownerID := rebooted.Me.Status.ID
-		confidants := []*LocalNara{confidantA, confidantB, confidantC}
+		// Force-send hey-there from the rebooted nara
+		// This broadcasts the presence event that confidants listen for
+		rebooted.Network.InitGossipIdentity()
+		t.Logf("Sent hey-there message from rebooted nara (InitGossipIdentity)")
 
-		// Simulate each confidant pushing their copy of the stash back to owner
-		// In the real system, this would be triggered by hey-there detection
-		// and would use POST /stash/push (not yet implemented)
-		for _, confidant := range confidants {
-			if confidant.Network.stashService.HasStashFor(ownerID) {
-				go func(conf *LocalNara) {
-					time.Sleep(100 * time.Millisecond) // Small delay to simulate async push
-
-					// Confidant retrieves the encrypted stash they're storing for owner
-					encryptedStash := conf.Network.stashService.GetStoredStash(ownerID)
-					if encryptedStash == nil {
-						return
-					}
-
-					// Confidant sends it back to owner (simulating POST /stash/push)
-					// Owner decrypts it and stores locally
-					plaintext, err := rebooted.Keypair.Open(encryptedStash.Nonce, encryptedStash.Ciphertext)
-					if err != nil {
-						t.Logf("Failed to decrypt stash from %s: %v", conf.Me.Name, err)
-						return
-					}
-
-					// Store the recovered data in rebooted nara
-					if err := rebooted.Network.stashService.SetStashData(plaintext); err != nil {
-						t.Logf("Failed to store stash from %s: %v", conf.Me.Name, err)
-					} else {
-						t.Logf("✅ Recovered and stored stash from %s (%d bytes)", conf.Me.Name, len(plaintext))
-					}
-				}(confidant)
+		// Manually propagate the hey-there event to confidants to simulate gossip
+		// This ensures they process the event even if their full gossip loop isn't running
+		heyThereEvents := rebooted.Network.local.SyncLedger.GetEventsByService(ServiceHeyThere)
+		if len(heyThereEvents) > 0 {
+			latestEvent := heyThereEvents[len(heyThereEvents)-1]
+			t.Logf("Propagating hey-there event to confidants...")
+			
+			for _, confidant := range []*LocalNara{confidantA, confidantB, confidantC} {
+				// Direct call to simulate gossip arrival
+				confidant.Network.handleHeyThereEvent(latestEvent)
 			}
 		}
 
@@ -363,7 +342,6 @@ func TestStashUpdate_HTTPWorkflow(t *testing.T) {
 	}
 
 	logrus.SetLevel(logrus.WarnLevel)
-
 	// Create mesh with 4 naras
 	names := []string{"owner", "conf-1", "conf-2", "conf-3"}
 	mesh := testCreateMeshNetwork(t, names, 50, 1000)

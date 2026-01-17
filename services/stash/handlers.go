@@ -1,6 +1,7 @@
 package stash
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/eljojo/nara/messages"
@@ -148,10 +149,42 @@ func (s *Service) handleRequestV1(msg *runtime.Message, p *messages.StashRequest
 func (s *Service) handleResponseV1(msg *runtime.Message, p *messages.StashResponsePayload) {
 	s.log.Debug("received response from %s (found=%v)", msg.FromID, p.Found)
 
+	// If we're recovering (empty stash), accept ANY response as authoritative
+	// This handles the hey-there recovery flow where we didn't explicitly request
+	if !s.HasStashData() && p.Found && len(p.Ciphertext) > 0 {
+		s.log.Info("received proactive stash recovery from %s", msg.FromID)
+
+		// Decrypt and set as our local stash
+		// NOTE: This duplicates some logic from recover() but we're in a handler
+		// and don't want to block or use the correlator for proactive pushes
+		if err := s.handleRecoveryPayload(p); err != nil {
+			s.log.Error("failed to process proactive recovery: %v", err)
+		}
+		return
+	}
+
 	// Match to pending request via correlator
 	matched := s.requestCorrelator.Receive(msg.InReplyTo, *p)
 
-	if !matched {
+	if !matched && !s.HasStashData() { // Only warn if we're not in recovery mode
 		s.log.Warn("received unexpected response from %s (no pending request)", msg.FromID)
 	}
+}
+
+// handleRecoveryPayload processes a recovery payload (decryption and storage).
+func (s *Service) handleRecoveryPayload(p *messages.StashResponsePayload) error {
+	// Decrypt using runtime's keypair
+	plaintext, err := s.rt.Open(p.Nonce, p.Ciphertext)
+	if err != nil {
+		return fmt.Errorf("decrypt: %w", err)
+	}
+
+	// Update local state
+	s.mu.Lock()
+	s.myStashData = plaintext
+	s.myStashTimestamp = p.StoredAt
+	s.mu.Unlock()
+
+	s.log.Info("successfully recovered stash (%d bytes)", len(plaintext))
+	return nil
 }

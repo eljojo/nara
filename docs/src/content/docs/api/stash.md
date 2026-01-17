@@ -17,6 +17,7 @@ import "github.com/eljojo/nara/services/stash"
 - [type Service](<#Service>)
   - [func NewService\(\) \*Service](<#NewService>)
   - [func \(s \*Service\) ClearMyStash\(\)](<#Service.ClearMyStash>)
+  - [func \(s \*Service\) Confidants\(\) \[\]types.NaraID](<#Service.Confidants>)
   - [func \(s \*Service\) DistributeToConfidants\(\) error](<#Service.DistributeToConfidants>)
   - [func \(s \*Service\) GetStashData\(\) \(data \[\]byte, timestamp int64\)](<#Service.GetStashData>)
   - [func \(s \*Service\) GetStoredStash\(ownerID types.NaraID\) \*EncryptedStash](<#Service.GetStoredStash>)
@@ -25,6 +26,7 @@ import "github.com/eljojo/nara/services/stash"
   - [func \(s \*Service\) Init\(rt runtime.RuntimeInterface, log \*runtime.ServiceLog\) error](<#Service.Init>)
   - [func \(s \*Service\) MarshalState\(\) \(\[\]byte, error\)](<#Service.MarshalState>)
   - [func \(s \*Service\) Name\(\) string](<#Service.Name>)
+  - [func \(s \*Service\) PushTo\(ownerID types.NaraID\) error](<#Service.PushTo>)
   - [func \(s \*Service\) RecoverFromAny\(\) \(\[\]byte, error\)](<#Service.RecoverFromAny>)
   - [func \(s \*Service\) RegisterBehaviors\(rt runtime.RuntimeInterface\)](<#Service.RegisterBehaviors>)
   - [func \(s \*Service\) RequestFrom\(confidantID types.NaraID\) \(\[\]byte, error\)](<#Service.RequestFrom>)
@@ -75,7 +77,7 @@ func NewService() *Service
 NewService creates a new stash service.
 
 <a name="Service.ClearMyStash"></a>
-### func \(\*Service\) [ClearMyStash](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L361>)
+### func \(\*Service\) [ClearMyStash](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L400>)
 
 ```go
 func (s *Service) ClearMyStash()
@@ -83,8 +85,17 @@ func (s *Service) ClearMyStash()
 
 ClearMyStash clears the local stash data \(used for testing restart scenarios\).
 
+<a name="Service.Confidants"></a>
+### func \(\*Service\) [Confidants](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L238>)
+
+```go
+func (s *Service) Confidants() []types.NaraID
+```
+
+
+
 <a name="Service.DistributeToConfidants"></a>
-### func \(\*Service\) [DistributeToConfidants](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L369>)
+### func \(\*Service\) [DistributeToConfidants](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L408>)
 
 ```go
 func (s *Service) DistributeToConfidants() error
@@ -93,7 +104,7 @@ func (s *Service) DistributeToConfidants() error
 DistributeToConfidants distributes the current stash to all configured confidants.
 
 <a name="Service.GetStashData"></a>
-### func \(\*Service\) [GetStashData](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L347>)
+### func \(\*Service\) [GetStashData](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L386>)
 
 ```go
 func (s *Service) GetStashData() (data []byte, timestamp int64)
@@ -102,7 +113,7 @@ func (s *Service) GetStashData() (data []byte, timestamp int64)
 GetStashData returns the current stash data.
 
 <a name="Service.GetStoredStash"></a>
-### func \(\*Service\) [GetStoredStash](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L436>)
+### func \(\*Service\) [GetStoredStash](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L475>)
 
 ```go
 func (s *Service) GetStoredStash(ownerID types.NaraID) *EncryptedStash
@@ -111,7 +122,7 @@ func (s *Service) GetStoredStash(ownerID types.NaraID) *EncryptedStash
 
 
 <a name="Service.HasStashData"></a>
-### func \(\*Service\) [HasStashData](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L354>)
+### func \(\*Service\) [HasStashData](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L393>)
 
 ```go
 func (s *Service) HasStashData() bool
@@ -120,7 +131,7 @@ func (s *Service) HasStashData() bool
 HasStashData returns true if we have stash data configured.
 
 <a name="Service.HasStashFor"></a>
-### func \(\*Service\) [HasStashFor](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L413>)
+### func \(\*Service\) [HasStashFor](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L452>)
 
 ```go
 func (s *Service) HasStashFor(ownerID types.NaraID) bool
@@ -138,7 +149,7 @@ func (s *Service) Init(rt runtime.RuntimeInterface, log *runtime.ServiceLog) err
 
 
 <a name="Service.MarshalState"></a>
-### func \(\*Service\) [MarshalState](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L445>)
+### func \(\*Service\) [MarshalState](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L484>)
 
 ```go
 func (s *Service) MarshalState() ([]byte, error)
@@ -154,6 +165,15 @@ func (s *Service) Name() string
 ```
 
 
+
+<a name="Service.PushTo"></a>
+### func \(\*Service\) [PushTo](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L211>)
+
+```go
+func (s *Service) PushTo(ownerID types.NaraID) error
+```
+
+Confidants returns the list of current confidants. PushTo sends the stored stash to the owner. This is used for recovery \- when we see a peer come online \(hey\-there\), we proactively send them their stash if we have it.
 
 <a name="Service.RecoverFromAny"></a>
 ### func \(\*Service\) [RecoverFromAny](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L180>)
@@ -191,7 +211,7 @@ RequestFrom requests stored data from a confidant.
 Returns the decrypted data if the confidant has it, or an error.
 
 <a name="Service.SelectConfidantsAutomatically"></a>
-### func \(\*Service\) [SelectConfidantsAutomatically](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L211>)
+### func \(\*Service\) [SelectConfidantsAutomatically](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L250>)
 
 ```go
 func (s *Service) SelectConfidantsAutomatically() error
@@ -209,7 +229,7 @@ func (s *Service) SetConfidants(confidantIDs []types.NaraID)
 SetConfidants configures the list of confidants to use.
 
 <a name="Service.SetStashData"></a>
-### func \(\*Service\) [SetStashData](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L324>)
+### func \(\*Service\) [SetStashData](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L363>)
 
 ```go
 func (s *Service) SetStashData(data []byte) error
@@ -256,7 +276,7 @@ func (s *Service) TargetConfidants() int
 TargetConfidants returns the target number of confidants.
 
 <a name="Service.UnmarshalState"></a>
-### func \(\*Service\) [UnmarshalState](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L465>)
+### func \(\*Service\) [UnmarshalState](<https://github.com/eljojo/nara/blob/main/services/stash/service.go#L504>)
 
 ```go
 func (s *Service) UnmarshalState(data []byte) error
