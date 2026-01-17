@@ -172,6 +172,7 @@ func TestCheckpointV2NetworkDisagreesWithProposer(t *testing.T) {
 }
 
 // TestCheckpointV1ToV2Chain tests that a new v2 checkpoint correctly points to an existing v1 checkpoint
+// TODO(flakey)
 func TestCheckpointV1ToV2Chain(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")

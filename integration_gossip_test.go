@@ -18,7 +18,7 @@ func TestIntegration_GossipOnlyMode(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
 	// Create 5 naras in gossip-only mode with full mesh topology
-	mesh := testCreateMeshNetwork(t, []string{"gossip-nara-a", "gossip-nara-b", "gossip-nara-c", "gossip-nara-d", "gossip-nara-e"}, 50, 1000)
+	mesh := testCreateMeshNetwork(t, []string{"gossip-nara-a", "gossip-nara-b", "gossip-nara-c", "gossip-nara-d", "gossip-nara-e"}, 50, 1000, 0)
 
 	// Nara A creates a social event
 	event := NewSocialSyncEvent("tease", mesh.Get(0).Me.Name, "gossip-nara-b", "high restarts", "")
@@ -59,7 +59,7 @@ func TestIntegration_HybridMode(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
 	// Create 3 naras in hybrid mode with full mesh topology
-	mesh := testCreateMeshNetwork(t, []string{"hybrid-nara-a", "hybrid-nara-b", "hybrid-nara-c"}, 50, 1000)
+	mesh := testCreateMeshNetwork(t, []string{"hybrid-nara-a", "hybrid-nara-b", "hybrid-nara-c"}, 50, 1000, 0)
 	for i := 0; i < 3; i++ {
 		mesh.Get(i).Network.TransportMode = TransportHybrid
 	}
@@ -158,7 +158,7 @@ func TestIntegration_ZineCreationAndExchange(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
 	// Create 2 naras with full mesh topology
-	mesh := testCreateMeshNetwork(t, []string{"alice", "bob"}, 50, 1000)
+	mesh := testCreateMeshNetwork(t, []string{"alice", "bob"}, 50, 1000, 0)
 	alice := mesh.GetByName("alice")
 	bob := mesh.GetByName("bob")
 

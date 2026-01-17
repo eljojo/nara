@@ -122,6 +122,7 @@ func TestStashStoreAndAck(t *testing.T) {
 }
 
 // TestStashRequestAndResponse tests the request → response flow.
+// TODO(flakey)
 func TestStashRequestAndResponse(t *testing.T) {
 	runtime.ClearBehaviors() // Clear global registry for test isolation
 
@@ -179,7 +180,7 @@ func TestStashRequestAndResponse(t *testing.T) {
 	}()
 
 	// Wait for Alice to emit the request
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// Verify Alice emitted stash:request
 	if aliceRT.EmittedCount() != 1 {

@@ -159,7 +159,7 @@ func (ln *LocalNara) Start(serveUI bool, readOnly bool, httpAddr string, meshCon
 	ln.Network.TransportMode = transportMode
 	ln.Me.Status.TransportMode = transportMode.String() // Share our transport mode with peers
 	if serveUI {
-		logrus.Printf("💻 Serving UI")
+		logrus.Printf("💻 Serving UI for %s", ln.Me.Name)
 	}
 
 	// Start projections

@@ -28,10 +28,9 @@ func TestStashDistribution_Integration(t *testing.T) {
 	}
 
 	logrus.SetLevel(logrus.DebugLevel)
-
-	// Create mesh with 4 naras: owner + 3 confidants
+	// Create mesh with 4 naras
 	names := []string{"owner", "confidant-a", "confidant-b", "confidant-c"}
-	mesh := testCreateMeshNetwork(t, names, 50, 1000)
+	mesh := testCreateMeshNetwork(t, names, 50, 1000, 11892)
 
 	owner := mesh.Get(0)
 	confidantA := mesh.Get(1)
@@ -50,6 +49,12 @@ func TestStashDistribution_Integration(t *testing.T) {
 		if nara.Network.stashService == nil {
 			t.Fatalf("Stash service not initialized for %s", nara.Me.Name)
 		}
+		// Start confidants (indices 1, 2, 3) so they connect to MQTT and can process events
+		// Owner (index 0) is started later with specific HTTP config
+		// TODO: Make this cleaner in future refactor
+		if i > 0 {
+			go nara.Start(false, false, "", nil, TransportHybrid)
+		}
 	}
 
 	// Verify the system can discover peers (prerequisite for automatic selection)
@@ -59,14 +64,11 @@ func TestStashDistribution_Integration(t *testing.T) {
 	}
 	t.Logf("✅ Owner knows %d peers (peer discovery working)", peerCount)
 
-	// Manually configure confidants for now
-	// Note: Automatic selection (SelectConfidantsAutomatically) requires mesh messages
-	// to be fully wired during test setup, which needs additional work.
-	owner.Network.stashService.SetConfidants([]types.NaraID{
-		confidantA.Me.Status.ID,
-		confidantB.Me.Status.ID,
-		confidantC.Me.Status.ID,
-	})
+	// Verify owner has 0 confidants initially
+	initialConfidants := owner.Network.stashService.Confidants()
+	if len(initialConfidants) != 0 {
+		t.Fatalf("Owner should have 0 confidants initially, found %d", len(initialConfidants))
+	}
 
 	// Owner creates stash data
 	stashData := map[string]interface{}{
@@ -130,7 +132,7 @@ func TestStashDistribution_Integration(t *testing.T) {
 
 	// Test HTTP endpoints
 	httpAddr := ":9500"
-	go owner.Start(true, false, httpAddr, nil, TransportGossip)
+	go owner.Start(true, false, httpAddr, nil, TransportHybrid)
 	time.Sleep(200 * time.Millisecond)
 	baseURL := fmt.Sprintf("http://localhost%s", httpAddr)
 
@@ -227,15 +229,9 @@ func TestStashDistribution_Integration(t *testing.T) {
 			t.Fatalf("Failed to start runtime for rebooted nara: %v", err)
 		}
 
-		// Start HTTP server on rebooted nara
-		rebootedAddr := ":9502"
-		go rebooted.Start(true, false, rebootedAddr, nil, TransportGossip)
-		time.Sleep(300 * time.Millisecond)
-		rebootedURL := fmt.Sprintf("http://localhost%s", rebootedAddr)
-
 		t.Logf("Rebooted nara with same identity, checking for empty stash...")
 
-		// Verify: Rebooted nara has no local stash and no confidants configured
+		// Verify: Rebooted nara has no local stash
 		localData, _ := rebooted.Network.stashService.GetStashData()
 		if len(localData) > 0 {
 			t.Error("Rebooted nara should start with no local stash")
@@ -253,44 +249,19 @@ func TestStashDistribution_Integration(t *testing.T) {
 
 		t.Logf("✅ Rebooted nara has empty stash and empty confidant list")
 
-		// Simulate hey-there announcement (in real system, this happens automatically on boot)
+		// Start HTTP server on rebooted nara
+		rebootedAddr := ":9502"
+		go rebooted.Start(true, false, rebootedAddr, nil, TransportHybrid)
+		time.Sleep(300 * time.Millisecond)
+		rebootedURL := fmt.Sprintf("http://localhost%s", rebootedAddr)
+
+		// Send hey-there announcement (in real system, this happens automatically on boot)
 		// Confidants detect the hey-there and automatically push stash back
-		t.Logf("Simulating confidants detecting hey-there and pushing stash back...")
-
-		ownerID := rebooted.Me.Status.ID
-		confidants := []*LocalNara{confidantA, confidantB, confidantC}
-
-		// Simulate each confidant pushing their copy of the stash back to owner
-		// In the real system, this would be triggered by hey-there detection
-		// and would use POST /stash/push (not yet implemented)
-		for _, confidant := range confidants {
-			if confidant.Network.stashService.HasStashFor(ownerID) {
-				go func(conf *LocalNara) {
-					time.Sleep(100 * time.Millisecond) // Small delay to simulate async push
-
-					// Confidant retrieves the encrypted stash they're storing for owner
-					encryptedStash := conf.Network.stashService.GetStoredStash(ownerID)
-					if encryptedStash == nil {
-						return
-					}
-
-					// Confidant sends it back to owner (simulating POST /stash/push)
-					// Owner decrypts it and stores locally
-					plaintext, err := rebooted.Keypair.Open(encryptedStash.Nonce, encryptedStash.Ciphertext)
-					if err != nil {
-						t.Logf("Failed to decrypt stash from %s: %v", conf.Me.Name, err)
-						return
-					}
-
-					// Store the recovered data in rebooted nara
-					if err := rebooted.Network.stashService.SetStashData(plaintext); err != nil {
-						t.Logf("Failed to store stash from %s: %v", conf.Me.Name, err)
-					} else {
-						t.Logf("✅ Recovered and stored stash from %s (%d bytes)", conf.Me.Name, len(plaintext))
-					}
-				}(confidant)
-			}
-		}
+		t.Logf("Sending hey-there so confidants push stash back...")
+		rebooted.Network.heyThere()
+		t.Logf("Sent hey-there message from rebooted nara (heyThere)")
+		// With TransportHybrid, MQTT will handle the hey-there broadcast
+		// so we don't need manual propagation
 
 		// Poll status endpoint to wait for recovery to complete
 		var recoveredData []byte
@@ -357,16 +328,16 @@ func TestStashDistribution_Integration(t *testing.T) {
 }
 
 // TestStashUpdate_HTTPWorkflow tests updating stash via HTTP endpoint
+// TODO(flakey)
 func TestStashUpdate_HTTPWorkflow(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
 
 	logrus.SetLevel(logrus.WarnLevel)
-
 	// Create mesh with 4 naras
 	names := []string{"owner", "conf-1", "conf-2", "conf-3"}
-	mesh := testCreateMeshNetwork(t, names, 50, 1000)
+	mesh := testCreateMeshNetwork(t, names, 50, 1000, 11891)
 
 	owner := mesh.Get(0)
 
@@ -390,7 +361,7 @@ func TestStashUpdate_HTTPWorkflow(t *testing.T) {
 
 	// Start HTTP server
 	ownerAddr := ":9501"
-	go owner.Start(true, false, ownerAddr, nil, TransportGossip)
+	go owner.Start(true, false, ownerAddr, nil, TransportHybrid)
 	time.Sleep(200 * time.Millisecond)
 	baseURL := fmt.Sprintf("http://localhost%s", ownerAddr)
 

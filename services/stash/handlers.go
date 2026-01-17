@@ -1,6 +1,7 @@
 package stash
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/eljojo/nara/messages"
@@ -148,10 +149,48 @@ func (s *Service) handleRequestV1(msg *runtime.Message, p *messages.StashRequest
 func (s *Service) handleResponseV1(msg *runtime.Message, p *messages.StashResponsePayload) {
 	s.log.Debug("received response from %s (found=%v)", msg.FromID, p.Found)
 
-	// Match to pending request via correlator
+	// Try to match to pending request via correlator first
+	// This handles explicit RequestFrom() calls
 	matched := s.requestCorrelator.Receive(msg.InReplyTo, *p)
+	if matched {
+		return
+	}
 
-	if !matched {
+	// If not matched, check if it's a proactive recovery (hey-there flow)
+	// If we have no stash, we accept authoritative pushes from confidants
+	if !s.HasStashData() && p.Found && len(p.Ciphertext) > 0 {
+		s.log.Info("received proactive stash recovery from %s", msg.FromID)
+
+		// Decrypt and set as our local stash
+		if err := s.handleRecoveryPayload(p); err != nil {
+			s.log.Error("failed to process proactive recovery: %v", err)
+		}
+		return
+	}
+
+	// Only warn if we're not in recovery mode and it wasn't a proactive push
+	if !s.HasStashData() {
+		// matches proactive push criteria but failed something?
+		// actually if it didn't match proactive criteria (e.g. not found or empty), we might just ignore it
+	} else {
 		s.log.Warn("received unexpected response from %s (no pending request)", msg.FromID)
 	}
+}
+
+// handleRecoveryPayload processes a recovery payload (decryption and storage).
+func (s *Service) handleRecoveryPayload(p *messages.StashResponsePayload) error {
+	// Decrypt using runtime's keypair
+	plaintext, err := s.rt.Open(p.Nonce, p.Ciphertext)
+	if err != nil {
+		return fmt.Errorf("decrypt: %w", err)
+	}
+
+	// Update local state
+	s.mu.Lock()
+	s.myStashData = plaintext
+	s.myStashTimestamp = p.StoredAt
+	s.mu.Unlock()
+
+	s.log.Info("successfully recovered stash (%d bytes)", len(plaintext))
+	return nil
 }

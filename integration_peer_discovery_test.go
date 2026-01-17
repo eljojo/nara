@@ -27,7 +27,7 @@ func TestIntegration_DiscoverNarasFromEventStream(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
 	// Setup: alice and bob in full mesh with gossip
-	mesh := testCreateMeshNetwork(t, []string{"alice", "bob"}, 50, 1000)
+	mesh := testCreateMeshNetwork(t, []string{"alice", "bob"}, 50, 1000, 0)
 	alice := mesh.GetByName("alice")
 	bob := mesh.GetByName("bob")
 
@@ -348,7 +348,7 @@ func TestIntegration_ChauSyncEventPropagation(t *testing.T) {
 	logrus.SetLevel(logrus.DebugLevel)
 
 	// Setup: alice and bob in full mesh with gossip
-	mesh := testCreateMeshNetwork(t, []string{"alice", "bob"}, 50, 1000)
+	mesh := testCreateMeshNetwork(t, []string{"alice", "bob"}, 50, 1000, 0)
 	alice := mesh.GetByName("alice")
 	bob := mesh.GetByName("bob")
 
