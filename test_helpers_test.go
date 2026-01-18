@@ -474,10 +474,10 @@ func testAddCheckpointToLedger(ledger *SyncLedger, subject types.NaraName, attes
 
 // testMeshNetwork holds a mesh of interconnected test naras with HTTP servers.
 type testMeshNetwork struct {
-	Naras   []*LocalNara
-	Servers []*httptest.Server
-	Client  *http.Client
-	t       *testing.T
+	Naras    []*LocalNara
+	Servers  []*httptest.Server
+	Client   *http.Client
+	t        *testing.T
 	MqttPort int
 }
 
@@ -489,10 +489,10 @@ func testCreateMeshNetwork(t *testing.T, names []string, chattiness, ledgerCapac
 	count := len(names)
 
 	mesh := &testMeshNetwork{
-		Naras:   make([]*LocalNara, count),
-		Servers: make([]*httptest.Server, count),
-		Client:  &http.Client{Timeout: 5 * time.Second},
-		t:       t,
+		Naras:    make([]*LocalNara, count),
+		Servers:  make([]*httptest.Server, count),
+		Client:   &http.Client{Timeout: 5 * time.Second},
+		t:        t,
 		MqttPort: mqttPortNumber,
 	}
 
