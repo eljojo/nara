@@ -1,11 +1,14 @@
 package nara
 
 import (
+	"context"
 	"math/rand"
 	"sort"
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // coordinateMaintenance runs periodic pings and coordinate updates
@@ -47,7 +50,7 @@ func (network *Network) coordinateMaintenance() {
 
 // pingTarget holds info about a potential ping target
 type pingTarget struct {
-	name     string
+	name     types.NaraName
 	meshIP   string
 	priority float64 // higher = more important to ping
 }
@@ -58,7 +61,7 @@ type pingTarget struct {
 // 2. High-error naras (uncertain position) - priority based on error
 // 3. Stale measurements (haven't pinged recently) - priority based on staleness
 // 4. Random sampling for coverage
-func (network *Network) selectPingTarget() string {
+func (network *Network) selectPingTarget() types.NaraName {
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
 
@@ -121,7 +124,7 @@ func (network *Network) selectPingTarget() string {
 }
 
 // pingAndUpdateCoordinates pings a peer and updates our coordinates
-func (network *Network) pingAndUpdateCoordinates(targetName string, config VivaldiConfig) {
+func (network *Network) pingAndUpdateCoordinates(targetName types.NaraName, config VivaldiConfig) {
 	network.local.mu.Lock()
 	nara, exists := network.Neighbourhood[targetName]
 	network.local.mu.Unlock()
@@ -140,7 +143,9 @@ func (network *Network) pingAndUpdateCoordinates(targetName string, config Vival
 	}
 
 	// Ping the peer
-	rtt, err := network.tsnetMesh.Ping(meshIP, network.meName(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	rtt, err := network.meshClient.PingIP(ctx, meshIP)
 	if err != nil {
 		logrus.Infof("📍 Ping to %s failed: %v", targetName, err)
 		return
@@ -158,7 +163,8 @@ func (network *Network) pingAndUpdateCoordinates(targetName string, config Vival
 	network.local.Me.mu.Unlock()
 
 	// Update observation with RTT data
-	obs := network.local.getObservation(targetName)
+	naraName := types.NaraName(targetName)
+	obs := network.local.getObservation(naraName)
 	obs.LastPingRTT = rttMs
 	obs.LastPingTime = time.Now().Unix()
 
@@ -169,14 +175,14 @@ func (network *Network) pingAndUpdateCoordinates(targetName string, config Vival
 		obs.AvgPingRTT = 0.3*rttMs + 0.7*obs.AvgPingRTT
 	}
 
-	network.local.setObservation(targetName, obs)
+	network.local.setObservation(naraName, obs)
 
 	// Record to unified sync ledger for network-wide propagation
 	// Uses replace strategy: keeps last 5 pings per target
 	// Sign the event so others can verify it came from us
 	if network.local.SyncLedger != nil {
 		network.local.SyncLedger.AddSignedPingObservationWithReplace(
-			network.meName(), targetName, rttMs,
+			network.meName(), naraName, rttMs,
 			network.meName(), network.local.Keypair,
 		)
 	}
@@ -184,11 +190,11 @@ func (network *Network) pingAndUpdateCoordinates(targetName string, config Vival
 
 // getCoordinatesForPeer returns the coordinates for a peer by name
 // Used by ApplyProximityToClout
-func (network *Network) getCoordinatesForPeer(name string) *NetworkCoordinate {
+func (network *Network) getCoordinatesForPeer(name types.NaraName) *NetworkCoordinate {
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
 
-	nara, exists := network.Neighbourhood[name]
+	nara, exists := network.Neighbourhood[types.NaraName(name)]
 	if !exists {
 		return nil
 	}

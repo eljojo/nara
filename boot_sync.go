@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // backgroundSync performs lightweight periodic syncing to strengthen collective memory
@@ -49,7 +51,7 @@ func (network *Network) performBackgroundSync() {
 	}
 
 	// Prefer neighbors that advertise medium/hog memory profiles
-	eligible := make([]string, 0, len(online))
+	eligible := make([]types.NaraName, 0, len(online))
 	for _, name := range online {
 		if network.neighborSupportsBackgroundSync(name) {
 			eligible = append(eligible, name)
@@ -76,9 +78,11 @@ func (network *Network) performBackgroundSync() {
 	// Query each neighbor via mesh if available
 	for _, neighbor := range neighbors {
 		if network.tsnetMesh != nil {
-			ip := network.getMeshIPForNara(neighbor)
-			if ip != "" {
-				network.performBackgroundSyncViaMesh(neighbor, ip)
+			ip, naraID := network.getMeshInfoForNara(neighbor)
+			if ip != "" && naraID != "" {
+				// Register peer for mesh client lookups
+				network.meshClient.RegisterPeerIP(naraID, ip)
+				network.performBackgroundSyncViaMesh(neighbor, naraID)
 			} else {
 				logrus.Debugf("🔄 Background sync: neighbor %s not mesh-enabled, skipping", neighbor)
 			}
@@ -89,7 +93,7 @@ func (network *Network) performBackgroundSync() {
 	}
 }
 
-func (network *Network) neighborSupportsBackgroundSync(name string) bool {
+func (network *Network) neighborSupportsBackgroundSync(name types.NaraName) bool {
 	nara := network.getNara(name)
 	// Defensive: nara might not be found or might have been removed
 	if nara == nil || nara.Name == "" {
@@ -112,11 +116,11 @@ func (network *Network) neighborSupportsBackgroundSync(name string) bool {
 //
 // Boot recovery (bootRecoveryViaMesh) syncs ALL events without filtering.
 // This background sync maintains eventual consistency for recent events.
-func (network *Network) performBackgroundSyncViaMesh(neighbor, ip string) {
-	logrus.Infof("🔄 background sync: requesting events from %s (%s)", neighbor, ip)
+func (network *Network) performBackgroundSyncViaMesh(neighbor types.NaraName, naraID types.NaraID) {
+	logrus.Infof("🔄 background sync: requesting events from %s (%s)", neighbor, naraID)
 
 	// Fetch recent events from this neighbor using the new "recent" mode
-	events, err := network.meshClient.FetchSyncEvents(network.ctx, ip, SyncRequest{
+	events, err := network.meshClient.FetchSyncEvents(network.ctx, naraID, SyncRequest{
 		Mode:  "recent",
 		Limit: 100, // lightweight query
 	})

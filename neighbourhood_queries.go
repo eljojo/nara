@@ -1,23 +1,38 @@
 package nara
 
+import "github.com/eljojo/nara/types"
+
 // neighbourhood_queries.go
 // Extracted from network.go
 // Contains neighbourhood query methods
 
 // NeighbourhoodNames returns the names of all naras in the neighbourhood.
-func (network *Network) NeighbourhoodNames() []string {
-	var result []string
+func (network *Network) NeighbourhoodNames() []types.NaraName {
+	var result []types.NaraName
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
-	for _, nara := range network.Neighbourhood {
-		result = append(result, nara.Name)
+	for name := range network.Neighbourhood {
+		result = append(result, name)
 	}
 	return result
 }
 
+// getMeshInfoForNara retrieves the mesh IP and nara ID for a given nara name.
+func (network *Network) getMeshInfoForNara(name types.NaraName) (string, types.NaraID) {
+	network.local.mu.Lock()
+	defer network.local.mu.Unlock()
+
+	if nara, exists := network.Neighbourhood[name]; exists {
+		nara.mu.Lock()
+		defer nara.mu.Unlock()
+		return nara.Status.MeshIP, nara.Status.ID
+	}
+	return "", ""
+}
+
 // NeighbourhoodOnlineNames returns the names of all online naras in the neighbourhood.
-func (network *Network) NeighbourhoodOnlineNames() []string {
-	var result []string
+func (network *Network) NeighbourhoodOnlineNames() []types.NaraName {
+	var result []types.NaraName
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
 	for _, nara := range network.Neighbourhood {

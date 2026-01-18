@@ -4,18 +4,20 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/eljojo/nara/identity"
+	"github.com/eljojo/nara/types"
 	"github.com/sirupsen/logrus"
 )
 
 type ChauEvent struct {
-	From      string
-	PublicKey string // Base64-encoded Ed25519 public key
-	ID        string // Nara ID: deterministic hash of soul+name
-	Signature string // Base64-encoded signature of "chau:{From}:{PublicKey}:{ID}"
+	From      types.NaraName
+	PublicKey string       // Base64-encoded Ed25519 public key
+	ID        types.NaraID // Nara ID: deterministic hash of soul+name
+	Signature string       // Base64-encoded signature of "chau:{From}:{PublicKey}:{ID}"
 }
 
 // Sign signs the ChauEvent with the given keypair
-func (c *ChauEvent) Sign(kp NaraKeypair) {
+func (c *ChauEvent) Sign(kp identity.NaraKeypair) {
 	message := c.signatureMessage()
 	c.Signature = kp.SignBase64([]byte(message))
 }
@@ -25,21 +27,21 @@ func (c *ChauEvent) Verify() bool {
 	if c.PublicKey == "" || c.Signature == "" {
 		return false
 	}
-	pubKey, err := ParsePublicKey(c.PublicKey)
+	pubKey, err := identity.ParsePublicKey(c.PublicKey)
 	if err != nil {
 		return false
 	}
 
 	// Try new format first (with ID)
 	message := c.signatureMessage()
-	if VerifySignatureBase64(pubKey, []byte(message), c.Signature) {
+	if identity.VerifySignatureBase64(pubKey, []byte(message), c.Signature) {
 		return true
 	}
 
 	// Fall back to old format (without ID) for backwards compatibility
 	if c.ID != "" {
 		oldMessage := fmt.Sprintf("chau:%s:%s", c.From, c.PublicKey)
-		return VerifySignatureBase64(pubKey, []byte(oldMessage), c.Signature)
+		return identity.VerifySignatureBase64(pubKey, []byte(oldMessage), c.Signature)
 	}
 
 	return false
@@ -67,17 +69,17 @@ func (c *ChauEvent) IsValid() bool {
 }
 
 // GetActor implements Payload interface for ChauEvent
-func (c *ChauEvent) GetActor() string { return c.From }
+func (c *ChauEvent) GetActor() types.NaraName { return c.From }
 
 // GetTarget implements Payload interface for ChauEvent
-func (c *ChauEvent) GetTarget() string { return c.From }
+func (c *ChauEvent) GetTarget() types.NaraName { return c.From }
 
 // VerifySignature implements Payload using the embedded public key
 func (c *ChauEvent) VerifySignature(event *SyncEvent, lookup PublicKeyLookup) bool {
 	if c.PublicKey == "" {
 		return false
 	}
-	pubKey, err := ParsePublicKey(c.PublicKey)
+	pubKey, err := identity.ParsePublicKey(c.PublicKey)
 	if err != nil {
 		return false
 	}
@@ -103,7 +105,7 @@ func (c *ChauEvent) ToLogEvent() *LogEvent {
 	return &LogEvent{
 		Category: CategoryPresence,
 		Type:     "goodbye",
-		Actor:    c.From,
+		Actor:    c.From.String(),
 		Detail:   c.LogFormat(),
 		GroupFormat: func(actors string) string {
 			return fmt.Sprintf("💨 %s bounced", actors)
@@ -158,7 +160,7 @@ func (network *Network) processChauSyncEvents(events []SyncEvent) {
 // emitChauSyncEvent creates and adds a chau sync event to our ledger.
 // This allows graceful shutdown to propagate through gossip.
 func (network *Network) emitChauSyncEvent() {
-	publicKey := FormatPublicKey(network.local.Keypair.PublicKey)
+	publicKey := identity.FormatPublicKey(network.local.Keypair.PublicKey)
 	event := NewChauSyncEvent(network.meName(), publicKey, network.local.ID, network.local.Keypair)
 	network.local.SyncLedger.MergeEvents([]SyncEvent{event})
 	if network.local.Projections != nil {
@@ -195,7 +197,7 @@ func (network *Network) handleChauEvent(syncEvent SyncEvent) {
 		var pubKey []byte
 		if chau.PublicKey != "" {
 			var err error
-			pubKey, err = ParsePublicKey(chau.PublicKey)
+			pubKey, err = identity.ParsePublicKey(chau.PublicKey)
 			if err != nil {
 				logrus.Warnf("⚠️  Invalid public key in chau from %s: %v", chau.From, err)
 				return
@@ -223,11 +225,19 @@ func (network *Network) handleChauEvent(syncEvent SyncEvent) {
 
 	// Update the nara's public key and ID if provided
 	if present && chau.PublicKey != "" {
+		existingNara.mu.Lock()
 		existingNara.Status.PublicKey = chau.PublicKey
+		existingNara.mu.Unlock()
 	}
 	if present && chau.ID != "" {
+		existingNara.mu.Lock()
 		existingNara.Status.ID = chau.ID
 		existingNara.ID = chau.ID
+		existingNara.mu.Unlock()
+	}
+	// Register key in keyring (use chau.ID since it may have just been set)
+	if present && chau.PublicKey != "" && chau.ID != "" {
+		network.RegisterKey(chau.ID, chau.PublicKey)
 	}
 
 	// Add to ledger for gossip propagation

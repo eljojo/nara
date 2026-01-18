@@ -4,19 +4,25 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/eljojo/nara/identity"
+	"github.com/eljojo/nara/types"
 )
 
 // TestCheckpoint_VoteAsOfTimeMismatch verifies Issue #1 is fixed:
 // Votes should sign with proposal.AsOfTime, not time.Now().Unix()
 // This test intentionally creates a vote with wrong AsOfTime to show it would fail.
 func TestCheckpoint_VoteAsOfTimeMismatch(t *testing.T) {
-	// Setup: Create a proposal with a specific AsOfTime
-	proposerKeypair := generateTestKeypair()
-	voterKeypair := generateTestKeypair()
+	tc := NewTestCoordinator(t)
+	verifier := tc.AddNara("verifier", WithoutServer())
+	proposer := tc.AddNara("proposer", WithoutServer())
+	voter := tc.AddNara("voter", WithoutServer())
+	tc.Connect("verifier", "proposer")
+	tc.Connect("verifier", "voter")
 
-	proposerID := "proposer-id"
-	voterID := "voter-id"
-	subject := "proposer"
+	proposerID := proposer.ID
+	voterID := voter.ID
+	subject := proposer.Me.Name
 	proposalAsOfTime := time.Now().Unix() - 10 // 10 seconds ago
 
 	// Create proposal attestation (self-attestation)
@@ -33,7 +39,7 @@ func TestCheckpoint_VoteAsOfTimeMismatch(t *testing.T) {
 		AttesterID: proposerID,
 		AsOfTime:   proposalAsOfTime,
 	}
-	proposalAttestation.Signature = SignContent(&proposalAttestation, proposerKeypair)
+	proposalAttestation.Signature = identity.SignContent(&proposalAttestation, proposer.Keypair)
 
 	proposal := &CheckpointProposal{
 		Attestation: proposalAttestation,
@@ -51,11 +57,11 @@ func TestCheckpoint_VoteAsOfTimeMismatch(t *testing.T) {
 			TotalUptime: 50000,
 			StartTime:   1624066568,
 		},
-		Attester:   "voter",
+		Attester:   voter.Me.Name,
 		AttesterID: voterID,
 		AsOfTime:   voteAsOfTime, // BUG: Different timestamp!
 	}
-	voteAttestation.Signature = SignContent(&voteAttestation, voterKeypair)
+	voteAttestation.Signature = identity.SignContent(&voteAttestation, voter.Keypair)
 
 	vote := &CheckpointVote{
 		Attestation: voteAttestation,
@@ -74,34 +80,14 @@ func TestCheckpoint_VoteAsOfTimeMismatch(t *testing.T) {
 			TotalUptime: 50000,
 			StartTime:   1624066568,
 		},
-		VoterIDs:   []string{proposerID, voterID},
+		VoterIDs:   []types.NaraID{proposerID, voterID},
 		Signatures: []string{proposal.Signature, vote.Signature},
 		Round:      1,
 	}
 
 	// Setup network for verification
 	ledger := NewSyncLedger(1000)
-	local := testLocalNara(t, "verifier")
-	network := &Network{
-		Neighbourhood: make(map[string]*Nara),
-		local:         local,
-	}
-	network.Neighbourhood["proposer"] = &Nara{
-		Name: "proposer",
-		Status: NaraStatus{
-			ID:        proposerID,
-			PublicKey: pubKeyToBase64(proposerKeypair.PublicKey),
-		},
-	}
-	network.Neighbourhood["voter"] = &Nara{
-		Name: "voter",
-		Status: NaraStatus{
-			ID:        voterID,
-			PublicKey: pubKeyToBase64(voterKeypair.PublicKey),
-		},
-	}
-
-	service := NewCheckpointService(network, ledger, local)
+	service := NewCheckpointService(verifier.Network, ledger, verifier)
 
 	// Try to verify signatures
 	result := service.verifyCheckpointSignatures(checkpoint)
@@ -133,13 +119,16 @@ func TestCheckpoint_VoteAsOfTimeMismatch(t *testing.T) {
 // TestCheckpoint_SignatureFormatMismatch verifies Issue #2 is fixed:
 // Both signing and verification now use "attestation:..." format
 func TestCheckpoint_SignatureFormatMismatch(t *testing.T) {
-	// Setup
-	proposerKeypair := generateTestKeypair()
-	voterKeypair := generateTestKeypair()
+	tc := NewTestCoordinator(t)
+	verifier := tc.AddNara("verifier", WithoutServer())
+	proposer := tc.AddNara("proposer", WithoutServer())
+	voter := tc.AddNara("voter", WithoutServer())
+	tc.Connect("verifier", "proposer")
+	tc.Connect("verifier", "voter")
 
-	proposerID := "proposer-id"
-	voterID := "voter-id"
-	subject := "proposer"
+	proposerID := proposer.ID
+	voterID := voter.ID
+	subject := proposer.Me.Name
 	asOfTime := time.Now().Unix()
 
 	// Create proposal attestation - signs with Attestation.SignableContent()
@@ -155,7 +144,7 @@ func TestCheckpoint_SignatureFormatMismatch(t *testing.T) {
 		AttesterID: proposerID,
 		AsOfTime:   asOfTime,
 	}
-	proposalAttestation.Signature = SignContent(&proposalAttestation, proposerKeypair)
+	proposalAttestation.Signature = identity.SignContent(&proposalAttestation, proposer.Keypair)
 
 	proposal := &CheckpointProposal{
 		Attestation: proposalAttestation,
@@ -172,11 +161,11 @@ func TestCheckpoint_SignatureFormatMismatch(t *testing.T) {
 			TotalUptime: 50000,
 			StartTime:   1624066568,
 		},
-		Attester:   "voter",
+		Attester:   voter.Me.Name,
 		AttesterID: voterID,
 		AsOfTime:   asOfTime, // Same as proposal for now
 	}
-	voteAttestation.Signature = SignContent(&voteAttestation, voterKeypair)
+	voteAttestation.Signature = identity.SignContent(&voteAttestation, voter.Keypair)
 
 	vote := &CheckpointVote{
 		Attestation: voteAttestation,
@@ -195,34 +184,14 @@ func TestCheckpoint_SignatureFormatMismatch(t *testing.T) {
 			TotalUptime: 50000,
 			StartTime:   1624066568,
 		},
-		VoterIDs:   []string{proposerID, voterID},
+		VoterIDs:   []types.NaraID{proposerID, voterID},
 		Signatures: []string{proposal.Signature, vote.Signature},
 		Round:      1,
 	}
 
 	// Setup network
 	ledger := NewSyncLedger(1000)
-	local := testLocalNara(t, "verifier")
-	network := &Network{
-		Neighbourhood: make(map[string]*Nara),
-		local:         local,
-	}
-	network.Neighbourhood["proposer"] = &Nara{
-		Name: "proposer",
-		Status: NaraStatus{
-			ID:        proposerID,
-			PublicKey: pubKeyToBase64(proposerKeypair.PublicKey),
-		},
-	}
-	network.Neighbourhood["voter"] = &Nara{
-		Name: "voter",
-		Status: NaraStatus{
-			ID:        voterID,
-			PublicKey: pubKeyToBase64(voterKeypair.PublicKey),
-		},
-	}
-
-	service := NewCheckpointService(network, ledger, local)
+	service := NewCheckpointService(verifier.Network, ledger, verifier)
 
 	// Log what was signed vs what will be verified
 	t.Log("SIGNED WITH:")

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/sirupsen/logrus"
 )
 
@@ -159,7 +160,7 @@ func TestBootTimeChauDoesNotClobberOnlineStatus(t *testing.T) {
 
 	// Observer knows about neighbor (has their public key)
 	neighborNara := NewNara("raccoon")
-	neighborNara.Status.PublicKey = FormatPublicKey(neighbor.Keypair.PublicKey)
+	neighborNara.Status.PublicKey = identity.FormatPublicKey(neighbor.Keypair.PublicKey)
 	network.importNara(neighborNara)
 
 	// Simulate: neighbor's hey_there arrived via live MQTT and marked them ONLINE
@@ -186,7 +187,7 @@ func TestBootTimeChauDoesNotClobberOnlineStatus(t *testing.T) {
 		Service:   ServiceChau,
 		Chau: &ChauEvent{
 			From:      "raccoon",
-			PublicKey: FormatPublicKey(neighbor.Keypair.PublicKey),
+			PublicKey: identity.FormatPublicKey(neighbor.Keypair.PublicKey),
 			ID:        neighbor.ID,
 		},
 	}

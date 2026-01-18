@@ -1,6 +1,7 @@
 package nara
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -8,27 +9,29 @@ import (
 	"sort"
 	"time"
 
+	"github.com/eljojo/nara/identity"
+	"github.com/eljojo/nara/types"
 	"github.com/sirupsen/logrus"
 )
 
 // WorldHop represents a single hop in the world journey
 type WorldHop struct {
-	Nara      string `json:"nara"`      // Name of the nara
-	Timestamp int64  `json:"timestamp"` // Unix timestamp when received
-	Signature string `json:"signature"` // Base64 Ed25519 signature
-	Stamp     string `json:"stamp"`     // Emoji stamp (token of appreciation)
+	Nara      types.NaraName `json:"nara"`      // Name of the nara
+	Timestamp int64          `json:"timestamp"` // Unix timestamp when received
+	Signature string         `json:"signature"` // Base64 Ed25519 signature
+	Stamp     string         `json:"stamp"`     // Emoji stamp (token of appreciation)
 }
 
 // WorldMessage is a message that travels around the world
 type WorldMessage struct {
-	ID              string     `json:"id"`         // Unique journey identifier
-	OriginalMessage string     `json:"message"`    // The message being carried
-	Originator      string     `json:"originator"` // Who started the journey
-	Hops            []WorldHop `json:"hops"`       // Chain of signatures and stamps
+	ID              string         `json:"id"`         // Unique journey identifier
+	OriginalMessage string         `json:"message"`    // The message being carried
+	Originator      types.NaraName `json:"originator"` // Who started the journey
+	Hops            []WorldHop     `json:"hops"`       // Chain of signatures and stamps
 }
 
 // NewWorldMessage creates a new world message ready to begin its journey
-func NewWorldMessage(message string, originator string) *WorldMessage {
+func NewWorldMessage(message string, originator types.NaraName) *WorldMessage {
 	// Generate unique ID from message content and timestamp
 	idData := fmt.Sprintf("%s:%s:%d", originator, message, time.Now().UnixNano())
 	hash := sha256.Sum256([]byte(idData))
@@ -42,7 +45,7 @@ func NewWorldMessage(message string, originator string) *WorldMessage {
 }
 
 // AddHop adds a new hop to the journey, signing the current state
-func (wm *WorldMessage) AddHop(nara string, keypair NaraKeypair, stamp string) error {
+func (wm *WorldMessage) AddHop(nara types.NaraName, keypair identity.NaraKeypair, stamp string) error {
 	hop := WorldHop{
 		Nara:      nara,
 		Timestamp: time.Now().Unix(),
@@ -55,14 +58,14 @@ func (wm *WorldMessage) AddHop(nara string, keypair NaraKeypair, stamp string) e
 }
 
 // dataToSign creates the canonical data to sign for a hop
-func (wm *WorldMessage) dataToSign(nara string) []byte {
+func (wm *WorldMessage) dataToSign(nara types.NaraName) []byte {
 	// Include: ID + message + originator + all previous hops + this nara
 	data := struct {
-		ID              string     `json:"id"`
-		OriginalMessage string     `json:"message"`
-		Originator      string     `json:"originator"`
-		PreviousHops    []WorldHop `json:"previous_hops"`
-		CurrentNara     string     `json:"current_nara"`
+		ID              string         `json:"id"`
+		OriginalMessage string         `json:"message"`
+		Originator      types.NaraName `json:"originator"`
+		PreviousHops    []WorldHop     `json:"previous_hops"`
+		CurrentNara     types.NaraName `json:"current_nara"`
 	}{
 		ID:              wm.ID,
 		OriginalMessage: wm.OriginalMessage,
@@ -81,11 +84,11 @@ func (wm *WorldMessage) dataToSignForHop(hopIndex int) []byte {
 	hop := wm.Hops[hopIndex]
 
 	data := struct {
-		ID              string     `json:"id"`
-		OriginalMessage string     `json:"message"`
-		Originator      string     `json:"originator"`
-		PreviousHops    []WorldHop `json:"previous_hops"`
-		CurrentNara     string     `json:"current_nara"`
+		ID              string         `json:"id"`
+		OriginalMessage string         `json:"message"`
+		Originator      types.NaraName `json:"originator"`
+		PreviousHops    []WorldHop     `json:"previous_hops"`
+		CurrentNara     types.NaraName `json:"current_nara"`
 	}{
 		ID:              wm.ID,
 		OriginalMessage: wm.OriginalMessage,
@@ -100,7 +103,7 @@ func (wm *WorldMessage) dataToSignForHop(hopIndex int) []byte {
 }
 
 // HasVisited returns true if the given nara has already added a hop
-func (wm *WorldMessage) HasVisited(nara string) bool {
+func (wm *WorldMessage) HasVisited(nara types.NaraName) bool {
 	for _, hop := range wm.Hops {
 		if hop.Nara == nara {
 			return true
@@ -119,7 +122,7 @@ func (wm *WorldMessage) IsComplete() bool {
 }
 
 // VerifyChain verifies all signatures in the hop chain
-func (wm *WorldMessage) VerifyChain(getPublicKey func(string) []byte) error {
+func (wm *WorldMessage) VerifyChain(getPublicKey func(types.NaraName) []byte) error {
 	for i, hop := range wm.Hops {
 		pubKey := getPublicKey(hop.Nara)
 		if pubKey == nil {
@@ -132,7 +135,7 @@ func (wm *WorldMessage) VerifyChain(getPublicKey func(string) []byte) error {
 		}
 
 		dataToVerify := wm.dataToSignForHop(i)
-		if !VerifySignature(pubKey, dataToVerify, signature) {
+		if !identity.VerifySignature(pubKey, dataToVerify, signature) {
 			return fmt.Errorf("invalid signature from %s at hop %d", hop.Nara, i)
 		}
 	}
@@ -143,10 +146,10 @@ func (wm *WorldMessage) VerifyChain(getPublicKey func(string) []byte) error {
 // ChooseNextNara selects the next nara based on clout, excluding already visited
 // Falls back to arbitrary ordering if no clout data is available
 // Routing rule: visit all non-originators first, then return to originator
-func ChooseNextNara(currentNara string, wm *WorldMessage, myClout map[string]float64, onlineNaras []string) string {
+func ChooseNextNara(currentNara types.NaraName, wm *WorldMessage, myClout map[types.NaraName]float64, onlineNaras []types.NaraName) types.NaraName {
 	// Build list of candidates (online, not visited, not self, not originator)
 	type candidate struct {
-		name  string
+		name  types.NaraName
 		score float64
 	}
 	var candidates []candidate
@@ -191,8 +194,8 @@ func ChooseNextNara(currentNara string, wm *WorldMessage, myClout map[string]flo
 }
 
 // CalculateWorldRewards calculates clout rewards for a completed journey
-func CalculateWorldRewards(wm *WorldMessage) map[string]float64 {
-	rewards := make(map[string]float64)
+func CalculateWorldRewards(wm *WorldMessage) map[types.NaraName]float64 {
+	rewards := make(map[types.NaraName]float64)
 
 	if !wm.IsComplete() {
 		return rewards
@@ -214,11 +217,11 @@ func CalculateWorldRewards(wm *WorldMessage) map[string]float64 {
 // WorldJourneyHandler manages world journeys for a nara
 type WorldJourneyHandler struct {
 	localNara      *LocalNara
-	mesh           MeshTransport
-	getMyClout     func() map[string]float64 // This nara's clout scores for others
-	getOnlineNaras func() []string
-	getPublicKey   func(string) []byte
-	getMeshIP      func(string) string // Resolve nara name to mesh IP
+	meshClient     *MeshClient                       // Mesh client for sending world messages
+	getMyClout     func() map[types.NaraName]float64 // This nara's clout scores for others
+	getOnlineNaras func() []types.NaraName
+	getPublicKey   func(types.NaraName) []byte
+	resolveNaraID  func(types.NaraName) types.NaraID // Resolve nara name to ID
 	onComplete     func(*WorldMessage)
 	onJourneyPass  func(*WorldMessage) // Called when a journey passes through (before forwarding)
 	stamps         []string            // Available stamps for this nara
@@ -227,21 +230,21 @@ type WorldJourneyHandler struct {
 // NewWorldJourneyHandler creates a new journey handler
 func NewWorldJourneyHandler(
 	localNara *LocalNara,
-	mesh MeshTransport,
-	getMyClout func() map[string]float64,
-	getOnlineNaras func() []string,
-	getPublicKey func(string) []byte,
-	getMeshIP func(string) string,
+	meshClient *MeshClient,
+	getMyClout func() map[types.NaraName]float64,
+	getOnlineNaras func() []types.NaraName,
+	getPublicKey func(types.NaraName) []byte,
+	resolveNaraID func(types.NaraName) types.NaraID,
 	onComplete func(*WorldMessage),
 	onJourneyPass func(*WorldMessage),
 ) *WorldJourneyHandler {
 	return &WorldJourneyHandler{
 		localNara:      localNara,
-		mesh:           mesh,
+		meshClient:     meshClient,
 		getMyClout:     getMyClout,
 		getOnlineNaras: getOnlineNaras,
 		getPublicKey:   getPublicKey,
-		getMeshIP:      getMeshIP,
+		resolveNaraID:  resolveNaraID,
 		onComplete:     onComplete,
 		onJourneyPass:  onJourneyPass,
 		stamps:         defaultStamps(),
@@ -260,16 +263,19 @@ func (h *WorldJourneyHandler) pickStamp(wm *WorldMessage) string {
 	return h.stamps[idx]
 }
 
-// sendToNara sends a message to a nara, resolving name to IP if available
-func (h *WorldJourneyHandler) sendToNara(name string, wm *WorldMessage) error {
-	target := name
-	if h.getMeshIP != nil {
-		if ip := h.getMeshIP(name); ip != "" {
-			target = ip
-			logrus.Debugf("🌍 Resolved %s -> %s", name, ip)
-		}
+// sendToNara sends a message to a nara via the mesh client
+func (h *WorldJourneyHandler) sendToNara(name types.NaraName, wm *WorldMessage) error {
+	// Resolve nara name to nara ID
+	naraID := h.resolveNaraID(name)
+	if naraID == "" {
+		return fmt.Errorf("could not resolve nara ID for %s", name)
 	}
-	return h.mesh.Send(target, wm)
+
+	// Send via mesh client with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	return h.meshClient.RelayWorldMessage(ctx, naraID, wm)
 }
 
 // StartJourney begins a new world journey
@@ -334,7 +340,7 @@ func (h *WorldJourneyHandler) HandleIncoming(wm *WorldMessage) error {
 }
 
 // chooseNext selects the next nara based on clout
-func (h *WorldJourneyHandler) chooseNext(wm *WorldMessage) string {
+func (h *WorldJourneyHandler) chooseNext(wm *WorldMessage) types.NaraName {
 	myClout := h.getMyClout()
 	online := h.getOnlineNaras()
 	logrus.Debugf("🌍 World journey: %d online naras (mesh-enabled): %v", len(online), online)
@@ -343,25 +349,4 @@ func (h *WorldJourneyHandler) chooseNext(wm *WorldMessage) string {
 		logrus.Debugf("🌍 World journey: no next nara available (self=%s, hops=%d)", h.localNara.Me.Name, len(wm.Hops))
 	}
 	return next
-}
-
-// Listen starts listening for incoming world messages
-func (h *WorldJourneyHandler) Listen() {
-	done := h.localNara.Network.ctx.Done()
-	go func() {
-		for {
-			select {
-			case msg, ok := <-h.mesh.Receive():
-				if !ok {
-					return
-				}
-				if err := h.HandleIncoming(msg); err != nil {
-					// Log error but continue
-					logrus.Errorf("world journey error: %v", err)
-				}
-			case <-done:
-				return
-			}
-		}
-	}()
 }

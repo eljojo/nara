@@ -4,14 +4,16 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/eljojo/nara/types"
 )
 
 // Test consensus with single observer (trivial case)
 func TestConsensusEvents_SingleObserver(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	projection := NewOpinionConsensusProjection(ledger)
-	observer := "nara-a"
-	subject := "nara-target"
+	observer := types.NaraName("nara-a")
+	subject := types.NaraName("nara-target")
 	expectedStartTime := int64(1234567890)
 	expectedRestarts := int64(42)
 
@@ -38,12 +40,12 @@ func TestConsensusEvents_SingleObserver(t *testing.T) {
 func TestConsensusEvents_Agreement(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	projection := NewOpinionConsensusProjection(ledger)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 	agreedStartTime := int64(1234567890)
 	agreedRestarts := int64(100)
 
 	// Five observers all report the same values
-	observers := []string{"nara-a", "nara-b", "nara-c", "nara-d", "nara-e"}
+	observers := []types.NaraName{"nara-a", "nara-b", "nara-c", "nara-d", "nara-e"}
 	for _, observer := range observers {
 		event := NewRestartObservationEvent(observer, subject, agreedStartTime, agreedRestarts)
 		ledger.AddEvent(event)
@@ -68,18 +70,18 @@ func TestConsensusEvents_Agreement(t *testing.T) {
 func TestConsensusEvents_Disagreement(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	projection := NewOpinionConsensusProjection(ledger)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 
 	// 3 observers report StartTime=1000, Restarts=10
 	for i := 0; i < 3; i++ {
-		observer := "observer-" + string(rune('a'+i))
+		observer := types.NaraName("observer-" + string(rune('a'+i)))
 		event := NewRestartObservationEvent(observer, subject, 1000, 10)
 		ledger.AddEvent(event)
 	}
 
 	// 2 observers report StartTime=1000, Restarts=11 (same start, higher restarts)
 	for i := 0; i < 2; i++ {
-		observer := "observer-" + string(rune('d'+i))
+		observer := types.NaraName("observer-" + string(rune('d'+i)))
 		event := NewRestartObservationEvent(observer, subject, 1000, 11)
 		ledger.AddEvent(event)
 	}
@@ -107,7 +109,7 @@ func TestConsensusEvents_Disagreement(t *testing.T) {
 func TestConsensusEvents_UptimeWeighting(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	projection := NewOpinionConsensusProjection(ledger)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 
 	// Two observers with LOW uptime report StartTime=1000
 	// Total uptime for cluster 1000: 100 + 100 = 200
@@ -144,7 +146,7 @@ func TestConsensusEvents_UptimeWeighting(t *testing.T) {
 func TestConsensusEvents_UptimeWeighting_SingleObserverClusters(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	projection := NewOpinionConsensusProjection(ledger)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 
 	// Three observers each report different times (all in separate clusters)
 	// The elder with highest uptime should win
@@ -175,11 +177,11 @@ func TestConsensusEvents_UptimeWeighting_SingleObserverClusters(t *testing.T) {
 func TestConsensusEvents_ToleranceClustering(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	projection := NewOpinionConsensusProjection(ledger)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 	baseTime := int64(1234567890)
 
 	// Three observers report times within ±60s (should cluster together)
-	observers := []string{"nara-a", "nara-b", "nara-c"}
+	observers := []types.NaraName{"nara-a", "nara-b", "nara-c"}
 	offsets := []int64{-30, 0, 40} // Within tolerance
 
 	for i, observer := range observers {
@@ -207,12 +209,12 @@ func TestConsensusEvents_ToleranceClustering(t *testing.T) {
 func TestConsensusEvents_FirstSeen(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	projection := NewOpinionConsensusProjection(ledger)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 	firstSeenTime := int64(1234567890)
 
 	// Three observers report first-seen at similar times
 	for i := 0; i < 3; i++ {
-		observer := "observer-" + string(rune('a'+i))
+		observer := types.NaraName("observer-" + string(rune('a'+i)))
 		event := NewFirstSeenObservationEvent(observer, subject, firstSeenTime+int64(i))
 		ledger.AddEvent(event)
 	}
@@ -237,13 +239,13 @@ func TestConsensusEvents_FirstSeen(t *testing.T) {
 func TestConsensusEvents_Backfill(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	projection := NewOpinionConsensusProjection(ledger)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 	backfillStartTime := int64(1624066568) // Long-running nara
 	backfillRestarts := int64(1137)
 
 	// Three observers backfill historical data
 	for i := 0; i < 3; i++ {
-		observer := "observer-" + string(rune('a'+i))
+		observer := types.NaraName("observer-" + string(rune('a'+i)))
 		event := NewBackfillObservationEvent(observer, subject, backfillStartTime, backfillRestarts, time.Now().Unix())
 		ledger.AddEvent(event)
 	}
@@ -267,13 +269,13 @@ func TestConsensusEvents_Backfill(t *testing.T) {
 func TestConsensusEvents_MixedBackfillAndRealtime(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	projection := NewOpinionConsensusProjection(ledger)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 	historicalStartTime := int64(1624066568)
 	historicalRestarts := int64(1137)
 
 	// Two observers backfill historical data
 	for i := 0; i < 2; i++ {
-		observer := "backfill-" + string(rune('a'+i))
+		observer := types.NaraName("backfill-" + string(rune('a'+i)))
 		event := NewBackfillObservationEvent(observer, subject, historicalStartTime, historicalRestarts, time.Now().Unix())
 		ledger.AddEvent(event)
 		// Add tiny delay to ensure different timestamps (avoids ID collision in tight test loop)
@@ -283,7 +285,7 @@ func TestConsensusEvents_MixedBackfillAndRealtime(t *testing.T) {
 	// Three observers report newer restart count in real-time
 	newRestarts := int64(1140)
 	for i := 0; i < 3; i++ {
-		observer := "realtime-" + string(rune('a'+i))
+		observer := types.NaraName("realtime-" + string(rune('a'+i)))
 		event := NewRestartObservationEvent(observer, subject, historicalStartTime, newRestarts)
 		ledger.AddEvent(event)
 	}
@@ -304,7 +306,7 @@ func TestConsensusEvents_MixedBackfillAndRealtime(t *testing.T) {
 func TestConsensusEvents_NoEvents(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	projection := NewOpinionConsensusProjection(ledger)
-	subject := "nara-unknown"
+	subject := types.NaraName("nara-unknown")
 
 	// No events about this subject
 	if err := projection.RunToEnd(context.Background()); err != nil {
@@ -325,7 +327,7 @@ func TestConsensusEvents_NoEvents(t *testing.T) {
 // Test consensus respects critical importance
 func TestConsensusEvents_ImportanceAwareness(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 
 	// Critical events (restart, first-seen) should always participate in consensus
 	criticalEvent := NewRestartObservationEvent("observer-a", subject, 1000, 10)
@@ -352,13 +354,13 @@ func TestConsensusEvents_ImportanceAwareness(t *testing.T) {
 func TestConsensusEvents_RestartProgression(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	projection := NewOpinionConsensusProjection(ledger)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 	startTime := int64(1234567890)
 
 	// Observer reports restarts: 5, 7, 10 (progression over time)
 	restartCounts := []int64{5, 7, 10}
 	for i, count := range restartCounts {
-		observer := "observer-a"
+		observer := types.NaraName("observer-a")
 		event := NewRestartObservationEvent(observer, subject, startTime, count)
 		time.Sleep(time.Duration(i+1) * time.Millisecond) // Ensure ordering
 		ledger.AddEvent(event)
@@ -381,11 +383,11 @@ func TestConsensusEvents_Determinism(t *testing.T) {
 	ledger2 := NewSyncLedger(1000)
 	projection1 := NewOpinionConsensusProjection(ledger1)
 	projection2 := NewOpinionConsensusProjection(ledger2)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 
 	// Add same events to both ledgers
 	events := []struct {
-		observer   string
+		observer   types.NaraName
 		startTime  int64
 		restartNum int64
 	}{
@@ -420,7 +422,7 @@ func TestConsensusEvents_PersonalityFiltered(t *testing.T) {
 	chillPersonality := NaraPersonality{Chill: 90, Sociability: 50, Agreeableness: 50}
 	ledger := NewSyncLedger(1000)
 	projection := NewOpinionConsensusProjection(ledger)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 
 	// Add critical event (should NOT be filtered)
 	criticalEvent := NewRestartObservationEvent("observer-a", subject, 1000, 10)
@@ -449,13 +451,13 @@ func TestConsensusEvents_PersonalityFiltered(t *testing.T) {
 func TestConsensusEvents_LastRestart(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	projection := NewOpinionConsensusProjection(ledger)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 	startTime := int64(1234567890)
 	lastRestartTime := time.Now().Unix()
 
 	// Observers report restart with LastRestart timestamp
 	for i := 0; i < 3; i++ {
-		observer := "observer-" + string(rune('a'+i))
+		observer := types.NaraName("observer-" + string(rune('a'+i)))
 		event := NewRestartObservationEvent(observer, subject, startTime, 10)
 		// In implementation, LastRestart would be part of the event
 		ledger.AddEvent(event)
@@ -498,7 +500,7 @@ func TestConsensusEvents_VsNewspaperAccuracy(t *testing.T) {
 func TestConsensusEvents_ChangeOfMind(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	projection := NewOpinionConsensusProjection(ledger)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 
 	// Observer-a initially reports StartTime=1000
 	event1 := NewRestartObservationEvent("observer-a", subject, 1000, 5)
@@ -545,7 +547,7 @@ func TestConsensusEvents_ChangeOfMind(t *testing.T) {
 func TestConsensusEvents_ChangeOfMind_two(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	projection := NewOpinionConsensusProjection(ledger)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 
 	// Observer-a initially reports StartTime=1000
 	event1 := NewRestartObservationEvent("observer-a", subject, 1000, 5)
@@ -592,7 +594,7 @@ func TestConsensusEvents_ChangeOfMind_two(t *testing.T) {
 func TestConsensusEvents_SparseObservations(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	projection := NewOpinionConsensusProjection(ledger)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 
 	// Single first-seen event
 	event := NewFirstSeenObservationEvent("observer-a", subject, 1000)
@@ -614,7 +616,7 @@ func TestConsensusEvents_SparseObservations(t *testing.T) {
 func TestDeriveOpinionWithValidation_CheckpointComparison(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	projection := NewOpinionConsensusProjection(ledger)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 	attester := testLocalNara(t, "attester")
 
 	// Add observation events
@@ -659,7 +661,7 @@ func TestDeriveOpinionWithValidation_CheckpointComparison(t *testing.T) {
 func TestDeriveOpinionFromCheckpoint_NoCheckpoint(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	projection := NewOpinionConsensusProjection(ledger)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 
 	// Only add observation events, no checkpoint
 	obs1 := NewRestartObservationEvent("observer-a", subject, 1000, 5)
@@ -684,7 +686,7 @@ func TestDeriveOpinionFromCheckpoint_NoCheckpoint(t *testing.T) {
 func TestDeriveOpinionFromCheckpoint_WithPostCheckpointEvents(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	projection := NewOpinionConsensusProjection(ledger)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 	attester := testLocalNara(t, "attester")
 
 	// Use times after cutoff to avoid filtering
@@ -748,7 +750,7 @@ func TestDeriveOpinionFromCheckpoint_WithPostCheckpointEvents(t *testing.T) {
 func TestDeriveOpinionFromCheckpoint_WithOfflinePeriods(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 	projection := NewOpinionConsensusProjection(ledger)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 	attester := testLocalNara(t, "attester")
 
 	// Use times after cutoff to avoid filtering

@@ -2,6 +2,8 @@
 
 This file provides guidance for AI agents working with code in this repository.
 
+Make sure to follow the "Test Discipline" detailed in the Testing section below.
+
 ---
 
 ## What is Nara?
@@ -59,6 +61,34 @@ Code is organized by **domain prefix** in a flat directory structure. All Go fil
 | `projection_` | Derived state | `projections.go` |
 | `flair_` | Personality flair | `flair.go` |
 | `memory_` | Memory management | `memory.go` |
+| `runtime/` | Runtime system (NEW) | `runtime.go`, `message.go`, `behavior.go`, `pipeline.go`, `interfaces.go`, `mock_runtime.go` |
+| `services/` | Runtime-based services | `services/stash/` |
+| `utilities/` | Service utilities | `utilities/encryptor.go`, `utilities/correlator.go`, `utilities/id.go` |
+| `messages/` | Message payloads | `messages/stash.go` |
+| `runtime_*.go` | Runtime integration | `runtime_integration.go`, `runtime_adapters.go` |
+
+### Runtime Architecture
+
+**New in 2026:** Nara is being restructured into a runtime with pluggable services. The stash service has been fully migrated to this new architecture.
+
+**Key concepts:**
+- **Runtime**: The OS that runs services, manages message pipelines, and provides primitives
+- **Services**: Programs that run on the runtime (like stash, social, checkpoint)
+- **Messages**: Universal primitive for all communication (events, requests, internal messages)
+- **Behaviors**: Declarative configuration for how each message kind is handled
+- **Pipelines**: Composable chains of stages (ID → Sign → Store → Transport)
+- **Utilities**: Shared helpers like Encryptor, Correlator, ID generation
+
+**What's implemented:**
+- ✅ Runtime foundation (`runtime/`)
+- ✅ Stash service migrated (`services/stash/`)
+- ✅ Adapters to bridge old Network to new runtime
+- ✅ Message system with ID/ContentKey/Version
+- ✅ Behavior registry and pattern templates
+- ✅ Pipeline system with explicit stage results
+
+**Read more:** `DESIGN_NARA_RUNTIME.md` for complete design and implementation status
+
 
 ### Frontend (Preact Web App)
 
@@ -243,10 +273,23 @@ go test -v -run Checkpoint -short -timeout 2m
 
 **The test suite is expensive.** Integration tests start MQTT brokers and wait for consensus (3-10s per test). Full suite takes 2-3 minutes.
 
-**Best practice:**
-- **During development:** Run ONLY the specific test (`-run TestSpecificName`)
-- **After a group of changes:** Run domain tests (`-run Checkpoint`)
-- **Before finishing:** Run full suite once (`/usr/bin/make all`)
+**ALWAYS prefer targeted tests. Full suite is a last resort.**
+
+```bash
+# PREFERRED: Run specific test (fast, <1s)
+go test -v -run TestSpecificName -timeout 30s
+
+# GOOD: Run domain tests after changes to that domain
+go test -v -run Checkpoint -short -timeout 1m
+
+# LAST RESORT: Full suite (only before finishing all work)
+/usr/bin/make all
+```
+
+**Test escalation strategy:**
+1. **First:** Run only the specific test you wrote or changed
+2. **Then:** Run related domain tests (`-run Checkpoint`, `-run Stash`, etc.)
+3. **Finally:** Run full suite once at the very end, before handing off to user
 
 ### Red → Green → Refactor
 
@@ -312,6 +355,8 @@ testIdentity(name)                      // Create valid identity result
 startTestNaras(t, port, names, ensureDiscovery)  // Start multiple MQTT naras
 ```
 
+**For tests needing Network with keyring:** Use `ln := testNara(t, "name")` then `ln.Network` - this gives you a properly initialized Network with keyring for signature verification. Don't create `&Network{}` directly.
+
 ### TestMain Setup
 
 Tests automatically configure:
@@ -355,6 +400,22 @@ When the user reports something is broken: **STOP. Do not immediately edit code.
 - **NEVER perform git write operations** (git add, git commit, git push) - the user handles version control
 
 **After ANY fix:** Run tests and verify with the user before making additional changes.
+
+### Understand Before Fixing
+
+**Don't fix what you don't understand.**
+
+Before implementing any fix, step back and understand the bigger picture:
+- How is this supposed to work?
+- Where does this value/behavior come from in the system?
+- What's the source of truth?
+
+**Red flag:** If you find yourself hardcoding a value to make output look correct, STOP. That's a sign you don't understand the system. The value exists somewhere - find it.
+
+**Bad:** "The UI should show 3, so I'll write `target_count = 3`"
+**Good:** "The UI should show the target count. Where is that defined? Let me search... found `s.targetConfidants`. I'll expose that."
+
+When you're rushing to make something "just work", you're probably missing context. Slow down, search the codebase, understand the design.
 
 ---
 

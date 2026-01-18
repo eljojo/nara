@@ -7,16 +7,18 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/eljojo/nara/identity"
+	"github.com/eljojo/nara/types"
 	"github.com/sirupsen/logrus"
 )
 
 // Zine is a batch of recent events passed hand-to-hand between naras
 // Like underground zines at punk shows, these spread organically through mesh network
 type Zine struct {
-	From      string      `json:"from"`       // Publisher nara
-	CreatedAt int64       `json:"created_at"` // Unix timestamp
-	Events    []SyncEvent `json:"events"`     // Recent events (last ~5 minutes)
-	Signature string      `json:"signature"`  // Cryptographic signature for authenticity
+	From      types.NaraName `json:"from"`       // Publisher nara
+	CreatedAt int64          `json:"created_at"` // Unix timestamp
+	Events    []SyncEvent    `json:"events"`     // Recent events (last ~5 minutes)
+	Signature string         `json:"signature"`  // Cryptographic signature for authenticity
 }
 
 // createZine creates a zine (batch of recent events) to share with neighbors
@@ -59,7 +61,7 @@ func (network *Network) createZine() *Zine {
 }
 
 // SignZine computes the signature for a zine
-func SignZine(z *Zine, keypair NaraKeypair) (string, error) {
+func SignZine(z *Zine, keypair identity.NaraKeypair) (string, error) {
 	if len(keypair.PrivateKey) == 0 {
 		return "", fmt.Errorf("no private key available")
 	}

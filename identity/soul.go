@@ -1,4 +1,4 @@
-package nara
+package identity
 
 import (
 	"crypto/hmac"
@@ -9,6 +9,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcutil/base58"
+	"github.com/eljojo/nara/types"
 	"golang.org/x/crypto/hkdf"
 )
 
@@ -24,9 +25,9 @@ type SoulV1 struct {
 }
 
 type IdentityResult struct {
-	Name        string
+	Name        types.NaraName // Changed from string
 	Soul        SoulV1
-	ID          string // Nara ID: deterministic hash of soul+name
+	ID          types.NaraID // Nara ID: deterministic hash of soul+name
 	IsValidBond bool
 	IsNative    bool
 }
@@ -53,9 +54,9 @@ func ParseSoul(s string) (SoulV1, error) {
 }
 
 // ComputeTag computes the HMAC tag that bonds a seed to a name
-func ComputeTag(seed [SeedLen]byte, name string) [TagLen]byte {
+func ComputeTag(seed [SeedLen]byte, name types.NaraName) [TagLen]byte {
 	h := hmac.New(sha256.New, seed[:])
-	h.Write([]byte("nara:name:v2:" + name))
+	h.Write([]byte("nara:name:v2:" + name.String()))
 	sum := h.Sum(nil)
 
 	var tag [TagLen]byte
@@ -64,7 +65,7 @@ func ComputeTag(seed [SeedLen]byte, name string) [TagLen]byte {
 }
 
 // ValidateBond checks if a soul is validly bonded to a name
-func ValidateBond(soul SoulV1, name string) bool {
+func ValidateBond(soul SoulV1, name types.NaraName) bool {
 	if name == "" {
 		return false
 	}
@@ -73,9 +74,9 @@ func ValidateBond(soul SoulV1, name string) bool {
 }
 
 // NativeSoulCustom generates a deterministic soul for a custom name on given hardware
-func NativeSoulCustom(hwFingerprint []byte, name string) SoulV1 {
+func NativeSoulCustom(hwFingerprint []byte, name types.NaraName) SoulV1 {
 	// Derive seed using HKDF
-	hkdfReader := hkdf.New(sha256.New, hwFingerprint, []byte("nara:soul:v2"), []byte("seed:custom:"+name))
+	hkdfReader := hkdf.New(sha256.New, hwFingerprint, []byte("nara:soul:v2"), []byte("seed:custom:"+name.String()))
 
 	var seed [SeedLen]byte
 	if _, err := io.ReadFull(hkdfReader, seed[:]); err != nil {
@@ -98,7 +99,7 @@ func NativeSoulGenerated(hwFingerprint []byte) SoulV1 {
 	}
 
 	// Compute the name this seed generates
-	name := GenerateName(hex.EncodeToString(seed[:]))
+	name := types.NaraName(GenerateName(hex.EncodeToString(seed[:])))
 
 	// Compute tag for that name
 	tag := ComputeTag(seed, name)
@@ -107,22 +108,22 @@ func NativeSoulGenerated(hwFingerprint []byte) SoulV1 {
 }
 
 // NameFromSoul derives the generated name from a soul's seed
-func NameFromSoul(soul SoulV1) string {
-	return GenerateName(hex.EncodeToString(soul.Seed[:]))
+func NameFromSoul(soul SoulV1) types.NaraName {
+	return types.NaraName(GenerateName(hex.EncodeToString(soul.Seed[:])))
 }
 
 // DetermineIdentity resolves name and soul from arguments and hardware.
 // hostname should be the short hostname (no domain suffix).
-func DetermineIdentity(nameArg, soulArg, hostname string, hwFingerprint []byte) IdentityResult {
+func DetermineIdentity(nameArg types.NaraName, soulArg, hostname string, hwFingerprint []byte) IdentityResult {
 	// Determine if we're in generated-name mode (no name provided, generic hostname)
-	effectiveName := nameArg
+	effectiveName := string(nameArg)
 	if effectiveName == "" {
 		effectiveName = hostname
 	}
 	generatedMode := IsGenericHostname(effectiveName)
 
 	var soul SoulV1
-	var name string
+	var name types.NaraName
 	var err error
 
 	if soulArg != "" {
@@ -131,7 +132,7 @@ func DetermineIdentity(nameArg, soulArg, hostname string, hwFingerprint []byte) 
 		if err != nil {
 			// Invalid soul format - treat as invalid bond
 			return IdentityResult{
-				Name:        effectiveName,
+				Name:        types.NaraName(effectiveName),
 				Soul:        SoulV1{},
 				ID:          "",
 				IsValidBond: false,
@@ -143,7 +144,7 @@ func DetermineIdentity(nameArg, soulArg, hostname string, hwFingerprint []byte) 
 			// In generated mode with provided soul, derive name from soul
 			name = NameFromSoul(soul)
 		} else {
-			name = effectiveName
+			name = types.NaraName(effectiveName)
 		}
 	} else {
 		// No soul provided - generate native
@@ -151,7 +152,7 @@ func DetermineIdentity(nameArg, soulArg, hostname string, hwFingerprint []byte) 
 			soul = NativeSoulGenerated(hwFingerprint)
 			name = NameFromSoul(soul)
 		} else {
-			name = effectiveName
+			name = types.NaraName(effectiveName)
 			soul = NativeSoulCustom(hwFingerprint, name)
 		}
 	}

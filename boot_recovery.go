@@ -5,6 +5,9 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/identity"
+	"github.com/eljojo/nara/types"
 )
 
 // BootRecoveryTargetEvents is the target number of events to fetch on boot
@@ -12,7 +15,7 @@ const BootRecoveryTargetEvents = 50000
 
 // getNeighborsForBootRecovery returns online neighbors.
 // Only re-discovers if no peers are known (peers are typically discovered at connect time in gossip mode).
-func (network *Network) getNeighborsForBootRecovery() []string {
+func (network *Network) getNeighborsForBootRecovery() []types.NaraName {
 	online := network.NeighbourhoodOnlineNames()
 
 	// In gossip-only mode, only re-discover if we have no peers
@@ -38,7 +41,7 @@ func (network *Network) bootRecovery() {
 
 	// In gossip mode, check if peers are already discovered (from immediate discovery at connect)
 	// If so, skip the 30s wait and start syncing right away
-	var online []string
+	var online []types.NaraName
 	if network.TransportMode == TransportGossip {
 		online = network.NeighbourhoodOnlineNames()
 		if len(online) > 0 {
@@ -99,25 +102,28 @@ func (network *Network) bootRecovery() {
 	}
 }
 
+// meshNeighbor holds info needed to communicate with a neighbor via mesh
+type meshNeighbor struct {
+	name types.NaraName
+	id   types.NaraID
+	ip   string
+}
+
 // bootRecoveryViaMesh uses direct HTTP to sync events from neighbors (parallelized)
-func (network *Network) bootRecoveryViaMesh(online []string) {
+func (network *Network) bootRecoveryViaMesh(online []types.NaraName) {
 	// Collect ALL mesh-enabled neighbors
-	var meshNeighbors []struct {
-		name string
-		ip   string
-	}
+	var meshNeighbors []meshNeighbor
 
 	maxMeshNeighbors := len(online)
 	if network.isShortMemoryMode() {
 		maxMeshNeighbors = 4
 	}
 	for _, name := range online {
-		ip := network.getMeshIPForNara(name)
-		if ip != "" {
-			meshNeighbors = append(meshNeighbors, struct {
-				name string
-				ip   string
-			}{name, ip})
+		ip, naraID := network.getMeshInfoForNara(name)
+		if ip != "" && naraID != "" {
+			meshNeighbors = append(meshNeighbors, meshNeighbor{name, naraID, ip})
+			// Register peer for mesh client lookups
+			network.meshClient.RegisterPeerIP(naraID, ip)
 		}
 	}
 	if len(meshNeighbors) > maxMeshNeighbors {
@@ -143,7 +149,7 @@ func (network *Network) bootRecoveryViaMesh(online []string) {
 }
 
 // bootRecoveryViaMeshSampleMode uses the new Mode: "sample" API for organic hazy memory reconstruction
-func (network *Network) bootRecoveryViaMeshSampleMode(online []string, meshNeighbors []struct{ name, ip string }) bool {
+func (network *Network) bootRecoveryViaMeshSampleMode(online []types.NaraName, meshNeighbors []meshNeighbor) bool {
 	// Determine boot recovery target based on memory mode
 	// These targets represent the "capacity" we want to fill during boot recovery
 	var capacity, pageSize int
@@ -167,7 +173,7 @@ func (network *Network) bootRecoveryViaMeshSampleMode(online []string, meshNeigh
 
 	// Distribute calls across ALL available neighbors (round-robin)
 	type callTask struct {
-		neighbor struct{ name, ip string }
+		neighbor meshNeighbor
 		callNum  int
 	}
 	var tasks []callTask
@@ -181,7 +187,7 @@ func (network *Network) bootRecoveryViaMeshSampleMode(online []string, meshNeigh
 
 	// Execute calls in parallel with concurrency limit
 	type syncResult struct {
-		neighbor string
+		neighbor types.NaraName
 		callNum  int
 		events   []SyncEvent
 		success  bool
@@ -204,7 +210,7 @@ func (network *Network) bootRecoveryViaMeshSampleMode(online []string, meshNeigh
 			defer wg.Done()
 			defer func() { <-sem }() // Release semaphore
 
-			events, err := network.meshClient.FetchSyncEvents(network.ctx, t.neighbor.ip, SyncRequest{
+			events, err := network.meshClient.FetchSyncEvents(network.ctx, t.neighbor.id, SyncRequest{
 				Mode:       "sample",
 				SampleSize: pageSize,
 			})
@@ -228,7 +234,7 @@ func (network *Network) bootRecoveryViaMeshSampleMode(online []string, meshNeigh
 	// Process results as they arrive
 	var totalMerged int
 	var failedCalls int
-	respondedNeighbors := make(map[string]bool)
+	respondedNeighbors := make(map[types.NaraName]bool)
 
 	for result := range results {
 		if !result.success {
@@ -266,7 +272,7 @@ func (network *Network) bootRecoveryViaMeshSampleMode(online []string, meshNeigh
 
 // bootRecoveryViaMeshLegacy uses the old slicing API for backward compatibility
 // TODO: Remove after ~6 months (2026-07) when all naras support Mode: "sample"
-func (network *Network) bootRecoveryViaMeshLegacy(online []string, meshNeighbors []struct{ name, ip string }) {
+func (network *Network) bootRecoveryViaMeshLegacy(online []types.NaraName, meshNeighbors []meshNeighbor) {
 	// Get all known subjects (naras)
 	subjects := append(online, network.meName())
 
@@ -281,7 +287,7 @@ func (network *Network) bootRecoveryViaMeshLegacy(online []string, meshNeighbors
 
 	// Fetch from all neighbors in parallel
 	type syncResult struct {
-		name         string
+		name         types.NaraName
 		sliceIndex   int
 		events       []SyncEvent
 		respVerified bool
@@ -301,11 +307,11 @@ func (network *Network) bootRecoveryViaMeshLegacy(online []string, meshNeighbors
 		wg.Add(1)
 		sem <- struct{}{} // Acquire semaphore
 
-		go func(idx int, n struct{ name, ip string }) {
+		go func(idx int, n meshNeighbor) {
 			defer wg.Done()
 			defer func() { <-sem }() // Release semaphore
 
-			events, respVerified := network.fetchSyncEventsFromMesh(n.ip, n.name, subjects, idx, totalSlices, eventsPerNeighbor)
+			events, respVerified := network.fetchSyncEventsFromMesh(n.id, n.name, subjects, idx, totalSlices, eventsPerNeighbor)
 			results <- syncResult{
 				name:         n.name,
 				sliceIndex:   idx,
@@ -325,7 +331,7 @@ func (network *Network) bootRecoveryViaMeshLegacy(online []string, meshNeighbors
 	// Process results as they arrive (merging is thread-safe)
 	var totalMerged int
 	var failedSlices []int
-	respondedNeighbors := make(map[string]bool)
+	respondedNeighbors := make(map[types.NaraName]bool)
 
 	for result := range results {
 		respondedNeighbors[result.name] = result.success
@@ -336,19 +342,19 @@ func (network *Network) bootRecoveryViaMeshLegacy(online []string, meshNeighbors
 				network.logService.BatchMeshSync(result.name, added)
 			}
 			if warned > 0 {
-				logrus.Debugf("📦 mesh sync from %s: %d events with %d verification warnings", result.name, added, warned)
+				logrus.Debugf("📦 mesh sync from %s: %d events with %d verification warnings", result.name.String(), added, warned)
 			}
 		} else if !result.success {
 			// Track failed slices for retry
 			failedSlices = append(failedSlices, result.sliceIndex)
-			logrus.Printf("📦 mesh sync from %s failed (slice %d), will retry with another neighbor", result.name, result.sliceIndex)
+			logrus.Printf("📦 mesh sync from %s failed (slice %d), will retry with another neighbor", result.name.String(), result.sliceIndex)
 		}
 	}
 
 	// Retry failed slices with different neighbors
 	if len(failedSlices) > 0 {
 		// Find neighbors that succeeded (they're available for retry)
-		var availableNeighbors []struct{ name, ip string }
+		var availableNeighbors []meshNeighbor
 		for _, n := range meshNeighbors {
 			if respondedNeighbors[n.name] {
 				availableNeighbors = append(availableNeighbors, n)
@@ -368,12 +374,12 @@ func (network *Network) bootRecoveryViaMeshLegacy(online []string, meshNeighbors
 				retryWg.Add(1)
 				sem <- struct{}{}
 
-				go func(idx int, n struct{ name, ip string }) {
+				go func(idx int, n meshNeighbor) {
 					defer retryWg.Done()
 					defer func() { <-sem }()
 
 					logrus.Printf("📦 retry: asking %s for slice %d", n.name, idx)
-					events, respVerified := network.fetchSyncEventsFromMesh(n.ip, n.name, subjects, idx, totalSlices, eventsPerNeighbor)
+					events, respVerified := network.fetchSyncEventsFromMesh(n.id, n.name, subjects, idx, totalSlices, eventsPerNeighbor)
 					retryResults <- syncResult{
 						name:         n.name,
 						sliceIndex:   idx,
@@ -397,10 +403,10 @@ func (network *Network) bootRecoveryViaMeshLegacy(online []string, meshNeighbors
 						network.logService.BatchMeshSync(result.name, added)
 					}
 					if warned > 0 {
-						logrus.Debugf("📦 retry mesh sync from %s: %d events with %d verification warnings", result.name, added, warned)
+						logrus.Debugf("📦 retry mesh sync from %s: %d events with %d verification warnings", result.name.String(), added, warned)
 					}
 				} else {
-					logrus.Debugf("📦 retry mesh sync from %s (slice %d) failed", result.name, result.sliceIndex)
+					logrus.Debugf("📦 retry mesh sync from %s (slice %d) failed", result.name.String(), result.sliceIndex)
 				}
 			}
 		} else {
@@ -422,9 +428,9 @@ func (network *Network) bootRecoveryViaMeshLegacy(online []string, meshNeighbors
 // including signature verification, slice-based fetching, and error handling
 //
 // fetchSyncEventsFromMesh fetches unified SyncEvents with signature verification
-func (network *Network) fetchSyncEventsFromMesh(meshIP, name string, subjects []string, sliceIndex, sliceTotal, maxEvents int) ([]SyncEvent, bool) {
+func (network *Network) fetchSyncEventsFromMesh(naraID types.NaraID, name types.NaraName, subjects []types.NaraName, sliceIndex, sliceTotal, maxEvents int) ([]SyncEvent, bool) {
 	// Use MeshClient for clean, reusable mesh HTTP communication
-	events, err := network.meshClient.FetchSyncEvents(network.ctx, meshIP, SyncRequest{
+	events, err := network.meshClient.FetchSyncEvents(network.ctx, naraID, SyncRequest{
 		Subjects:   subjects,
 		SinceTime:  0,
 		SliceIndex: sliceIndex,
@@ -433,7 +439,7 @@ func (network *Network) fetchSyncEventsFromMesh(meshIP, name string, subjects []
 	})
 
 	if err != nil {
-		logrus.Warnf("📦 mesh sync from %s failed: %v", name, err)
+		logrus.Warnf("📦 mesh sync from %s failed: %v", name.String(), err)
 		return nil, false
 	}
 
@@ -454,7 +460,7 @@ func (network *Network) fetchSyncEventsFromMesh(meshIP, name string, subjects []
 			publicKey := nara.Status.PublicKey
 			nara.mu.Unlock()
 			if publicKey != "" {
-				pubKey, err := ParsePublicKey(publicKey)
+				pubKey, err := identity.ParsePublicKey(publicKey)
 				if err == nil {
 					if response.VerifySignature(pubKey) {
 						verified = true
@@ -470,7 +476,7 @@ func (network *Network) fetchSyncEventsFromMesh(meshIP, name string, subjects []
 }
 
 // bootRecoveryViaMQTT uses MQTT ledger requests to sync events (fallback)
-func (network *Network) bootRecoveryViaMQTT(online []string) {
+func (network *Network) bootRecoveryViaMQTT(online []types.NaraName) {
 	// Get all known subjects (naras)
 	subjects := append(online, network.meName())
 
@@ -501,14 +507,14 @@ func (network *Network) bootRecoveryViaMQTT(online []string) {
 			Subjects: partition,
 		}
 
-		topic := "nara/ledger/" + neighbor + "/request"
+		topic := "nara/ledger/" + neighbor.String() + "/request"
 		network.postEvent(topic, req)
 		logrus.Infof("📦 requested events about %d subjects from %s", len(partition), neighbor)
 	}
 }
 
 // RequestLedgerSync manually triggers a sync request to a specific neighbor
-func (network *Network) RequestLedgerSync(neighbor string, subjects []string) {
+func (network *Network) RequestLedgerSync(neighbor types.NaraName, subjects []types.NaraName) {
 	if network.ReadOnly {
 		return
 	}
@@ -518,6 +524,6 @@ func (network *Network) RequestLedgerSync(neighbor string, subjects []string) {
 		Subjects: subjects,
 	}
 
-	topic := "nara/ledger/" + neighbor + "/request"
+	topic := "nara/ledger/" + neighbor.String() + "/request"
 	network.postEvent(topic, req)
 }

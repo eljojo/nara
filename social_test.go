@@ -2,6 +2,8 @@ package nara
 
 import (
 	"testing"
+
+	"github.com/eljojo/nara/types"
 )
 
 func TestSocialEvent_ID(t *testing.T) {
@@ -157,7 +159,7 @@ func TestSocialEvent_Types(t *testing.T) {
 }
 
 func TestPartitionSubjects(t *testing.T) {
-	subjects := []string{"alice", "bob", "charlie", "dave", "eve", "frank", "grace", "henry"}
+	subjects := []types.NaraName{types.NaraName("alice"), types.NaraName("bob"), types.NaraName("charlie"), types.NaraName("dave"), types.NaraName("eve"), types.NaraName("frank"), types.NaraName("grace"), types.NaraName("henry")}
 
 	// Partition into 3 groups
 	partitions := PartitionSubjects(subjects, 3)
@@ -185,7 +187,7 @@ func TestPartitionSubjects(t *testing.T) {
 }
 
 func TestPartitionSubjects_EdgeCases(t *testing.T) {
-	subjects := []string{"alice", "bob"}
+	subjects := []types.NaraName{types.NaraName("alice"), types.NaraName("bob")}
 
 	// More partitions than subjects
 	partitions := PartitionSubjects(subjects, 10)
@@ -261,7 +263,7 @@ func TestNewObservationSyncEvent(t *testing.T) {
 
 func TestNewJourneyObservationSyncEvent(t *testing.T) {
 	journeyID := "journey-123"
-	event := NewSocialSyncEvent("observation", "alice", "bob", ReasonJourneyPass, journeyID)
+	event := NewSocialSyncEvent("observation", types.NaraName("alice"), types.NaraName("bob"), ReasonJourneyPass, types.NaraName(journeyID))
 
 	if event.Social.Type != "observation" {
 		t.Errorf("Expected type 'observation', got %s", event.Social.Type)
@@ -269,7 +271,7 @@ func TestNewJourneyObservationSyncEvent(t *testing.T) {
 	if event.Social.Reason != ReasonJourneyPass {
 		t.Errorf("Expected reason '%s', got %s", ReasonJourneyPass, event.Social.Reason)
 	}
-	if event.Social.Witness != journeyID {
+	if event.Social.Witness != types.NaraName(journeyID) {
 		t.Errorf("Expected witness (journey ID) '%s', got %s", journeyID, event.Social.Witness)
 	}
 }

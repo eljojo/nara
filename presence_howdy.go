@@ -7,22 +7,24 @@ import (
 	"sync"
 	"time"
 
+	"github.com/eljojo/nara/identity"
+	"github.com/eljojo/nara/types"
 	"github.com/sirupsen/logrus"
 )
 
 // NeighborInfo contains information about a neighbor to share in howdy responses
 type NeighborInfo struct {
-	Name        string
+	Name        types.NaraName
 	PublicKey   string
 	MeshIP      string
-	ID          string          // Nara ID: deterministic hash of soul+name
+	ID          types.NaraID    // Nara ID: deterministic hash of soul+name
 	Observation NaraObservation // What I know about this neighbor
 }
 
 // HowdyEvent is sent in response to hey_there to help with discovery and start time recovery
 type HowdyEvent struct {
-	From      string          // Who's sending this howdy
-	To        string          // Who this is in response to (hey_there sender)
+	From      types.NaraName  // Who's sending this howdy
+	To        types.NaraName  // Who this is in response to (hey_there sender)
 	Seq       int             // Sequence number (1-10) for coordination
 	You       NaraObservation // What I know about you (includes StartTime!)
 	Neighbors []NeighborInfo  // ~10 other naras you should know about
@@ -31,7 +33,7 @@ type HowdyEvent struct {
 }
 
 // Sign signs the HowdyEvent with the given keypair
-func (h *HowdyEvent) Sign(kp NaraKeypair) {
+func (h *HowdyEvent) Sign(kp identity.NaraKeypair) {
 	// Sign a deterministic representation of the event
 	message := fmt.Sprintf("howdy:%s:%s:%d", h.From, h.To, h.Seq)
 	h.Signature = kp.SignBase64([]byte(message))
@@ -42,19 +44,19 @@ func (h *HowdyEvent) Verify() bool {
 	if h.Me.PublicKey == "" || h.Signature == "" {
 		return false
 	}
-	pubKey, err := ParsePublicKey(h.Me.PublicKey)
+	pubKey, err := identity.ParsePublicKey(h.Me.PublicKey)
 	if err != nil {
 		return false
 	}
 	message := fmt.Sprintf("howdy:%s:%s:%d", h.From, h.To, h.Seq)
-	return VerifySignatureBase64(pubKey, []byte(message), h.Signature)
+	return identity.VerifySignatureBase64(pubKey, []byte(message), h.Signature)
 }
 
 // howdyCoordinator tracks howdy responses for a given hey_there
 type howdyCoordinator struct {
-	target         string          // who said hey_there
-	seen           int             // how many howdys we've seen for this target
-	mentionedNaras map[string]bool // naras already mentioned in other howdys
+	target         types.NaraName          // who said hey_there
+	seen           int                     // how many howdys we've seen for this target
+	mentionedNaras map[types.NaraName]bool // naras already mentioned in other howdys
 	timer          *time.Timer
 	responded      bool
 	mu             sync.Mutex
@@ -128,14 +130,14 @@ func (network *Network) handleHowdyEvent(howdy HowdyEvent) {
 }
 
 // startHowdyCoordinator begins the self-selection process to potentially respond with howdy
-func (network *Network) startHowdyCoordinator(to string) {
+func (network *Network) startHowdyCoordinator(to types.NaraName) {
 	if network.ReadOnly {
 		return
 	}
 
 	coord := &howdyCoordinator{
 		target:         to,
-		mentionedNaras: make(map[string]bool),
+		mentionedNaras: make(map[types.NaraName]bool),
 	}
 	network.howdyCoordinators.Store(to, coord)
 
@@ -211,14 +213,14 @@ func (network *Network) onHowdySeen(howdy HowdyEvent) {
 
 // selectNeighborsForHowdy selects up to 10 neighbors to share in a howdy response
 // Priority: online naras first (not already mentioned), then offline if needed
-func (network *Network) selectNeighborsForHowdy(exclude string, alreadyMentioned map[string]bool) []NeighborInfo {
+func (network *Network) selectNeighborsForHowdy(exclude types.NaraName, alreadyMentioned map[types.NaraName]bool) []NeighborInfo {
 	maxNeighbors := 10
 	if network.isShortMemoryMode() {
 		maxNeighbors = 5
 	}
 
 	type naraWithLastSeen struct {
-		name     string
+		name     types.NaraName
 		lastSeen int64
 		online   bool
 	}

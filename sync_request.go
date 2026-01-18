@@ -6,12 +6,15 @@ import (
 	"encoding/base64"
 	"fmt"
 	"time"
+
+	"github.com/eljojo/nara/identity"
+	"github.com/eljojo/nara/types"
 )
 
 type SyncRequest struct {
-	From     string   `json:"from"`     // who is asking
-	Services []string `json:"services"` // which services (empty = all)
-	Subjects []string `json:"subjects"` // which naras (empty = all)
+	From     types.NaraName   `json:"from"`     // who is asking
+	Services []string         `json:"services"` // which services (empty = all)
+	Subjects []types.NaraName `json:"subjects"` // which naras (empty = all)
 
 	// Mode-based API (recommended)
 	Mode       string `json:"mode,omitempty"`        // "sample", "page", or "recent"
@@ -29,15 +32,15 @@ type SyncRequest struct {
 
 // SyncResponse contains events from a neighbor with optional signature
 type SyncResponse struct {
-	From       string      `json:"from"`
-	Events     []SyncEvent `json:"events"`
-	NextCursor string      `json:"next_cursor,omitempty"` // For "page" mode pagination (timestamp of last event)
-	Timestamp  int64       `json:"ts,omitempty"`          // When response was generated (Unix SECONDS, not nanoseconds)
-	Signature  string      `json:"sig,omitempty"`         // Base64 Ed25519 signature
+	From       types.NaraName `json:"from"`
+	Events     []SyncEvent    `json:"events"`
+	NextCursor string         `json:"next_cursor,omitempty"` // For "page" mode pagination (timestamp of last event)
+	Timestamp  int64          `json:"ts,omitempty"`          // When response was generated (Unix SECONDS, not nanoseconds)
+	Signature  string         `json:"sig,omitempty"`         // Base64 Ed25519 signature
 }
 
 // NewSignedSyncResponse creates a signed sync response
-func NewSignedSyncResponse(from string, events []SyncEvent, keypair NaraKeypair) SyncResponse {
+func NewSignedSyncResponse(from types.NaraName, events []SyncEvent, keypair identity.NaraKeypair) SyncResponse {
 	resp := SyncResponse{
 		From:      from,
 		Events:    events,
@@ -50,7 +53,7 @@ func NewSignedSyncResponse(from string, events []SyncEvent, keypair NaraKeypair)
 }
 
 // sign computes the signature for this response
-func (r *SyncResponse) sign(keypair NaraKeypair) {
+func (r *SyncResponse) sign(keypair identity.NaraKeypair) {
 	// Skip signing if no valid keypair
 	if len(keypair.PrivateKey) == 0 {
 		return
@@ -85,7 +88,7 @@ func (r *SyncResponse) VerifySignature(publicKey ed25519.PublicKey) bool {
 	}
 
 	data := r.signingData()
-	return VerifySignature(publicKey, data, sigBytes)
+	return identity.VerifySignature(publicKey, data, sigBytes)
 }
 
 // --- Personality-Aware Methods ---

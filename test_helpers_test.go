@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eljojo/nara/identity"
+	"github.com/eljojo/nara/types"
 	mqttserver "github.com/mochi-mqtt/server/v2"
 	"github.com/mochi-mqtt/server/v2/hooks/auth"
 	"github.com/mochi-mqtt/server/v2/listeners"
@@ -19,8 +21,8 @@ import (
 // This ensures all test naras have valid keypairs for signing.
 func testSoul(name string) string {
 	hw := hashTestBytes([]byte("test-hardware-" + name))
-	soul := NativeSoulCustom(hw, name)
-	return FormatSoul(soul)
+	soul := identity.NativeSoulCustom(hw, types.NaraName(name))
+	return identity.FormatSoul(soul)
 }
 
 func hashTestBytes(b []byte) []byte {
@@ -116,19 +118,19 @@ func testNara(t *testing.T, name string, opts ...TestNaraOption) *LocalNara {
 	}
 
 	// Create identity
-	var identity IdentityResult
+	var identityResult identity.IdentityResult
 	if config.soul != "" {
-		parsed, _ := ParseSoul(config.soul)
-		id, _ := ComputeNaraID(config.soul, name)
-		identity = IdentityResult{
-			Name:        name,
+		parsed, _ := identity.ParseSoul(config.soul)
+		id, _ := identity.ComputeNaraID(config.soul, types.NaraName(name))
+		identityResult = identity.IdentityResult{
+			Name:        types.NaraName(name),
 			Soul:        parsed,
 			ID:          id,
 			IsValidBond: true,
 			IsNative:    true,
 		}
 	} else {
-		identity = testIdentity(name)
+		identityResult = testIdentity(name)
 	}
 
 	// Create memory profile
@@ -139,7 +141,7 @@ func testNara(t *testing.T, name string, opts ...TestNaraOption) *LocalNara {
 	}
 
 	// Create LocalNara
-	ln, err := NewLocalNara(identity, config.mqttHost, "", "", config.chattiness, profile)
+	ln, err := NewLocalNara(identityResult, config.mqttHost, "", "", config.chattiness, profile)
 	if err != nil {
 		panic(err)
 	}
@@ -188,12 +190,12 @@ func testLocalNaraWithSoul(t *testing.T, name string, soul string) *LocalNara {
 	return testNara(t, name, WithSoul(soul))
 }
 
-func testIdentity(name string) IdentityResult {
+func testIdentity(name string) identity.IdentityResult {
 	soulStr := testSoul(name)
-	parsed, _ := ParseSoul(soulStr)
-	id, _ := ComputeNaraID(soulStr, name)
-	return IdentityResult{
-		Name:        name,
+	parsed, _ := identity.ParseSoul(soulStr)
+	id, _ := identity.ComputeNaraID(soulStr, types.NaraName(name))
+	return identity.IdentityResult{
+		Name:        types.NaraName(name),
 		Soul:        parsed,
 		ID:          id,
 		IsValidBond: true,
@@ -315,13 +317,13 @@ func waitForAllMQTTConnected(t *testing.T, naras []*LocalNara, timeout time.Dura
 
 // waitForCheckpoint blocks until a checkpoint exists for the subject in the ledger, or times out.
 // Returns the checkpoint if found, nil if timed out.
-func waitForCheckpoint(t *testing.T, ledger *SyncLedger, subject string, timeout time.Duration) *CheckpointEventPayload {
+func waitForCheckpoint(t *testing.T, ledger *SyncLedger, subject types.NaraName, timeout time.Duration) *CheckpointEventPayload {
 	t.Helper()
 	var checkpoint *CheckpointEventPayload
 	ok := waitForCondition(t, func() bool {
 		checkpoint = ledger.GetCheckpoint(subject)
 		return checkpoint != nil
-	}, timeout, "checkpoint for "+subject)
+	}, timeout, "checkpoint for "+subject.String())
 	if ok {
 		return checkpoint
 	}
@@ -329,7 +331,7 @@ func waitForCheckpoint(t *testing.T, ledger *SyncLedger, subject string, timeout
 }
 
 // waitForCheckpointPropagation blocks until all naras have the checkpoint for a subject.
-func waitForCheckpointPropagation(t *testing.T, naras []*LocalNara, subject string, timeout time.Duration) bool {
+func waitForCheckpointPropagation(t *testing.T, naras []*LocalNara, subject types.NaraName, timeout time.Duration) bool {
 	t.Helper()
 	return waitForCondition(t, func() bool {
 		for _, ln := range naras {
@@ -415,17 +417,17 @@ func waitForFullDiscovery(t *testing.T, naras []*LocalNara, timeout time.Duratio
 // attester: the nara creating/signing this checkpoint
 // attesterKeypair: the keypair to sign with
 // observation: the checkpoint data (restarts, uptime, start_time)
-func testCheckpointEvent(subject string, attester string, attesterKeypair NaraKeypair, observation NaraObservation) SyncEvent {
+func testCheckpointEvent(subject types.NaraName, attester types.NaraName, attesterKeypair identity.NaraKeypair, observation NaraObservation) SyncEvent {
 	now := time.Now()
 
 	checkpoint := &CheckpointEventPayload{
 		Version:     1,
 		Subject:     subject,
-		SubjectID:   "test-id-" + subject,
+		SubjectID:   types.NaraID("test-id-" + subject.String()),
 		Observation: observation,
 		AsOfTime:    now.Unix(),
 		Round:       1,
-		VoterIDs:    []string{"test-id-" + attester},
+		VoterIDs:    []types.NaraID{types.NaraID("test-id-" + attester.String())},
 	}
 
 	// Create and sign attestation
@@ -435,10 +437,10 @@ func testCheckpointEvent(subject string, attester string, attesterKeypair NaraKe
 		SubjectID:   checkpoint.SubjectID,
 		Observation: checkpoint.Observation,
 		Attester:    attester,
-		AttesterID:  "test-id-" + attester,
+		AttesterID:  types.NaraID("test-id-" + attester.String()),
 		AsOfTime:    checkpoint.AsOfTime,
 	}
-	attestation.Signature = SignContent(&attestation, attesterKeypair)
+	attestation.Signature = identity.SignContent(&attestation, attesterKeypair)
 	checkpoint.Signatures = []string{attestation.Signature}
 
 	// Create sync event
@@ -446,7 +448,7 @@ func testCheckpointEvent(subject string, attester string, attesterKeypair NaraKe
 		Timestamp:  now.UnixNano(),
 		Service:    ServiceCheckpoint,
 		Emitter:    attester,
-		EmitterID:  "test-id-" + attester,
+		EmitterID:  types.NaraID("test-id-" + attester.String()),
 		Checkpoint: checkpoint,
 	}
 	event.ComputeID()
@@ -456,7 +458,7 @@ func testCheckpointEvent(subject string, attester string, attesterKeypair NaraKe
 }
 
 // testAddCheckpointToLedger creates and adds a checkpoint event to a ledger
-func testAddCheckpointToLedger(ledger *SyncLedger, subject string, attester string, attesterKeypair NaraKeypair, observation NaraObservation) SyncEvent {
+func testAddCheckpointToLedger(ledger *SyncLedger, subject types.NaraName, attester types.NaraName, attesterKeypair identity.NaraKeypair, observation NaraObservation) SyncEvent {
 	event := testCheckpointEvent(subject, attester, attesterKeypair, observation)
 	// Manually add to ledger to avoid deduplication issues in tests
 	ledger.mu.Lock()
@@ -472,28 +474,41 @@ func testAddCheckpointToLedger(ledger *SyncLedger, subject string, attester stri
 
 // testMeshNetwork holds a mesh of interconnected test naras with HTTP servers.
 type testMeshNetwork struct {
-	Naras   []*LocalNara
-	Servers []*httptest.Server
-	Client  *http.Client
-	t       *testing.T
+	Naras    []*LocalNara
+	Servers  []*httptest.Server
+	Client   *http.Client
+	t        *testing.T
+	MqttPort int
 }
 
 // testCreateMeshNetwork creates N naras in a full mesh topology with HTTP servers.
 // Each nara knows all others and has testMeshURLs configured for HTTP communication.
-func testCreateMeshNetwork(t *testing.T, names []string, chattiness, ledgerCapacity int) *testMeshNetwork {
+// TODO: this api of having to pass mqttPortNumber is not good, the system should take care of that for us, should be a boolean true/false
+func testCreateMeshNetwork(t *testing.T, names []string, chattiness, ledgerCapacity int, mqttPortNumber int) *testMeshNetwork {
 	t.Helper()
 	count := len(names)
 
 	mesh := &testMeshNetwork{
-		Naras:   make([]*LocalNara, count),
-		Servers: make([]*httptest.Server, count),
-		Client:  &http.Client{Timeout: 5 * time.Second},
-		t:       t,
+		Naras:    make([]*LocalNara, count),
+		Servers:  make([]*httptest.Server, count),
+		Client:   &http.Client{Timeout: 5 * time.Second},
+		t:        t,
+		MqttPort: mqttPortNumber,
+	}
+
+	if mqttPortNumber > 0 {
+		// Start a shared MQTT broker for the mesh
+		startTestMQTTBroker(t, mqttPortNumber)
 	}
 
 	// Create naras and servers
 	for i, name := range names {
-		ln := testLocalNaraWithParams(t, name, chattiness, ledgerCapacity)
+		var ln *LocalNara
+		if mqttPortNumber > 0 {
+			ln = testNara(t, name, WithParams(chattiness, ledgerCapacity), WithMQTT(mqttPortNumber))
+		} else {
+			ln = testNara(t, name, WithParams(chattiness, ledgerCapacity))
+		}
 
 		// Mark not booting (common integration test requirement)
 		me := ln.getMeObservation()
@@ -502,9 +517,7 @@ func testCreateMeshNetwork(t *testing.T, names []string, chattiness, ledgerCapac
 		ln.setMeObservation(me)
 
 		// Create HTTP server with common endpoints
-		mux := http.NewServeMux()
-		mux.HandleFunc("/gossip/zine", ln.Network.httpGossipZineHandler)
-		mux.HandleFunc("/api/checkpoints/all", ln.Network.httpCheckpointsAllHandler)
+		mux := ln.Network.createHTTPMux(false) // Use production mux logic
 		server := httptest.NewServer(mux)
 
 		mesh.Naras[i] = ln
@@ -512,22 +525,17 @@ func testCreateMeshNetwork(t *testing.T, names []string, chattiness, ledgerCapac
 
 		// Configure test hooks
 		ln.Network.testHTTPClient = mesh.Client
-		ln.Network.testMeshURLs = make(map[string]string)
-		ln.Network.TransportMode = TransportGossip
+		ln.Network.testMeshURLs = make(map[types.NaraName]string)
+		if mqttPortNumber > 0 {
+			ln.Network.TransportMode = TransportHybrid
+		} else {
+			ln.Network.TransportMode = TransportGossip
+		}
 	}
 
-	// Create full mesh: each nara knows all others
+	// Connect everyone to everyone
 	for i := 0; i < count; i++ {
-		for j := 0; j < count; j++ {
-			if i != j {
-				neighbor := NewNara(mesh.Naras[j].Me.Name)
-				neighbor.Status.ID = mesh.Naras[j].Me.Status.ID
-				neighbor.Status.PublicKey = FormatPublicKey(mesh.Naras[j].Keypair.PublicKey)
-				mesh.Naras[i].Network.importNara(neighbor)
-				mesh.Naras[i].setObservation(mesh.Naras[j].Me.Name, NaraObservation{Online: "ONLINE"})
-				mesh.Naras[i].Network.testMeshURLs[mesh.Naras[j].Me.Name] = mesh.Servers[j].URL
-			}
-		}
+		mesh.connectNodeToPeers(i)
 	}
 
 	// Register cleanup
@@ -540,6 +548,35 @@ func testCreateMeshNetwork(t *testing.T, names []string, chattiness, ledgerCapac
 	return mesh
 }
 
+// connectNodeToPeers wires the nara at the given index to all other naras in the mesh.
+// It imports neighbor identities, sets initial online observations, and configures the mesh client.
+func (m *testMeshNetwork) connectNodeToPeers(index int) {
+	targetNara := m.Naras[index]
+	testURLsForMeshClient := make(map[types.NaraID]string)
+
+	for j := 0; j < len(m.Naras); j++ {
+		if index != j {
+			peer := m.Naras[j]
+			peerServer := m.Servers[j]
+
+			// Import peer identity and set connection info
+			neighbor := NewNara(peer.Me.Name)
+			neighbor.Status.ID = peer.Me.Status.ID
+			neighbor.ID = peer.Me.Status.ID // Important: set top-level ID too
+			neighbor.Status.PublicKey = identity.FormatPublicKey(peer.Keypair.PublicKey)
+
+			targetNara.Network.importNara(neighbor)
+			targetNara.setObservation(peer.Me.Name, NaraObservation{Online: "ONLINE"})
+			targetNara.Network.testMeshURLs[peer.Me.Name] = peerServer.URL
+
+			// Register for meshClient (outgoing requests)
+			testURLsForMeshClient[peer.Me.Status.ID] = peerServer.URL
+		}
+	}
+
+	targetNara.Network.meshClient.EnableTestMode(testURLsForMeshClient)
+}
+
 // Get returns the nara at index i.
 func (m *testMeshNetwork) Get(i int) *LocalNara {
 	return m.Naras[i]
@@ -548,7 +585,7 @@ func (m *testMeshNetwork) Get(i int) *LocalNara {
 // GetByName finds a nara by name.
 func (m *testMeshNetwork) GetByName(name string) *LocalNara {
 	for _, ln := range m.Naras {
-		if ln.Me.Name == name {
+		if ln.Me.Name == types.NaraName(name) {
 			return ln
 		}
 	}
@@ -560,3 +597,87 @@ func (m *testMeshNetwork) GetByName(name string) *LocalNara {
 func (m *testMeshNetwork) ServerURL(i int) string {
 	return m.Servers[i].URL
 }
+
+// RestartNara simulates a nara restart by shutting down and recreating it with the same identity.
+// This is useful for testing recovery scenarios where a nara loses all local state but keeps its soul.
+// The restarted nara will have the same soul/identity but empty local state (no stash, no ledger).
+// All mesh connections to other naras are automatically re-wired.
+func (m *testMeshNetwork) RestartNara(index int) *LocalNara {
+	m.t.Helper()
+
+	if index < 0 || index >= len(m.Naras) {
+		m.t.Fatalf("Invalid index %d, mesh has %d naras", index, len(m.Naras))
+	}
+
+	old := m.Naras[index]
+	originalSoul := old.Soul
+	originalName := string(old.Me.Name)
+
+	// Shutdown the old nara
+	old.Network.Shutdown()
+	m.t.Logf("Stopped nara %s (index %d) for restart simulation", originalName, index)
+
+	// Wait for graceful shutdown
+	time.Sleep(200 * time.Millisecond)
+
+	// Create fresh nara with same identity (simulates reboot with no local state)
+	chattiness := old.forceChattiness
+	if chattiness == 0 {
+		chattiness = 50
+	}
+	ledgerCap := len(old.SyncLedger.Events)
+	if ledgerCap == 0 {
+		ledgerCap = 1000
+	}
+
+	fresh := testNara(m.t, originalName, WithSoul(originalSoul), WithParams(chattiness, ledgerCap), WithMQTT(m.MqttPort))
+
+	// Mark as not booting (consistent with mesh setup)
+	me := fresh.getMeObservation()
+	me.LastRestart = time.Now().Unix() - 200
+	me.LastSeen = time.Now().Unix()
+	fresh.setMeObservation(me)
+
+	// Configure test hooks for mesh
+	fresh.Network.testHTTPClient = m.Client
+	fresh.Network.testMeshURLs = make(map[types.NaraName]string)
+	fresh.Network.TransportMode = TransportHybrid
+
+	// Update mesh tracking - must do this BEFORE wiring peers so the loop sees the fresh nara at m.Naras[index]
+	m.Naras[index] = fresh
+
+	// Wire the fresh nara to all existing peers
+	m.connectNodeToPeers(index)
+
+	// Update HTTP server to use fresh nara's handlers
+	// Note: We reuse the same httptest.Server, just update the handler
+	if m.Servers[index].Config.Handler != nil {
+		mux := fresh.Network.createHTTPMux(false) // Use production mux logic
+		m.Servers[index].Config.Handler = mux
+	}
+
+	// Update other naras' view of this nara (they see it as same peer, just restarted)
+	// We need to tell them about the "restart" event (LastRestart update)
+	for j := 0; j < len(m.Naras); j++ {
+		if j != index {
+			// They already have this nara in their neighbourhood from initial mesh setup
+			// Just update their observation to reflect the restart
+			m.Naras[j].setObservation(fresh.Me.Name, NaraObservation{
+				Online:      "ONLINE",
+				LastRestart: me.LastRestart,
+				LastSeen:    me.LastSeen,
+			})
+		}
+	}
+
+	m.t.Logf("✅ Restarted nara %s (index %d) with fresh state", originalName, index)
+	return fresh
+}
+
+// testNaraWithHTTP creates a test nara with HTTP server and returns the base URL.
+// The server is automatically started on a test-specific port and cleaned up after the test.
+//
+// Example:
+//
+//	nara, baseURL := testNaraWithHTTP(t, "test-nara")
+//	resp, err := http.Get(baseURL + "/api/stash/status")

@@ -2,26 +2,32 @@ package nara
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/eljojo/nara/identity"
+	"github.com/eljojo/nara/types"
+	"github.com/eljojo/nara/utilities/keyring"
 )
 
 // TestNara represents a test nara with all necessary components
 type TestNara struct {
-	Name      string
-	Soul      SoulV1
-	Keypair   NaraKeypair
-	LocalNara *LocalNara
-	Transport *MockMeshTransport
-	Handler   *WorldJourneyHandler
+	Name       string
+	Soul       identity.SoulV1
+	Keypair    identity.NaraKeypair
+	LocalNara  *LocalNara
+	MeshClient *MeshClient
+	Handler    *WorldJourneyHandler
+	TestServer *httptest.Server // The real HTTP server for this nara
 }
 
 // TestWorld sets up a complete test environment for world journey testing
 type TestWorld struct {
-	Network    *MockMeshNetwork
 	Naras      map[string]*TestNara
-	Clout      map[string]map[string]float64
+	Clout      map[string]map[types.NaraName]float64
 	Completed  []*WorldMessage
 	CompleteMu sync.Mutex
 }
@@ -29,52 +35,88 @@ type TestWorld struct {
 // NewTestWorld creates a test world with the given nara names
 func NewTestWorld(names []string) *TestWorld {
 	tw := &TestWorld{
-		Network:   NewMockMeshNetwork(),
 		Naras:     make(map[string]*TestNara),
-		Clout:     make(map[string]map[string]float64),
+		Clout:     make(map[string]map[types.NaraName]float64),
 		Completed: []*WorldMessage{},
 	}
 
 	// Create test naras
 	for i, name := range names {
-		hw := hashBytes([]byte("integration-test-hw-" + name))
-		soul := NativeSoulCustom(hw, name)
-		keypair := DeriveKeypair(soul)
+		hw := identity.HashBytes([]byte("integration-test-hw-" + name))
+		soul := identity.NativeSoulCustom(hw, types.NaraName(name))
+		keypair := identity.DeriveKeypair(soul)
+
+		// Compute nara ID
+		naraID, _ := identity.ComputeNaraID(identity.FormatSoul(soul), types.NaraName(name))
 
 		// Create a minimal LocalNara (without full network setup)
 		ln := &LocalNara{
-			Me:      NewNara(name),
-			Soul:    FormatSoul(soul),
+			Me:      NewNara(types.NaraName(name)),
+			Soul:    identity.FormatSoul(soul),
 			Keypair: keypair,
+			ID:      naraID,
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		ln.Network = &Network{
-			ctx:        ctx,
-			cancelFunc: cancel,
+			ctx:           ctx,
+			cancelFunc:    cancel,
+			local:         ln,
+			Neighbourhood: make(map[types.NaraName]*Nara),
+			keyring:       keyring.New(keypair, naraID),
 		}
-		ln.Me.Status.PublicKey = FormatPublicKey(keypair.PublicKey)
+		ln.Me.Status.PublicKey = identity.FormatPublicKey(keypair.PublicKey)
+		ln.Me.Status.ID = naraID
 
-		transport := NewMockMeshTransport()
-		tw.Network.Register(name, transport)
+		// Use the real Network structure to create the mux
+		// This uses the exact same routing logic as production
+		mux := ln.Network.createHTTPMux(false)
+
+		// Create a real HTTP server to handle requests
+		testServer := httptest.NewServer(mux)
+
+		// Create REAL mesh client for this nara
+		// We use the default HTTP client because we're hitting localhost
+		meshClient := NewMeshClient(http.DefaultClient, types.NaraName(name), keypair)
 
 		testNara := &TestNara{
-			Name:      name,
-			Soul:      soul,
-			Keypair:   keypair,
-			LocalNara: ln,
-			Transport: transport,
+			Name:       name,
+			Soul:       soul,
+			Keypair:    keypair,
+			LocalNara:  ln,
+			MeshClient: meshClient,
+			Handler:    nil, // Set later
+			TestServer: testServer,
 		}
 
 		tw.Naras[name] = testNara
 
 		// Initialize clout for this nara (empty, will be set up by test)
-		tw.Clout[name] = make(map[string]float64)
+		tw.Clout[name] = make(map[types.NaraName]float64)
 
 		// Give each nara some clout toward others (simple pattern for testing)
 		for j, otherName := range names {
 			if name != otherName {
 				// Higher clout for naras that come after in the list
-				tw.Clout[name][otherName] = float64((j - i + len(names)) % len(names))
+				tw.Clout[name][types.NaraName(otherName)] = float64((j - i + len(names)) % len(names))
+			}
+		}
+	}
+
+	// Register all peers with each other
+	// This is required for meshAuthMiddleware to verify signatures (it checks Neighbourhood)
+	for _, sender := range tw.Naras {
+		for name, receiver := range tw.Naras {
+			if name != sender.Name {
+				// 1. Register for MeshClient (transport layer)
+				sender.MeshClient.RegisterPeer(receiver.LocalNara.ID, receiver.TestServer.URL)
+
+				// 2. Register in Neighbourhood (application layer - for auth verification)
+				neighbor := NewNara(types.NaraName(receiver.Name))
+				neighbor.Status.PublicKey = identity.FormatPublicKey(receiver.Keypair.PublicKey)
+				neighbor.Status.ID = receiver.LocalNara.ID
+				neighbor.Status.MeshEnabled = true
+
+				sender.LocalNara.Network.Neighbourhood[types.NaraName(receiver.Name)] = neighbor
 			}
 		}
 	}
@@ -83,37 +125,44 @@ func NewTestWorld(names []string) *TestWorld {
 	for _, testNara := range tw.Naras {
 		handler := tw.createHandler(testNara)
 		testNara.Handler = handler
-		handler.Listen()
+		// CRITICAL: Wire up the handler to the Network so httpWorldRelayHandler uses it
+		testNara.LocalNara.Network.worldHandler = handler
 	}
 
 	return tw
 }
 
 func (tw *TestWorld) createHandler(tn *TestNara) *WorldJourneyHandler {
-	return NewWorldJourneyHandler(
+	handler := NewWorldJourneyHandler(
 		tn.LocalNara,
-		tn.Transport,
-		func() map[string]float64 {
+		tn.MeshClient,
+		func() map[types.NaraName]float64 {
 			// Return this nara's clout scores
 			if tw.Clout != nil {
-				return tw.Clout[tn.LocalNara.Me.Name]
+				return tw.Clout[tn.LocalNara.Me.Name.String()]
 			}
 			return nil
 		},
-		func() []string {
-			names := make([]string, 0, len(tw.Naras))
+		func() []types.NaraName {
+			names := make([]types.NaraName, 0, len(tw.Naras))
 			for name := range tw.Naras {
-				names = append(names, name)
+				names = append(names, types.NaraName(name))
 			}
 			return names
 		},
-		func(name string) []byte {
-			if nara, ok := tw.Naras[name]; ok {
+		func(name types.NaraName) []byte {
+			if nara, ok := tw.Naras[name.String()]; ok {
 				return nara.Keypair.PublicKey
 			}
 			return nil
 		},
-		nil, // getMeshIP - not needed for mock transport
+		func(name types.NaraName) types.NaraID {
+			// Resolve nara name to ID
+			if nara, ok := tw.Naras[name.String()]; ok {
+				return nara.LocalNara.ID
+			}
+			return ""
+		},
 		func(wm *WorldMessage) {
 			tw.CompleteMu.Lock()
 			tw.Completed = append(tw.Completed, wm)
@@ -121,17 +170,22 @@ func (tw *TestWorld) createHandler(tn *TestNara) *WorldJourneyHandler {
 		},
 		nil, // onJourneyPass - not needed for these tests
 	)
+
+	return handler
 }
 
 // SetClout sets up clout relationships
-func (tw *TestWorld) SetClout(clout map[string]map[string]float64) {
+func (tw *TestWorld) SetClout(clout map[string]map[types.NaraName]float64) {
 	tw.Clout = clout
 }
 
-// Close shuts down all transports
+// Close shuts down all test naras
 func (tw *TestWorld) Close() {
 	for _, tn := range tw.Naras {
-		tn.Transport.Close()
+		tn.TestServer.Close() // Close the HTTP server
+		if tn.LocalNara.Network.cancelFunc != nil {
+			tn.LocalNara.Network.cancelFunc()
+		}
 	}
 }
 
@@ -158,11 +212,11 @@ func TestIntegration_WorldJourney_FourNaras(t *testing.T) {
 	defer tw.Close()
 
 	// Set up clout so the path is: alice -> bob -> carol -> dave -> alice
-	tw.SetClout(map[string]map[string]float64{
-		"alice": {"bob": 10, "carol": 5, "dave": 2},
-		"bob":   {"carol": 10, "dave": 5, "alice": 2},
-		"carol": {"dave": 10, "alice": 5, "bob": 2},
-		"dave":  {"alice": 10, "bob": 5, "carol": 2},
+	tw.SetClout(map[string]map[types.NaraName]float64{
+		"alice": {types.NaraName("bob"): 10, types.NaraName("carol"): 5, types.NaraName("dave"): 2},
+		"bob":   {types.NaraName("carol"): 10, types.NaraName("dave"): 5, types.NaraName("alice"): 2},
+		"carol": {types.NaraName("dave"): 10, types.NaraName("alice"): 5, types.NaraName("bob"): 2},
+		"dave":  {types.NaraName("alice"): 10, types.NaraName("bob"): 5, types.NaraName("carol"): 2},
 	})
 
 	// Alice starts the journey
@@ -191,7 +245,7 @@ func TestIntegration_WorldJourney_FourNaras(t *testing.T) {
 	}
 
 	// Verify expected path
-	expectedPath := []string{"bob", "carol", "dave", "alice"}
+	expectedPath := []types.NaraName{types.NaraName("bob"), types.NaraName("carol"), types.NaraName("dave"), types.NaraName("alice")}
 	if len(completed.Hops) != len(expectedPath) {
 		t.Errorf("Expected %d hops, got %d", len(expectedPath), len(completed.Hops))
 	}
@@ -203,8 +257,8 @@ func TestIntegration_WorldJourney_FourNaras(t *testing.T) {
 	}
 
 	// Verify all signatures
-	err = completed.VerifyChain(func(name string) []byte {
-		if nara, ok := tw.Naras[name]; ok {
+	err = completed.VerifyChain(func(name types.NaraName) []byte {
+		if nara, ok := tw.Naras[name.String()]; ok {
 			return nara.Keypair.PublicKey
 		}
 		return nil
@@ -234,10 +288,10 @@ func TestIntegration_WorldJourney_ChainVerification(t *testing.T) {
 	tw := NewTestWorld([]string{"alice", "bob", "carol"})
 	defer tw.Close()
 
-	tw.SetClout(map[string]map[string]float64{
-		"alice": {"bob": 10, "carol": 5},
-		"bob":   {"carol": 10, "alice": 5},
-		"carol": {"alice": 10, "bob": 5},
+	tw.SetClout(map[string]map[types.NaraName]float64{
+		"alice": {types.NaraName("bob"): 10, types.NaraName("carol"): 5},
+		"bob":   {types.NaraName("carol"): 10, types.NaraName("alice"): 5},
+		"carol": {types.NaraName("alice"): 10, types.NaraName("bob"): 5},
 	})
 
 	// Start journey
@@ -257,8 +311,8 @@ func TestIntegration_WorldJourney_ChainVerification(t *testing.T) {
 	completed.OriginalMessage = "TAMPERED!"
 
 	// Verification should fail
-	err = completed.VerifyChain(func(name string) []byte {
-		if nara, ok := tw.Naras[name]; ok {
+	err = completed.VerifyChain(func(name types.NaraName) []byte {
+		if nara, ok := tw.Naras[name.String()]; ok {
 			return nara.Keypair.PublicKey
 		}
 		return nil
@@ -276,12 +330,12 @@ func TestIntegration_WorldJourney_AllStampsCollected(t *testing.T) {
 	defer tw.Close()
 
 	// Simple linear clout
-	tw.SetClout(map[string]map[string]float64{
-		"alpha":   {"beta": 10, "gamma": 5, "delta": 3, "epsilon": 1},
-		"beta":    {"gamma": 10, "delta": 5, "epsilon": 3, "alpha": 1},
-		"gamma":   {"delta": 10, "epsilon": 5, "alpha": 3, "beta": 1},
-		"delta":   {"epsilon": 10, "alpha": 5, "beta": 3, "gamma": 1},
-		"epsilon": {"alpha": 10, "beta": 5, "gamma": 3, "delta": 1},
+	tw.SetClout(map[string]map[types.NaraName]float64{
+		"alpha":   {types.NaraName("beta"): 10, types.NaraName("gamma"): 5, types.NaraName("delta"): 3, types.NaraName("epsilon"): 1},
+		"beta":    {types.NaraName("gamma"): 10, types.NaraName("delta"): 5, types.NaraName("epsilon"): 3, types.NaraName("alpha"): 1},
+		"gamma":   {types.NaraName("delta"): 10, types.NaraName("epsilon"): 5, types.NaraName("alpha"): 3, types.NaraName("beta"): 1},
+		"delta":   {types.NaraName("epsilon"): 10, types.NaraName("alpha"): 5, types.NaraName("beta"): 3, types.NaraName("gamma"): 1},
+		"epsilon": {types.NaraName("alpha"): 10, types.NaraName("beta"): 5, types.NaraName("gamma"): 3, types.NaraName("delta"): 1},
 	})
 
 	alpha := tw.Naras["alpha"]
@@ -315,10 +369,10 @@ func TestIntegration_WorldJourney_TimingRecorded(t *testing.T) {
 	tw := NewTestWorld([]string{"one", "two", "three"})
 	defer tw.Close()
 
-	tw.SetClout(map[string]map[string]float64{
-		"one":   {"two": 10, "three": 5},
-		"two":   {"three": 10, "one": 5},
-		"three": {"one": 10, "two": 5},
+	tw.SetClout(map[string]map[types.NaraName]float64{
+		"one":   {types.NaraName("two"): 10, types.NaraName("three"): 5},
+		"two":   {types.NaraName("three"): 10, types.NaraName("one"): 5},
+		"three": {types.NaraName("one"): 10, types.NaraName("two"): 5},
 	})
 
 	start := time.Now().Unix()
@@ -487,8 +541,8 @@ func TestIntegration_WorldJourney_DerivedClout(t *testing.T) {
 	}
 
 	// Verify signatures
-	err = completed.VerifyChain(func(name string) []byte {
-		if nara, ok := tw.Naras[name]; ok {
+	err = completed.VerifyChain(func(name types.NaraName) []byte {
+		if nara, ok := tw.Naras[name.String()]; ok {
 			return nara.Keypair.PublicKey
 		}
 		return nil

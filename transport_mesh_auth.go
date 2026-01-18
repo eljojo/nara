@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eljojo/nara/identity"
+	"github.com/eljojo/nara/types"
 	"github.com/sirupsen/logrus"
 )
 
@@ -46,32 +48,32 @@ const (
 )
 
 // MeshAuthRequest creates signed request headers
-func MeshAuthRequest(name string, keypair NaraKeypair, method, path string) http.Header {
+func MeshAuthRequest(name types.NaraName, keypair identity.NaraKeypair, method, path string) http.Header {
 	timestamp := time.Now().UnixMilli()
 	message := fmt.Sprintf("%s%d%s%s", name, timestamp, method, path)
 
 	headers := http.Header{}
-	headers.Set(HeaderNaraName, name)
+	headers.Set(HeaderNaraName, name.String())
 	headers.Set(HeaderNaraTimestamp, strconv.FormatInt(timestamp, 10))
 	headers.Set(HeaderNaraSignature, keypair.SignBase64([]byte(message)))
 	return headers
 }
 
 // MeshAuthResponse creates signed response headers for a response body
-func MeshAuthResponse(name string, keypair NaraKeypair, body []byte) http.Header {
+func MeshAuthResponse(name types.NaraName, keypair identity.NaraKeypair, body []byte) http.Header {
 	timestamp := time.Now().UnixMilli()
 	bodyHash := sha256.Sum256(body)
 	message := fmt.Sprintf("%s%d%s", name, timestamp, base64.StdEncoding.EncodeToString(bodyHash[:]))
 
 	headers := http.Header{}
-	headers.Set(HeaderNaraName, name)
+	headers.Set(HeaderNaraName, name.String())
 	headers.Set(HeaderNaraTimestamp, strconv.FormatInt(timestamp, 10))
 	headers.Set(HeaderNaraSignature, keypair.SignBase64([]byte(message)))
 	return headers
 }
 
 // VerifyMeshRequest verifies the signature on an incoming mesh HTTP request
-func VerifyMeshRequest(r *http.Request, getPublicKey func(string) []byte) (string, error) {
+func VerifyMeshRequest(r *http.Request, getPublicKey func(types.NaraName) []byte) (string, error) {
 	name := r.Header.Get(HeaderNaraName)
 	timestampStr := r.Header.Get(HeaderNaraTimestamp)
 	signatureStr := r.Header.Get(HeaderNaraSignature)
@@ -93,7 +95,7 @@ func VerifyMeshRequest(r *http.Request, getPublicKey func(string) []byte) (strin
 	}
 
 	// Get sender's public key
-	pubKey := getPublicKey(name)
+	pubKey := getPublicKey(types.NaraName(name))
 	if pubKey == nil {
 		return "", fmt.Errorf("unknown sender: %s", name)
 	}
@@ -106,7 +108,7 @@ func VerifyMeshRequest(r *http.Request, getPublicKey func(string) []byte) (strin
 
 	// Verify signature
 	message := fmt.Sprintf("%s%d%s%s", name, timestamp, r.Method, r.URL.Path)
-	if !VerifySignature(pubKey, []byte(message), signature) {
+	if !identity.VerifySignature(pubKey, []byte(message), signature) {
 		return "", fmt.Errorf("signature verification failed")
 	}
 
@@ -114,8 +116,8 @@ func VerifyMeshRequest(r *http.Request, getPublicKey func(string) []byte) (strin
 }
 
 // VerifyMeshResponse verifies the signature on a mesh HTTP response
-func VerifyMeshResponse(resp *http.Response, body []byte, getPublicKey func(string) []byte) (string, error) {
-	name := resp.Header.Get(HeaderNaraName)
+func VerifyMeshResponse(resp *http.Response, body []byte, getPublicKey func(types.NaraName) []byte) (types.NaraName, error) {
+	name := types.NaraName(resp.Header.Get(HeaderNaraName))
 	timestampStr := resp.Header.Get(HeaderNaraTimestamp)
 	signatureStr := resp.Header.Get(HeaderNaraSignature)
 
@@ -144,7 +146,7 @@ func VerifyMeshResponse(resp *http.Response, body []byte, getPublicKey func(stri
 	// Verify signature (over name + timestamp + sha256(body))
 	bodyHash := sha256.Sum256(body)
 	message := fmt.Sprintf("%s%d%s", name, timestamp, base64.StdEncoding.EncodeToString(bodyHash[:]))
-	if !VerifySignature(pubKey, []byte(message), signature) {
+	if !identity.VerifySignature(pubKey, []byte(message), signature) {
 		return "", fmt.Errorf("response signature verification failed")
 	}
 
@@ -154,7 +156,7 @@ func VerifyMeshResponse(resp *http.Response, body []byte, getPublicKey func(stri
 // tryDiscoverUnknownSender attempts to discover an unknown sender by fetching their
 // public key via /ping from their mesh IP. This enables new naras to be recognized
 // immediately when they first contact us, rather than waiting for MQTT broadcasts.
-func (network *Network) tryDiscoverUnknownSender(name, remoteAddr string) bool {
+func (network *Network) tryDiscoverUnknownSender(name types.NaraName, remoteAddr string) bool {
 	// Extract IP from remoteAddr (format: "100.64.0.x:port")
 	ip := remoteAddr
 	if colonIdx := strings.LastIndex(remoteAddr, ":"); colonIdx != -1 {
@@ -200,9 +202,9 @@ func (network *Network) tryDiscoverUnknownSender(name, remoteAddr string) bool {
 	}
 
 	var pingResp struct {
-		From      string `json:"from"`
-		PublicKey string `json:"public_key"`
-		MeshIP    string `json:"mesh_ip"`
+		From      types.NaraName `json:"from"`
+		PublicKey string         `json:"public_key"`
+		MeshIP    string         `json:"mesh_ip"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&pingResp); err != nil {
 		return false
@@ -227,7 +229,7 @@ func (network *Network) tryDiscoverUnknownSender(name, remoteAddr string) bool {
 
 	// Log via LogService (batched)
 	if network.logService != nil {
-		network.logService.BatchDiscovery(name)
+		network.logService.BatchDiscovery(types.NaraName(name))
 	}
 	return true
 }
@@ -248,7 +250,8 @@ func (network *Network) meshAuthMiddleware(path string, handler http.HandlerFunc
 		// If sender is unknown, try to discover them via /ping
 		if err != nil && strings.Contains(err.Error(), "unknown sender") {
 			senderName := r.Header.Get(HeaderNaraName)
-			if senderName != "" && network.tryDiscoverUnknownSender(senderName, r.RemoteAddr) {
+			senderNaraName := types.NaraName(senderName)
+			if senderName != "" && network.tryDiscoverUnknownSender(senderNaraName, r.RemoteAddr) {
 				// Retry verification with newly discovered key
 				sender, err = VerifyMeshRequest(r, network.resolvePublicKeyForNara)
 			}

@@ -3,6 +3,8 @@ package nara
 import (
 	"strings"
 	"testing"
+
+	"github.com/eljojo/nara/types"
 )
 
 func TestPersonalitySeeding(t *testing.T) {
@@ -113,7 +115,7 @@ func TestUndergroundTrend_ContrarianStartsWhenMainstreamDominates(t *testing.T) 
 
 	// Create a dominant mainstream trend (80% of network)
 	for i := 0; i < 8; i++ {
-		follower := NewNara("sheep" + string(rune('a'+i)))
+		follower := NewNara(types.NaraName("sheep" + string(rune('a'+i))))
 		follower.Status.Trend = "mainstream-style"
 		follower.Status.TrendEmoji = "🐑"
 		follower.Status.Version = NaraVersion
@@ -123,7 +125,7 @@ func TestUndergroundTrend_ContrarianStartsWhenMainstreamDominates(t *testing.T) 
 
 	// Add 2 trendless naras (20% without trend)
 	for i := 0; i < 2; i++ {
-		bystander := NewNara("bystander" + string(rune('a'+i)))
+		bystander := NewNara(types.NaraName("bystander" + string(rune('a'+i))))
 		bystander.Status.Version = NaraVersion
 		network.importNara(bystander)
 		network.local.setObservation(bystander.Name, NaraObservation{Online: "ONLINE"})
@@ -173,7 +175,7 @@ func TestTrendCreation_ScalesDownWithMoreTrends(t *testing.T) {
 	// Add 3 existing trends with followers
 	trends := []string{"alpha-style", "beta-style", "gamma-style"}
 	for i, trend := range trends {
-		follower := NewNara("trendy" + string(rune('a'+i)))
+		follower := NewNara(types.NaraName("trendy" + string(rune('a'+i))))
 		follower.Status.Trend = trend
 		follower.Status.TrendEmoji = "✨"
 		follower.Status.Version = NaraVersion
@@ -209,7 +211,7 @@ func TestTrendCreation_HighAgreeablenessJoinsInsteadOfStarting(t *testing.T) {
 
 	// Create a dominant trend
 	for i := 0; i < 5; i++ {
-		follower := NewNara("member" + string(rune('a'+i)))
+		follower := NewNara(types.NaraName("member" + string(rune('a'+i))))
 		follower.Status.Trend = "popular-style"
 		follower.Status.TrendEmoji = "💫"
 		follower.Status.Version = NaraVersion

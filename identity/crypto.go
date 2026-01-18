@@ -1,4 +1,4 @@
-package nara
+package identity
 
 import (
 	"crypto/ed25519"
@@ -15,19 +15,23 @@ import (
 
 // NaraKeypair holds an Ed25519 keypair derived from a soul
 type NaraKeypair struct {
-	PrivateKey ed25519.PrivateKey
-	PublicKey  ed25519.PublicKey
+	PrivateKey    ed25519.PrivateKey
+	PublicKey     ed25519.PublicKey
+	EncryptionKey EncryptionKeypair // Cached encryption key for self-encryption
 }
 
 // DeriveKeypair deterministically derives an Ed25519 keypair from a soul's seed.
 // The soul's 32-byte seed is exactly Ed25519's SeedSize, so same soul = same keypair.
+// Also derives and caches the encryption key for efficiency.
 func DeriveKeypair(soul SoulV1) NaraKeypair {
 	privateKey := ed25519.NewKeyFromSeed(soul.Seed[:])
 	publicKey := privateKey.Public().(ed25519.PublicKey)
+	encryptionKey := DeriveEncryptionKeys(privateKey)
 
 	return NaraKeypair{
-		PrivateKey: privateKey,
-		PublicKey:  publicKey,
+		PrivateKey:    privateKey,
+		PublicKey:     publicKey,
+		EncryptionKey: encryptionKey,
 	}
 }
 
@@ -171,4 +175,16 @@ func (kp EncryptionKeypair) DecryptForSelf(nonce, ciphertext []byte) ([]byte, er
 	}
 
 	return plaintext, nil
+}
+
+// Seal encrypts plaintext using the cached encryption key.
+// Convenience method on NaraKeypair that delegates to EncryptionKey.
+func (kp NaraKeypair) Seal(plaintext []byte) (nonce, ciphertext []byte, err error) {
+	return kp.EncryptionKey.EncryptForSelf(plaintext)
+}
+
+// Open decrypts ciphertext using the cached encryption key.
+// Convenience method on NaraKeypair that delegates to EncryptionKey.
+func (kp NaraKeypair) Open(nonce, ciphertext []byte) ([]byte, error) {
+	return kp.EncryptionKey.DecryptForSelf(nonce, ciphertext)
 }

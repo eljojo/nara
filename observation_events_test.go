@@ -3,12 +3,14 @@ package nara
 import (
 	"testing"
 	"time"
+
+	"github.com/eljojo/nara/types"
 )
 
 // Test creating a restart observation event
 func TestObservationEvent_Restart(t *testing.T) {
-	observer := "nara-a"
-	subject := "nara-b"
+	observer := types.NaraName("nara-a")
+	subject := types.NaraName("nara-b")
 	startTime := int64(1234567890)
 	restartNum := int64(42)
 
@@ -53,8 +55,8 @@ func TestObservationEvent_Restart(t *testing.T) {
 
 // Test creating a first-seen observation event
 func TestObservationEvent_FirstSeen(t *testing.T) {
-	observer := "nara-a"
-	subject := "nara-b"
+	observer := types.NaraName("nara-a")
+	subject := types.NaraName("nara-b")
 	startTime := int64(1234567890)
 
 	event := NewFirstSeenObservationEvent(observer, subject, startTime)
@@ -82,8 +84,8 @@ func TestObservationEvent_FirstSeen(t *testing.T) {
 
 // Test creating a status-change observation event
 func TestObservationEvent_StatusChange(t *testing.T) {
-	observer := "nara-a"
-	subject := "nara-b"
+	observer := types.NaraName("nara-a")
+	subject := types.NaraName("nara-b")
 	onlineState := "OFFLINE"
 
 	event := NewStatusChangeObservationEvent(observer, subject, onlineState)
@@ -111,8 +113,8 @@ func TestObservationEvent_StatusChange(t *testing.T) {
 
 // Test creating a backfill observation event
 func TestObservationEvent_Backfill(t *testing.T) {
-	observer := "nara-a"
-	subject := "nara-b"
+	observer := types.NaraName("nara-a")
+	subject := types.NaraName("nara-b")
 	startTime := int64(1234567890)
 	restartNum := int64(1137)
 
@@ -151,28 +153,28 @@ func TestPersonalityFiltering_Importance(t *testing.T) {
 	ledger := NewSyncLedger(100)
 
 	// Critical event (restart) - should NEVER be filtered
-	restartEvent := NewRestartObservationEvent("a", "b", time.Now().Unix(), 10)
+	restartEvent := NewRestartObservationEvent(types.NaraName("a"), types.NaraName("b"), time.Now().Unix(), 10)
 	added := ledger.AddEventFiltered(restartEvent, chillPersonality)
 	if !added {
 		t.Error("Critical events (restart) must never be filtered by personality")
 	}
 
 	// Critical event (first-seen) - should NEVER be filtered
-	firstSeenEvent := NewFirstSeenObservationEvent("a", "c", time.Now().Unix())
+	firstSeenEvent := NewFirstSeenObservationEvent(types.NaraName("a"), types.NaraName("c"), time.Now().Unix())
 	added = ledger.AddEventFiltered(firstSeenEvent, chillPersonality)
 	if !added {
 		t.Error("Critical events (first-seen) must never be filtered by personality")
 	}
 
 	// Critical event (backfill) - should NEVER be filtered
-	backfillEvent := NewBackfillObservationEvent("a", "d", time.Now().Unix(), 5, time.Now().Unix())
+	backfillEvent := NewBackfillObservationEvent(types.NaraName("a"), types.NaraName("d"), time.Now().Unix(), 5, time.Now().Unix())
 	added = ledger.AddEventFiltered(backfillEvent, chillPersonality)
 	if !added {
 		t.Error("Critical events (backfill) must never be filtered by personality")
 	}
 
 	// Normal event (status change) - may be filtered by very chill (>85)
-	statusEvent := NewStatusChangeObservationEvent("a", "e", "OFFLINE")
+	statusEvent := NewStatusChangeObservationEvent(types.NaraName("a"), types.NaraName("e"), "OFFLINE")
 	// Note: Implementation will determine if this gets filtered
 	// For now just verify it can be added
 	ledger.AddEventFiltered(statusEvent, chillPersonality)
@@ -181,7 +183,7 @@ func TestPersonalityFiltering_Importance(t *testing.T) {
 // Test observation event validation
 func TestObservationEvent_Validation(t *testing.T) {
 	// Valid restart event
-	validEvent := NewRestartObservationEvent("a", "b", time.Now().Unix(), 5)
+	validEvent := NewRestartObservationEvent(types.NaraName("a"), types.NaraName("b"), time.Now().Unix(), 5)
 	if !validEvent.IsValid() {
 		t.Error("Valid restart event should pass validation")
 	}
@@ -191,8 +193,8 @@ func TestObservationEvent_Validation(t *testing.T) {
 		Timestamp: time.Now().UnixNano(),
 		Service:   ServiceObservation,
 		Observation: &ObservationEventPayload{
-			Observer:   "", // Invalid
-			Subject:    "b",
+			Observer:   types.NaraName(""), // Invalid
+			Subject:    types.NaraName("b"),
 			Type:       "restart",
 			Importance: ImportanceCritical,
 		},
@@ -206,8 +208,8 @@ func TestObservationEvent_Validation(t *testing.T) {
 		Timestamp: time.Now().UnixNano(),
 		Service:   ServiceObservation,
 		Observation: &ObservationEventPayload{
-			Observer:   "a",
-			Subject:    "", // Invalid
+			Observer:   types.NaraName("a"),
+			Subject:    types.NaraName(""), // Invalid
 			Type:       "restart",
 			Importance: ImportanceCritical,
 		},
@@ -221,8 +223,8 @@ func TestObservationEvent_Validation(t *testing.T) {
 		Timestamp: time.Now().UnixNano(),
 		Service:   ServiceObservation,
 		Observation: &ObservationEventPayload{
-			Observer:   "a",
-			Subject:    "b",
+			Observer:   types.NaraName("a"),
+			Subject:    types.NaraName("b"),
 			Type:       "unknown-type", // Invalid
 			Importance: ImportanceCritical,
 		},
@@ -234,7 +236,7 @@ func TestObservationEvent_Validation(t *testing.T) {
 
 // Test ID computation for observation events
 func TestObservationEvent_IDComputation(t *testing.T) {
-	event1 := NewRestartObservationEvent("a", "b", 1234567890, 5)
+	event1 := NewRestartObservationEvent(types.NaraName("a"), types.NaraName("b"), 1234567890, 5)
 	event1.ComputeID()
 
 	if event1.ID == "" {
@@ -246,7 +248,7 @@ func TestObservationEvent_IDComputation(t *testing.T) {
 	}
 
 	// Same event should generate same ID
-	event2 := NewRestartObservationEvent("a", "b", 1234567890, 5)
+	event2 := NewRestartObservationEvent(types.NaraName("a"), types.NaraName("b"), 1234567890, 5)
 	event2.Timestamp = event1.Timestamp // Use same timestamp
 	event2.ComputeID()
 
@@ -255,7 +257,7 @@ func TestObservationEvent_IDComputation(t *testing.T) {
 	}
 
 	// Different event should generate different ID
-	event3 := NewRestartObservationEvent("a", "b", 1234567890, 6) // Different restart num
+	event3 := NewRestartObservationEvent(types.NaraName("a"), types.NaraName("b"), 1234567890, 6) // Different restart num
 	event3.Timestamp = event1.Timestamp
 	event3.ComputeID()
 
@@ -266,7 +268,7 @@ func TestObservationEvent_IDComputation(t *testing.T) {
 
 // Test payload interface implementation
 func TestObservationEvent_PayloadInterface(t *testing.T) {
-	event := NewRestartObservationEvent("observer-a", "subject-b", time.Now().Unix(), 10)
+	event := NewRestartObservationEvent(types.NaraName("observer-a"), types.NaraName("subject-b"), time.Now().Unix(), 10)
 
 	payload := event.Payload()
 	if payload == nil {

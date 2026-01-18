@@ -8,6 +8,7 @@ require (
 	github.com/kataras/tablewriter v0.0.0-20180708051242-e063d29b7c23
 	github.com/lensesio/tableprinter v0.0.0-20201125135848-89e81fc956e7
 	github.com/mochi-mqtt/server/v2 v2.7.9
+	github.com/mr-tron/base58 v1.2.0
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.10.0

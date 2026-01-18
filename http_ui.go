@@ -6,6 +6,8 @@ import (
 	"net/http"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // SSE endpoint for real-time social events (shooting stars!)
@@ -89,11 +91,11 @@ func (network *Network) httpEventsSSEHandler(w http.ResponseWriter, r *http.Requ
 
 // Clout scores from this nara's perspective
 func (network *Network) httpCloutHandler(w http.ResponseWriter, r *http.Request) {
-	var clout map[string]float64
+	var clout map[types.NaraName]float64
 	if network.local.Projections != nil {
 		clout = network.local.Projections.Clout().DeriveClout(network.local.Soul, network.local.Me.Status.Personality)
 	} else {
-		clout = make(map[string]float64)
+		clout = make(map[types.NaraName]float64)
 	}
 
 	response := map[string]interface{}{
@@ -145,17 +147,17 @@ func (network *Network) httpRecentEventsHandler(w http.ResponseWriter, r *http.R
 
 // Tease counts - objective count of teases per actor (no personality influence)
 func (network *Network) httpTeaseCountsHandler(w http.ResponseWriter, r *http.Request) {
-	var counts map[string]int
+	var counts map[types.NaraName]int
 	if network.local.SyncLedger != nil {
 		counts = network.local.SyncLedger.GetTeaseCounts()
 	} else {
-		counts = make(map[string]int)
+		counts = make(map[types.NaraName]int)
 	}
 
 	// Convert to sorted list for the response
 	type teaseCount struct {
-		Actor string `json:"actor"`
-		Count int    `json:"count"`
+		Actor types.NaraName `json:"actor"`
+		Count int            `json:"count"`
 	}
 	var teases []teaseCount
 	for actor, count := range counts {
@@ -310,167 +312,6 @@ func (network *Network) httpWorldJourneysHandler(w http.ResponseWriter, r *http.
 	}
 }
 
-// GET /api/stash/status - Get current stash status, confidants, and metrics
-func (network *Network) httpStashStatusHandler(w http.ResponseWriter, r *http.Request) {
-	response := map[string]interface{}{
-		"has_stash":  false,
-		"my_stash":   nil,
-		"confidants": []map[string]interface{}{},
-		"metrics":    map[string]interface{}{},
-	}
-
-	if network.stashService == nil {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		if err := json.NewEncoder(w).Encode(response); err != nil {
-			logrus.WithError(err).Warn("Failed to encode response")
-		}
-		return
-	}
-
-	// Get my current stash data
-	currentStash := network.stashService.GetCurrentStash()
-	if currentStash != nil {
-		var dataMap map[string]interface{}
-		if err := json.Unmarshal(currentStash.Data, &dataMap); err != nil {
-			logrus.WithError(err).Warn("Failed to unmarshal stash data")
-		}
-		response["has_stash"] = true
-		response["my_stash"] = map[string]interface{}{
-			"timestamp": currentStash.Timestamp,
-			"data":      dataMap,
-		}
-	}
-
-	// Get confidant list
-	confidants := network.stashService.GetConfidants()
-	confidantList := make([]map[string]interface{}, 0, len(confidants))
-	for _, name := range confidants {
-		confidantList = append(confidantList, map[string]interface{}{
-			"name":   name,
-			"status": "confirmed",
-		})
-	}
-	response["confidants"] = confidantList
-	response["target_count"] = network.stashService.TargetConfidantCount()
-
-	// Get metrics
-	metrics := network.stashService.GetStorageMetrics()
-	response["metrics"] = map[string]interface{}{
-		"stashes_stored": metrics.StashesStored,
-		"total_bytes":    metrics.TotalStashBytes,
-		"eviction_count": metrics.EvictionCount,
-		"storage_limit":  metrics.StorageLimit,
-	}
-
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		logrus.WithError(err).Warn("Failed to encode response")
-	}
-}
-
-// POST /api/stash/update - Update my stash with new JSON data
-func (network *Network) httpStashUpdateHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Read raw JSON body
-	var data json.RawMessage
-	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	if network.stashService == nil {
-		http.Error(w, "Stash service not initialized", http.StatusInternalServerError)
-		return
-	}
-
-	// Update stash data
-	network.stashService.SetCurrentStash(data)
-
-	// Trigger immediate distribution to confidants
-	select {
-	case network.stashDistributeTrigger <- struct{}{}:
-		logrus.Infof("📦 Stash data updated (%d bytes), triggered immediate distribution", len(data))
-	default:
-		// Channel full, distribution will happen on next periodic check
-		logrus.Infof("📦 Stash data updated (%d bytes), will distribute shortly", len(data))
-	}
-
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": "Stash updated and distributing to confidants",
-	}); err != nil {
-		logrus.WithError(err).Warn("Failed to encode response")
-	}
-}
-
-// POST /api/stash/recover - Trigger manual stash recovery
-func (network *Network) httpStashRecoverHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Manual recovery: restart the nara to trigger the boot recovery flow
-	// Alternatively, request stash from all confidants
-	go func() {
-		if network.stashService != nil {
-			confidants := network.stashService.GetConfidants()
-			for _, name := range confidants {
-				// Try to fetch stash via HTTP
-				logrus.Infof("📦 Requesting stash from %s", name)
-			}
-		}
-	}()
-
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": "Stash recovery initiated from confidants",
-	}); err != nil {
-		logrus.WithError(err).Warn("Failed to encode response")
-	}
-}
-
-// GET /api/stash/confidants - List all confidants with details
-func (network *Network) httpStashConfidantsHandler(w http.ResponseWriter, r *http.Request) {
-	confidants := []map[string]interface{}{}
-
-	if network.stashService != nil {
-		confidantNames := network.stashService.GetConfidants()
-
-		network.local.mu.Lock()
-		for _, name := range confidantNames {
-			info := map[string]interface{}{
-				"name":   name,
-				"status": "confirmed",
-			}
-
-			// Get peer details if available (this needs Network access)
-			if nara, ok := network.Neighbourhood[name]; ok {
-				nara.mu.Lock()
-				info["memory_mode"] = nara.Status.MemoryMode
-				info["online"] = true
-				nara.mu.Unlock()
-			}
-
-			confidants = append(confidants, info)
-		}
-		network.local.mu.Unlock()
-	}
-
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"confidants": confidants,
-	}); err != nil {
-		logrus.WithError(err).Warn("Failed to encode response")
-	}
-}
-
 // GET /network/map - All known nodes with coordinates for visualization
 func (network *Network) httpNetworkMapHandler(w http.ResponseWriter, r *http.Request) {
 	network.local.mu.Lock()
@@ -497,7 +338,7 @@ func (network *Network) httpNetworkMapHandler(w http.ResponseWriter, r *http.Req
 		nara.mu.Unlock()
 
 		// Get our observation of this peer
-		myObs := network.local.getObservationLocked(name)
+		myObs := network.local.getObservationLocked(types.NaraName(name))
 
 		node := map[string]interface{}{
 			"name":        name,
@@ -534,7 +375,7 @@ func (network *Network) httpProximityHandler(w http.ResponseWriter, r *http.Requ
 	myEmoji := network.GetMyBarrioEmoji()
 
 	// Find all naras in my barrio
-	var barrioMembers []string
+	var barrioMembers []types.NaraName
 	for name := range network.Neighbourhood {
 		if network.IsInMyBarrio(name) {
 			barrioMembers = append(barrioMembers, name)

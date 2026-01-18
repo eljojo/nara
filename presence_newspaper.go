@@ -7,11 +7,14 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/identity"
+	"github.com/eljojo/nara/types"
 )
 
 // NewspaperEvent represents a signed announcement of status
 type NewspaperEvent struct {
-	From       string
+	From       types.NaraName
 	Status     NaraStatus
 	Signature  string // Base64-encoded signature of the status JSON
 	StatusJSON []byte `json:"-"` // Raw status JSON for signature verification
@@ -44,7 +47,7 @@ func (event *NewspaperEvent) Verify(publicKey []byte) bool {
 			return false
 		}
 	}
-	return VerifySignatureBase64(publicKey, statusJSON, event.Signature)
+	return identity.VerifySignatureBase64(publicKey, statusJSON, event.Signature)
 }
 
 // announce broadcasts this nara's current status as a newspaper event
@@ -69,14 +72,6 @@ func (network *Network) announce() {
 		slimStatus.EventStoreByService = nil
 		slimStatus.EventStoreTotal = 0
 		slimStatus.EventStoreCritical = 0
-	}
-
-	// Populate stash metrics
-	if network.stashService != nil {
-		metrics := network.stashService.GetStorageMetrics()
-		slimStatus.StashStored = metrics.StashesStored
-		slimStatus.StashBytes = metrics.TotalStashBytes
-		slimStatus.StashConfidants = network.stashService.ConfidantCount()
 	}
 
 	signedEvent := network.SignNewspaper(slimStatus)
@@ -121,7 +116,7 @@ func (network *Network) handleNewspaperEvent(event NewspaperEvent) {
 		var pubKey []byte
 		if event.Status.PublicKey != "" {
 			var err error
-			pubKey, err = ParsePublicKey(event.Status.PublicKey)
+			pubKey, err = identity.ParsePublicKey(event.Status.PublicKey)
 			if err != nil {
 				logrus.Warnf("🚨 Invalid public key in newspaper from %s", event.From)
 				return
@@ -164,7 +159,7 @@ func (network *Network) handleNewspaperEvent(event NewspaperEvent) {
 			changes = append(changes, fmt.Sprintf("Version:%s→%s", nara.Version, event.Status.Version))
 		}
 		if len(changes) > 0 && network.logService != nil {
-			network.logService.BatchNewspaper(event.From, strings.Join(changes, ", "))
+			network.logService.BatchNewspaper(string(event.From), strings.Join(changes, ", "))
 		}
 		nara.Status.setValuesFrom(event.Status)
 		nara.mu.Unlock()

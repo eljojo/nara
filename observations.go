@@ -1,12 +1,15 @@
 package nara
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // verifyPingRateLimit tracks last verification ping attempts to prevent spam.
@@ -14,23 +17,23 @@ import (
 // verifyPingLastResult caches the result of the last ping verification.
 // Maps nara name → ping success (true if online, false if unreachable).
 var (
-	verifyPingLastAttempt   = make(map[string]int64)
-	verifyPingLastResult    = make(map[string]bool)
+	verifyPingLastAttempt   = make(map[types.NaraName]int64)
+	verifyPingLastResult    = make(map[types.NaraName]bool)
 	verifyPingLastAttemptMu sync.Mutex
 )
 
 // resetVerifyPingRateLimit clears the rate limit map (for testing only).
 func resetVerifyPingRateLimit() {
 	verifyPingLastAttemptMu.Lock()
-	verifyPingLastAttempt = make(map[string]int64)
-	verifyPingLastResult = make(map[string]bool)
+	verifyPingLastAttempt = make(map[types.NaraName]int64)
+	verifyPingLastResult = make(map[types.NaraName]bool)
 	verifyPingLastAttemptMu.Unlock()
 }
 
 const BlueJayURL = "https://nara.network/narae.json"
 
 // pruneVerifyPingCache removes entries for pruned naras from the verification cache.
-func (network *Network) pruneVerifyPingCache(names []string) {
+func (network *Network) pruneVerifyPingCache(names []types.NaraName) {
 	verifyPingLastAttemptMu.Lock()
 	defer verifyPingLastAttemptMu.Unlock()
 	for _, name := range names {
@@ -166,14 +169,6 @@ func (network *Network) runOpinionPass(pass int, total int, fetchBlueJay bool, f
 		logrus.Infof("👀 opinions formed - %d naras online", onlineCount)
 	}
 
-	// Stash recovery check on second-to-last pass
-	if pass == total-1 && total > 1 {
-		if network.stashService != nil && !network.stashService.HasStashData() {
-			logrus.Debugf("📦 Second-to-last opinion pass: no stash recovered yet, broadcasting stash-refresh")
-			network.broadcastStashRefresh()
-		}
-	}
-
 	if finalPass {
 		// Garbage collect ghost naras only after opinions are fully formed
 		deleted := network.garbageCollectGhostNaras()
@@ -190,22 +185,13 @@ func (network *Network) runOpinionPass(pass int, total int, fetchBlueJay bool, f
 		// Prune inactive naras once after backfill completes
 		// Backfill data helps inform whether a nara is truly missing or just a ghost
 		network.pruneInactiveNaras()
-
-		// Check if stash was recovered
-		if network.stashService != nil {
-			if !network.stashService.HasStashData() {
-				logrus.Warnf("📦 Could not retrieve stash from confidants (maybe never had one?)")
-			} else if network.stashService.ConfidantCount() == 0 {
-				logrus.Warnf("📦 Stash data present but no confidants found to store it")
-			}
-		}
 	}
 }
 
 // isGhostNara returns true if the nara appears to be a "ghost" - seen once briefly
 // and never again, with no meaningful data from any neighbor. These are naras that
 // should be skipped in opinion forming to avoid noise.
-func (network *Network) isGhostNara(name string) bool {
+func (network *Network) isGhostNara(name types.NaraName) bool {
 	// Check our own observation first
 	myObs := network.local.getObservation(name)
 	if myObs.StartTime > 0 || myObs.Restarts > 0 || myObs.LastRestart > 0 {
@@ -237,7 +223,7 @@ func (network *Network) isGhostNara(name string) bool {
 // 3. Online status is empty (never been properly tracked)
 // 4. LastSeen is either 0 OR old enough that we're confident it's abandoned (> 24 hours)
 // 5. At least 3 neighbors checked (avoid race conditions during boot)
-func (network *Network) isGhostNaraSafeToDelete(name string) bool {
+func (network *Network) isGhostNaraSafeToDelete(name types.NaraName) bool {
 	// Never delete ourselves
 	if name == network.meName() {
 		return false
@@ -296,7 +282,7 @@ func (network *Network) isGhostNaraSafeToDelete(name string) bool {
 // the Neighbourhood, our Observations, and the event store. Returns count of deleted naras.
 func (network *Network) garbageCollectGhostNaras() int {
 	names := network.NeighbourhoodNames()
-	toDelete := []string{}
+	toDelete := []types.NaraName{}
 
 	for _, name := range names {
 		if network.isGhostNaraSafeToDelete(name) {
@@ -353,7 +339,7 @@ func (network *Network) fetchOpinionsFromBlueJay() {
 
 	var data struct {
 		Naras []struct {
-			Name        string
+			Name        types.NaraName
 			StartTime   int64
 			Restarts    int64
 			LastRestart int64
@@ -381,7 +367,7 @@ func (network *Network) fetchOpinionsFromBlueJay() {
 	}
 }
 
-func (network *Network) recordObservationOnlineNara(name string, timestamp int64) {
+func (network *Network) recordObservationOnlineNara(name types.NaraName, timestamp int64) {
 	if timestamp == 0 {
 		timestamp = time.Now().Unix()
 	}
@@ -395,7 +381,7 @@ func (network *Network) recordObservationOnlineNara(name string, timestamp int64
 	if !present && name != network.meName() {
 		// Only discovery-by-observation if recent or booting
 		if isRecent || network.local.isBooting() {
-			network.importNara(NewNara(name))
+			network.importNara(NewNara(types.NaraName(name)))
 		} else {
 			return
 		}
@@ -416,7 +402,9 @@ func (network *Network) recordObservationOnlineNara(name string, timestamp int64
 
 		// Emit first-seen observation event
 		if !network.local.isBooting() && network.local.SyncLedger != nil {
-			event := NewFirstSeenObservationEvent(network.meName(), name, timestamp)
+			observerID := network.local.ID
+			subjectID := network.getNaraIDByName(name)
+			event := NewFirstSeenObservationEventWithIDs(network.meName(), observerID, name, subjectID, timestamp)
 			if network.local.SyncLedger.AddEventWithDedup(event) && network.local.Projections != nil {
 				network.local.Projections.Trigger()
 			}
@@ -479,7 +467,9 @@ func (network *Network) recordObservationOnlineNara(name string, timestamp int64
 	// This avoids duplicate events for the same transition
 	if name != network.meName() && !network.local.isBooting() && network.local.SyncLedger != nil {
 		if isRecent && previousState != "" && previousState != "ONLINE" && !wasRestart {
-			event := NewStatusChangeObservationEvent(network.meName(), name, "ONLINE")
+			observerID := network.local.ID
+			subjectID := network.getNaraIDByName(name)
+			event := NewStatusChangeObservationEventWithIDs(network.meName(), observerID, name, subjectID, "ONLINE")
 			if network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality) && network.local.Projections != nil {
 				network.local.Projections.Trigger()
 			}
@@ -505,7 +495,7 @@ func (network *Network) observationMaintenanceOnce() {
 	// This prevents potential deadlock if any code path does Me.mu → local.mu
 	network.local.mu.Lock()
 	network.local.Me.mu.Lock()
-	observations := make(map[string]NaraObservation)
+	observations := make(map[types.NaraName]NaraObservation)
 	for name, obs := range network.local.Me.Status.Observations {
 		observations[name] = obs
 	}
@@ -591,11 +581,6 @@ func (network *Network) observationMaintenanceOnce() {
 				if previousState == "ONLINE" && derivedStatus == "MISSING" {
 					network.Buzz.increase(10)
 					go network.reportMissingWithDelay(name)
-					// React immediately if this is one of our confidants
-					network.reactToConfidantOffline(name)
-				} else if previousState == "ONLINE" && derivedStatus == "OFFLINE" {
-					// React immediately if this is one of our confidants
-					network.reactToConfidantOffline(name)
 				}
 			}
 
@@ -649,7 +634,7 @@ func (network *Network) observationMaintenance() {
 	}
 }
 
-func (network *Network) hasRecentObservationEvent(subject string, window time.Duration, match func(*ObservationEventPayload) bool) *ObservationEventPayload {
+func (network *Network) hasRecentObservationEvent(subject types.NaraName, window time.Duration, match func(*ObservationEventPayload) bool) *ObservationEventPayload {
 	if network.local.SyncLedger == nil {
 		return nil
 	}
@@ -672,7 +657,7 @@ func (network *Network) hasRecentObservationEvent(subject string, window time.Du
 // Waits a random delay, then checks if another observer already reported the subject as missing.
 // If yes, stays silent. If no, emits the MISSING event.
 // To read more, see: https://meshtastic.org/docs/overview/mesh-algo/#broadcasts-using-managed-flooding
-func (network *Network) reportMissingWithDelay(subject string) {
+func (network *Network) reportMissingWithDelay(subject types.NaraName) {
 	// Random delay 0-10 seconds to stagger reports
 	if !network.waitWithJitter(10*time.Second, network.testObservationDelay) {
 		return
@@ -698,7 +683,9 @@ func (network *Network) reportMissingWithDelay(subject string) {
 	}
 
 	// No one else reported it and ping failed, so we'll report it
-	event := NewStatusChangeObservationEvent(network.meName(), subject, "MISSING")
+	observerID := network.local.ID
+	subjectID := network.getNaraIDByName(subject)
+	event := NewStatusChangeObservationEventWithIDs(network.meName(), observerID, subject, subjectID, "MISSING")
 	if network.local.SyncLedger.AddEventFiltered(event, network.local.Me.Status.Personality) && network.local.Projections != nil {
 		network.local.Projections.Trigger()
 	}
@@ -709,7 +696,7 @@ func (network *Network) reportMissingWithDelay(subject string) {
 // reportRestartWithDelay implements "if no one says anything, I guess I'll say something"
 // Waits a random delay, then checks if another observer already reported the subject restart.
 // If yes, stays silent. If no, emits the restart event.
-func (network *Network) reportRestartWithDelay(subject string, startTime, restartNum int64) {
+func (network *Network) reportRestartWithDelay(subject types.NaraName, startTime, restartNum int64) {
 	if !network.waitWithJitter(5*time.Second, network.testObservationDelay) {
 		return
 	}
@@ -722,7 +709,9 @@ func (network *Network) reportRestartWithDelay(subject string, startTime, restar
 		return
 	}
 
-	event := NewRestartObservationEvent(network.meName(), subject, startTime, restartNum)
+	observerID := network.local.ID
+	subjectID := network.getNaraIDByName(subject)
+	event := NewRestartObservationEventWithIDs(network.meName(), observerID, subject, subjectID, startTime, restartNum)
 	if network.local.SyncLedger.AddEventWithDedup(event) && network.local.Projections != nil {
 		network.local.Projections.Trigger()
 	}
@@ -732,7 +721,7 @@ func (network *Network) reportRestartWithDelay(subject string, startTime, restar
 // verifyOnlineWithPing attempts to ping a nara before marking them as offline/missing.
 // Returns true if the nara is verified online (and emits an event), false if unreachable.
 // This guards against buggy naras spreading false "offline" observations.
-func (network *Network) verifyOnlineWithPing(name string) bool {
+func (network *Network) verifyOnlineWithPing(name types.NaraName) bool {
 	// Skip verification for ourselves
 	if name == network.meName() {
 		return false
@@ -791,7 +780,9 @@ func (network *Network) verifyOnlineWithPing(name string) bool {
 
 	// Try to ping with a short timeout (2 seconds)
 	logrus.Debugf("🔍 Verifying %s is really offline via ping...", name)
-	rtt, err := network.tsnetMesh.Ping(meshIP, network.meName(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	rtt, err := network.meshClient.PingIP(ctx, meshIP)
 	if err != nil {
 		logrus.Debugf("🔍 Verification ping to %s failed: %v - confirmed offline", name, err)
 		// Cache the failed result
@@ -816,7 +807,7 @@ func (network *Network) verifyOnlineWithPing(name string) bool {
 
 // markOnlineFromPing updates observation and emits a ping event after a successful ping.
 // This is the shared logic for both real pings and test pings.
-func (network *Network) markOnlineFromPing(name string, rttMs float64) {
+func (network *Network) markOnlineFromPing(name types.NaraName, rttMs float64) {
 	// Update our observation
 	obs := network.local.getObservation(name)
 	obs.Online = "ONLINE"

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eljojo/nara/types"
 	"github.com/sirupsen/logrus"
 )
 
@@ -42,7 +43,7 @@ func TestDelayedMissingReporting(t *testing.T) {
 		observers[i] = ln
 	}
 
-	subject := "target-nara"
+	subject := types.NaraName("target-nara")
 
 	// All observers detect the subject going MISSING at roughly the same time
 	// Using goroutines to simulate concurrent detection
@@ -57,7 +58,7 @@ func TestDelayedMissingReporting(t *testing.T) {
 	// Check how many MISSING events were emitted
 	events := sharedLedger.GetObservationEventsAbout(subject)
 	missingCount := 0
-	observers_reported := make(map[string]bool)
+	observers_reported := make(map[types.NaraName]bool)
 
 	for _, e := range events {
 		if e.Observation != nil &&
@@ -118,10 +119,10 @@ func TestDelayedMissingReporting_NoRedundancy(t *testing.T) {
 	me2.LastSeen = time.Now().Unix()
 	ln2.setMeObservation(me2)
 
-	subject := "target-nara"
+	subject := types.NaraName("target-nara")
 
 	// First observer reports immediately (simulating being the quickest)
-	event := NewStatusChangeObservationEvent("observer-fast", subject, "MISSING")
+	event := NewStatusChangeObservationEvent(types.NaraName("observer-fast"), subject, "MISSING")
 	sharedLedger.AddEventWithDedup(event)
 
 	// Small delay to ensure the event is in the ledger
@@ -136,7 +137,7 @@ func TestDelayedMissingReporting_NoRedundancy(t *testing.T) {
 	// Check that we only have 1 MISSING event (from fast observer)
 	events := sharedLedger.GetObservationEventsAbout(subject)
 	missingCount := 0
-	lastObserver := ""
+	lastObserver := types.NaraName("")
 
 	for _, e := range events {
 		if e.Observation != nil &&
@@ -151,7 +152,7 @@ func TestDelayedMissingReporting_NoRedundancy(t *testing.T) {
 		t.Errorf("Expected exactly 1 MISSING event (slow observer should stay silent), got %d", missingCount)
 	}
 
-	if lastObserver != "observer-fast" {
+	if lastObserver != types.NaraName("observer-fast") {
 		t.Errorf("Expected event from observer-fast, got %s", lastObserver)
 	}
 
@@ -179,7 +180,7 @@ func TestDelayedRestartReporting(t *testing.T) {
 		observers[i] = ln
 	}
 
-	subject := "target-nara"
+	subject := types.NaraName("target-nara")
 	startTime := time.Now().Unix() - 300
 	restartNum := int64(10)
 
@@ -192,7 +193,7 @@ func TestDelayedRestartReporting(t *testing.T) {
 
 	events := sharedLedger.GetObservationEventsAbout(subject)
 	restartCount := 0
-	observersReported := make(map[string]bool)
+	observersReported := make(map[types.NaraName]bool)
 
 	for _, e := range events {
 		if e.Observation != nil && e.Observation.Type == "restart" {
@@ -234,11 +235,11 @@ func TestDelayedRestartReporting_NoRedundancy(t *testing.T) {
 	slowDelay := 100 * time.Millisecond
 	ln2.Network.testObservationDelay = &slowDelay
 
-	subject := "target-nara"
+	subject := types.NaraName("target-nara")
 	startTime := time.Now().Unix() - 300
 	restartNum := int64(10)
 
-	event := NewRestartObservationEvent("observer-fast", subject, startTime, restartNum)
+	event := NewRestartObservationEvent(types.NaraName("observer-fast"), subject, startTime, restartNum)
 	sharedLedger.AddEventWithDedup(event)
 
 	time.Sleep(50 * time.Millisecond)
@@ -249,7 +250,7 @@ func TestDelayedRestartReporting_NoRedundancy(t *testing.T) {
 
 	events := sharedLedger.GetObservationEventsAbout(subject)
 	restartCount := 0
-	lastObserver := ""
+	lastObserver := types.NaraName("")
 
 	for _, e := range events {
 		if e.Observation != nil && e.Observation.Type == "restart" {
@@ -262,7 +263,7 @@ func TestDelayedRestartReporting_NoRedundancy(t *testing.T) {
 		t.Errorf("Expected exactly 1 restart event (slow observer should stay silent), got %d", restartCount)
 	}
 
-	if lastObserver != "observer-fast" {
+	if lastObserver != types.NaraName("observer-fast") {
 		t.Errorf("Expected event from observer-fast, got %s", lastObserver)
 	}
 

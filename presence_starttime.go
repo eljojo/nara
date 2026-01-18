@@ -5,6 +5,8 @@ import (
 	"math/rand"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // startTimeVote represents a vote for our start time from another nara
@@ -88,16 +90,19 @@ func (network *Network) recoverSelfStartTimeFromMesh() {
 		targetCount = 3
 	}
 
-	subjects := []string{network.meName()}
+	subjects := []types.NaraName{network.meName()}
 	totalAdded := 0
 
 	for _, neighbor := range online[:targetCount] {
-		ip := network.getMeshIPForNara(neighbor)
-		if ip == "" {
+		ip, naraID := network.getMeshInfoForNara(neighbor)
+		if ip == "" || naraID == "" {
 			continue
 		}
 
-		events, respVerified := network.fetchSyncEventsFromMesh(ip, neighbor, subjects, 0, 1, 500)
+		// Register peer for mesh client lookups
+		network.meshClient.RegisterPeerIP(naraID, ip)
+
+		events, respVerified := network.fetchSyncEventsFromMesh(naraID, neighbor, subjects, 0, 1, 500)
 		if len(events) == 0 {
 			continue
 		}

@@ -10,6 +10,9 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/identity"
+	"github.com/eljojo/nara/types"
 )
 
 // Inspector API Endpoints
@@ -22,7 +25,7 @@ func (ln *LocalNara) inspectorEventsHandler(w http.ResponseWriter, r *http.Reque
 	// Parse query parameters
 	query := r.URL.Query()
 	service := query.Get("service")
-	subject := query.Get("subject")
+	subject := types.NaraName(query.Get("subject"))
 	afterStr := query.Get("after")
 	beforeStr := query.Get("before")
 	limitStr := query.Get("limit")
@@ -113,8 +116,8 @@ func (ln *LocalNara) inspectorEventsHandler(w http.ResponseWriter, r *http.Reque
 		ID        string            `json:"id"`
 		Timestamp int64             `json:"timestamp"`
 		Service   string            `json:"service"`
-		Emitter   string            `json:"emitter"`
-		EmitterID string            `json:"emitter_id"`
+		Emitter   types.NaraName    `json:"emitter"`
+		EmitterID types.NaraID      `json:"emitter_id"`
 		Signed    bool              `json:"signed"`
 		UIFormat  map[string]string `json:"ui_format,omitempty"`
 	}
@@ -182,7 +185,7 @@ func getEventUIFormat(event *SyncEvent) map[string]string {
 			// Checkpoints don't have a built-in UIFormat, create one
 			uiFormat = map[string]string{
 				"icon":   "📸",
-				"text":   event.Checkpoint.Subject + " checkpoint",
+				"text":   event.Checkpoint.Subject.String() + " checkpoint",
 				"detail": event.Checkpoint.LogFormat(),
 			}
 		}
@@ -200,23 +203,23 @@ func (ln *LocalNara) inspectorCheckpointsHandler(w http.ResponseWriter, r *http.
 	ln.SyncLedger.mu.RUnlock()
 
 	type CheckpointSummary struct {
-		Subject              string `json:"subject"`
-		SubjectID            string `json:"subject_id"`
-		AsOfTime             int64  `json:"as_of_time"`
-		Round                int    `json:"round"`
-		Restarts             int64  `json:"restarts"`
-		TotalUptime          int64  `json:"total_uptime"`
-		StartTime            int64  `json:"start_time"`
-		VoterCount           int    `json:"voter_count"`
-		VerifiedCount        int    `json:"verified_count"`
-		KnownCount           int    `json:"known_count"`
-		Verified             bool   `json:"verified"`
-		Version              int    `json:"version"`                          // v2: checkpoint version
-		PreviousCheckpointID string `json:"previous_checkpoint_id,omitempty"` // v2: chain link
+		Subject              types.NaraName `json:"subject"`
+		SubjectID            types.NaraID   `json:"subject_id"`
+		AsOfTime             int64          `json:"as_of_time"`
+		Round                int            `json:"round"`
+		Restarts             int64          `json:"restarts"`
+		TotalUptime          int64          `json:"total_uptime"`
+		StartTime            int64          `json:"start_time"`
+		VoterCount           int            `json:"voter_count"`
+		VerifiedCount        int            `json:"verified_count"`
+		KnownCount           int            `json:"known_count"`
+		Verified             bool           `json:"verified"`
+		Version              int            `json:"version"`                          // v2: checkpoint version
+		PreviousCheckpointID string         `json:"previous_checkpoint_id,omitempty"` // v2: chain link
 	}
 
 	checkpoints := make([]CheckpointSummary, 0)
-	seen := make(map[string]bool) // Track latest checkpoint per subject
+	seen := make(map[types.NaraName]bool) // Track latest checkpoint per subject
 
 	// Process checkpoints (latest first)
 	for i := len(events) - 1; i >= 0; i-- {
@@ -276,7 +279,7 @@ func (ln *LocalNara) inspectorCheckpointDetailHandler(w http.ResponseWriter, r *
 	}
 
 	// Get latest checkpoint event for subject
-	checkpointEvent := ln.SyncLedger.GetCheckpointEvent(subject)
+	checkpointEvent := ln.SyncLedger.GetCheckpointEvent(types.NaraName(subject))
 	if checkpointEvent == nil {
 		http.Error(w, "checkpoint not found", http.StatusNotFound)
 		return
@@ -285,11 +288,11 @@ func (ln *LocalNara) inspectorCheckpointDetailHandler(w http.ResponseWriter, r *
 
 	// Verify each voter signature
 	type VoterInfo struct {
-		VoterID           string  `json:"voter_id"`
-		VoterName         string  `json:"voter_name"`
-		Signature         string  `json:"signature"`
-		Verified          bool    `json:"verified"`
-		VerificationError *string `json:"verification_error"`
+		VoterID           types.NaraID   `json:"voter_id"`
+		VoterName         types.NaraName `json:"voter_name"`
+		Signature         string         `json:"signature"`
+		Verified          bool           `json:"verified"`
+		VerificationError *string        `json:"verification_error"`
 	}
 
 	voters := make([]VoterInfo, len(checkpoint.VoterIDs))
@@ -299,7 +302,7 @@ func (ln *LocalNara) inspectorCheckpointDetailHandler(w http.ResponseWriter, r *
 			signature = checkpoint.Signatures[i]
 		}
 
-		voterName := ""
+		var voterName types.NaraName
 		if voterID == checkpoint.SubjectID {
 			voterName = checkpoint.Subject
 		} else {
@@ -339,7 +342,7 @@ func (ln *LocalNara) inspectorCheckpointDetailHandler(w http.ResponseWriter, r *
 				}
 
 				signableContent := attestation.SignableContent()
-				if VerifySignatureBase64(pubKey, []byte(signableContent), signature) {
+				if identity.VerifySignatureBase64(pubKey, []byte(signableContent), signature) {
 					verified = true
 				} else {
 					errMsg := "signature verification failed"
@@ -398,13 +401,13 @@ func (ln *LocalNara) inspectorProjectionsHandler(w http.ResponseWriter, r *http.
 	}
 
 	// Get all online statuses
-	onlineStatusMap := make(map[string]interface{})
+	onlineStatusMap := make(map[types.NaraName]interface{})
 	if ln.Projections.OnlineStatus() != nil {
 		statuses := ln.Projections.OnlineStatus().GetAllStatuses()
 		for name, status := range statuses {
 			state := ln.Projections.OnlineStatus().GetState(name)
 			totalUptime := ln.SyncLedger.DeriveTotalUptime(name)
-			onlineStatusMap[name] = map[string]interface{}{
+			onlineStatusMap[name] = map[types.NaraName]interface{}{
 				"status":          status,
 				"last_event_time": state.LastEventTime,
 				"last_event_type": state.LastEventType,
@@ -415,7 +418,7 @@ func (ln *LocalNara) inspectorProjectionsHandler(w http.ResponseWriter, r *http.
 	}
 
 	// Get clout scores
-	cloutMap := make(map[string]float64)
+	cloutMap := make(map[types.NaraName]float64)
 	if ln.Projections.Clout() != nil {
 		cloutScores := ln.Projections.Clout().DeriveClout(ln.Soul, ln.Me.Status.Personality)
 		for name, score := range cloutScores {
@@ -424,11 +427,11 @@ func (ln *LocalNara) inspectorProjectionsHandler(w http.ResponseWriter, r *http.
 	}
 
 	// Get opinion consensus for all known naras
-	opinionsMap := make(map[string]interface{})
+	opinionsMap := make(map[types.NaraName]interface{})
 	if ln.Projections.Opinion() != nil {
 		// Get all unique subjects from neighbourhood
 		ln.mu.Lock()
-		subjects := make([]string, 0, len(ln.Network.Neighbourhood))
+		subjects := make([]types.NaraName, 0, len(ln.Network.Neighbourhood))
 		for name := range ln.Network.Neighbourhood {
 			subjects = append(subjects, name)
 		}
@@ -485,7 +488,7 @@ func (ln *LocalNara) inspectorProjectionDetailHandler(w http.ResponseWriter, r *
 	}
 
 	projectionType := parts[0]
-	subject := parts[1]
+	subject := types.NaraName(parts[1])
 
 	if ln.Projections == nil {
 		http.Error(w, "projections not available", http.StatusServiceUnavailable)
@@ -679,7 +682,7 @@ func (ln *LocalNara) inspectorEventDetailHandler(w http.ResponseWriter, r *http.
 
 	if isSigned {
 		// Create a lookup function that resolves public keys
-		lookup := func(id, name string) ed25519.PublicKey {
+		lookup := func(id types.NaraID, name types.NaraName) ed25519.PublicKey {
 			if id != "" {
 				if key := ln.Network.getPublicKeyForNaraID(id); key != nil {
 					return key
@@ -697,14 +700,14 @@ func (ln *LocalNara) inspectorEventDetailHandler(w http.ResponseWriter, r *http.
 		case *HeyThereEvent:
 			// Embedded key - known if it parses
 			if p != nil && p.PublicKey != "" {
-				if _, err := ParsePublicKey(p.PublicKey); err == nil {
+				if _, err := identity.ParsePublicKey(p.PublicKey); err == nil {
 					publicKeyKnown = true
 				}
 			}
 		case *ChauEvent:
 			// Embedded key - known if it parses
 			if p != nil && p.PublicKey != "" {
-				if _, err := ParsePublicKey(p.PublicKey); err == nil {
+				if _, err := identity.ParsePublicKey(p.PublicKey); err == nil {
 					publicKeyKnown = true
 				}
 			}
@@ -775,7 +778,7 @@ type UptimePeriod struct {
 // Returns timeline of online/offline periods for a nara.
 // Uses checkpoint data when available, falls back to backfill, then real-time events.
 func (ln *LocalNara) inspectorUptimeHandler(w http.ResponseWriter, r *http.Request) {
-	subject := strings.TrimPrefix(r.URL.Path, "/api/inspector/uptime/")
+	subject := types.NaraName(strings.TrimPrefix(r.URL.Path, "/api/inspector/uptime/"))
 	if subject == "" {
 		http.Error(w, "subject required", http.StatusBadRequest)
 		return

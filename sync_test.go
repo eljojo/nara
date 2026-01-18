@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/eljojo/nara/identity"
+	"github.com/eljojo/nara/types"
 )
 
 // --- Basic Ledger Operations ---
@@ -176,7 +179,7 @@ func TestSyncLedger_InterleavedSlicing(t *testing.T) {
 		e := SyncEvent{
 			Timestamp: baseTime + int64(i),
 			Service:   ServicePing,
-			Ping:      &PingObservation{Observer: "alice", Target: fmt.Sprintf("bob-%d", i), RTT: float64(i + 1)},
+			Ping:      &PingObservation{Observer: types.NaraName("alice"), Target: types.NaraName(fmt.Sprintf("bob-%d", i)), RTT: float64(i + 1)},
 		}
 		e.ComputeID()
 		ledger.AddEvent(e)
@@ -256,7 +259,7 @@ func TestSyncLedger_MaxEventsLimit(t *testing.T) {
 		e := SyncEvent{
 			Timestamp: baseTime + int64(i),
 			Service:   ServicePing,
-			Ping:      &PingObservation{Observer: "alice", Target: fmt.Sprintf("bob-%d", i), RTT: float64(i + 1)},
+			Ping:      &PingObservation{Observer: types.NaraName("alice"), Target: types.NaraName(fmt.Sprintf("bob-%d", i)), RTT: float64(i + 1)},
 		}
 		e.ComputeID()
 		ledger.AddEvent(e)
@@ -280,11 +283,11 @@ func TestSyncLedger_MaxEventsLimit(t *testing.T) {
 
 func TestSyncResponse_Signing(t *testing.T) {
 	// Create a keypair from a valid soul (use GenerateSoul or create bytes directly)
-	soul1 := SoulV1{}
+	soul1 := identity.SoulV1{}
 	for i := 0; i < 32; i++ {
 		soul1.Seed[i] = byte(i) // deterministic seed
 	}
-	keypair := DeriveKeypair(soul1)
+	keypair := identity.DeriveKeypair(soul1)
 
 	// Create some events
 	ledger := NewSyncLedger(1000)
@@ -302,11 +305,11 @@ func TestSyncResponse_Signing(t *testing.T) {
 	}
 
 	// Verify should fail with wrong public key
-	soul2 := SoulV1{}
+	soul2 := identity.SoulV1{}
 	for i := 0; i < 32; i++ {
 		soul2.Seed[i] = byte(255 - i) // different seed
 	}
-	otherKeypair := DeriveKeypair(soul2)
+	otherKeypair := identity.DeriveKeypair(soul2)
 	if response.VerifySignature(otherKeypair.PublicKey) {
 		t.Error("expected signature verification to fail with wrong key")
 	}
@@ -334,7 +337,7 @@ func TestBootRecovery_DistributedSync(t *testing.T) {
 		e := SyncEvent{
 			Timestamp: baseTime + int64(i),
 			Service:   ServicePing,
-			Ping:      &PingObservation{Observer: "shared", Target: fmt.Sprintf("target-%d", i), RTT: float64(i)},
+			Ping:      &PingObservation{Observer: types.NaraName("shared"), Target: types.NaraName(fmt.Sprintf("target-%d", i)), RTT: float64(i)},
 		}
 		e.ComputeID()
 		neighbor1.AddEvent(e)
@@ -383,7 +386,7 @@ func TestSyncLedger_Prune(t *testing.T) {
 		e := SyncEvent{
 			Timestamp: baseTime + int64(i*1000), // Different nanoseconds
 			Service:   ServicePing,
-			Ping:      &PingObservation{Observer: "alice", Target: fmt.Sprintf("bob-%d", i), RTT: float64(i + 1)},
+			Ping:      &PingObservation{Observer: types.NaraName("alice"), Target: types.NaraName(fmt.Sprintf("bob-%d", i)), RTT: float64(i + 1)},
 		}
 		e.ComputeID()
 		ledger.AddEvent(e)
@@ -416,13 +419,13 @@ func TestSyncLedger_PrunePriority(t *testing.T) {
 
 	// Add 5 critical events (restart, first-seen) - these should NEVER be pruned
 	for i := 0; i < 3; i++ {
-		e := NewRestartObservationEvent("observer", fmt.Sprintf("nara-%d", i), baseTime, int64(i+1))
+		e := NewRestartObservationEvent(types.NaraName("observer"), types.NaraName(fmt.Sprintf("nara-%d", i)), baseTime, int64(i+1))
 		e.Timestamp = baseTime + int64(i*1000)
 		e.ComputeID()
 		ledger.AddEvent(e)
 	}
 	for i := 0; i < 2; i++ {
-		e := NewFirstSeenObservationEvent("observer", fmt.Sprintf("new-nara-%d", i), baseTime)
+		e := NewFirstSeenObservationEvent(types.NaraName("observer"), types.NaraName(fmt.Sprintf("new-nara-%d", i)), baseTime)
 		e.Timestamp = baseTime + int64((i+3)*1000)
 		e.ComputeID()
 		ledger.AddEvent(e)
@@ -430,7 +433,7 @@ func TestSyncLedger_PrunePriority(t *testing.T) {
 
 	// Add 5 status-change events (priority 1)
 	for i := 0; i < 5; i++ {
-		e := NewStatusChangeObservationEvent("observer", fmt.Sprintf("status-nara-%d", i), "ONLINE")
+		e := NewStatusChangeObservationEvent(types.NaraName("observer"), types.NaraName(fmt.Sprintf("status-nara-%d", i)), "ONLINE")
 		e.Timestamp = baseTime + int64((i+5)*1000)
 		e.ComputeID()
 		ledger.AddEvent(e)
@@ -438,7 +441,7 @@ func TestSyncLedger_PrunePriority(t *testing.T) {
 
 	// Add 5 social events (priority 2)
 	for i := 0; i < 5; i++ {
-		e := NewSocialSyncEvent("tease", "alice", fmt.Sprintf("target-%d", i), "random", "alice")
+		e := NewSocialSyncEvent("tease", types.NaraName("alice"), types.NaraName(fmt.Sprintf("target-%d", i)), "random", types.NaraName("alice"))
 		e.Timestamp = baseTime + int64((i+10)*1000)
 		e.ComputeID()
 		ledger.AddEvent(e)
@@ -494,7 +497,7 @@ func TestSyncLedger_PrunePriority_UnknownNarasFirst(t *testing.T) {
 	ledger := NewSyncLedger(5) // Max 5 events
 
 	// Set up the unknown nara checker - "unknown-nara" is unknown, "known-nara" is known
-	ledger.SetUnknownNaraChecker(func(name string) bool {
+	ledger.SetUnknownNaraChecker(func(name types.NaraName) bool {
 		return name == "unknown-nara"
 	})
 
@@ -505,7 +508,7 @@ func TestSyncLedger_PrunePriority_UnknownNarasFirst(t *testing.T) {
 		e := SyncEvent{
 			Timestamp: baseTime + int64(i*1000),
 			Service:   ServicePing,
-			Ping:      &PingObservation{Observer: "known-nara", Target: fmt.Sprintf("known-%d", i), RTT: float64(i + 1)},
+			Ping:      &PingObservation{Observer: types.NaraName("known-nara"), Target: types.NaraName(fmt.Sprintf("known-%d", i)), RTT: float64(i + 1)},
 		}
 		e.ComputeID()
 		ledger.AddEvent(e)
@@ -516,7 +519,7 @@ func TestSyncLedger_PrunePriority_UnknownNarasFirst(t *testing.T) {
 		e := SyncEvent{
 			Timestamp: baseTime + int64((i+3)*1000),
 			Service:   ServicePing,
-			Ping:      &PingObservation{Observer: "unknown-nara", Target: fmt.Sprintf("unknown-%d", i), RTT: float64(i + 10)},
+			Ping:      &PingObservation{Observer: types.NaraName("unknown-nara"), Target: types.NaraName(fmt.Sprintf("unknown-%d", i)), RTT: float64(i + 10)},
 		}
 		e.ComputeID()
 		ledger.AddEvent(e)
@@ -644,7 +647,7 @@ func TestSyncEvent_LegacyConversion(t *testing.T) {
 func TestSyncEvent_SignAndVerify(t *testing.T) {
 	// Create a keypair
 	pub, priv, _ := ed25519.GenerateKey(nil)
-	keypair := NaraKeypair{PrivateKey: priv, PublicKey: pub}
+	keypair := identity.NaraKeypair{PrivateKey: priv, PublicKey: pub}
 
 	// Test signing a social event
 	event := NewSocialSyncEvent("tease", "alice", "bob", "high-restarts", "")
@@ -678,7 +681,7 @@ func TestSyncEvent_SignAndVerify(t *testing.T) {
 
 func TestSyncEvent_SignedConstructors(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(nil)
-	keypair := NaraKeypair{PrivateKey: priv, PublicKey: pub}
+	keypair := identity.NaraKeypair{PrivateKey: priv, PublicKey: pub}
 
 	// Test signed social event constructor
 	social := NewSignedSocialSyncEvent("tease", "alice", "bob", "reason", "", "alice", keypair)
@@ -720,7 +723,7 @@ func TestSyncEvent_VerifyUnsigned(t *testing.T) {
 
 func TestSyncEvent_TamperedSignature(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(nil)
-	keypair := NaraKeypair{PrivateKey: priv, PublicKey: pub}
+	keypair := identity.NaraKeypair{PrivateKey: priv, PublicKey: pub}
 
 	// Create and sign an event
 	event := NewSignedSocialSyncEvent("tease", "alice", "bob", "reason", "", "alice", keypair)
@@ -736,7 +739,7 @@ func TestSyncEvent_TamperedSignature(t *testing.T) {
 
 func TestSyncLedger_AddSignedPingObservation(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(nil)
-	keypair := NaraKeypair{PrivateKey: priv, PublicKey: pub}
+	keypair := identity.NaraKeypair{PrivateKey: priv, PublicKey: pub}
 
 	ledger := NewSyncLedger(100)
 
@@ -761,7 +764,7 @@ func TestSyncLedger_AddSignedPingObservation(t *testing.T) {
 
 func TestSyncLedger_AddSignedPingObservationWithReplace(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(nil)
-	keypair := NaraKeypair{PrivateKey: priv, PublicKey: pub}
+	keypair := identity.NaraKeypair{PrivateKey: priv, PublicKey: pub}
 
 	ledger := NewSyncLedger(100)
 
@@ -804,14 +807,14 @@ func TestSyncLedger_MergeEvents_PingRetention(t *testing.T) {
 	var events []SyncEvent
 
 	for i := 0; i < MaxPingsPerTarget+2; i++ {
-		observer := "alice"
+		observer := types.NaraName("alice")
 		if i%2 == 1 {
-			observer = "carol"
+			observer = types.NaraName("carol")
 		}
 		e := SyncEvent{
 			Timestamp: baseTime + int64(i),
 			Service:   ServicePing,
-			Ping:      &PingObservation{Observer: observer, Target: "bob", RTT: float64(i)},
+			Ping:      &PingObservation{Observer: observer, Target: types.NaraName("bob"), RTT: float64(i)},
 		}
 		e.ComputeID()
 		events = append(events, e)
@@ -1038,8 +1041,8 @@ func TestSyncLedger_DeriveClout_Observations(t *testing.T) {
 			Service:   ServiceSocial,
 			Social: &SocialEventPayload{
 				Type:   "observation",
-				Actor:  "observer",
-				Target: e.target,
+				Actor:  types.NaraName("observer"),
+				Target: types.NaraName(e.target),
 				Reason: e.reason,
 			},
 		}
@@ -1190,8 +1193,8 @@ func TestSyncLedger_GetRecentSocialEvents(t *testing.T) {
 			Service:   ServiceSocial,
 			Social: &SocialEventPayload{
 				Type:   "tease",
-				Actor:  "alice",
-				Target: fmt.Sprintf("target-%d", i),
+				Actor:  types.NaraName("alice"),
+				Target: types.NaraName(fmt.Sprintf("target-%d", i)),
 				Reason: ReasonRandom,
 			},
 		}
@@ -1298,7 +1301,7 @@ func TestSyncLedger_PageMode(t *testing.T) {
 		e := SyncEvent{
 			Timestamp: baseTime + int64(i*1000),
 			Service:   ServicePing,
-			Ping:      &PingObservation{Observer: "alice", Target: fmt.Sprintf("bob-%d", i), RTT: float64(i + 1)},
+			Ping:      &PingObservation{Observer: types.NaraName("alice"), Target: types.NaraName(fmt.Sprintf("bob-%d", i)), RTT: float64(i + 1)},
 		}
 		e.ComputeID()
 		ledger.AddEvent(e)
@@ -1374,13 +1377,13 @@ func TestSyncLedger_PageMode_WithFilters(t *testing.T) {
 		ping := SyncEvent{
 			Timestamp: baseTime + int64(i*1000),
 			Service:   ServicePing,
-			Ping:      &PingObservation{Observer: "alice", Target: fmt.Sprintf("target-%d", i), RTT: float64(i + 1)},
+			Ping:      &PingObservation{Observer: types.NaraName("alice"), Target: types.NaraName(fmt.Sprintf("target-%d", i)), RTT: float64(i + 1)},
 		}
 		ping.ComputeID()
 		ledger.AddEvent(ping)
 
 		// Social events
-		social := NewSocialSyncEvent("tease", "alice", "bob", ReasonRandom, "")
+		social := NewSocialSyncEvent("tease", types.NaraName("alice"), types.NaraName("bob"), ReasonRandom, types.NaraName(""))
 		social.Timestamp = baseTime + int64(i*1000) + 500
 		social.ComputeID()
 		ledger.AddEvent(social)
@@ -1422,7 +1425,7 @@ func TestSyncLedger_RecentMode(t *testing.T) {
 		e := SyncEvent{
 			Timestamp: baseTime + int64(i*1000),
 			Service:   ServicePing,
-			Ping:      &PingObservation{Observer: "alice", Target: fmt.Sprintf("bob-%d", i), RTT: float64(i + 1)},
+			Ping:      &PingObservation{Observer: types.NaraName("alice"), Target: types.NaraName(fmt.Sprintf("bob-%d", i)), RTT: float64(i + 1)},
 		}
 		e.ComputeID()
 		ledger.AddEvent(e)
@@ -1500,7 +1503,7 @@ func TestSyncLedger_SampleMode(t *testing.T) {
 		e := SyncEvent{
 			Timestamp: now.Add(-time.Duration(i) * time.Minute).UnixNano(),
 			Service:   ServicePing,
-			Ping:      &PingObservation{Observer: "alice", Target: fmt.Sprintf("recent-%d", i), RTT: float64(i)},
+			Ping:      &PingObservation{Observer: types.NaraName("alice"), Target: types.NaraName(fmt.Sprintf("recent-%d", i)), RTT: float64(i)},
 		}
 		e.ComputeID()
 		ledger.AddEvent(e)
@@ -1511,7 +1514,7 @@ func TestSyncLedger_SampleMode(t *testing.T) {
 		e := SyncEvent{
 			Timestamp: now.Add(-30*24*time.Hour - time.Duration(i)*time.Minute).UnixNano(),
 			Service:   ServicePing,
-			Ping:      &PingObservation{Observer: "alice", Target: fmt.Sprintf("old-%d", i), RTT: float64(i)},
+			Ping:      &PingObservation{Observer: types.NaraName("alice"), Target: types.NaraName(fmt.Sprintf("old-%d", i)), RTT: float64(i)},
 		}
 		e.ComputeID()
 		ledger.AddEvent(e)
@@ -1527,9 +1530,9 @@ func TestSyncLedger_SampleMode(t *testing.T) {
 	recentCount := 0
 	oldCount := 0
 	for _, e := range sample {
-		if strings.HasPrefix(e.Ping.Target, "recent-") {
+		if strings.HasPrefix(e.Ping.Target.String(), "recent-") {
 			recentCount++
-		} else if strings.HasPrefix(e.Ping.Target, "old-") {
+		} else if strings.HasPrefix(e.Ping.Target.String(), "old-") {
 			oldCount++
 		}
 	}
@@ -1559,7 +1562,7 @@ func TestSyncLedger_SampleMode_CriticalEvents(t *testing.T) {
 
 	// Create a hey_there event
 	pub, priv, _ := ed25519.GenerateKey(nil)
-	keypair := NaraKeypair{PrivateKey: priv, PublicKey: pub}
+	keypair := identity.NaraKeypair{PrivateKey: priv, PublicKey: pub}
 	heyThere := NewHeyThereSyncEvent("bob", "bob-id", "100.64.0.1", "bob-id", keypair)
 	heyThere.Timestamp = baseTime + 1000
 	heyThere.ComputeID()
@@ -1575,7 +1578,7 @@ func TestSyncLedger_SampleMode_CriticalEvents(t *testing.T) {
 		e := SyncEvent{
 			Timestamp: baseTime + int64((i+3)*1000),
 			Service:   ServicePing,
-			Ping:      &PingObservation{Observer: "alice", Target: fmt.Sprintf("target-%d", i), RTT: float64(i)},
+			Ping:      &PingObservation{Observer: types.NaraName("alice"), Target: types.NaraName(fmt.Sprintf("target-%d", i)), RTT: float64(i)},
 		}
 		e.ComputeID()
 		ledger.AddEvent(e)
@@ -1619,7 +1622,7 @@ func TestSyncLedger_SampleMode_CriticalEvents(t *testing.T) {
 func TestSyncLedger_SampleMode_SelfRelevance(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 
-	myName := "my-nara"
+	myName := types.NaraName("my-nara")
 	baseTime := time.Now().UnixNano()
 
 	// Add 50 events involving my-nara
@@ -1627,7 +1630,7 @@ func TestSyncLedger_SampleMode_SelfRelevance(t *testing.T) {
 		e := SyncEvent{
 			Timestamp: baseTime + int64(i*1000),
 			Service:   ServicePing,
-			Ping:      &PingObservation{Observer: myName, Target: fmt.Sprintf("target-%d", i), RTT: float64(i)},
+			Ping:      &PingObservation{Observer: myName, Target: types.NaraName(fmt.Sprintf("target-%d", i)), RTT: float64(i)},
 		}
 		e.Emitter = myName
 		e.ComputeID()
@@ -1727,7 +1730,7 @@ func TestSyncLedger_LegacyMode(t *testing.T) {
 		e := SyncEvent{
 			Timestamp: baseTime + int64(i),
 			Service:   ServicePing,
-			Ping:      &PingObservation{Observer: "alice", Target: fmt.Sprintf("bob-%d", i), RTT: float64(i + 1)},
+			Ping:      &PingObservation{Observer: types.NaraName("alice"), Target: types.NaraName(fmt.Sprintf("bob-%d", i)), RTT: float64(i + 1)},
 		}
 		e.ComputeID()
 		ledger.AddEvent(e)

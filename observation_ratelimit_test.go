@@ -3,17 +3,19 @@ package nara
 import (
 	"testing"
 	"time"
+
+	"github.com/eljojo/nara/types"
 )
 
 // Test that we can add up to 10 observation events about a subject per 5-minute window
 func TestObservationRateLimit_UnderLimit(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 
 	// Add 10 events from different observers about the same subject
 	for i := 0; i < 10; i++ {
 		observer := "nara-" + string(rune('a'+i))
-		event := NewRestartObservationEvent(observer, subject, time.Now().Unix(), int64(i))
+		event := NewRestartObservationEvent(types.NaraName(observer), subject, time.Now().Unix(), int64(i))
 		added := ledger.AddEventWithRateLimit(event)
 		if !added {
 			t.Errorf("Event %d should be accepted (under rate limit)", i)
@@ -29,12 +31,12 @@ func TestObservationRateLimit_UnderLimit(t *testing.T) {
 // Test that the 11th event about same subject within 5 minutes is rejected
 func TestObservationRateLimit_ExceedsLimit(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 
 	// Add 10 events rapidly
 	for i := 0; i < 10; i++ {
 		observer := "nara-" + string(rune('a'+i))
-		event := NewRestartObservationEvent(observer, subject, time.Now().Unix(), int64(i))
+		event := NewRestartObservationEvent(types.NaraName(observer), subject, time.Now().Unix(), int64(i))
 		added := ledger.AddEventWithRateLimit(event)
 		if !added {
 			t.Fatalf("Event %d should be accepted, but was rejected", i)
@@ -42,7 +44,7 @@ func TestObservationRateLimit_ExceedsLimit(t *testing.T) {
 	}
 
 	// 11th event should be rejected (rate limit exceeded)
-	event11 := NewRestartObservationEvent("nara-k", subject, time.Now().Unix(), 10)
+	event11 := NewRestartObservationEvent(types.NaraName("nara-k"), subject, time.Now().Unix(), 10)
 	added := ledger.AddEventWithRateLimit(event11)
 	if added {
 		t.Error("11th event should be rejected due to rate limit")
@@ -60,7 +62,7 @@ func TestObservationRateLimit_WindowSliding(t *testing.T) {
 	// For now, document the expected behavior
 
 	ledger := NewSyncLedger(1000)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 
 	// Create a time 6 minutes ago
 	oldTime := time.Now().Add(-6 * time.Minute)
@@ -69,7 +71,7 @@ func TestObservationRateLimit_WindowSliding(t *testing.T) {
 	// In real implementation, these would be outside the 5-minute window
 
 	// New event should be accepted (old window expired)
-	event := NewRestartObservationEvent("nara-a", subject, time.Now().Unix(), 1)
+	event := NewRestartObservationEvent(types.NaraName("nara-a"), subject, time.Now().Unix(), 1)
 	added := ledger.AddEventWithRateLimit(event)
 
 	// Note: This test can't fully verify time-based behavior without
@@ -84,13 +86,13 @@ func TestObservationRateLimit_WindowSliding(t *testing.T) {
 // Test that different subjects have independent rate limits
 func TestObservationRateLimit_PerSubject(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subjectA := "nara-alice"
-	subjectB := "nara-bob"
+	subjectA := types.NaraName("nara-alice")
+	subjectB := types.NaraName("nara-bob")
 
 	// Add 10 events about alice
 	for i := 0; i < 10; i++ {
 		observer := "observer-" + string(rune('a'+i))
-		event := NewRestartObservationEvent(observer, subjectA, time.Now().Unix(), int64(i))
+		event := NewRestartObservationEvent(types.NaraName(observer), subjectA, time.Now().Unix(), int64(i))
 		added := ledger.AddEventWithRateLimit(event)
 		if !added {
 			t.Errorf("Event %d about alice should be accepted", i)
@@ -100,7 +102,7 @@ func TestObservationRateLimit_PerSubject(t *testing.T) {
 	// Add 10 events about bob (should not be affected by alice's rate limit)
 	for i := 0; i < 10; i++ {
 		observer := "observer-" + string(rune('a'+i))
-		event := NewRestartObservationEvent(observer, subjectB, time.Now().Unix(), int64(i))
+		event := NewRestartObservationEvent(types.NaraName(observer), subjectB, time.Now().Unix(), int64(i))
 		added := ledger.AddEventWithRateLimit(event)
 		if !added {
 			t.Errorf("Event %d about bob should be accepted (independent rate limit)", i)
@@ -122,12 +124,12 @@ func TestObservationRateLimit_PerSubject(t *testing.T) {
 // Test that multiple observers reporting about same subject share rate limit
 func TestObservationRateLimit_SharedAcrossObservers(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 
 	// 5 observers each report 2 events about the same subject (10 total)
 	for observer := 0; observer < 5; observer++ {
 		for event := 0; event < 2; event++ {
-			obs := "observer-" + string(rune('a'+observer))
+			obs := types.NaraName("observer-" + string(rune('a'+observer)))
 			ev := NewRestartObservationEvent(obs, subject, time.Now().Unix(), int64(observer*2+event))
 			added := ledger.AddEventWithRateLimit(ev)
 			if !added {
@@ -137,7 +139,7 @@ func TestObservationRateLimit_SharedAcrossObservers(t *testing.T) {
 	}
 
 	// Any observer trying to add 11th event should be rejected
-	event11 := NewRestartObservationEvent("observer-f", subject, time.Now().Unix(), 10)
+	event11 := NewRestartObservationEvent(types.NaraName("observer-f"), subject, time.Now().Unix(), 10)
 	added := ledger.AddEventWithRateLimit(event11)
 	if added {
 		t.Error("11th event should be rejected (rate limit shared across observers)")
@@ -147,14 +149,14 @@ func TestObservationRateLimit_SharedAcrossObservers(t *testing.T) {
 // Test rate limiting with burst of events
 func TestObservationRateLimit_BurstProtection(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "nara-flapper" // Simulating a nara restarting in a loop
+	subject := types.NaraName("nara-flapper") // Simulating a nara restarting in a loop
 
 	// Simulate burst: 50 restart events in rapid succession
 	acceptedCount := 0
 	rejectedCount := 0
 
 	for i := 0; i < 50; i++ {
-		event := NewRestartObservationEvent("observer-a", subject, time.Now().Unix(), int64(i))
+		event := NewRestartObservationEvent(types.NaraName("observer-a"), subject, time.Now().Unix(), int64(i))
 		added := ledger.AddEventWithRateLimit(event)
 		if added {
 			acceptedCount++
@@ -181,11 +183,11 @@ func TestObservationRateLimit_BurstProtection(t *testing.T) {
 // Test rate limiting with different event types
 func TestObservationRateLimit_MixedEventTypes(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 
 	// Add 5 restart events
 	for i := 0; i < 5; i++ {
-		event := NewRestartObservationEvent("observer-a", subject, time.Now().Unix(), int64(i))
+		event := NewRestartObservationEvent(types.NaraName("observer-a"), subject, time.Now().Unix(), int64(i))
 		added := ledger.AddEventWithRateLimit(event)
 		if !added {
 			t.Errorf("Restart event %d should be accepted", i)
@@ -198,7 +200,7 @@ func TestObservationRateLimit_MixedEventTypes(t *testing.T) {
 		if i%2 == 0 {
 			state = "OFFLINE"
 		}
-		event := NewStatusChangeObservationEvent("observer-b", subject, state)
+		event := NewStatusChangeObservationEvent(types.NaraName("observer-b"), subject, state)
 		added := ledger.AddEventWithRateLimit(event)
 		if !added {
 			t.Errorf("Status-change event %d should be accepted", i)
@@ -208,7 +210,7 @@ func TestObservationRateLimit_MixedEventTypes(t *testing.T) {
 	// Add 2 first-seen events
 	for i := 0; i < 2; i++ {
 		observer := "observer-" + string(rune('c'+i))
-		event := NewFirstSeenObservationEvent(observer, subject, time.Now().Unix())
+		event := NewFirstSeenObservationEvent(types.NaraName(observer), subject, time.Now().Unix())
 		added := ledger.AddEventWithRateLimit(event)
 		if !added {
 			t.Errorf("First-seen event %d should be accepted", i)
@@ -216,7 +218,7 @@ func TestObservationRateLimit_MixedEventTypes(t *testing.T) {
 	}
 
 	// Total: 10 events, next should be rejected
-	event11 := NewRestartObservationEvent("observer-e", subject, time.Now().Unix(), 100)
+	event11 := NewRestartObservationEvent(types.NaraName("observer-e"), subject, time.Now().Unix(), 100)
 	added := ledger.AddEventWithRateLimit(event11)
 	if added {
 		t.Error("11th event (mixed types) should be rejected")
@@ -231,12 +233,12 @@ func TestObservationRateLimit_MixedEventTypes(t *testing.T) {
 // Test that rate limit state is tracked correctly
 func TestObservationRateLimit_StateTracking(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 
 	// Add 8 events
 	for i := 0; i < 8; i++ {
 		observer := "observer-" + string(rune('a'+i))
-		event := NewRestartObservationEvent(observer, subject, time.Now().Unix(), int64(i))
+		event := NewRestartObservationEvent(types.NaraName(observer), subject, time.Now().Unix(), int64(i))
 		added := ledger.AddEventWithRateLimit(event)
 		if !added {
 			t.Errorf("Event %d should be accepted", i)
@@ -244,13 +246,13 @@ func TestObservationRateLimit_StateTracking(t *testing.T) {
 	}
 
 	// Should be able to add 2 more (under limit)
-	event9 := NewRestartObservationEvent("observer-i", subject, time.Now().Unix(), 8)
+	event9 := NewRestartObservationEvent(types.NaraName("observer-i"), subject, time.Now().Unix(), 8)
 	added9 := ledger.AddEventWithRateLimit(event9)
 	if !added9 {
 		t.Error("9th event should be accepted")
 	}
 
-	event10 := NewRestartObservationEvent("observer-j", subject, time.Now().Unix(), 9)
+	event10 := NewRestartObservationEvent(types.NaraName("observer-j"), subject, time.Now().Unix(), 9)
 	added10 := ledger.AddEventWithRateLimit(event10)
 	if !added10 {
 		t.Error("10th event should be accepted")
@@ -269,23 +271,23 @@ func TestObservationRateLimit_NoInterference(t *testing.T) {
 	ledger := NewSyncLedger(2000)
 
 	// Max out rate limit for subject A (10 events)
-	subjectA := "nara-a"
+	subjectA := types.NaraName("nara-a")
 	for i := 0; i < 10; i++ {
-		event := NewRestartObservationEvent("observer-1", subjectA, time.Now().Unix(), int64(i))
+		event := NewRestartObservationEvent(types.NaraName("observer-1"), subjectA, time.Now().Unix(), int64(i))
 		ledger.AddEventWithRateLimit(event)
 	}
 
 	// Max out rate limit for subject B (10 events)
-	subjectB := "nara-b"
+	subjectB := types.NaraName("nara-b")
 	for i := 0; i < 10; i++ {
-		event := NewRestartObservationEvent("observer-1", subjectB, time.Now().Unix(), int64(i))
+		event := NewRestartObservationEvent(types.NaraName("observer-1"), subjectB, time.Now().Unix(), int64(i))
 		ledger.AddEventWithRateLimit(event)
 	}
 
 	// Max out rate limit for subject C (10 events)
-	subjectC := "nara-c"
+	subjectC := types.NaraName("nara-c")
 	for i := 0; i < 10; i++ {
-		event := NewRestartObservationEvent("observer-1", subjectC, time.Now().Unix(), int64(i))
+		event := NewRestartObservationEvent(types.NaraName("observer-1"), subjectC, time.Now().Unix(), int64(i))
 		ledger.AddEventWithRateLimit(event)
 	}
 
@@ -305,12 +307,12 @@ func TestObservationRateLimit_NoInterference(t *testing.T) {
 	}
 
 	// Further events for any subject should be rejected
-	extraA := NewRestartObservationEvent("observer-1", subjectA, time.Now().Unix(), 100)
+	extraA := NewRestartObservationEvent(types.NaraName("observer-1"), subjectA, time.Now().Unix(), 100)
 	if ledger.AddEventWithRateLimit(extraA) {
 		t.Error("Extra event for subject A should be rejected")
 	}
 
-	extraB := NewRestartObservationEvent("observer-1", subjectB, time.Now().Unix(), 100)
+	extraB := NewRestartObservationEvent(types.NaraName("observer-1"), subjectB, time.Now().Unix(), 100)
 	if ledger.AddEventWithRateLimit(extraB) {
 		t.Error("Extra event for subject B should be rejected")
 	}
@@ -319,12 +321,12 @@ func TestObservationRateLimit_NoInterference(t *testing.T) {
 // Test rate limiting with backfill events
 func TestObservationRateLimit_BackfillEvents(t *testing.T) {
 	ledger := NewSyncLedger(1000)
-	subject := "nara-target"
+	subject := types.NaraName("nara-target")
 
 	// Add 10 backfill events (simulating migration)
 	for i := 0; i < 10; i++ {
 		observer := "observer-" + string(rune('a'+i))
-		event := NewBackfillObservationEvent(observer, subject, time.Now().Unix(), int64(i), time.Now().Unix())
+		event := NewBackfillObservationEvent(types.NaraName(observer), subject, time.Now().Unix(), int64(i), time.Now().Unix())
 		added := ledger.AddEventWithRateLimit(event)
 		if !added {
 			t.Errorf("Backfill event %d should be accepted", i)
@@ -332,7 +334,7 @@ func TestObservationRateLimit_BackfillEvents(t *testing.T) {
 	}
 
 	// 11th backfill event should be rejected
-	event11 := NewBackfillObservationEvent("observer-k", subject, time.Now().Unix(), 10, time.Now().Unix())
+	event11 := NewBackfillObservationEvent(types.NaraName("observer-k"), subject, time.Now().Unix(), 10, time.Now().Unix())
 	added := ledger.AddEventWithRateLimit(event11)
 	if added {
 		t.Error("11th backfill event should be rejected (rate limited)")

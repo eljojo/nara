@@ -93,7 +93,7 @@ func (ln *LocalNara) generateScreenRow(nara *Nara) neighbour {
 		uptime = "?"
 	}
 
-	name := nara.Status.LicensePlate + " " + nara.Name
+	name := nara.Status.LicensePlate + " " + nara.Name.String()
 	nei := neighbour{name, nara.Status.Flair, lastSeen, uptime, first_seen, nara.Status.Buzz, nara.Status.Chattiness}
 	return nei
 }

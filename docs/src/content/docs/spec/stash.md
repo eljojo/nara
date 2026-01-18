@@ -1,88 +1,105 @@
 ---
 title: Stash
-description: Distributed encrypted storage and redundancy in the Nara Network.
+description: Encrypted distributed storage service for nara.
 ---
 
-Stash is Nara's distributed, encrypted, memory-only storage system. It enables persistence for small (max 10KB) state blobs by storing them with "confidants"—other naras—without local disk use.
+Stash is the reference implementation of a nara runtime service. It provides encrypted, memory-only persistence by delegating storage to trusted "confidants". See the **[Stash Developer Guide](/docs/spec/developer/sample-service/)** for a deep-dive into the implementation.
 
 ## 1. Purpose
-- Persistence for essential state (personality, history) without disk.
-- Identity migration via `soul`.
-- Privacy: Owner-only decryption.
-- Availability: Replication across multiple confidants (default: 3).
+- Enable naras to survive restarts without local disk persistence by "stashing" their state on peers. See the **[Memory Model](/docs/spec/memory-model/)** for the "Hazy Memory" context.
+- Provide a blueprint for runtime services using typed messages, correlators, and versioned handlers. See **[Behaviors & Patterns](/docs/spec/developer/behaviors/)**.
+- Ensure that only the owner of a stash can ever decrypt it.
 
 ## 2. Conceptual Model
-- **Owner**: Creator and owner of the stash data.
-- **Confidant**: Peer storing an encrypted stash for an owner.
-- **StashPayload**: Encrypted, compressed blob (owner, nonce, ciphertext).
+- **Owner**: The nara whose state is being stored.
+- **Confidant**: A peer that holds an `EncryptedStash` for an owner.
+- **EncryptedStash**: A record containing `OwnerID`, `Nonce`, `Ciphertext`, and a `StoredAt` timestamp.
+- **Correlator**: A utility to track asynchronous request/response pairs (e.g., `store` -> `ack`).
+- **Encryptor**: Derived from the owner's seed; uses XChaCha20-Poly1305.
 
 ### Invariants
-- **Privacy**: Encrypted with key derived from owner's private soul.
-- **Volatility**: Memory-only; lost if confidant restarts.
-- **Capacity**: 10KB payload limit.
-- **Security**: Operations gated by Mesh-authenticated identity.
+1. Confidants MUST NOT be able to read the plaintext of the stashes they hold.
+2. Every stash operation (store/request) MUST be signed and verified via the runtime. See **[Identity](/docs/spec/identity/)**.
+3. Storage is volatile (RAM-only). If all confidants of an owner restart, the stash is lost.
+4. Symmetric keys MUST be derived deterministically from the owner's private seed.
 
 ## 3. External Behavior
-- **Distribution**: Owners seek new confidants if count < 3.
-- **Recovery**: Neighbors holding a stash "push" it back to owner upon seeing `hey_there`.
-- **Limits**: Stash slots per confidant based on `MemoryMode` (Short: 5, Medium: 20, Hog: 50).
-- **Maintenance**: Occurs every 5-10 minutes.
+- **Storage**: `StoreWith(confidantID, data)` encrypts data and waits for a `stash:ack`.
+- **Retrieval**: `RequestFrom(confidantID)` fetches and decrypts the owner's stash.
+- **Recovery**: `RecoverFromAny()` attempts retrieval from all configured confidants until success. See **[Boot Sequence](/docs/spec/boot-sequence/)**.
+- **Confidant Duty**: When receiving a `stash:store`, a nara saves the blob in its local `stored` map.
+- **Refresh**: Broadcasting `stash-refresh` via MQTT triggers confidants to send back their held stashes over mesh. See **[Plaza (MQTT)](/docs/spec/plaza-mqtt/)**.
 
 ## 4. Interfaces
 
-### HTTP Endpoints
-Requires `X-Nara-Mesh-Auth` headers.
+### Service API
+- `StoreWith(targetID, data) error`: Encrypt and send to specific peer.
+- `RequestFrom(targetID) ([]byte, error)`: Request and decrypt from specific peer.
+- `RecoverFromAny() ([]byte, error)`: Sequential recovery attempt.
+- `SetConfidants([]ID)`: Configure the set of peers to use for stashing.
+- `MarshalState() / UnmarshalState()`: Persistence of confidant list and stored blobs.
 
-| Endpoint | Method | Purpose |
-| :--- | :--- | :--- |
-| `/stash/store` | POST | Store/update stash. |
-| `/stash/store` | DELETE| Delete owner's stash. |
-| `/stash/retrieve`| POST | Fetch owner's stash. |
-| `/stash/push` | POST | Confidant returns stash to owner. |
+### Message Kinds
+- `stash:store`: (MeshOnly) Carries encrypted blob to a confidant. Response: `stash:ack`.
+- `stash:ack`: (MeshOnly) Confirmation of storage.
+- `stash:request`: (MeshOnly) Retrieval request. Response: `stash:response`.
+- `stash:response`: (MeshOnly) Carries the encrypted blob back to the owner.
+- `stash-refresh`: (MQTT) Broadcast to `nara/plaza/stash_refresh`.
 
-### Data Structures
-- **StashData**: `{ timestamp, data (JSON), version }`
-- **StashPayload**: `{ owner, nonce, ciphertext }`
+## 5. Event Types & Schemas
 
-## 5. Algorithms
+### `stash:store` (v1)
+- `OwnerID`: Nara ID of the owner.
+- `Nonce`: 24-byte random nonce.
+- `Ciphertext`: XChaCha20-Poly1305 encrypted blob.
+- `Timestamp`: When the stash was created.
 
-### Encryption & Compression
-1. **Compress**: Gzip.
-2. **KDF**: HKDF-SHA256 (salt="nara:stash:v1", info="symmetric") from Ed25519 seed.
-3. **Encrypt**: XChaCha20-Poly1305 with random 24-byte nonce.
+### `stash:ack` (v1)
+- `OwnerID`: Echoed owner ID.
+- `Success`: Boolean indicating if stored.
+- `StoredAt`: Confidant's local timestamp.
 
-### Confidant Selection
-Score = `MemoryModeScore + UptimeWeight + Jitter`.
-- **MemoryMode**: Hog (+300) > Medium (+200) > Short (+100).
-- **Stability**: Prefer long-running naras.
+### `stash-refresh` (v1)
+- `OwnerID`: ID of the nara looking for its stash.
 
-### Ghost Pruning
-Evict stash if owner is **OFFLINE** or **MISSING** for > 7 days.
+## 6. Algorithms
 
-### Recovery (Push)
-```mermaid
-sequenceDiagram
-    participant O as Owner
-    participant C as Confidant
-    O->>C: hey_there (Restarted)
-    C->>C: Check if holding O's stash
-    Note over C: Random Delay
-    C->>O: POST /stash/push (Encrypted Payload)
-```
+### Encryption (HKDF + XChaCha20-Poly1305)
+- **Key Derivation**: `HKDF-SHA256`
+  - Salt: `nara:stash:v1`
+  - Info: `symmetric`
+  - Seed: 32-byte private seed (derived from Ed25519 key).
+- **Encryption**: `Seal(plaintext)` generates a random 24-byte nonce and appends the Poly1305 tag to the ciphertext.
 
-## 6. Failure Modes
-- **Network Wipe**: Simultaneous restart of all nodes loses all data.
-- **Soul Loss**: Cannot decrypt recovered stash without original soul.
-- **Capacity**: Confidant rejects store if slots are full.
+### Correlation (Request/Response)
+- Every request generates a `Message.ID`.
+- The `Correlator` stores a channel keyed by this `ID`.
+- The response MUST set `InReplyTo` to the request's `ID`.
+- The `Correlator` resolves the response to the waiting channel.
+- Timeout: 30 seconds.
 
-## 7. Security
-- **Confidentiality**: XChaCha20-Poly1305.
-- **Integrity**: Poly1305 MAC tag.
-- **Freshness**: Timestamps prevent replay of old versions.
+### Recovery Workflow
+1. Emit `stash-refresh` on MQTT.
+2. Confidants seeing their own ID in the refresh payload (or having a record for that `OwnerID`) emit `stash:response` via mesh.
+3. Owner receives `stash:response`, matches via `InReplyTo` (or direct handling), and decrypts.
 
-## 8. Test Oracle
-- `TestStashEncryption`: Round-trip encryption/decryption.
-- `TestStashStorageLimits`: Memory-mode limit enforcement.
-- `TestConfidantSelection`: Scoring and prioritization logic.
-- `TestGhostPruning`: Eviction of long-offline owners.
-- `TestStashRecoveryPush`: Proactive push mechanism.
+## 7. Failure Modes
+- **Transport Error**: If the mesh target is unreachable, the correlator times out.
+- **Decryption Error**: If the owner's seed changes or ciphertext is corrupted, `Open` fails.
+- **Missing Stash**: If a confidant doesn't have the requested record, it replies with `Found: false`.
+- **Invalid Payload**: malformed store/request payloads result in failure acks or ignored messages.
+
+## 8. Security / Trust Model
+- **Confidentiality**: Guaranteed by AEAD (XChaCha20-Poly1305). Only the owner possesses the symmetric key.
+- **Authenticity**: Every message is signed by the sender's nara identity. Confidants verify the owner's signature before accepting a `stash:store`.
+- **Integrity**: Poly1305 protects against tampering of the encrypted blobs.
+
+## 9. Test Oracle
+- `TestStashStoreAndAck`: Verifies the full store -> ack flow with a mock runtime.
+- `TestStashRequestAndResponse`: Verifies request -> response -> decryption.
+- `TestStashEncryptionDecryption`: Validates that HKDF derivation and XChaCha20 round-trip correctly.
+- `TestStashStateMarshaling`: Ensures `stored` stashes survive service state serialization.
+
+## 10. Open Questions / TODO
+- **Seed Derivation**: Currently uses a placeholder seed; must be linked to the Nara's soul (Ed25519 seed).
+- **Auto-Selection**: Runtime should eventually provide "Best Confidants" based on uptime/memory heuristics.

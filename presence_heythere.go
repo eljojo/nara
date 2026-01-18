@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/eljojo/nara/identity"
+	"github.com/eljojo/nara/types"
 	"github.com/sirupsen/logrus"
+	"math/rand"
 )
 
 // truncateKey returns first 8 chars of a key for logging
@@ -16,15 +19,15 @@ func truncateKey(key string) string {
 }
 
 type HeyThereEvent struct {
-	From      string
-	PublicKey string // Base64-encoded Ed25519 public key
-	MeshIP    string // Tailscale IP for mesh communication
-	ID        string // Nara ID: deterministic hash of soul+name
-	Signature string // Base64-encoded signature of "hey_there:{From}:{PublicKey}:{MeshIP}:{ID}"
+	From      types.NaraName
+	PublicKey string       // Base64-encoded Ed25519 public key
+	MeshIP    string       // Tailscale IP for mesh communication
+	ID        types.NaraID // Nara ID: deterministic hash of soul+name
+	Signature string       // Base64-encoded signature of "hey_there:{From}:{PublicKey}:{MeshIP}:{ID}"
 }
 
 // Sign signs the HeyThereEvent with the given keypair
-func (h *HeyThereEvent) Sign(kp NaraKeypair) {
+func (h *HeyThereEvent) Sign(kp identity.NaraKeypair) {
 	message := h.signatureMessage()
 	h.Signature = kp.SignBase64([]byte(message))
 }
@@ -34,21 +37,21 @@ func (h *HeyThereEvent) Verify() bool {
 	if h.PublicKey == "" || h.Signature == "" {
 		return false
 	}
-	pubKey, err := ParsePublicKey(h.PublicKey)
+	pubKey, err := identity.ParsePublicKey(h.PublicKey)
 	if err != nil {
 		return false
 	}
 
 	// Try new format first (with ID)
 	message := h.signatureMessage()
-	if VerifySignatureBase64(pubKey, []byte(message), h.Signature) {
+	if identity.VerifySignatureBase64(pubKey, []byte(message), h.Signature) {
 		return true
 	}
 
 	// Fall back to old format (without ID) for backwards compatibility
 	if h.ID != "" {
-		oldMessage := fmt.Sprintf("hey_there:%s:%s:%s", h.From, h.PublicKey, h.MeshIP)
-		return VerifySignatureBase64(pubKey, []byte(oldMessage), h.Signature)
+		oldMessage := fmt.Sprintf("hey_there:%s:%s:%s", h.From.String(), h.PublicKey, h.MeshIP)
+		return identity.VerifySignatureBase64(pubKey, []byte(oldMessage), h.Signature)
 	}
 
 	return false
@@ -57,10 +60,10 @@ func (h *HeyThereEvent) Verify() bool {
 // signatureMessage returns the message to sign based on whether ID is present
 func (h *HeyThereEvent) signatureMessage() string {
 	if h.ID != "" && false { // TODO(signature) temporarily turned off
-		return fmt.Sprintf("hey_there:%s:%s:%s:%s", h.From, h.PublicKey, h.MeshIP, h.ID)
+		return fmt.Sprintf("hey_there:%s:%s:%s:%s", h.From.String(), h.PublicKey, h.MeshIP, h.ID)
 	}
 	// Legacy format for naras without ID
-	return fmt.Sprintf("hey_there:%s:%s:%s", h.From, h.PublicKey, h.MeshIP)
+	return fmt.Sprintf("hey_there:%s:%s:%s", h.From.String(), h.PublicKey, h.MeshIP)
 }
 
 // ContentString implements Payload interface for HeyThereEvent
@@ -76,17 +79,17 @@ func (h *HeyThereEvent) IsValid() bool {
 }
 
 // GetActor implements Payload interface for HeyThereEvent
-func (h *HeyThereEvent) GetActor() string { return h.From }
+func (h *HeyThereEvent) GetActor() types.NaraName { return h.From }
 
 // GetTarget implements Payload interface for HeyThereEvent
-func (h *HeyThereEvent) GetTarget() string { return h.From }
+func (h *HeyThereEvent) GetTarget() types.NaraName { return h.From }
 
 // VerifySignature implements Payload using the embedded public key
 func (h *HeyThereEvent) VerifySignature(event *SyncEvent, lookup PublicKeyLookup) bool {
 	if h.PublicKey == "" {
 		return false
 	}
-	pubKey, err := ParsePublicKey(h.PublicKey)
+	pubKey, err := identity.ParsePublicKey(h.PublicKey)
 	if err != nil {
 		return false
 	}
@@ -101,14 +104,14 @@ func (h *HeyThereEvent) UIFormat() map[string]string {
 	}
 	return map[string]string{
 		"icon":   "👋",
-		"text":   fmt.Sprintf("%s joined the network", h.From),
+		"text":   fmt.Sprintf("%s joined the network", h.From.String()),
 		"detail": detail,
 	}
 }
 
 // LogFormat returns technical log description
 func (h *HeyThereEvent) LogFormat() string {
-	return fmt.Sprintf("hey-there from %s (mesh: %s)", h.From, h.MeshIP)
+	return fmt.Sprintf("hey-there from %s (mesh: %s)", h.From.String(), h.MeshIP)
 }
 
 // ToLogEvent returns a structured log event for the logging system
@@ -116,8 +119,8 @@ func (h *HeyThereEvent) ToLogEvent() *LogEvent {
 	return &LogEvent{
 		Category: CategoryPresence,
 		Type:     "welcome",
-		Actor:    h.From,
-		Target:   h.From,
+		Actor:    h.From.String(),
+		Target:   h.From.String(),
 		Detail:   h.LogFormat(),
 		GroupFormat: func(actors string) string {
 			return fmt.Sprintf("👋 %s said hey-there", actors)
@@ -141,7 +144,7 @@ func (network *Network) processHeyThereSyncEvents(events []SyncEvent) {
 		// This is the bootstrap case - hey_there is how we learn public keys.
 		// The payload contains the public key, and the SyncEvent is signed with it.
 		if e.IsSigned() && h.PublicKey != "" {
-			pubKey, err := ParsePublicKey(h.PublicKey)
+			pubKey, err := identity.ParsePublicKey(h.PublicKey)
 			if err != nil {
 				logrus.Warnf("📡 Invalid public key in hey_there from %s: %v", h.From, err)
 				continue
@@ -161,6 +164,7 @@ func (network *Network) processHeyThereSyncEvents(events []SyncEvent) {
 			// Update existing nara with proper locking
 			nara.mu.Lock()
 			updated := false
+			naraID := nara.Status.ID
 			if nara.Status.PublicKey == "" && h.PublicKey != "" {
 				nara.Status.PublicKey = h.PublicKey
 				updated = true
@@ -171,25 +175,32 @@ func (network *Network) processHeyThereSyncEvents(events []SyncEvent) {
 				updated = true
 			}
 			nara.mu.Unlock()
+			// Register key in keyring (outside lock)
+			if updated && naraID != "" && h.PublicKey != "" {
+				network.RegisterKey(naraID, h.PublicKey)
+			}
 			if updated {
 				logrus.Infof("📡 Updated identity for %s via hey_there event (🔑)", h.From)
 			}
 		} else {
 			// Create new nara and import it
-			newNara := NewNara(h.From)
+			newNara := NewNara(types.NaraName(h.From))
 			newNara.Status.PublicKey = h.PublicKey
 			newNara.Status.MeshIP = h.MeshIP
 			newNara.Status.MeshEnabled = h.MeshIP != ""
 			network.importNara(newNara)
 			logrus.Infof("📡 Discovered new peer %s via hey_there event (🔑)", h.From)
 		}
+
+		// Stash recovery: Check if we have a stash for this returning nara
+		network.checkAndPushStash(h.ID, h.From)
 	}
 }
 
 // emitHeyThereSyncEvent creates and adds a hey_there sync event to our ledger.
 // This allows our identity to propagate through gossip (new mechanism replacing MQTT hey_there).
 func (network *Network) emitHeyThereSyncEvent() {
-	publicKey := FormatPublicKey(network.local.Keypair.PublicKey)
+	publicKey := identity.FormatPublicKey(network.local.Keypair.PublicKey)
 	meshIP := network.local.Me.Status.MeshIP
 
 	event := NewHeyThereSyncEvent(network.meName(), publicKey, meshIP, network.local.ID, network.local.Keypair)
@@ -200,7 +211,7 @@ func (network *Network) emitHeyThereSyncEvent() {
 	logrus.Infof("%s: 👋 (gossip)", network.meName())
 }
 
-func (network *Network) hasMoreRecentHeyThere(from string, thanTimestamp int64) bool {
+func (network *Network) hasMoreRecentHeyThere(from types.NaraName, thanTimestamp int64) bool {
 	if network.local.SyncLedger == nil {
 		return false
 	}
@@ -235,7 +246,7 @@ func (network *Network) handleHeyThereEvent(event SyncEvent) {
 
 	// Verify SyncEvent signature using the public key from the payload
 	if event.IsSigned() && heyThere.PublicKey != "" {
-		pubKey, err := ParsePublicKey(heyThere.PublicKey)
+		pubKey, err := identity.ParsePublicKey(heyThere.PublicKey)
 		if err != nil {
 			logrus.Warnf("🚨 Invalid public key in hey_there from %s: %v", heyThere.From, err)
 			return
@@ -258,6 +269,10 @@ func (network *Network) handleHeyThereEvent(event SyncEvent) {
 		}
 		network.broadcastSSE(event)
 	}
+
+	// Stash recovery: Check if we have a stash for this returning nara
+	// If so, proactively push it to them via mesh
+	network.checkAndPushStash(heyThere.ID, heyThere.From)
 
 	// Store PublicKey and MeshIP from the hey_there event
 	if heyThere.PublicKey != "" || heyThere.MeshIP != "" {
@@ -285,7 +300,13 @@ func (network *Network) handleHeyThereEvent(event SyncEvent) {
 				nara.Status.ID = heyThere.ID
 				nara.ID = heyThere.ID
 			}
+			// Get final ID for keyring registration
+			naraID := nara.Status.ID
 			nara.mu.Unlock()
+			// Register key in keyring (outside lock)
+			if naraID != "" && heyThere.PublicKey != "" {
+				network.RegisterKey(naraID, heyThere.PublicKey)
+			}
 			logrus.Infof("📝 Updated %s: PublicKey=%s..., MeshIP=%s, ID=%s",
 				heyThere.From,
 				truncateKey(heyThere.PublicKey),
@@ -300,6 +321,23 @@ func (network *Network) handleHeyThereEvent(event SyncEvent) {
 		network.startHowdyCoordinator(heyThere.From)
 	}
 	network.Buzz.increase(1)
+}
+
+// checkAndPushStash checks if we have a stash for a nara and pushes it to them.
+func (network *Network) checkAndPushStash(naraID types.NaraID, naraName types.NaraName) {
+	if network.stashService != nil && naraID != "" {
+		if network.stashService.HasStashFor(naraID) {
+			go func() {
+				// Add small random delay to avoid thundering herd if many confidants push at once
+				time.Sleep(time.Duration(100+rand.Intn(500)) * time.Millisecond)
+				if err := network.stashService.PushTo(naraID); err != nil {
+					logrus.Warnf("📦 Failed to push stash to %s: %v", naraName, err)
+				} else {
+					logrus.Infof("📦 Proactively pushed stash to returning nara %s", naraName)
+				}
+			}()
+		}
+	}
 }
 
 // heyThere broadcasts identity via MQTT as a signed SyncEvent.

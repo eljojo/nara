@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/eljojo/nara/identity"
+	"github.com/eljojo/nara/types"
 	"github.com/sirupsen/logrus"
 )
 
@@ -22,19 +24,19 @@ type HTTPClient interface {
 // - Reduced coupling between components
 type NetworkContext interface {
 	// Identity
-	MyName() string
-	Keypair() NaraKeypair
+	MyName() types.NaraName
+	Keypair() identity.NaraKeypair
 
 	// Mesh HTTP operations
-	BuildMeshURL(name string, path string) string
+	BuildMeshURL(name types.NaraName, path string) string
 	GetMeshHTTPClient() HTTPClient
 	AddMeshAuthHeaders(req *http.Request)
-	HasMeshConnectivity(name string) bool
+	HasMeshConnectivity(name types.NaraName) bool
 
 	// Peer information
-	GetOnlineMeshPeers() []string
-	GetPeerInfo(names []string) []PeerInfo
-	GetOnlineStatus(name string) *OnlineState
+	GetOnlineMeshPeers() []types.NaraName
+	GetPeerInfo(names []types.NaraName) []PeerInfo
+	GetOnlineStatus(name types.NaraName) *OnlineState
 
 	// State
 	IsReadOnly() bool
@@ -57,15 +59,15 @@ func (network *Network) NewNetworkContext() NetworkContext {
 	return &networkContext{network: network}
 }
 
-func (c *networkContext) MyName() string {
+func (c *networkContext) MyName() types.NaraName {
 	return c.network.meName()
 }
 
-func (c *networkContext) Keypair() NaraKeypair {
+func (c *networkContext) Keypair() identity.NaraKeypair {
 	return c.network.local.Keypair
 }
 
-func (c *networkContext) BuildMeshURL(name string, path string) string {
+func (c *networkContext) BuildMeshURL(name types.NaraName, path string) string {
 	return c.network.buildMeshURL(name, path)
 }
 
@@ -77,19 +79,19 @@ func (c *networkContext) AddMeshAuthHeaders(req *http.Request) {
 	c.network.AddMeshAuthHeaders(req)
 }
 
-func (c *networkContext) HasMeshConnectivity(name string) bool {
+func (c *networkContext) HasMeshConnectivity(name types.NaraName) bool {
 	return c.network.hasMeshConnectivity(name)
 }
 
-func (c *networkContext) GetOnlineMeshPeers() []string {
+func (c *networkContext) GetOnlineMeshPeers() []types.NaraName {
 	return c.network.NeighbourhoodOnlineNames()
 }
 
-func (c *networkContext) GetPeerInfo(names []string) []PeerInfo {
-	return c.network.getPeerInfo(names)
+func (c *networkContext) GetPeerInfo(names []types.NaraName) []PeerInfo {
+	return []PeerInfo{}
 }
 
-func (c *networkContext) GetOnlineStatus(name string) *OnlineState {
+func (c *networkContext) GetOnlineStatus(name types.NaraName) *OnlineState {
 	if c.network.local.Projections == nil {
 		return nil
 	}
@@ -116,23 +118,6 @@ func (c *networkContext) Context() context.Context {
 	return c.network.ctx
 }
 
-// stashServiceContext extends NetworkContext with stash-specific methods.
-// This implements StashServiceDeps.
-type stashServiceContext struct {
-	networkContext
-}
-
-func (c *stashServiceContext) EmitSocialEvent(event SyncEvent) {
-	select {
-	case c.network.socialInbox <- event:
-	default:
-		logrus.Debugf("Social inbox full, skipping stash event")
-	}
-}
-
-// newStashServiceContext creates a StashServiceDeps adapter for the given Network.
-func newStashServiceContext(network *Network) StashServiceDeps {
-	return &stashServiceContext{
-		networkContext: networkContext{network: network},
-	}
-}
+// Stub types for old stash implementation
+type PeerInfo struct{}
+type StashServiceDeps interface{}

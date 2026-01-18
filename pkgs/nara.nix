@@ -3,16 +3,29 @@
   buildGoModule,
   buildNpmPackage,
   esbuild,
-}: 
+}:
 
 let
+  # gomarkdoc for generating API docs from Go comments
+  gomarkdoc = buildGoModule {
+    pname = "gomarkdoc";
+    version = "1.1.0";
+    src = builtins.fetchGit {
+      url = "https://github.com/princjef/gomarkdoc";
+      rev = "e62c5abf78916697dbc4b25f590deb28f26f5184";
+      ref = "refs/tags/v1.1.0";
+    };
+    vendorHash = "sha256-gCuYqk9agH86wfGd7k6QwLUiG3Mv6TrEd9tdyj8AYPs=";
+    doCheck = false;
+  };
+
   web = buildNpmPackage {
     pname = "nara-web";
     version = "latest";
     src = lib.cleanSource ../.;
-    #npmDepsHash = lib.fakeHash;
-    npmDepsHash = "sha256-WcpFv2gKA7cq7vlMW+1/2/SFvNjzYV+wERwOLiyuKPI=";
-    nativeBuildInputs = [ esbuild ];
+    #npmDepsHash = lib.fakeHash; # DO NOT REMOVE THIS COMMENT
+    npmDepsHash = "sha256-VTGE+l7APw5wOyeOMP3SEIEN5z5nAv+B28f7VEZ4i18=";
+    nativeBuildInputs = [ esbuild gomarkdoc ];
 
     makeCacheWritable = true; # necessary for git pull on mermaid dependency
 
@@ -21,6 +34,8 @@ let
     buildPhase = ''
       runHook preBuild
       npm run build
+      # Generate API docs from Go source
+      ./scripts/gen-api-docs.sh
       ./node_modules/.bin/astro build --root docs --config astro.config.mjs
       mkdir -p nara-web/public/docs
       cp -r docs/dist/. nara-web/public/docs
@@ -42,7 +57,7 @@ buildGoModule {
   pname = "nara";
   version = "latest";
   src = lib.cleanSource ../.;
-  vendorHash = "sha256-ZlI5zbq3CzaoRgrR/lYv5lv2leipFxQHT5shV6BzrBg=";
+  vendorHash = "sha256-ePnt6SUPosm8k5bwEHoqIhOlPciIVPTrc9MWXaLpiGs=";
   subPackages = [ "cmd/nara" ];
 
   preBuild = ''

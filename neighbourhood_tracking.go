@@ -1,5 +1,10 @@
 package nara
 
+import (
+	"github.com/eljojo/nara/types"
+	"github.com/sirupsen/logrus"
+)
+
 // neighbourhood_tracking.go
 // Extracted from network.go
 // Contains neighbourhood map access and tracking methods
@@ -36,12 +41,46 @@ package nara
 //   - Quick existence checks where nil is acceptable
 //   - Single field reads where you can handle nil safely
 //   - Test code where race conditions are acceptable
-func (network *Network) getNara(name string) *Nara {
+func (network *Network) getNara(name types.NaraName) *Nara {
 	network.local.mu.Lock()
 	nara, present := network.Neighbourhood[name]
 	network.local.mu.Unlock()
 	if present {
 		return nara
+	}
+	return nil
+}
+
+// getNaraByID returns a pointer to the nara with the given ID, or nil if not found.
+// This is the preferred lookup method - IDs are unique identifiers that don't clash
+// even if two nara share the same name.
+//
+// Uses O(1) lookup via the NeighbourhoodByID index when available,
+// falls back to O(N) search for backwards compatibility with tests.
+//
+// ⚠️ Same race condition warnings as getNara() apply - see that function's docs.
+func (network *Network) getNaraByID(id types.NaraID) *Nara {
+	if id == "" {
+		return nil
+	}
+	network.local.mu.Lock()
+	defer network.local.mu.Unlock()
+
+	// Try O(1) lookup via NeighbourhoodByID index if available
+	if network.NeighbourhoodByID != nil {
+		if nara, ok := network.NeighbourhoodByID[id]; ok {
+			return nara
+		}
+	}
+
+	// Fall back to O(N) search of Neighbourhood for backwards compatibility
+	for _, nara := range network.Neighbourhood {
+		nara.mu.Lock()
+		if nara.Status.ID == id || nara.ID == id {
+			nara.mu.Unlock()
+			return nara
+		}
+		nara.mu.Unlock()
 	}
 	return nil
 }
@@ -107,6 +146,7 @@ func (network *Network) getOnlineNarasSnapshot() []*Nara {
 
 // importNara imports a nara into the neighbourhood.
 // If the nara already exists, it updates its values.
+// Maintains all three indexes: Neighbourhood (by name), NeighbourhoodByID, and nameToID.
 func (network *Network) importNara(nara *Nara) {
 	nara.mu.Lock()
 	defer nara.mu.Unlock()
@@ -115,10 +155,53 @@ func (network *Network) importNara(nara *Nara) {
 	network.local.mu.Lock()
 	defer network.local.mu.Unlock()
 
+	naraID := nara.Status.ID
+	if naraID == "" {
+		naraID = nara.ID // Fallback to top-level ID field
+	}
+
 	n, present := network.Neighbourhood[nara.Name]
 	if present {
 		n.setValuesFrom(nara)
 	} else {
 		network.Neighbourhood[nara.Name] = nara
 	}
+
+	// Maintain ID-based indexes (even for updates, in case ID was added)
+	if naraID != "" {
+		// Warn if two different naras have the same name (ID collision)
+		if network.nameToID != nil {
+			existingID, exists := network.nameToID[nara.Name]
+			if exists && existingID != naraID {
+				logrus.Warnf("⚠️ Name collision: nara %q has two different IDs: %s (existing) vs %s (new) - overwriting index", nara.Name, existingID, naraID)
+			}
+		}
+		if network.NeighbourhoodByID != nil {
+			network.NeighbourhoodByID[naraID] = nara
+		}
+		if network.nameToID != nil {
+			network.nameToID[nara.Name] = naraID
+		}
+
+		// Register public key in keyring if available
+		if nara.Status.PublicKey != "" && network.keyring != nil {
+			_ = network.keyring.RegisterBase64(naraID, nara.Status.PublicKey)
+		}
+	}
+}
+
+// getNaraIDByName returns the nara ID for a given name, or empty string if not found.
+// This is a quick O(1) lookup using the nameToID index.
+func (network *Network) getNaraIDByName(name types.NaraName) types.NaraID {
+	if name == "" {
+		return ""
+	}
+	// Check if it's self first
+	if name == network.meName() {
+		return network.local.ID
+	}
+	network.local.mu.Lock()
+	id := network.nameToID[name]
+	network.local.mu.Unlock()
+	return id
 }

@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eljojo/nara/identity"
+	"github.com/eljojo/nara/types"
 	"github.com/sirupsen/logrus"
 )
 
@@ -16,7 +18,7 @@ func TestIntegration_GossipOnlyMode(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
 	// Create 5 naras in gossip-only mode with full mesh topology
-	mesh := testCreateMeshNetwork(t, []string{"gossip-nara-a", "gossip-nara-b", "gossip-nara-c", "gossip-nara-d", "gossip-nara-e"}, 50, 1000)
+	mesh := testCreateMeshNetwork(t, []string{"gossip-nara-a", "gossip-nara-b", "gossip-nara-c", "gossip-nara-d", "gossip-nara-e"}, 50, 1000, 0)
 
 	// Nara A creates a social event
 	event := NewSocialSyncEvent("tease", mesh.Get(0).Me.Name, "gossip-nara-b", "high restarts", "")
@@ -57,7 +59,7 @@ func TestIntegration_HybridMode(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
 	// Create 3 naras in hybrid mode with full mesh topology
-	mesh := testCreateMeshNetwork(t, []string{"hybrid-nara-a", "hybrid-nara-b", "hybrid-nara-c"}, 50, 1000)
+	mesh := testCreateMeshNetwork(t, []string{"hybrid-nara-a", "hybrid-nara-b", "hybrid-nara-c"}, 50, 1000, 0)
 	for i := 0; i < 3; i++ {
 		mesh.Get(i).Network.TransportMode = TransportHybrid
 	}
@@ -90,78 +92,38 @@ func TestIntegration_HybridMode(t *testing.T) {
 func TestIntegration_MixedNetworkTopology(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
-	// Create mixed network with HTTP servers for gossip-enabled naras
+	tc := NewTestCoordinator(t)
+
+	// Create mixed network:
 	// - 2 MQTT-only naras (no gossip server)
 	// - 2 Gossip-only naras (gossip server)
 	// - 2 Hybrid naras (gossip server)
-	type testNara struct {
-		ln     *LocalNara
-		server *httptest.Server // nil for MQTT-only
-		mode   TransportMode
-	}
+	names := []string{"mixed-nara-a", "mixed-nara-b", "mixed-nara-c", "mixed-nara-d", "mixed-nara-e", "mixed-nara-f"}
 	modes := []TransportMode{TransportMQTT, TransportMQTT, TransportGossip, TransportGossip, TransportHybrid, TransportHybrid}
-	naras := make([]testNara, 6)
+	naras := make([]*LocalNara, 6)
 
 	for i := 0; i < 6; i++ {
-		name := fmt.Sprintf("mixed-nara-%c", 'a'+i)
-		ln := testLocalNaraWithParams(t, name, 50, 1000)
-		ln.Network.TransportMode = modes[i]
-
-		me := ln.getMeObservation()
-		me.LastRestart = time.Now().Unix() - 200
-		me.LastSeen = time.Now().Unix()
-		ln.setMeObservation(me)
-
-		var server *httptest.Server
-		if modes[i] != TransportMQTT {
-			// Only gossip-enabled naras get HTTP servers
-			mux := http.NewServeMux()
-			mux.HandleFunc("/gossip/zine", ln.Network.httpGossipZineHandler)
-			server = httptest.NewServer(mux)
+		var opts []CoordinatorNaraOption
+		if modes[i] == TransportMQTT {
+			opts = []CoordinatorNaraOption{WithoutServer(), NotBooting()}
+		} else {
+			opts = []CoordinatorNaraOption{WithHandlers("gossip"), NotBooting()}
 		}
-
-		naras[i] = testNara{ln: ln, server: server, mode: modes[i]}
+		naras[i] = tc.AddNara(names[i], opts...)
+		naras[i].Network.TransportMode = modes[i]
 	}
-	defer func() {
-		for _, n := range naras {
-			if n.server != nil {
-				n.server.Close()
-			}
-		}
-	}()
 
-	// Shared HTTP client for all naras
-	sharedClient := &http.Client{Timeout: 5 * time.Second}
-
-	// Set up test hooks and neighborhood
-	for i := 0; i < 6; i++ {
-		naras[i].ln.Network.testHTTPClient = sharedClient
-		naras[i].ln.Network.testMeshURLs = make(map[string]string)
-
-		for j := 0; j < 6; j++ {
-			if i != j {
-				neighbor := NewNara(naras[j].ln.Me.Name)
-				neighbor.Status.PublicKey = FormatPublicKey(naras[j].ln.Keypair.PublicKey)
-				naras[i].ln.Network.importNara(neighbor)
-				naras[i].ln.setObservation(naras[j].ln.Me.Name, NaraObservation{Online: "ONLINE"})
-				// Only add URL for gossip-enabled neighbors
-				if naras[j].server != nil {
-					naras[i].ln.Network.testMeshURLs[naras[j].ln.Me.Name] = naras[j].server.URL
-				}
-			}
-		}
-	}
+	// Connect all naras (full mesh topology)
+	tc.ConnectAll()
 
 	// Gossip-only nara creates event
 	event := NewSocialSyncEvent("tease", "mixed-nara-c", "mixed-nara-a", "high restarts", "")
-	naras[2].ln.SyncLedger.AddEvent(event) // mixed-nara-c is gossip-only
+	naras[2].SyncLedger.AddEvent(event) // mixed-nara-c is gossip-only
 
 	// Run gossip rounds using performGossipRound() - only gossip-enabled naras participate
 	for round := 0; round < 2; round++ {
-		for i := 0; i < 6; i++ {
-			if naras[i].server != nil { // Only gossip-enabled naras run gossip rounds
-				naras[i].ln.Network.performGossipRound()
-			}
+		for i := 2; i < 6; i++ { // Only gossip-enabled naras (indices 2-5)
+			naras[i].Network.performGossipRound()
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -169,7 +131,7 @@ func TestIntegration_MixedNetworkTopology(t *testing.T) {
 	// Verify: gossip-enabled naras (indices 2-5) should have the event
 	gossipEnabledWithEvent := 0
 	for i := 2; i < 6; i++ {
-		events := naras[i].ln.SyncLedger.GetEventsByService(ServiceSocial)
+		events := naras[i].SyncLedger.GetEventsByService(ServiceSocial)
 		if len(events) >= 1 {
 			gossipEnabledWithEvent++
 		}
@@ -181,7 +143,7 @@ func TestIntegration_MixedNetworkTopology(t *testing.T) {
 	// Verify: MQTT-only naras (indices 0-1) should NOT have the event via gossip
 	// (they would need MQTT or a hybrid bridge in real deployment)
 	for i := 0; i < 2; i++ {
-		events := naras[i].ln.SyncLedger.GetEventsByService(ServiceSocial)
+		events := naras[i].SyncLedger.GetEventsByService(ServiceSocial)
 		if len(events) > 0 {
 			t.Errorf("MQTT-only nara %d should not receive events via gossip, got %d", i, len(events))
 		}
@@ -196,7 +158,7 @@ func TestIntegration_ZineCreationAndExchange(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
 	// Create 2 naras with full mesh topology
-	mesh := testCreateMeshNetwork(t, []string{"alice", "bob"}, 50, 1000)
+	mesh := testCreateMeshNetwork(t, []string{"alice", "bob"}, 50, 1000, 0)
 	alice := mesh.GetByName("alice")
 	bob := mesh.GetByName("bob")
 
@@ -261,7 +223,7 @@ func TestIntegration_GossipTargetSelection(t *testing.T) {
 
 	// Add 10 mesh-enabled neighbors
 	for i := 0; i < 10; i++ {
-		neighborName := fmt.Sprintf("neighbor-%c", 'a'+i)
+		neighborName := types.NaraName(fmt.Sprintf("neighbor-%c", 'a'+i))
 		neighbor := NewNara(neighborName)
 		neighbor.Status.MeshIP = fmt.Sprintf("100.64.0.%d", 1+i)
 		ln.Network.importNara(neighbor)
@@ -273,7 +235,7 @@ func TestIntegration_GossipTargetSelection(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		targets := ln.Network.selectGossipTargets()
 		for _, target := range targets {
-			selections[target]++
+			selections[target.String()]++
 		}
 	}
 
@@ -349,8 +311,8 @@ func TestIntegration_MeshDiscovery(t *testing.T) {
 	// This replaces the real TailscalePeerDiscovery which would scan 100.64.0.1-254
 	mockDiscovery := &MockPeerDiscovery{
 		peers: []DiscoveredPeer{
-			{Name: "discovery-nara-b", MeshIP: "100.64.0.2"},
-			{Name: "discovery-nara-c", MeshIP: "100.64.0.3"},
+			{Name: types.NaraName("discovery-nara-b"), MeshIP: "100.64.0.2"},
+			{Name: types.NaraName("discovery-nara-c"), MeshIP: "100.64.0.3"},
 		},
 	}
 	discoverer.Network.peerDiscovery = mockDiscovery
@@ -376,8 +338,8 @@ func TestIntegration_MeshDiscovery(t *testing.T) {
 		"discovery-nara-c": false,
 	}
 	for _, name := range neighborNames {
-		if _, ok := expectedNeighbors[name]; ok {
-			expectedNeighbors[name] = true
+		if _, ok := expectedNeighbors[name.String()]; ok {
+			expectedNeighbors[name.String()] = true
 		}
 	}
 	for name, found := range expectedNeighbors {
@@ -387,23 +349,23 @@ func TestIntegration_MeshDiscovery(t *testing.T) {
 	}
 
 	// Verify mesh IPs were stored correctly
-	meshIPb := discoverer.Network.getMeshIPForNara("discovery-nara-b")
+	meshIPb := discoverer.Network.getMeshIPForNara(types.NaraName("discovery-nara-b"))
 	if meshIPb != "100.64.0.2" {
 		t.Errorf("Expected mesh IP 100.64.0.2 for discovery-nara-b, got %s", meshIPb)
 	}
 
-	meshIPc := discoverer.Network.getMeshIPForNara("discovery-nara-c")
+	meshIPc := discoverer.Network.getMeshIPForNara(types.NaraName("discovery-nara-c"))
 	if meshIPc != "100.64.0.3" {
 		t.Errorf("Expected mesh IP 100.64.0.3 for discovery-nara-c, got %s", meshIPc)
 	}
 
 	// Verify observations were created
-	obsB := discoverer.getObservation("discovery-nara-b")
+	obsB := discoverer.getObservation(types.NaraName("discovery-nara-b"))
 	if obsB.Online != "ONLINE" {
 		t.Errorf("Expected discovery-nara-b to be marked ONLINE, got %s", obsB.Online)
 	}
 
-	obsC := discoverer.getObservation("discovery-nara-c")
+	obsC := discoverer.getObservation(types.NaraName("discovery-nara-c"))
 	if obsC.Online != "ONLINE" {
 		t.Errorf("Expected discovery-nara-c to be marked ONLINE, got %s", obsC.Online)
 	}
@@ -458,26 +420,10 @@ func TestIntegration_GossipOnlyBootRecovery(t *testing.T) {
 func TestIntegration_SendDM(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
-	// Create sender and receiver naras
-	sender := testLocalNara(t, "sender")
-	receiver := testLocalNara(t, "receiver")
-	// Create HTTP test server for receiver
-	mux := http.NewServeMux()
-	mux.HandleFunc("/dm", receiver.Network.httpDMHandler)
-	server := httptest.NewServer(mux)
-	defer server.Close()
-
-	// Set up sender to know about receiver
-	receiverNara := NewNara("receiver")
-	receiverNara.Status.PublicKey = FormatPublicKey(receiver.Keypair.PublicKey)
-	sender.Network.importNara(receiverNara)
-	sender.Network.testHTTPClient = &http.Client{Timeout: 5 * time.Second}
-	sender.Network.testMeshURLs = map[string]string{"receiver": server.URL}
-
-	// Receiver must know sender to verify signature
-	senderNara := NewNara("sender")
-	senderNara.Status.PublicKey = FormatPublicKey(sender.Keypair.PublicKey)
-	receiver.Network.importNara(senderNara)
+	tc := NewTestCoordinator(t)
+	sender := tc.AddNara("sender", WithHandlers("dm"))
+	receiver := tc.AddNara("receiver", WithHandlers("dm"))
+	tc.Connect("sender", "receiver")
 
 	// Create a signed event
 	event := NewTeaseSyncEvent("sender", "receiver", "high-restarts", sender.Keypair)
@@ -510,7 +456,7 @@ func TestIntegration_SendDM_UnreachableTarget(t *testing.T) {
 
 	sender := testLocalNara(t, "sender")
 	sender.Network.testHTTPClient = &http.Client{Timeout: 100 * time.Millisecond}
-	sender.Network.testMeshURLs = map[string]string{} // No URL for receiver
+	sender.Network.testMeshURLs = map[types.NaraName]string{} // No URL for receiver
 
 	event := NewTeaseSyncEvent("sender", "receiver", "high-restarts", sender.Keypair)
 
@@ -537,15 +483,24 @@ func TestIntegration_TeaseDM(t *testing.T) {
 	defer server.Close()
 
 	// Alice knows bob
-	bobNara := NewNara("bob")
-	bobNara.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
+	bobNara := NewNara(types.NaraName("bob"))
+	bobNara.ID = bob.ID // Set ID so nameToID mapping is created
+	bobNara.Status.ID = bob.ID
+	bobNara.Status.PublicKey = identity.FormatPublicKey(bob.Keypair.PublicKey)
 	alice.Network.importNara(bobNara)
 	alice.Network.testHTTPClient = &http.Client{Timeout: 5 * time.Second}
-	alice.Network.testMeshURLs = map[string]string{"bob": server.URL}
+	alice.Network.testMeshURLs = map[types.NaraName]string{types.NaraName("bob"): server.URL}
+
+	// Configure meshClient with bob's ID
+	alice.Network.meshClient.EnableTestMode(map[types.NaraID]string{
+		bob.ID: server.URL,
+	})
 
 	// Bob knows alice (to verify signature)
 	aliceNara := NewNara("alice")
-	aliceNara.Status.PublicKey = FormatPublicKey(alice.Keypair.PublicKey)
+	aliceNara.ID = alice.ID // Set ID so nameToID mapping is created
+	aliceNara.Status.ID = alice.ID
+	aliceNara.Status.PublicKey = identity.FormatPublicKey(alice.Keypair.PublicKey)
 	bob.Network.importNara(aliceNara)
 
 	// Alice teases bob
@@ -587,70 +542,42 @@ func TestIntegration_TeaseDM(t *testing.T) {
 func TestIntegration_TeaseDM_SpreadViaGossip(t *testing.T) {
 	logrus.SetLevel(logrus.ErrorLevel)
 
-	// Create three naras: alice, bob (unreachable), charlie
-	alice := testLocalNara(t, "alice")
-	bob := testLocalNara(t, "bob")
-	charlie := testLocalNara(t, "charlie")
-	// Mark as not booting
-	for _, ln := range []*LocalNara{alice, bob, charlie} {
-		me := ln.getMeObservation()
-		me.LastRestart = time.Now().Unix() - 200
-		me.LastSeen = time.Now().Unix()
-		ln.setMeObservation(me)
-	}
+	tc := NewTestCoordinator(t)
+	alice := tc.AddNara("alice", WithHandlers("gossip"), NotBooting())
+	bob := tc.AddNara("bob", WithoutServer(), NotBooting()) // unreachable - no server
+	charlie := tc.AddNara("charlie", WithHandlers("gossip"), NotBooting())
 
-	// Create HTTP test servers for gossip
-	aliceMux := http.NewServeMux()
-	aliceMux.HandleFunc("/gossip/zine", alice.Network.httpGossipZineHandler)
-	aliceServer := httptest.NewServer(aliceMux)
-	defer aliceServer.Close()
+	// Connect alice <-> charlie (gossip)
+	tc.Connect("alice", "charlie")
+	tc.SetOnline("alice", "charlie")
+	tc.SetOnline("charlie", "alice")
 
-	charlieMux := http.NewServeMux()
-	charlieMux.HandleFunc("/gossip/zine", charlie.Network.httpGossipZineHandler)
-	charlieServer := httptest.NewServer(charlieMux)
-	defer charlieServer.Close()
-
-	sharedClient := &http.Client{Timeout: 5 * time.Second}
-
-	// Alice knows bob and charlie, but bob is unreachable (no DM server)
+	// Alice knows bob exists (but can't reach via DM)
 	bobNara := NewNara("bob")
-	bobNara.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
+	bobNara.ID = bob.ID
+	bobNara.Status.ID = bob.ID
+	bobNara.Status.PublicKey = identity.FormatPublicKey(bob.Keypair.PublicKey)
 	alice.Network.importNara(bobNara)
-	alice.setObservation("bob", NaraObservation{Online: "ONLINE"})
+	tc.SetOnline("alice", "bob")
 
-	charlieNara := NewNara("charlie")
-	charlieNara.Status.PublicKey = FormatPublicKey(charlie.Keypair.PublicKey)
-	alice.Network.importNara(charlieNara)
-	alice.setObservation("charlie", NaraObservation{Online: "ONLINE"})
-
-	alice.Network.testHTTPClient = sharedClient
-	alice.Network.testMeshURLs = map[string]string{
-		// bob has no URL - simulates unreachable
-		"charlie": charlieServer.URL,
-	}
-	alice.Network.TransportMode = TransportGossip
-
-	// Charlie knows alice and bob
-	aliceNaraForCharlie := NewNara("alice")
-	aliceNaraForCharlie.Status.PublicKey = FormatPublicKey(alice.Keypair.PublicKey)
-	charlie.Network.importNara(aliceNaraForCharlie)
-	charlie.setObservation("alice", NaraObservation{Online: "ONLINE"})
-
+	// Charlie knows bob exists
 	bobNaraForCharlie := NewNara("bob")
-	bobNaraForCharlie.Status.PublicKey = FormatPublicKey(bob.Keypair.PublicKey)
+	bobNaraForCharlie.ID = bob.ID
+	bobNaraForCharlie.Status.ID = bob.ID
+	bobNaraForCharlie.Status.PublicKey = identity.FormatPublicKey(bob.Keypair.PublicKey)
 	charlie.Network.importNara(bobNaraForCharlie)
-	charlie.setObservation("bob", NaraObservation{Online: "ONLINE"})
-
-	charlie.Network.testHTTPClient = sharedClient
-	charlie.Network.testMeshURLs = map[string]string{
-		"alice": aliceServer.URL,
-	}
-	charlie.Network.TransportMode = TransportGossip
+	tc.SetOnline("charlie", "bob")
 
 	// Bob knows alice (to verify when gossip arrives)
 	aliceNaraForBob := NewNara("alice")
-	aliceNaraForBob.Status.PublicKey = FormatPublicKey(alice.Keypair.PublicKey)
+	aliceNaraForBob.ID = alice.ID
+	aliceNaraForBob.Status.ID = alice.ID
+	aliceNaraForBob.Status.PublicKey = identity.FormatPublicKey(alice.Keypair.PublicKey)
 	bob.Network.importNara(aliceNaraForBob)
+
+	// Set transport mode to gossip
+	alice.Network.TransportMode = TransportGossip
+	charlie.Network.TransportMode = TransportGossip
 
 	// Alice teases bob (DM will fail since bob is unreachable)
 	success := alice.Network.Tease("bob", "high-restarts")

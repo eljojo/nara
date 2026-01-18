@@ -6,6 +6,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/eljojo/nara/identity"
 	"github.com/sirupsen/logrus"
 )
 
@@ -18,13 +19,13 @@ func TestHeyThereEvent_SignAndVerify(t *testing.T) {
 	t.Cleanup(func() { logrus.SetOutput(os.Stderr) })
 
 	// Create a keypair from a test soul
-	soul := NativeSoulCustom([]byte("test-hw-heythere-1"), "alice")
-	keypair := DeriveKeypair(soul)
+	soul := identity.NativeSoulCustom([]byte("test-hw-heythere-1"), "alice")
+	keypair := identity.DeriveKeypair(soul)
 
 	// Create and sign a hey_there event
 	event := &HeyThereEvent{
 		From:      "alice",
-		PublicKey: FormatPublicKey(keypair.PublicKey),
+		PublicKey: identity.FormatPublicKey(keypair.PublicKey),
 		MeshIP:    "100.64.0.1",
 	}
 	event.Sign(keypair)
@@ -48,7 +49,7 @@ func TestHeyThereEvent_SignAndVerify(t *testing.T) {
 	// Wrong signature - should fail
 	wrongEvent := &HeyThereEvent{
 		From:      "alice",
-		PublicKey: FormatPublicKey(keypair.PublicKey),
+		PublicKey: identity.FormatPublicKey(keypair.PublicKey),
 		MeshIP:    "100.64.0.1",
 		Signature: "invalid-signature",
 	}
@@ -74,14 +75,14 @@ func TestHeyThereEvent_VerifyUnsigned(t *testing.T) {
 func TestNewspaperEvent_SignAndVerify(t *testing.T) {
 	t.Parallel()
 	// Create a keypair from a test soul
-	soul := NativeSoulCustom([]byte("test-hw-newspaper-1"), "alice")
-	keypair := DeriveKeypair(soul)
+	soul := identity.NativeSoulCustom([]byte("test-hw-newspaper-1"), "alice")
+	keypair := identity.DeriveKeypair(soul)
 
 	// Create a status
 	status := NaraStatus{
 		Flair:      "test-flair",
 		Chattiness: 50,
-		PublicKey:  FormatPublicKey(keypair.PublicKey),
+		PublicKey:  identity.FormatPublicKey(keypair.PublicKey),
 		MeshIP:     "100.64.0.1",
 	}
 
@@ -108,8 +109,8 @@ func TestNewspaperEvent_SignAndVerify(t *testing.T) {
 	}
 
 	// Wrong public key - should fail
-	wrongSoul := NativeSoulCustom([]byte("different-hw-newspaper"), "bob")
-	wrongKeypair := DeriveKeypair(wrongSoul)
+	wrongSoul := identity.NativeSoulCustom([]byte("different-hw-newspaper"), "bob")
+	wrongKeypair := identity.DeriveKeypair(wrongSoul)
 	if event.Verify(wrongKeypair.PublicKey) {
 		t.Error("Expected wrong public key to fail verification")
 	}
@@ -127,8 +128,8 @@ func TestNewspaperEvent_VerifyUnsigned(t *testing.T) {
 		Status: NaraStatus{Flair: "test"},
 	}
 
-	soul := NativeSoulCustom([]byte("test-hw-newspaper-2"), "alice")
-	keypair := DeriveKeypair(soul)
+	soul := identity.NativeSoulCustom([]byte("test-hw-newspaper-2"), "alice")
+	keypair := identity.DeriveKeypair(soul)
 
 	// Should return false for unsigned event
 	if event.Verify(keypair.PublicKey) {
@@ -138,13 +139,13 @@ func TestNewspaperEvent_VerifyUnsigned(t *testing.T) {
 
 func TestNewspaperEvent_VerifyWithRawStatusJSON(t *testing.T) {
 	t.Parallel()
-	soul := NativeSoulCustom([]byte("test-hw-newspaper-raw"), "alice")
-	keypair := DeriveKeypair(soul)
+	soul := identity.NativeSoulCustom([]byte("test-hw-newspaper-raw"), "alice")
+	keypair := identity.DeriveKeypair(soul)
 
 	statusPayload := map[string]interface{}{
 		"Flair":       "test-flair",
 		"Chattiness":  50,
-		"PublicKey":   FormatPublicKey(keypair.PublicKey),
+		"PublicKey":   identity.FormatPublicKey(keypair.PublicKey),
 		"MeshIP":      "100.64.0.1",
 		"extra_field": "old-client-drops-me",
 	}
@@ -188,13 +189,13 @@ func TestChauEvent_SignAndVerify(t *testing.T) {
 	t.Cleanup(func() { logrus.SetOutput(os.Stderr) })
 
 	// Create a keypair from a test soul
-	soul := NativeSoulCustom([]byte("test-hw-chau-1"), "alice")
-	keypair := DeriveKeypair(soul)
+	soul := identity.NativeSoulCustom([]byte("test-hw-chau-1"), "alice")
+	keypair := identity.DeriveKeypair(soul)
 
 	// Create and sign a chau event
 	event := &ChauEvent{
 		From:      "alice",
-		PublicKey: FormatPublicKey(keypair.PublicKey),
+		PublicKey: identity.FormatPublicKey(keypair.PublicKey),
 	}
 	event.Sign(keypair)
 
@@ -217,7 +218,7 @@ func TestChauEvent_SignAndVerify(t *testing.T) {
 	// Wrong signature - should fail
 	wrongEvent := &ChauEvent{
 		From:      "alice",
-		PublicKey: FormatPublicKey(keypair.PublicKey),
+		PublicKey: identity.FormatPublicKey(keypair.PublicKey),
 		Signature: "invalid-signature",
 	}
 	if wrongEvent.Verify() {

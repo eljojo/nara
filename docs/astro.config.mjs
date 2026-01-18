@@ -62,6 +62,18 @@ export default defineConfig({
           ]
         },
         {
+          label: 'Developer Section',
+          items: [
+            { label: 'Developer Guide', link: '/spec/developer-guide/' },
+            { label: 'Runtime & Test Helpers', link: '/spec/developer/runtime/' },
+            { label: 'Pipelines & Stages', link: '/spec/developer/pipelines/' },
+            { label: 'Behaviors & Patterns', link: '/spec/developer/behaviors/' },
+            { label: 'Cryptography (Keyring)', link: '/spec/developer/cryptography/' },
+            { label: 'Mesh Client', link: '/spec/developer/mesh-client/' },
+            { label: 'Sample Service (Stash)', link: '/spec/developer/sample-service/' }
+          ]
+        },
+        {
           label: 'Concepts',
           items: [
             { label: 'Events', link: '/concepts/events/' },
@@ -69,7 +81,19 @@ export default defineConfig({
             { label: 'Observations', link: '/concepts/observations/' },
             { label: 'Stash', link: '/concepts/stash/' },
             { label: 'World Journeys', link: '/concepts/world/' },
-            { label: 'Coordinates', link: '/concepts/coordinates/' }
+            { label: 'Coordinates', link: '/concepts/coordinates/' },
+            { label: 'Backup & Restore', link: '/concepts/backup/' }
+          ]
+        },
+        {
+          label: 'API Reference',
+          items: [
+            { label: 'Identity', link: '/api/identity/' },
+            { label: 'Messages', link: '/api/messages/' },
+            { label: 'Runtime', link: '/api/runtime/' },
+            { label: 'Utilities', link: '/api/utilities/' },
+            { label: 'Types', link: '/api/types/' },
+            { label: 'Stash Service', link: '/api/stash/' }
           ]
         }
 			],

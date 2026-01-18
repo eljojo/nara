@@ -12,13 +12,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eljojo/nara/identity"
+	"github.com/eljojo/nara/types"
 	"github.com/sirupsen/logrus"
 )
 
 func TestMeshAuthRequest_SignsCorrectly(t *testing.T) {
 	// Create a keypair
 	pub, priv, _ := ed25519.GenerateKey(nil)
-	keypair := NaraKeypair{PrivateKey: priv, PublicKey: pub}
+	keypair := identity.NaraKeypair{PrivateKey: priv, PublicKey: pub}
 
 	headers := MeshAuthRequest("alice", keypair, "POST", "/events/sync")
 
@@ -37,7 +39,7 @@ func TestMeshAuthRequest_SignsCorrectly(t *testing.T) {
 
 func TestMeshAuthResponse_SignsCorrectly(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(nil)
-	keypair := NaraKeypair{PrivateKey: priv, PublicKey: pub}
+	keypair := identity.NaraKeypair{PrivateKey: priv, PublicKey: pub}
 
 	body := []byte(`{"events": []}`)
 	headers := MeshAuthResponse("bob", keypair, body)
@@ -53,7 +55,7 @@ func TestMeshAuthResponse_SignsCorrectly(t *testing.T) {
 
 func TestVerifyMeshRequest_ValidSignature(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(nil)
-	keypair := NaraKeypair{PrivateKey: priv, PublicKey: pub}
+	keypair := identity.NaraKeypair{PrivateKey: priv, PublicKey: pub}
 
 	// Create signed request
 	headers := MeshAuthRequest("alice", keypair, "POST", "/events/sync")
@@ -64,7 +66,7 @@ func TestVerifyMeshRequest_ValidSignature(t *testing.T) {
 	}
 
 	// Mock public key lookup
-	getPublicKey := func(name string) []byte {
+	getPublicKey := func(name types.NaraName) []byte {
 		if name == "alice" {
 			return pub
 		}
@@ -83,7 +85,7 @@ func TestVerifyMeshRequest_ValidSignature(t *testing.T) {
 func TestVerifyMeshRequest_InvalidSignature(t *testing.T) {
 	pub1, priv1, _ := ed25519.GenerateKey(nil)
 	pub2, _, _ := ed25519.GenerateKey(nil)
-	keypair := NaraKeypair{PrivateKey: priv1, PublicKey: pub1}
+	keypair := identity.NaraKeypair{PrivateKey: priv1, PublicKey: pub1}
 
 	// Sign with keypair1
 	headers := MeshAuthRequest("alice", keypair, "POST", "/events/sync")
@@ -94,7 +96,7 @@ func TestVerifyMeshRequest_InvalidSignature(t *testing.T) {
 	}
 
 	// But verify against different public key
-	getPublicKey := func(name string) []byte {
+	getPublicKey := func(name types.NaraName) []byte {
 		if name == "alice" {
 			return pub2 // Wrong key!
 		}
@@ -111,7 +113,7 @@ func TestVerifyMeshRequest_MissingHeaders(t *testing.T) {
 	req := httptest.NewRequest("POST", "/events/sync", nil)
 	// No auth headers
 
-	getPublicKey := func(name string) []byte { return nil }
+	getPublicKey := func(name types.NaraName) []byte { return nil }
 
 	_, err := VerifyMeshRequest(req, getPublicKey)
 	if err == nil {
@@ -121,7 +123,7 @@ func TestVerifyMeshRequest_MissingHeaders(t *testing.T) {
 
 func TestVerifyMeshRequest_ExpiredTimestamp(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(nil)
-	keypair := NaraKeypair{PrivateKey: priv, PublicKey: pub}
+	keypair := identity.NaraKeypair{PrivateKey: priv, PublicKey: pub}
 
 	// Create request with old timestamp
 	oldTimestamp := time.Now().Add(-1 * time.Minute).UnixMilli()
@@ -133,7 +135,7 @@ func TestVerifyMeshRequest_ExpiredTimestamp(t *testing.T) {
 	req.Header.Set(HeaderNaraTimestamp, strconv.FormatInt(oldTimestamp, 10))
 	req.Header.Set(HeaderNaraSignature, base64.StdEncoding.EncodeToString(signature))
 
-	getPublicKey := func(name string) []byte {
+	getPublicKey := func(name types.NaraName) []byte {
 		if name == "alice" {
 			return pub
 		}
@@ -148,7 +150,7 @@ func TestVerifyMeshRequest_ExpiredTimestamp(t *testing.T) {
 
 func TestVerifyMeshRequest_UnknownSender(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(nil)
-	keypair := NaraKeypair{PrivateKey: priv, PublicKey: pub}
+	keypair := identity.NaraKeypair{PrivateKey: priv, PublicKey: pub}
 
 	headers := MeshAuthRequest("stranger", keypair, "POST", "/events/sync")
 
@@ -158,7 +160,7 @@ func TestVerifyMeshRequest_UnknownSender(t *testing.T) {
 	}
 
 	// Return nil for unknown naras
-	getPublicKey := func(name string) []byte {
+	getPublicKey := func(name types.NaraName) []byte {
 		return nil // Don't know this nara
 	}
 
@@ -170,7 +172,7 @@ func TestVerifyMeshRequest_UnknownSender(t *testing.T) {
 
 func TestVerifyMeshResponse_ValidSignature(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(nil)
-	keypair := NaraKeypair{PrivateKey: priv, PublicKey: pub}
+	keypair := identity.NaraKeypair{PrivateKey: priv, PublicKey: pub}
 
 	body := []byte(`{"status": "ok"}`)
 	headers := MeshAuthResponse("bob", keypair, body)
@@ -180,7 +182,7 @@ func TestVerifyMeshResponse_ValidSignature(t *testing.T) {
 		Body:   io.NopCloser(bytes.NewReader(body)),
 	}
 
-	getPublicKey := func(name string) []byte {
+	getPublicKey := func(name types.NaraName) []byte {
 		if name == "bob" {
 			return pub
 		}
@@ -198,7 +200,7 @@ func TestVerifyMeshResponse_ValidSignature(t *testing.T) {
 
 func TestVerifyMeshResponse_TamperedBody(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(nil)
-	keypair := NaraKeypair{PrivateKey: priv, PublicKey: pub}
+	keypair := identity.NaraKeypair{PrivateKey: priv, PublicKey: pub}
 
 	originalBody := []byte(`{"status": "ok"}`)
 	headers := MeshAuthResponse("bob", keypair, originalBody)
@@ -211,7 +213,7 @@ func TestVerifyMeshResponse_TamperedBody(t *testing.T) {
 		Body:   io.NopCloser(bytes.NewReader(tamperedBody)),
 	}
 
-	getPublicKey := func(name string) []byte {
+	getPublicKey := func(name types.NaraName) []byte {
 		if name == "bob" {
 			return pub
 		}
@@ -279,9 +281,9 @@ func TestMeshAuthMiddleware_RejectsUnauthenticated(t *testing.T) {
 }
 
 func testMeshSoul(name string) string {
-	hw := hashBytes([]byte("mesh-test-hardware-" + name))
-	soul := NativeSoulCustom(hw, name)
-	return FormatSoul(soul)
+	hw := identity.HashBytes([]byte("mesh-test-hardware-" + name))
+	soul := identity.NativeSoulCustom(hw, types.NaraName(name))
+	return identity.FormatSoul(soul)
 }
 
 func TestMeshAuthMiddleware_AcceptsValidAuth(t *testing.T) {

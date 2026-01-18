@@ -71,7 +71,7 @@ func (ln *LocalNara) computeAura() Aura {
 	soul := ln.Soul
 
 	// ID = soul + name for unique color identity
-	id := soul + name
+	id := soul + name.String()
 
 	// Determine palette modifier based on personality traits
 	mod := choosePaletteModifier(p)

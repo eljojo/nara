@@ -8,6 +8,9 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/identity"
+	"github.com/eljojo/nara/types"
 )
 
 // TestIntegration_EventEmissionNoDuplicates validates that we don't emit duplicate events
@@ -268,8 +271,8 @@ func TestIntegration_BackfillDoesNotDuplicate(t *testing.T) {
 
 	// Three observers backfill the same historical restart
 	for i := 0; i < 3; i++ {
-		observer := "observer-" + string(rune('a'+i))
-		event := NewBackfillObservationEvent(observer, "subject", 1000000, 42, 1000000)
+		observer := types.NaraName("observer-" + string(rune('a'+i)))
+		event := NewBackfillObservationEvent(observer, types.NaraName("subject"), 1000000, 42, 1000000)
 		ledger.AddEventWithDedup(event)
 	}
 
@@ -331,8 +334,8 @@ func TestIntegration_CompactionAndDeduplicationIndependent(t *testing.T) {
 
 	// Three observers report the same restart (dedup should work)
 	for i := 0; i < 3; i++ {
-		observer := "observer-" + string(rune('a'+i))
-		event := NewRestartObservationEvent(observer, "charlie", 2000, 100)
+		observer := types.NaraName("observer-" + string(rune('a'+i)))
+		event := NewRestartObservationEvent(observer, types.NaraName("charlie"), 2000, 100)
 		ledger.AddEventWithDedup(event) // With dedup
 	}
 
@@ -357,8 +360,8 @@ func TestIntegration_CompactionAndDeduplicationIndependent(t *testing.T) {
 
 	// Multiple observers report dave's most recent restart (should dedup)
 	for i := 0; i < 3; i++ {
-		observer := "witness-" + string(rune('a'+i))
-		event := NewRestartObservationEvent(observer, "bob", 3024, 224) // Same as dave's last event
+		observer := types.NaraName("witness-" + string(rune('a'+i)))
+		event := NewRestartObservationEvent(observer, types.NaraName("bob"), 3024, 224) // Same as dave's last event
 		ledger.AddEventWithDedup(event)
 	}
 
@@ -514,7 +517,7 @@ func TestIntegration_TeasingDeduplication(t *testing.T) {
 		naras[i] = ln
 	}
 
-	target := "comeback-nara"
+	target := types.NaraName("comeback-nara")
 
 	// Count teases before
 	countTeasesBefore := 0
@@ -555,7 +558,7 @@ func TestIntegration_TeasingDeduplication(t *testing.T) {
 	}
 
 	// Find which nara actually teased (the one with shortest delay wins)
-	var teaser string
+	var teaser types.NaraName
 	for _, e := range sharedLedger.GetSocialEventsAbout(target) {
 		if e.Social != nil && e.Social.Type == "tease" && e.Social.Reason == ReasonComeback {
 			teaser = e.Social.Actor
@@ -762,7 +765,7 @@ func TestIntegration_MeshPeerDiscoverySetsLastSeen(t *testing.T) {
 	network.ReadOnly = true
 
 	// Simulate what discoverMeshPeers does when it finds a new peer
-	peerName := "mesh-peer"
+	peerName := types.NaraName("mesh-peer")
 	nara := NewNara(peerName)
 	nara.Status.MeshIP = "100.64.0.5"
 	nara.Status.MeshEnabled = true
@@ -809,7 +812,7 @@ func TestIntegration_DirectObservationSetMissingLastSeen(t *testing.T) {
 
 	ln := testLocalNaraWithParams(t, "test-nara", 100, 1000)
 	// This is the buggy pattern that was in discoverMeshPeers
-	peerName := "buggy-peer"
+	peerName := types.NaraName("buggy-peer")
 	ln.setObservation(peerName, NaraObservation{Online: "ONLINE"})
 
 	obs := ln.getObservation(peerName)
@@ -864,8 +867,8 @@ func TestIntegration_ZineMergeMarksEmittersAsSeen(t *testing.T) {
 
 	// Create events that r2d2 emitted (like a tease)
 	// These are events we'd receive via zine merge
-	r2d2Soul := NativeSoulCustom([]byte("test-hw-r2d2"), "r2d2")
-	r2d2Keypair := DeriveKeypair(r2d2Soul)
+	r2d2Soul := identity.NativeSoulCustom([]byte("test-hw-r2d2"), "r2d2")
+	r2d2Keypair := identity.DeriveKeypair(r2d2Soul)
 	teaseEvent := NewSignedSocialSyncEvent("tease", "r2d2", "observer", ReasonHighRestarts, "witness", "r2d2", r2d2Keypair)
 
 	// Simulate receiving these events via zine merge
@@ -933,7 +936,7 @@ func TestIntegration_PingVerificationBeforeMarkingMissing(t *testing.T) {
 	// Scenario 1: Ping succeeds - target should stay ONLINE
 	t.Run("ping_succeeds_prevents_missing", func(t *testing.T) {
 		pingAttempts = 0
-		network.testPingFunc = func(name string) (bool, error) {
+		network.testPingFunc = func(name types.NaraName) (bool, error) {
 			pingAttempts++
 			pingResults = append(pingResults, true)
 			return true, nil // Ping succeeds
@@ -979,7 +982,7 @@ func TestIntegration_PingVerificationBeforeMarkingMissing(t *testing.T) {
 
 	// Scenario 2: Ping fails - target should be allowed to be marked MISSING
 	t.Run("ping_fails_allows_missing", func(t *testing.T) {
-		network.testPingFunc = func(name string) (bool, error) {
+		network.testPingFunc = func(name types.NaraName) (bool, error) {
 			pingAttempts++
 			pingResults = append(pingResults, false)
 			return false, nil // Ping fails
@@ -1004,7 +1007,7 @@ func TestIntegration_PingVerificationBeforeMarkingMissing(t *testing.T) {
 
 	// Scenario 3: Self-ping is skipped
 	t.Run("self_ping_skipped", func(t *testing.T) {
-		network.testPingFunc = func(name string) (bool, error) {
+		network.testPingFunc = func(name types.NaraName) (bool, error) {
 			pingAttempts++
 			return true, nil
 		}
@@ -1043,7 +1046,7 @@ func TestIntegration_ChauEventShouldNotMarkOnline(t *testing.T) {
 	departing := testLocalNara(t, "departing-nara")
 	// Observer knows about departing nara
 	departingNara := NewNara("departing-nara")
-	departingNara.Status.PublicKey = FormatPublicKey(departing.Keypair.PublicKey)
+	departingNara.Status.PublicKey = identity.FormatPublicKey(departing.Keypair.PublicKey)
 	observer.Network.importNara(departingNara)
 
 	// Mark departing nara as online initially
@@ -1065,7 +1068,7 @@ func TestIntegration_ChauEventShouldNotMarkOnline(t *testing.T) {
 	}
 
 	// Create a chau event from departing-nara
-	chauEvent := NewChauSyncEvent("departing-nara", FormatPublicKey(departing.Keypair.PublicKey), departing.ID, departing.Keypair)
+	chauEvent := NewChauSyncEvent("departing-nara", identity.FormatPublicKey(departing.Keypair.PublicKey), departing.ID, departing.Keypair)
 
 	// Process the chau event via MergeSyncEventsWithVerification (simulates receiving via gossip)
 	observer.Network.MergeSyncEventsWithVerification([]SyncEvent{chauEvent})
@@ -1099,7 +1102,7 @@ func TestIntegration_ChauWithOtherEventsFromSameNara(t *testing.T) {
 	departing := testLocalNara(t, "condorito")
 	// Observer knows about condorito - CRITICAL: Set public key for signature verification
 	condoritoNara := NewNara("condorito")
-	condoritoNara.Status.PublicKey = FormatPublicKey(departing.Keypair.PublicKey)
+	condoritoNara.Status.PublicKey = identity.FormatPublicKey(departing.Keypair.PublicKey)
 	observer.Network.importNara(condoritoNara)
 
 	// Mark condorito as online initially
@@ -1152,7 +1155,7 @@ func TestIntegration_ChauWithOtherEventsFromSameNara(t *testing.T) {
 		Emitter:   "condorito",
 		Chau: &ChauEvent{
 			From:      "condorito",
-			PublicKey: FormatPublicKey(departing.Keypair.PublicKey),
+			PublicKey: identity.FormatPublicKey(departing.Keypair.PublicKey),
 		},
 	}
 	chauEvent.ComputeID()
@@ -1193,19 +1196,19 @@ func TestIntegration_SeenEventsOnlyForQuietNaras(t *testing.T) {
 	ln.setMeObservation(me)
 
 	// Create keypairs for test naras
-	activeSoul := NativeSoulCustom([]byte("test-hw-active"), "active-nara")
-	activeKeypair := DeriveKeypair(activeSoul)
+	activeSoul := identity.NativeSoulCustom([]byte("test-hw-active"), "active-nara")
+	activeKeypair := identity.DeriveKeypair(activeSoul)
 
-	quietSoul := NativeSoulCustom([]byte("test-hw-quiet"), "quiet-nara")
-	quietKeypair := DeriveKeypair(quietSoul)
+	quietSoul := identity.NativeSoulCustom([]byte("test-hw-quiet"), "quiet-nara")
+	quietKeypair := identity.DeriveKeypair(quietSoul)
 
 	// Import both naras with their public keys
 	activeNara := NewNara("active-nara")
-	activeNara.Status.PublicKey = FormatPublicKey(activeKeypair.PublicKey)
+	activeNara.Status.PublicKey = identity.FormatPublicKey(activeKeypair.PublicKey)
 	network.importNara(activeNara)
 
 	quietNara := NewNara("quiet-nara")
-	quietNara.Status.PublicKey = FormatPublicKey(quietKeypair.PublicKey)
+	quietNara.Status.PublicKey = identity.FormatPublicKey(quietKeypair.PublicKey)
 	network.importNara(quietNara)
 
 	// Active nara has emitted a recent event (within last 5 minutes)
@@ -1221,7 +1224,7 @@ func TestIntegration_SeenEventsOnlyForQuietNaras(t *testing.T) {
 	ln.SyncLedger.AddEvent(oldEvent)
 
 	// Count seen events before
-	countSeenFor := func(subject string) int {
+	countSeenFor := func(subject types.NaraName) int {
 		count := 0
 		for _, e := range ln.SyncLedger.GetAllEvents() {
 			if e.Service == ServiceSeen && e.Seen != nil && e.Seen.Subject == subject {
@@ -1231,8 +1234,8 @@ func TestIntegration_SeenEventsOnlyForQuietNaras(t *testing.T) {
 		return count
 	}
 
-	seenForActiveBefore := countSeenFor("active-nara")
-	seenForQuietBefore := countSeenFor("quiet-nara")
+	seenForActiveBefore := countSeenFor(types.NaraName("active-nara"))
+	seenForQuietBefore := countSeenFor(types.NaraName("quiet-nara"))
 
 	// Now emit seen events for both naras (simulating an interaction like gossip)
 	network.emitSeenEvent("active-nara", "test")
@@ -1319,8 +1322,8 @@ func TestIntegration_MissingToOnlineViaSeenEvent_NoRestartIncrement(t *testing.T
 	ln.setObservation("bob", bobObs)
 
 	// Create a seen event from Alice saying she saw Bob
-	aliceSoul := NativeSoulCustom([]byte("test-hw-alice"), "alice")
-	aliceKeypair := DeriveKeypair(aliceSoul)
+	aliceSoul := identity.NativeSoulCustom([]byte("test-hw-alice"), "alice")
+	aliceKeypair := identity.DeriveKeypair(aliceSoul)
 	seenEvent := NewSeenSyncEvent("alice", "bob", "mesh", aliceKeypair)
 
 	// Simulate receiving this event through MergeSyncEventsWithVerification
@@ -1377,19 +1380,19 @@ func TestIntegration_NoRedundantSeenEventsForActiveNaras(t *testing.T) {
 	observer.setMeObservation(me)
 
 	// Create keypairs for test naras
-	aliceSoul := NativeSoulCustom([]byte("test-hw-alice"), "alice")
-	aliceKeypair := DeriveKeypair(aliceSoul)
+	aliceSoul := identity.NativeSoulCustom([]byte("test-hw-alice"), "alice")
+	aliceKeypair := identity.DeriveKeypair(aliceSoul)
 
-	bobSoul := NativeSoulCustom([]byte("test-hw-bob"), "bob")
-	bobKeypair := DeriveKeypair(bobSoul)
+	bobSoul := identity.NativeSoulCustom([]byte("test-hw-bob"), "bob")
+	bobKeypair := identity.DeriveKeypair(bobSoul)
 
 	// Import them
 	aliceNara := NewNara("alice")
-	aliceNara.Status.PublicKey = FormatPublicKey(aliceKeypair.PublicKey)
+	aliceNara.Status.PublicKey = identity.FormatPublicKey(aliceKeypair.PublicKey)
 	network.importNara(aliceNara)
 
 	bobNara := NewNara("bob")
-	bobNara.Status.PublicKey = FormatPublicKey(bobKeypair.PublicKey)
+	bobNara.Status.PublicKey = identity.FormatPublicKey(bobKeypair.PublicKey)
 	network.importNara(bobNara)
 
 	// Count seen events before processing
@@ -1436,10 +1439,10 @@ func TestIntegration_NoRedundantSeenEventsForActiveNaras(t *testing.T) {
 	// (naras we interact with who haven't emitted recently)
 
 	// Charlie is quiet (no recent events)
-	charlieSoul := NativeSoulCustom([]byte("test-hw-charlie"), "charlie")
-	charlieKeypair := DeriveKeypair(charlieSoul)
+	charlieSoul := identity.NativeSoulCustom([]byte("test-hw-charlie"), "charlie")
+	charlieKeypair := identity.DeriveKeypair(charlieSoul)
 	charlieNara := NewNara("charlie")
-	charlieNara.Status.PublicKey = FormatPublicKey(charlieKeypair.PublicKey)
+	charlieNara.Status.PublicKey = identity.FormatPublicKey(charlieKeypair.PublicKey)
 	network.importNara(charlieNara)
 
 	// Charlie had events 10 minutes ago (old, beyond the 5 minute threshold)

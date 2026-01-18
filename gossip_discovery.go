@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/eljojo/nara/types"
 )
 
 // PeerDiscovery is a strategy for discovering mesh peers
@@ -20,7 +22,7 @@ type PeerDiscovery interface {
 
 // DiscoveredPeer represents a nara found via discovery
 type DiscoveredPeer struct {
-	Name      string
+	Name      types.NaraName
 	MeshIP    string
 	PublicKey string // Ed25519 public key (from /ping response)
 }
@@ -88,7 +90,7 @@ func (d *TailscalePeerDiscovery) ScanForPeers(myIP string) []DiscoveredPeer {
 
 			mu.Lock()
 			peers = append(peers, DiscoveredPeer{
-				Name:      naraName,
+				Name:      types.NaraName(naraName),
 				MeshIP:    ip,
 				PublicKey: pubKey,
 			})
@@ -127,7 +129,13 @@ func (network *Network) discoverMeshPeers() {
 	} else {
 		// Convert TsnetPeer to DiscoveredPeer (no public keys yet)
 		for _, p := range tsnetPeers {
-			peers = append(peers, DiscoveredPeer{Name: p.Name, MeshIP: p.IP})
+			var peerNaraName types.NaraName
+			if len(p.Name) >= 5 {
+				peerNaraName = types.NaraName(p.Name[:len(p.Name)-5]) // remove random suffix
+			} else {
+				continue
+			}
+			peers = append(peers, DiscoveredPeer{Name: peerNaraName, MeshIP: p.IP})
 		}
 		logrus.Infof("📡 Got %d peers from tsnet Status API (instant!)", len(peers))
 
@@ -138,24 +146,27 @@ func (network *Network) discoverMeshPeers() {
 	discovered := 0
 	for _, peer := range peers {
 		// Skip self
-		if peer.Name == myName {
+		// Note: peer.Name is already clean (suffix removed in conversion or by discovery)
+		peerNaraName := peer.Name
+
+		if peerNaraName == myName {
 			continue
 		}
 
 		// Check if we already know this nara
 		network.local.mu.Lock()
-		existing, exists := network.Neighbourhood[peer.Name]
+		existing, exists := network.Neighbourhood[peerNaraName]
 		network.local.mu.Unlock()
 
 		if !exists {
 			// New peer - add to neighborhood with public key
-			nara := NewNara(peer.Name)
+			nara := NewNara(peerNaraName)
 			nara.Status.MeshIP = peer.MeshIP
 			nara.Status.MeshEnabled = true
 			nara.Status.PublicKey = peer.PublicKey
 			network.importNara(nara)
-			network.recordObservationOnlineNara(peer.Name, 0) // Properly sets both Online and LastSeen
-			network.emitSeenEvent(peer.Name, "mesh")
+			network.recordObservationOnlineNara(peerNaraName, 0) // Properly sets both Online and LastSeen
+			network.emitSeenEvent(peerNaraName, "mesh")
 			discovered++
 			if peer.PublicKey != "" {
 				logrus.Infof("📡 Discovered mesh peer: %s at %s (🔑)", peer.Name, peer.MeshIP)
@@ -165,7 +176,7 @@ func (network *Network) discoverMeshPeers() {
 		} else if peer.PublicKey != "" && existing.Status.PublicKey == "" {
 			// Update existing peer with newly discovered public key
 			existing.Status.PublicKey = peer.PublicKey
-			logrus.Infof("📡 Updated public key for %s (🔑)", peer.Name)
+			logrus.Infof("📡 Updated public key for %s (🔑)", peerNaraName)
 		}
 	}
 
@@ -235,7 +246,7 @@ func (network *Network) fetchPublicKeysFromPeers(peers []DiscoveredPeer) []Disco
 			mu.Lock()
 			// Get the real nara name from the ping response (not Tailscale hostname)
 			if name, ok := pingResp["from"].(string); ok && name != "" {
-				peers[idx].Name = name
+				peers[idx].Name = types.NaraName(name)
 			}
 			if pubKey, ok := pingResp["public_key"].(string); ok && pubKey != "" {
 				peers[idx].PublicKey = pubKey

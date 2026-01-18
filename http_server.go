@@ -65,8 +65,11 @@ func (network *Network) startHttpServer(httpAddr string) error {
 	// Create a mux for handlers (so we can reuse with mesh server)
 	mux := network.createHTTPMux(true) // includeUI = true
 
+	// Store the actual listening address for tests
+	actualAddr := fmt.Sprintf(":%d", port)
 	network.httpServer = &http.Server{
 		Handler: mux,
+		Addr:    actualAddr,
 	}
 
 	go func() {
@@ -89,13 +92,10 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 	mux.HandleFunc("/gossip/zine", network.loggingMiddleware("/gossip/zine", network.meshAuthMiddleware("/gossip/zine", network.httpGossipZineHandler)))
 	mux.HandleFunc("/dm", network.loggingMiddleware("/dm", network.meshAuthMiddleware("/dm", network.httpDMHandler)))
 	mux.HandleFunc("/world/relay", network.loggingMiddleware("/world/relay", network.meshAuthMiddleware("/world/relay", network.httpWorldRelayHandler)))
+	mux.HandleFunc("/mesh/message", network.loggingMiddleware("/mesh/message", network.meshAuthMiddleware("/mesh/message", network.httpMeshMessageHandler)))
 	mux.HandleFunc("/ping", network.loggingMiddleware("/ping", network.httpPingHandler)) // No auth - latency critical
 	mux.HandleFunc("/coordinates", network.loggingMiddleware("/coordinates", network.httpCoordinatesHandler))
-
-	// Stash endpoints
-	mux.HandleFunc("/stash/store", network.loggingMiddleware("/stash/store", network.meshAuthMiddleware("/stash/store", network.httpStashHandler)))
-	mux.HandleFunc("/stash/retrieve", network.loggingMiddleware("/stash/retrieve", network.meshAuthMiddleware("/stash/retrieve", network.httpStashRetrieveHandler)))
-	mux.HandleFunc("/stash/push", network.loggingMiddleware("/stash/push", network.meshAuthMiddleware("/stash/push", network.httpStashPushHandler)))
+	mux.HandleFunc("/peer/query", network.loggingMiddleware("/peer/query", network.httpPeerQueryHandler)) // No auth - used for peer discovery
 
 	// Checkpoint sync endpoint - serves all checkpoints for boot recovery
 	// Available on mesh for distributed timeline recovery
@@ -137,6 +137,8 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 		mux.HandleFunc("/world/journeys", network.httpWorldJourneysHandler)
 		mux.HandleFunc("/network/map", network.httpNetworkMapHandler)
 		mux.HandleFunc("/proximity", network.httpProximityHandler)
+
+		// Stash API endpoints
 		mux.HandleFunc("/api/stash/status", network.httpStashStatusHandler)
 		mux.HandleFunc("/api/stash/update", network.httpStashUpdateHandler)
 		mux.HandleFunc("/api/stash/recover", network.httpStashRecoverHandler)
@@ -150,6 +152,11 @@ func (network *Network) createHTTPMux(includeUI bool) *http.ServeMux {
 		mux.HandleFunc("/api/inspector/projection/", network.local.inspectorProjectionDetailHandler)
 		mux.HandleFunc("/api/inspector/event/", network.local.inspectorEventDetailHandler)
 		mux.HandleFunc("/api/inspector/uptime/", network.local.inspectorUptimeHandler)
+
+		// Catch-all for unknown API endpoints - return 404 instead of SPA
+		mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+			http.NotFound(w, r)
+		})
 
 		// SPA handler - serves inspector.html for all app routes
 		// This is the main page at / with all tabs (Home, World, Timeline, etc.)
