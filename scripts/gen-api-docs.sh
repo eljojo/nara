@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Generate API documentation from Go source code
 # Output: docs/src/content/docs/api/*.md
 #
