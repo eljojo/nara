@@ -149,24 +149,30 @@ func (s *Service) handleRequestV1(msg *runtime.Message, p *messages.StashRequest
 func (s *Service) handleResponseV1(msg *runtime.Message, p *messages.StashResponsePayload) {
 	s.log.Debug("received response from %s (found=%v)", msg.FromID, p.Found)
 
-	// If we're recovering (empty stash), accept ANY response as authoritative
-	// This handles the hey-there recovery flow where we didn't explicitly request
+	// Try to match to pending request via correlator first
+	// This handles explicit RequestFrom() calls
+	matched := s.requestCorrelator.Receive(msg.InReplyTo, *p)
+	if matched {
+		return
+	}
+
+	// If not matched, check if it's a proactive recovery (hey-there flow)
+	// If we have no stash, we accept authoritative pushes from confidants
 	if !s.HasStashData() && p.Found && len(p.Ciphertext) > 0 {
 		s.log.Info("received proactive stash recovery from %s", msg.FromID)
 
 		// Decrypt and set as our local stash
-		// NOTE: This duplicates some logic from recover() but we're in a handler
-		// and don't want to block or use the correlator for proactive pushes
 		if err := s.handleRecoveryPayload(p); err != nil {
 			s.log.Error("failed to process proactive recovery: %v", err)
 		}
 		return
 	}
 
-	// Match to pending request via correlator
-	matched := s.requestCorrelator.Receive(msg.InReplyTo, *p)
-
-	if !matched && !s.HasStashData() { // Only warn if we're not in recovery mode
+	// Only warn if we're not in recovery mode and it wasn't a proactive push
+	if !s.HasStashData() {
+		// matches proactive push criteria but failed something?
+		// actually if it didn't match proactive criteria (e.g. not found or empty), we might just ignore it
+	} else {
 		s.log.Warn("received unexpected response from %s (no pending request)", msg.FromID)
 	}
 }

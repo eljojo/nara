@@ -328,6 +328,7 @@ func TestStashDistribution_Integration(t *testing.T) {
 }
 
 // TestStashUpdate_HTTPWorkflow tests updating stash via HTTP endpoint
+// TODO(flakey)
 func TestStashUpdate_HTTPWorkflow(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")

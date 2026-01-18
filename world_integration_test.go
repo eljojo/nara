@@ -2,23 +2,26 @@ package nara
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
+	"github.com/eljojo/nara/utilities/keyring"
 )
 
 // TestNara represents a test nara with all necessary components
 type TestNara struct {
-	Name        string
-	Soul        identity.SoulV1
-	Keypair     identity.NaraKeypair
-	LocalNara   *LocalNara
-	MeshClient  *MeshClient
-	Handler     *WorldJourneyHandler
-	MessageChan chan *WorldMessage // For receiving world messages in tests
+	Name       string
+	Soul       identity.SoulV1
+	Keypair    identity.NaraKeypair
+	LocalNara  *LocalNara
+	MeshClient *MeshClient
+	Handler    *WorldJourneyHandler
+	TestServer *httptest.Server // The real HTTP server for this nara
 }
 
 // TestWorld sets up a complete test environment for world journey testing
@@ -36,9 +39,6 @@ func NewTestWorld(names []string) *TestWorld {
 		Clout:     make(map[string]map[types.NaraName]float64),
 		Completed: []*WorldMessage{},
 	}
-
-	// Create shared mock HTTP transport for all test naras
-	mockTransport := NewMockMeshHTTPTransport()
 
 	// Create test naras
 	for i, name := range names {
@@ -58,29 +58,34 @@ func NewTestWorld(names []string) *TestWorld {
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		ln.Network = &Network{
-			ctx:        ctx,
-			cancelFunc: cancel,
+			ctx:           ctx,
+			cancelFunc:    cancel,
+			local:         ln,
+			Neighbourhood: make(map[types.NaraName]*Nara),
+			keyring:       keyring.New(keypair, naraID),
 		}
 		ln.Me.Status.PublicKey = identity.FormatPublicKey(keypair.PublicKey)
 		ln.Me.Status.ID = naraID
 
-		// Create message channel for this nara
-		messageChan := make(chan *WorldMessage, 10)
+		// Use the real Network structure to create the mux
+		// This uses the exact same routing logic as production
+		mux := ln.Network.createHTTPMux(false)
 
-		// Register handler for this nara in the mock transport
-		mockTransport.RegisterHandler(naraID, CreateMockWorldMessageHandler(messageChan))
+		// Create a real HTTP server to handle requests
+		testServer := httptest.NewServer(mux)
 
-		// Create mesh client for this nara using the shared mock transport
-		meshClient := NewMockMeshClientForTesting(types.NaraName(name), keypair, mockTransport)
+		// Create REAL mesh client for this nara
+		// We use the default HTTP client because we're hitting localhost
+		meshClient := NewMeshClient(http.DefaultClient, types.NaraName(name), keypair)
 
 		testNara := &TestNara{
-			Name:        name,
-			Soul:        soul,
-			Keypair:     keypair,
-			LocalNara:   ln,
-			MeshClient:  meshClient,
-			Handler:     nil, // Set later
-			MessageChan: messageChan,
+			Name:       name,
+			Soul:       soul,
+			Keypair:    keypair,
+			LocalNara:  ln,
+			MeshClient: meshClient,
+			Handler:    nil, // Set later
+			TestServer: testServer,
 		}
 
 		tw.Naras[name] = testNara
@@ -97,11 +102,21 @@ func NewTestWorld(names []string) *TestWorld {
 		}
 	}
 
-	// Register all peers in each mesh client
+	// Register all peers with each other
+	// This is required for meshAuthMiddleware to verify signatures (it checks Neighbourhood)
 	for _, sender := range tw.Naras {
 		for name, receiver := range tw.Naras {
 			if name != sender.Name {
-				sender.MeshClient.RegisterPeer(receiver.LocalNara.ID, "mock://"+receiver.LocalNara.ID.String())
+				// 1. Register for MeshClient (transport layer)
+				sender.MeshClient.RegisterPeer(receiver.LocalNara.ID, receiver.TestServer.URL)
+
+				// 2. Register in Neighbourhood (application layer - for auth verification)
+				neighbor := NewNara(types.NaraName(receiver.Name))
+				neighbor.Status.PublicKey = identity.FormatPublicKey(receiver.Keypair.PublicKey)
+				neighbor.Status.ID = receiver.LocalNara.ID
+				neighbor.Status.MeshEnabled = true
+
+				sender.LocalNara.Network.Neighbourhood[types.NaraName(receiver.Name)] = neighbor
 			}
 		}
 	}
@@ -110,6 +125,8 @@ func NewTestWorld(names []string) *TestWorld {
 	for _, testNara := range tw.Naras {
 		handler := tw.createHandler(testNara)
 		testNara.Handler = handler
+		// CRITICAL: Wire up the handler to the Network so httpWorldRelayHandler uses it
+		testNara.LocalNara.Network.worldHandler = handler
 	}
 
 	return tw
@@ -154,13 +171,6 @@ func (tw *TestWorld) createHandler(tn *TestNara) *WorldJourneyHandler {
 		nil, // onJourneyPass - not needed for these tests
 	)
 
-	// Start goroutine to route messages from channel to handler
-	go func() {
-		for wm := range tn.MessageChan {
-			_ = handler.HandleIncoming(wm) // Errors are logged by the handler
-		}
-	}()
-
 	return handler
 }
 
@@ -172,7 +182,7 @@ func (tw *TestWorld) SetClout(clout map[string]map[types.NaraName]float64) {
 // Close shuts down all test naras
 func (tw *TestWorld) Close() {
 	for _, tn := range tw.Naras {
-		close(tn.MessageChan)
+		tn.TestServer.Close() // Close the HTTP server
 		if tn.LocalNara.Network.cancelFunc != nil {
 			tn.LocalNara.Network.cancelFunc()
 		}
