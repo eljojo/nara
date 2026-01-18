@@ -23,8 +23,8 @@ let
     pname = "nara-web";
     version = "latest";
     src = lib.cleanSource ../.;
-    #npmDepsHash = lib.fakeHash;
-    npmDepsHash = "sha256-WcpFv2gKA7cq7vlMW+1/2/SFvNjzYV+wERwOLiyuKPI=";
+    #npmDepsHash = lib.fakeHash; # DO NOT REMOVE THIS COMMENT
+    npmDepsHash = "sha256-VTGE+l7APw5wOyeOMP3SEIEN5z5nAv+B28f7VEZ4i18=";
     nativeBuildInputs = [ esbuild gomarkdoc ];
 
     makeCacheWritable = true; # necessary for git pull on mermaid dependency
