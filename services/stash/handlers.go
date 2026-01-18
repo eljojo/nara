@@ -6,9 +6,32 @@ import (
 
 	"github.com/eljojo/nara/messages"
 	"github.com/eljojo/nara/runtime"
+	"github.com/eljojo/nara/types"
 )
 
 // === Version-specific handlers ===
+
+// buildStashResponse creates a StashResponsePayload.
+// If stash is nil, returns a "not found" response.
+// Otherwise returns a "found" response with the stash data.
+func buildStashResponse(ownerID types.NaraID, requestID string, stash *EncryptedStash) *messages.StashResponsePayload {
+	if stash == nil {
+		return &messages.StashResponsePayload{
+			OwnerID:   ownerID,
+			RequestID: requestID,
+			Found:     false,
+		}
+	}
+
+	return &messages.StashResponsePayload{
+		OwnerID:    ownerID,
+		RequestID:  requestID,
+		Found:      true,
+		Nonce:      stash.Nonce,
+		Ciphertext: stash.Ciphertext,
+		StoredAt:   stash.StoredAt.Unix(),
+	}
+}
 
 // handleRefreshV1 handles stash-refresh broadcasts.
 //
@@ -26,15 +49,9 @@ func (s *Service) handleRefreshV1(msg *runtime.Message, p *messages.StashRefresh
 
 	// Send the stash back via mesh
 	response := &runtime.Message{
-		Kind: "stash:response",
-		ToID: p.OwnerID,
-		Payload: &messages.StashResponsePayload{
-			OwnerID:    p.OwnerID,
-			Found:      true,
-			Nonce:      stash.Nonce,
-			Ciphertext: stash.Ciphertext,
-			StoredAt:   stash.StoredAt.Unix(),
-		},
+		Kind:    "stash:response",
+		ToID:    p.OwnerID,
+		Payload: buildStashResponse(p.OwnerID, "", stash),
 	}
 
 	if err := s.rt.Emit(response); err != nil {
@@ -108,37 +125,19 @@ func (s *Service) handleRequestV1(msg *runtime.Message, p *messages.StashRequest
 	// Validate
 	if err := p.Validate(); err != nil {
 		s.log.Warn("invalid request from %s: %v", p.OwnerID, err)
-
-		// Send not-found response
-		_ = s.rt.Emit(msg.Reply("stash:response", &messages.StashResponsePayload{
-			OwnerID:   p.OwnerID,
-			RequestID: p.RequestID,
-			Found:     false,
-		}))
+		_ = s.rt.Emit(msg.Reply("stash:response", buildStashResponse(p.OwnerID, p.RequestID, nil)))
 		return
 	}
 
 	stash := s.GetStoredStash(p.OwnerID)
 	if stash == nil {
 		s.log.Warn("request failed: no stash found for %s", p.OwnerID)
-		// Respond anyway but with Found=false
-		_ = s.rt.Emit(msg.Reply("stash:response", &messages.StashResponsePayload{
-			OwnerID:   p.OwnerID,
-			RequestID: p.RequestID,
-			Found:     false,
-		}))
+		_ = s.rt.Emit(msg.Reply("stash:response", buildStashResponse(p.OwnerID, p.RequestID, nil)))
 		return
 	}
 
 	// Send the stash back
-	_ = s.rt.Emit(msg.Reply("stash:response", &messages.StashResponsePayload{
-		OwnerID:    p.OwnerID,
-		RequestID:  p.RequestID,
-		Found:      true,
-		Nonce:      stash.Nonce,
-		Ciphertext: stash.Ciphertext,
-		StoredAt:   stash.StoredAt.Unix(),
-	}))
+	_ = s.rt.Emit(msg.Reply("stash:response", buildStashResponse(p.OwnerID, p.RequestID, stash)))
 
 	s.log.Info("sent stash to %s (%d bytes)", p.OwnerID, len(stash.Ciphertext))
 }

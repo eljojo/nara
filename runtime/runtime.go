@@ -520,12 +520,6 @@ func (rt *Runtime) applyErrorStrategy(msg *Message, stage string, err error, str
 // AddService registers a service with the runtime.
 func (rt *Runtime) AddService(svc Service) error {
 	rt.services = append(rt.services, svc)
-
-	// If service implements BehaviorRegistrar, call it
-	if registrar, ok := svc.(BehaviorRegistrar); ok {
-		registrar.RegisterBehaviors(rt)
-	}
-
 	return nil
 }
 
@@ -536,6 +530,11 @@ func (rt *Runtime) Start() error {
 		log := rt.Log(svc.Name())
 		if err := svc.Init(rt, log); err != nil {
 			return fmt.Errorf("init %s: %w", svc.Name(), err)
+		}
+
+		// If service implements BehaviorRegistrar, call it after Init
+		if registrar, ok := svc.(BehaviorRegistrar); ok {
+			registrar.RegisterBehaviors(rt)
 		}
 	}
 

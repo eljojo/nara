@@ -76,9 +76,6 @@ func (s *Service) Init(rt runtime.RuntimeInterface, log *runtime.ServiceLog) err
 	// Encryption is provided by runtime.Seal/Open (no local encryptor needed)
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 
-	// Register message behaviors
-	s.RegisterBehaviors(rt)
-
 	s.log.Info("stash service initialized successfully")
 	return nil
 }
@@ -478,9 +475,7 @@ func (s *Service) GetStoredStash(ownerID types.NaraID) *EncryptedStash {
 	return s.stored[ownerID]
 }
 
-// === State persistence ===
-
-// MarshalState returns the service's state as JSON for persistence.
+// MarshalState returns the service's state as JSON for debugging.
 func (s *Service) MarshalState() ([]byte, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -498,31 +493,4 @@ func (s *Service) MarshalState() ([]byte, error) {
 	}
 
 	return json.Marshal(state)
-}
-
-// UnmarshalState loads the service's state from JSON.
-func (s *Service) UnmarshalState(data []byte) error {
-	var state struct {
-		Confidants       []types.NaraID                   `json:"confidants"`
-		Stored           map[types.NaraID]*EncryptedStash `json:"stored"`
-		MyStashData      []byte                           `json:"my_stash_data,omitempty"`
-		MyStashTimestamp int64                            `json:"my_stash_timestamp,omitempty"`
-	}
-
-	if err := json.Unmarshal(data, &state); err != nil {
-		return err
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.confidants = state.Confidants
-	s.stored = state.Stored
-	s.myStashData = state.MyStashData
-	s.myStashTimestamp = state.MyStashTimestamp
-
-	s.log.Info("loaded state: %d confidants, %d stored stashes, my stash: %d bytes",
-		len(s.confidants), len(s.stored), len(s.myStashData))
-
-	return nil
 }

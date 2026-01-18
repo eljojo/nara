@@ -37,7 +37,7 @@ Stash is the reference implementation of a nara runtime service. It provides enc
 - `RequestFrom(targetID) ([]byte, error)`: Request and decrypt from specific peer.
 - `RecoverFromAny() ([]byte, error)`: Sequential recovery attempt.
 - `SetConfidants([]ID)`: Configure the set of peers to use for stashing.
-- `MarshalState() / UnmarshalState()`: Persistence of confidant list and stored blobs.
+- `MarshalState()`: Returns the current `stored` map for debugging.
 
 ### Message Kinds
 - `stash:store`: (MeshOnly) Carries encrypted blob to a confidant. Response: `stash:ack`.

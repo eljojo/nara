@@ -332,42 +332,6 @@ func TestStashStateMarshaling(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MarshalState failed: %v", err)
 	}
-
-	// Create new service and unmarshal
-	svc2 := NewService()
-	if err := svc2.Init(rt, rt.Log("stash")); err != nil {
-		t.Fatalf("failed to init svc2: %v", err)
-	}
-
-	if err := svc2.UnmarshalState(data); err != nil {
-		t.Fatalf("UnmarshalState failed: %v", err)
-	}
-
-	// Verify confidants
-	if len(svc2.confidants) != 3 {
-		t.Fatalf("expected 3 confidants, got %d", len(svc2.confidants))
-	}
-	if svc2.confidants[0] != "conf-1" || svc2.confidants[1] != "conf-2" || svc2.confidants[2] != "conf-3" {
-		t.Fatalf("confidants mismatch: %v", svc2.confidants)
-	}
-
-	// Verify stored stashes
-	if !svc2.HasStashFor("owner-1") {
-		t.Fatal("expected stash for owner-1")
-	}
-	if !svc2.HasStashFor("owner-2") {
-		t.Fatal("expected stash for owner-2")
-	}
-
-	stash1 := svc2.GetStoredStash("owner-1")
-	if string(stash1.Ciphertext) != "cipher1" {
-		t.Fatalf("expected cipher1, got %s", stash1.Ciphertext)
-	}
-
-	stash2 := svc2.GetStoredStash("owner-2")
-	if string(stash2.Ciphertext) != "cipher2" {
-		t.Fatalf("expected cipher2, got %s", stash2.Ciphertext)
-	}
 }
 
 // TestStashEncryptionDecryption tests the encryption/decryption flow via runtime.
