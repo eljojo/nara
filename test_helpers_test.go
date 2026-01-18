@@ -478,6 +478,7 @@ type testMeshNetwork struct {
 	Servers []*httptest.Server
 	Client  *http.Client
 	t       *testing.T
+	MqttPort int
 }
 
 // testCreateMeshNetwork creates N naras in a full mesh topology with HTTP servers.
@@ -492,6 +493,7 @@ func testCreateMeshNetwork(t *testing.T, names []string, chattiness, ledgerCapac
 		Servers: make([]*httptest.Server, count),
 		Client:  &http.Client{Timeout: 5 * time.Second},
 		t:       t,
+		MqttPort: mqttPortNumber,
 	}
 
 	if mqttPortNumber > 0 {
@@ -515,10 +517,7 @@ func testCreateMeshNetwork(t *testing.T, names []string, chattiness, ledgerCapac
 		ln.setMeObservation(me)
 
 		// Create HTTP server with common endpoints
-		mux := http.NewServeMux()
-		mux.HandleFunc("/gossip/zine", ln.Network.httpGossipZineHandler)
-		mux.HandleFunc("/api/checkpoints/all", ln.Network.httpCheckpointsAllHandler)
-		mux.HandleFunc("/mesh/message", ln.Network.httpMeshMessageHandler)
+		mux := ln.Network.createHTTPMux(false) // Use production mux logic
 		server := httptest.NewServer(mux)
 
 		mesh.Naras[i] = ln
@@ -534,28 +533,9 @@ func testCreateMeshNetwork(t *testing.T, names []string, chattiness, ledgerCapac
 		}
 	}
 
-	// Create full mesh: each nara knows all others
+	// Connect everyone to everyone
 	for i := 0; i < count; i++ {
-		// Build testURLs map for meshClient
-		testURLsForMeshClient := make(map[types.NaraID]string)
-
-		for j := 0; j < count; j++ {
-			if i != j {
-				neighbor := NewNara(mesh.Naras[j].Me.Name)
-				neighbor.Status.ID = mesh.Naras[j].Me.Status.ID
-				neighbor.ID = mesh.Naras[j].Me.Status.ID // Important: set top-level ID too
-				neighbor.Status.PublicKey = identity.FormatPublicKey(mesh.Naras[j].Keypair.PublicKey)
-				mesh.Naras[i].Network.importNara(neighbor)
-				mesh.Naras[i].setObservation(mesh.Naras[j].Me.Name, NaraObservation{Online: "ONLINE"})
-				mesh.Naras[i].Network.testMeshURLs[mesh.Naras[j].Me.Name] = mesh.Servers[j].URL
-
-				// Also register in meshClient by ID
-				testURLsForMeshClient[mesh.Naras[j].Me.Status.ID] = mesh.Servers[j].URL
-			}
-		}
-
-		// Configure meshClient with test URLs
-		mesh.Naras[i].Network.meshClient.EnableTestMode(testURLsForMeshClient)
+		mesh.connectNodeToPeers(i)
 	}
 
 	// Register cleanup
@@ -566,6 +546,35 @@ func testCreateMeshNetwork(t *testing.T, names []string, chattiness, ledgerCapac
 	})
 
 	return mesh
+}
+
+// connectNodeToPeers wires the nara at the given index to all other naras in the mesh.
+// It imports neighbor identities, sets initial online observations, and configures the mesh client.
+func (m *testMeshNetwork) connectNodeToPeers(index int) {
+	targetNara := m.Naras[index]
+	testURLsForMeshClient := make(map[types.NaraID]string)
+
+	for j := 0; j < len(m.Naras); j++ {
+		if index != j {
+			peer := m.Naras[j]
+			peerServer := m.Servers[j]
+
+			// Import peer identity and set connection info
+			neighbor := NewNara(peer.Me.Name)
+			neighbor.Status.ID = peer.Me.Status.ID
+			neighbor.ID = peer.Me.Status.ID // Important: set top-level ID too
+			neighbor.Status.PublicKey = identity.FormatPublicKey(peer.Keypair.PublicKey)
+
+			targetNara.Network.importNara(neighbor)
+			targetNara.setObservation(peer.Me.Name, NaraObservation{Online: "ONLINE"})
+			targetNara.Network.testMeshURLs[peer.Me.Name] = peerServer.URL
+
+			// Register for meshClient (outgoing requests)
+			testURLsForMeshClient[peer.Me.Status.ID] = peerServer.URL
+		}
+	}
+
+	targetNara.Network.meshClient.EnableTestMode(testURLsForMeshClient)
 }
 
 // Get returns the nara at index i.
@@ -593,7 +602,7 @@ func (m *testMeshNetwork) ServerURL(i int) string {
 // This is useful for testing recovery scenarios where a nara loses all local state but keeps its soul.
 // The restarted nara will have the same soul/identity but empty local state (no stash, no ledger).
 // All mesh connections to other naras are automatically re-wired.
-func (m *testMeshNetwork) RestartNara(index int, mqttPortNumber int) *LocalNara {
+func (m *testMeshNetwork) RestartNara(index int) *LocalNara {
 	m.t.Helper()
 
 	if index < 0 || index >= len(m.Naras) {
@@ -621,7 +630,7 @@ func (m *testMeshNetwork) RestartNara(index int, mqttPortNumber int) *LocalNara 
 		ledgerCap = 1000
 	}
 
-	fresh := testNara(m.t, originalName, WithSoul(originalSoul), WithParams(chattiness, ledgerCap), WithMQTT(mqttPortNumber))
+	fresh := testNara(m.t, originalName, WithSoul(originalSoul), WithParams(chattiness, ledgerCap), WithMQTT(m.MqttPort))
 
 	// Mark as not booting (consistent with mesh setup)
 	me := fresh.getMeObservation()
@@ -634,38 +643,21 @@ func (m *testMeshNetwork) RestartNara(index int, mqttPortNumber int) *LocalNara 
 	fresh.Network.testMeshURLs = make(map[types.NaraName]string)
 	fresh.Network.TransportMode = TransportHybrid
 
-	// Re-wire mesh connections: fresh nara knows about all others
-	testURLsForMeshClient := make(map[types.NaraID]string)
-	for j := 0; j < len(m.Naras); j++ {
-		if j != index {
-			neighbor := NewNara(m.Naras[j].Me.Name)
-			neighbor.Status.ID = m.Naras[j].Me.Status.ID
-			neighbor.ID = m.Naras[j].Me.Status.ID // Important: set top-level ID too
-			neighbor.Status.PublicKey = identity.FormatPublicKey(m.Naras[j].Keypair.PublicKey)
-			fresh.Network.importNara(neighbor)
-			fresh.setObservation(m.Naras[j].Me.Name, NaraObservation{Online: "ONLINE"})
-			fresh.Network.testMeshURLs[m.Naras[j].Me.Name] = m.Servers[j].URL
-
-			testURLsForMeshClient[m.Naras[j].Me.Status.ID] = m.Servers[j].URL
-		}
-	}
-	fresh.Network.meshClient.EnableTestMode(testURLsForMeshClient)
-
-	// Update mesh tracking
+	// Update mesh tracking - must do this BEFORE wiring peers so the loop sees the fresh nara at m.Naras[index]
 	m.Naras[index] = fresh
+
+	// Wire the fresh nara to all existing peers
+	m.connectNodeToPeers(index)
 
 	// Update HTTP server to use fresh nara's handlers
 	// Note: We reuse the same httptest.Server, just update the handler
-	oldHandler := m.Servers[index].Config.Handler
-	if oldHandler != nil {
-		mux := http.NewServeMux()
-		mux.HandleFunc("/gossip/zine", fresh.Network.httpGossipZineHandler)
-		mux.HandleFunc("/api/checkpoints/all", fresh.Network.httpCheckpointsAllHandler)
-		mux.HandleFunc("/mesh/message", fresh.Network.httpMeshMessageHandler)
+	if m.Servers[index].Config.Handler != nil {
+		mux := fresh.Network.createHTTPMux(false) // Use production mux logic
 		m.Servers[index].Config.Handler = mux
 	}
 
 	// Update other naras' view of this nara (they see it as same peer, just restarted)
+	// We need to tell them about the "restart" event (LastRestart update)
 	for j := 0; j < len(m.Naras); j++ {
 		if j != index {
 			// They already have this nara in their neighbourhood from initial mesh setup

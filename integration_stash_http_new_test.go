@@ -219,7 +219,7 @@ func TestStashDistribution_Integration(t *testing.T) {
 	// Test stash recovery workflow - simulates a complete reboot with automatic recovery
 	t.Run("recovery_workflow", func(t *testing.T) {
 		// Simulate complete restart: shutdown and recreate with same identity but empty state
-		rebooted := mesh.RestartNara(0, 11892) // owner is at index 0
+		rebooted := mesh.RestartNara(0) // owner is at index 0
 
 		// Initialize runtime and stash service for rebooted nara
 		if err := rebooted.Network.initRuntime(); err != nil {
