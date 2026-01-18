@@ -11,8 +11,6 @@ import (
 
 // TestStashStoreAndAck tests the store request → ack flow.
 func TestStashStoreAndAck(t *testing.T) {
-	runtime.ClearBehaviors() // Clear global registry for test isolation
-
 	// Create mock runtimes for Alice (owner) and Bob (confidant)
 	aliceRT := runtime.NewMockRuntime(t, "alice", "alice-id-123")
 	bobRT := runtime.NewMockRuntime(t, "bob", "bob-id-456")
@@ -124,8 +122,6 @@ func TestStashStoreAndAck(t *testing.T) {
 // TestStashRequestAndResponse tests the request → response flow.
 // TODO(flakey)
 func TestStashRequestAndResponse(t *testing.T) {
-	runtime.ClearBehaviors() // Clear global registry for test isolation
-
 	// Create mock runtimes
 	aliceRT := runtime.NewMockRuntime(t, "alice", "alice-id-123")
 	bobRT := runtime.NewMockRuntime(t, "bob", "bob-id-456")
@@ -244,8 +240,6 @@ func TestStashRequestAndResponse(t *testing.T) {
 
 // TestStashRequestNotFound tests requesting a stash that doesn't exist.
 func TestStashRequestNotFound(t *testing.T) {
-	runtime.ClearBehaviors() // Clear global registry for test isolation
-
 	// Create mock runtimes
 	aliceRT := runtime.NewMockRuntime(t, "alice", "alice-id-123")
 	bobRT := runtime.NewMockRuntime(t, "bob", "bob-id-456")

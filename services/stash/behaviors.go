@@ -10,17 +10,14 @@ import (
 // This is called during service initialization to declare how each
 // stash message kind should be handled.
 //
-// If the runtime implements BehaviorRegistry (like MockRuntime), behaviors
-// are registered locally for test isolation. Otherwise, uses the global registry.
+// Behaviors are registered locally with the runtime for test isolation.
 func (s *Service) RegisterBehaviors(rt runtime.RuntimeInterface) {
-	// Helper to register with local or global registry
+	// Helper to register with runtime's local registry
 	register := func(b *runtime.Behavior) {
 		if reg, ok := rt.(runtime.BehaviorRegistry); ok {
-			// Register locally (test isolation)
 			reg.RegisterBehavior(b)
 		} else {
-			// Register globally (production)
-			_ = runtime.Register(b)
+			panic("runtime must implement BehaviorRegistry")
 		}
 	}
 

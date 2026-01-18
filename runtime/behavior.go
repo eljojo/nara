@@ -1,9 +1,7 @@
 package runtime
 
 import (
-	"errors"
 	"reflect"
-	"sync"
 )
 
 // ErrorStrategy defines how to handle errors at each pipeline stage.
@@ -218,61 +216,9 @@ func (b *Behavior) WithRateLimit(stage Stage) *Behavior {
 }
 
 // === Registry ===
-
-var (
-	behaviors   = make(map[string]*Behavior)
-	behaviorsMu sync.RWMutex
-)
-
-// Register registers a behavior with the global registry.
-//
-// In tests, re-registration is allowed (replaces existing behavior).
-// In production, behaviors are registered once during startup.
-func Register(b *Behavior) error {
-	if b.Kind == "" {
-		return errors.New("behavior must have a Kind")
-	}
-
-	behaviorsMu.Lock()
-	defer behaviorsMu.Unlock()
-
-	// Allow re-registration (for tests with multiple service instances)
-	behaviors[b.Kind] = b
-	return nil
-}
-
-// Lookup finds a behavior by kind.
-func Lookup(kind string) *Behavior {
-	behaviorsMu.RLock()
-	defer behaviorsMu.RUnlock()
-	return behaviors[kind]
-}
-
-// ClearBehaviors clears the global behavior registry (for testing).
-func ClearBehaviors() {
-	behaviorsMu.Lock()
-	defer behaviorsMu.Unlock()
-	behaviors = make(map[string]*Behavior)
-}
-
-// AllBehaviors returns a copy of all registered behaviors.
-func AllBehaviors() map[string]*Behavior {
-	behaviorsMu.RLock()
-	defer behaviorsMu.RUnlock()
-
-	result := make(map[string]*Behavior, len(behaviors))
-	for k, v := range behaviors {
-		result[k] = v
-	}
-	return result
-}
-
-// ClearRegistry clears all registered behaviors (for testing only).
-func ClearRegistry() {
-	behaviorsMu.Lock()
-	defer behaviorsMu.Unlock()
-	behaviors = make(map[string]*Behavior)
-}
+// NOTE: Behaviors are now registered per-runtime using Runtime.RegisterBehavior().
+// This provides test isolation and allows multiple runtime instances to coexist
+// with different behavior handlers.
 
 // PayloadTypeOf is a helper to get reflect.Type from a struct.
 func PayloadTypeOf[T any]() reflect.Type {

@@ -100,6 +100,7 @@ func (network *Network) recoverSelfStartTimeFromMesh() {
 		}
 
 		// Register peer for mesh client lookups
+		// TODO: there should be a better place to do this, whenever we see a nara or get new data
 		network.meshClient.RegisterPeerIP(naraID, ip)
 
 		events, respVerified := network.fetchSyncEventsFromMesh(naraID, neighbor, subjects, 0, 1, 500)

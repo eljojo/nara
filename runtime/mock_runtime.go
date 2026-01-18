@@ -139,12 +139,8 @@ func (m *MockRuntime) Open(nonce, ciphertext []byte) ([]byte, error) {
 //
 // Use this to test how a service reacts to incoming messages.
 func (m *MockRuntime) Deliver(msg *Message) {
-	// Check local registry first (per-runtime registrations take precedence)
+	// Look up behavior in local registry
 	behavior := m.behaviors[msg.Kind]
-	if behavior == nil {
-		// Fall back to global registry
-		behavior = Lookup(msg.Kind)
-	}
 	if behavior == nil {
 		m.t.Fatalf("no behavior registered for kind %s", msg.Kind)
 		return

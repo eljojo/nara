@@ -1132,22 +1132,39 @@ Note: `ID` is not in Behavior because ID computation is always the same (unique 
 
 ### Registry
 
-```go
-var Behaviors = map[string]*Behavior{}
+Behaviors are registered per-runtime for test isolation. Each runtime maintains its own local behavior registry:
 
-func Register(b *Behavior) error {
-    if b.Kind == "" {
-        return errors.New("behavior must have a Kind")
-    }
-    if Behaviors[b.Kind] != nil {
-        return fmt.Errorf("behavior %s already registered", b.Kind)
-    }
-    Behaviors[b.Kind] = b
-    return nil
+```go
+// In Runtime struct
+type Runtime struct {
+    // ...
+    localBehaviors map[string]*Behavior
 }
 
-func Lookup(kind string) *Behavior {
-    return Behaviors[kind]
+// RegisterBehavior registers a behavior locally for this runtime.
+// This allows each runtime to have its own handlers, avoiding conflicts
+// in multi-nara tests where services register handlers with their own state.
+func (rt *Runtime) RegisterBehavior(b *Behavior) {
+    rt.localBehaviors[b.Kind] = b
+}
+
+// LookupBehavior looks up a behavior in this runtime's local registry.
+func (rt *Runtime) LookupBehavior(kind string) *Behavior {
+    return rt.localBehaviors[kind]
+}
+```
+
+Services register behaviors via the `BehaviorRegistry` interface:
+
+```go
+// BehaviorRegistry is implemented by runtimes that support local behavior registration.
+type BehaviorRegistry interface {
+    RegisterBehavior(b *Behavior)
+}
+
+// Services implement BehaviorRegistrar to declare their behaviors
+type BehaviorRegistrar interface {
+    RegisterBehaviors(rt RuntimeInterface)
 }
 ```
 
@@ -1350,56 +1367,60 @@ func (b *Behavior) WithRateLimit(stage Stage) *Behavior {
 }
 ```
 
-**Usage - clean and readable:**
+**Usage - clean and readable (in service's RegisterBehaviors method):**
 
 ```go
-// Stash messages (mesh-only protocol)
-Register(Ephemeral("stash-refresh", "Request stash recovery", "nara/plaza/stash_refresh").
-    WithPayload[StashRefreshPayload]().
-    WithHandler(1, s.handleRefreshV1))
+func (s *StashService) RegisterBehaviors(rt RuntimeInterface) {
+    reg := rt.(BehaviorRegistry)  // All runtimes implement this
 
-Register(MeshRequest("stash:store", "Store encrypted stash").
-    WithPayload[StashStorePayload]().
-    WithHandler(1, s.handleStoreV1))
+    // Stash messages (mesh-only protocol)
+    reg.RegisterBehavior(Ephemeral("stash-refresh", "Request stash recovery", "nara/plaza/stash_refresh").
+        WithPayload[StashRefreshPayload]().
+        WithHandler(1, s.handleRefreshV1))
 
-// Protocol messages (MQTT, not stored, verified)
-Register(Protocol("checkpoint:propose", "Checkpoint proposal", "nara/checkpoint/propose").
-    WithPayload[CheckpointProposalPayload]().
-    WithHandler(1, s.handleProposeV1))
+    reg.RegisterBehavior(MeshRequest("stash:store", "Store encrypted stash").
+        WithPayload[StashStorePayload]().
+        WithHandler(1, s.handleStoreV1))
+}
 
-Register(Protocol("checkpoint:vote", "Checkpoint vote", "nara/checkpoint/vote").
-    WithPayload[CheckpointVotePayload]().
-    WithHandler(1, s.handleVoteV1))
+func (s *CheckpointService) RegisterBehaviors(rt RuntimeInterface) {
+    reg := rt.(BehaviorRegistry)
 
-// Protocol messages (unverified variant)
-Register(ProtocolUnverified("sync:request", "Ledger sync request", "nara/ledger/%s/request").
-    WithPayload[SyncRequestPayload]().
-    WithHandler(1, s.handleSyncRequestV1))
+    // Protocol messages (MQTT, not stored, verified)
+    reg.RegisterBehavior(Protocol("checkpoint:propose", "Checkpoint proposal", "nara/checkpoint/propose").
+        WithPayload[CheckpointProposalPayload]().
+        WithHandler(1, s.handleProposeV1))
 
-// Social with personality filter
-Register(BroadcastEvent("social", "Social interactions", 2, "nara/plaza/social").
-    WithPayload[SocialPayload]().
-    WithFilter(Casual(socialFilter)).
-    WithHandler(1, s.handleSocialV1))
+    reg.RegisterBehavior(Protocol("checkpoint:vote", "Checkpoint vote", "nara/checkpoint/vote").
+        WithPayload[CheckpointVotePayload]().
+        WithHandler(1, s.handleVoteV1))
+}
 
-// Observations with ContentKey dedup
-Register(StoredEvent("observation:restart", "Records nara restarts", 0).
-    WithPayload[ObservationRestartPayload]().
-    WithContentKey(restartContentKey).
-    WithRateLimit(RateLimit(5*time.Minute, 10, subjectKey)).
-    WithHandler(1, s.handleRestartV1))
+func (s *ObservationService) RegisterBehaviors(rt RuntimeInterface) {
+    reg := rt.(BehaviorRegistry)
+
+    // Observations with ContentKey dedup
+    reg.RegisterBehavior(StoredEvent("observation:restart", "Records nara restarts", 0).
+        WithPayload[ObservationRestartPayload]().
+        WithContentKey(restartContentKey).
+        WithRateLimit(RateLimit(5*time.Minute, 10, subjectKey)).
+        WithHandler(1, s.handleRestartV1))
+}
 ```
 
 ---
 
 ## Complete Behavior Catalog
 
+**Note:** The examples below show behavior structure for illustration. In practice, behaviors are registered via each service's `RegisterBehaviors(rt RuntimeInterface)` method using `rt.(BehaviorRegistry).RegisterBehavior()` for test isolation. See the "Registry" section above for the current registration pattern.
+
 ### Ephemerals (Not Stored)
 
 ```go
-func init() {
+// Example structure (in practice, wrapped in service.RegisterBehaviors())
+func exampleEphemerals() {
     // Discovery poll
-    Register(&Behavior{
+    behavior := &Behavior{
         Kind:        "howdy",
         Description: "Discovery poll - who's out there?",
         PayloadType: PayloadTypeOf[HowdyPayload](),
@@ -2311,7 +2332,7 @@ build-web: docs
 - ✅ **Behavior system** (`runtime/behavior.go`)
   - Behavior struct with Emit/Receive pipeline configuration
   - Pattern templates: `Ephemeral()`, `MeshRequest()`, `StoredEvent()`, `Local()`
-  - Global behavior registry with `Register()` and `Lookup()`
+  - Per-runtime behavior registry for test isolation (`RegisterBehavior()` and `LookupBehavior()`)
   - Error strategy configuration per direction
   
 - ✅ **Pipeline system** (`runtime/pipeline.go`)

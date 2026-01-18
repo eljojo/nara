@@ -410,7 +410,7 @@ func (rt *Runtime) deserialize(raw []byte) (*Message, error) {
 		return nil, err
 	}
 
-	behavior := Lookup(envelope.Kind)
+	behavior := rt.LookupBehavior(envelope.Kind)
 	if behavior == nil {
 		return nil, fmt.Errorf("unknown kind: %s", envelope.Kind)
 	}
@@ -568,15 +568,9 @@ func (rt *Runtime) Stop() error {
 // in multi-nara tests where services register handlers with their own state.
 func (rt *Runtime) RegisterBehavior(b *Behavior) {
 	rt.localBehaviors[b.Kind] = b
-	// Also register globally for payload type lookups
-	_ = Register(b)
 }
 
-// LookupBehavior looks up a behavior, preferring local over global.
-// This ensures the correct handler (with the right service state) is called.
+// LookupBehavior looks up a behavior in this runtime's local registry.
 func (rt *Runtime) LookupBehavior(kind string) *Behavior {
-	if b, ok := rt.localBehaviors[kind]; ok {
-		return b
-	}
-	return Lookup(kind)
+	return rt.localBehaviors[kind]
 }
