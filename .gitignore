@@ -16,5 +16,8 @@ nara-web/public/vendor.css
 nara-web/public/docs/
 nara-web/src/generated/iconoir.css
 
+# golang api docs
+docs/src/content/docs/api/
+
 # nix build
 /result
