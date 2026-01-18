@@ -30,7 +30,7 @@ func TestStashDistribution_Integration(t *testing.T) {
 	logrus.SetLevel(logrus.DebugLevel)
 	// Create mesh with 4 naras
 	names := []string{"owner", "confidant-a", "confidant-b", "confidant-c"}
-	mesh := testCreateMeshNetwork(t, names, 50, 1000, 11890)
+	mesh := testCreateMeshNetwork(t, names, 50, 1000, 11892)
 
 	owner := mesh.Get(0)
 	confidantA := mesh.Get(1)
@@ -219,7 +219,7 @@ func TestStashDistribution_Integration(t *testing.T) {
 	// Test stash recovery workflow - simulates a complete reboot with automatic recovery
 	t.Run("recovery_workflow", func(t *testing.T) {
 		// Simulate complete restart: shutdown and recreate with same identity but empty state
-		rebooted := mesh.RestartNara(0, 11890) // owner is at index 0
+		rebooted := mesh.RestartNara(0, 11892) // owner is at index 0
 
 		// Initialize runtime and stash service for rebooted nara
 		if err := rebooted.Network.initRuntime(); err != nil {
@@ -336,7 +336,7 @@ func TestStashUpdate_HTTPWorkflow(t *testing.T) {
 	logrus.SetLevel(logrus.WarnLevel)
 	// Create mesh with 4 naras
 	names := []string{"owner", "conf-1", "conf-2", "conf-3"}
-	mesh := testCreateMeshNetwork(t, names, 50, 1000, 11890)
+	mesh := testCreateMeshNetwork(t, names, 50, 1000, 11891)
 
 	owner := mesh.Get(0)
 
