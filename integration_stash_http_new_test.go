@@ -30,7 +30,7 @@ func TestStashDistribution_Integration(t *testing.T) {
 	logrus.SetLevel(logrus.DebugLevel)
 	// Create mesh with 4 naras
 	names := []string{"owner", "confidant-a", "confidant-b", "confidant-c"}
-	mesh := testCreateMeshNetwork(t, names, 50, 1000)
+	mesh := testCreateMeshNetwork(t, names, 50, 1000, 11890)
 
 	owner := mesh.Get(0)
 	confidantA := mesh.Get(1)
@@ -48,6 +48,12 @@ func TestStashDistribution_Integration(t *testing.T) {
 		}
 		if nara.Network.stashService == nil {
 			t.Fatalf("Stash service not initialized for %s", nara.Me.Name)
+		}
+		// Start confidants (indices 1, 2, 3) so they connect to MQTT and can process events
+		// Owner (index 0) is started later with specific HTTP config
+		// TODO: Make this cleaner in future refactor
+		if i > 0 {
+			go nara.Start(false, false, "", nil, TransportHybrid)
 		}
 	}
 
@@ -126,7 +132,7 @@ func TestStashDistribution_Integration(t *testing.T) {
 
 	// Test HTTP endpoints
 	httpAddr := ":9500"
-	go owner.Start(true, false, httpAddr, nil, TransportGossip)
+	go owner.Start(true, false, httpAddr, nil, TransportHybrid)
 	time.Sleep(200 * time.Millisecond)
 	baseURL := fmt.Sprintf("http://localhost%s", httpAddr)
 
@@ -213,7 +219,7 @@ func TestStashDistribution_Integration(t *testing.T) {
 	// Test stash recovery workflow - simulates a complete reboot with automatic recovery
 	t.Run("recovery_workflow", func(t *testing.T) {
 		// Simulate complete restart: shutdown and recreate with same identity but empty state
-		rebooted := mesh.RestartNara(0) // owner is at index 0
+		rebooted := mesh.RestartNara(0, 11890) // owner is at index 0
 
 		// Initialize runtime and stash service for rebooted nara
 		if err := rebooted.Network.initRuntime(); err != nil {
@@ -222,12 +228,6 @@ func TestStashDistribution_Integration(t *testing.T) {
 		if err := rebooted.Network.startRuntime(); err != nil {
 			t.Fatalf("Failed to start runtime for rebooted nara: %v", err)
 		}
-
-		// Start HTTP server on rebooted nara
-		rebootedAddr := ":9502"
-		go rebooted.Start(true, false, rebootedAddr, nil, TransportGossip)
-		time.Sleep(300 * time.Millisecond)
-		rebootedURL := fmt.Sprintf("http://localhost%s", rebootedAddr)
 
 		t.Logf("Rebooted nara with same identity, checking for empty stash...")
 
@@ -249,27 +249,19 @@ func TestStashDistribution_Integration(t *testing.T) {
 
 		t.Logf("✅ Rebooted nara has empty stash and empty confidant list")
 
+		// Start HTTP server on rebooted nara
+		rebootedAddr := ":9502"
+		go rebooted.Start(true, false, rebootedAddr, nil, TransportHybrid)
+		time.Sleep(300 * time.Millisecond)
+		rebootedURL := fmt.Sprintf("http://localhost%s", rebootedAddr)
+
 		// Send hey-there announcement (in real system, this happens automatically on boot)
 		// Confidants detect the hey-there and automatically push stash back
 		t.Logf("Sending hey-there so confidants push stash back...")
-
-		// Force-send hey-there from the rebooted nara
-		// This broadcasts the presence event that confidants listen for
-		rebooted.Network.InitGossipIdentity()
-		t.Logf("Sent hey-there message from rebooted nara (InitGossipIdentity)")
-
-		// Manually propagate the hey-there event to confidants to simulate gossip
-		// This ensures they process the event even if their full gossip loop isn't running
-		heyThereEvents := rebooted.Network.local.SyncLedger.GetEventsByService(ServiceHeyThere)
-		if len(heyThereEvents) > 0 {
-			latestEvent := heyThereEvents[len(heyThereEvents)-1]
-			t.Logf("Propagating hey-there event to confidants...")
-			
-			for _, confidant := range []*LocalNara{confidantA, confidantB, confidantC} {
-				// Direct call to simulate gossip arrival
-				confidant.Network.handleHeyThereEvent(latestEvent)
-			}
-		}
+		rebooted.Network.heyThere()
+		t.Logf("Sent hey-there message from rebooted nara (heyThere)")
+		// With TransportHybrid, MQTT will handle the hey-there broadcast
+		// so we don't need manual propagation
 
 		// Poll status endpoint to wait for recovery to complete
 		var recoveredData []byte
@@ -344,7 +336,7 @@ func TestStashUpdate_HTTPWorkflow(t *testing.T) {
 	logrus.SetLevel(logrus.WarnLevel)
 	// Create mesh with 4 naras
 	names := []string{"owner", "conf-1", "conf-2", "conf-3"}
-	mesh := testCreateMeshNetwork(t, names, 50, 1000)
+	mesh := testCreateMeshNetwork(t, names, 50, 1000, 11890)
 
 	owner := mesh.Get(0)
 
@@ -368,7 +360,7 @@ func TestStashUpdate_HTTPWorkflow(t *testing.T) {
 
 	// Start HTTP server
 	ownerAddr := ":9501"
-	go owner.Start(true, false, ownerAddr, nil, TransportGossip)
+	go owner.Start(true, false, ownerAddr, nil, TransportHybrid)
 	time.Sleep(200 * time.Millisecond)
 	baseURL := fmt.Sprintf("http://localhost%s", ownerAddr)
 

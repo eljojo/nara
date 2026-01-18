@@ -482,7 +482,8 @@ type testMeshNetwork struct {
 
 // testCreateMeshNetwork creates N naras in a full mesh topology with HTTP servers.
 // Each nara knows all others and has testMeshURLs configured for HTTP communication.
-func testCreateMeshNetwork(t *testing.T, names []string, chattiness, ledgerCapacity int) *testMeshNetwork {
+// TODO: this api of having to pass mqttPortNumber is not good, the system should take care of that for us, should be a boolean true/false
+func testCreateMeshNetwork(t *testing.T, names []string, chattiness, ledgerCapacity int, mqttPortNumber int) *testMeshNetwork {
 	t.Helper()
 	count := len(names)
 
@@ -493,9 +494,19 @@ func testCreateMeshNetwork(t *testing.T, names []string, chattiness, ledgerCapac
 		t:       t,
 	}
 
+	if mqttPortNumber > 0 {
+		// Start a shared MQTT broker for the mesh
+		startTestMQTTBroker(t, mqttPortNumber)
+	}
+
 	// Create naras and servers
 	for i, name := range names {
-		ln := testLocalNaraWithParams(t, name, chattiness, ledgerCapacity)
+		var ln *LocalNara
+		if mqttPortNumber > 0 {
+			ln = testNara(t, name, WithParams(chattiness, ledgerCapacity), WithMQTT(mqttPortNumber))
+		} else {
+			ln = testNara(t, name, WithParams(chattiness, ledgerCapacity))
+		}
 
 		// Mark not booting (common integration test requirement)
 		me := ln.getMeObservation()
@@ -516,7 +527,11 @@ func testCreateMeshNetwork(t *testing.T, names []string, chattiness, ledgerCapac
 		// Configure test hooks
 		ln.Network.testHTTPClient = mesh.Client
 		ln.Network.testMeshURLs = make(map[types.NaraName]string)
-		ln.Network.TransportMode = TransportGossip
+		if mqttPortNumber > 0 {
+			ln.Network.TransportMode = TransportHybrid
+		} else {
+			ln.Network.TransportMode = TransportGossip
+		}
 	}
 
 	// Create full mesh: each nara knows all others
@@ -578,7 +593,7 @@ func (m *testMeshNetwork) ServerURL(i int) string {
 // This is useful for testing recovery scenarios where a nara loses all local state but keeps its soul.
 // The restarted nara will have the same soul/identity but empty local state (no stash, no ledger).
 // All mesh connections to other naras are automatically re-wired.
-func (m *testMeshNetwork) RestartNara(index int) *LocalNara {
+func (m *testMeshNetwork) RestartNara(index int, mqttPortNumber int) *LocalNara {
 	m.t.Helper()
 
 	if index < 0 || index >= len(m.Naras) {
@@ -606,7 +621,7 @@ func (m *testMeshNetwork) RestartNara(index int) *LocalNara {
 		ledgerCap = 1000
 	}
 
-	fresh := testNara(m.t, originalName, WithSoul(originalSoul), WithParams(chattiness, ledgerCap))
+	fresh := testNara(m.t, originalName, WithSoul(originalSoul), WithParams(chattiness, ledgerCap), WithMQTT(mqttPortNumber))
 
 	// Mark as not booting (consistent with mesh setup)
 	me := fresh.getMeObservation()
@@ -617,7 +632,7 @@ func (m *testMeshNetwork) RestartNara(index int) *LocalNara {
 	// Configure test hooks for mesh
 	fresh.Network.testHTTPClient = m.Client
 	fresh.Network.testMeshURLs = make(map[types.NaraName]string)
-	fresh.Network.TransportMode = TransportGossip
+	fresh.Network.TransportMode = TransportHybrid
 
 	// Re-wire mesh connections: fresh nara knows about all others
 	testURLsForMeshClient := make(map[types.NaraID]string)
