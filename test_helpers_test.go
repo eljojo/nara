@@ -712,25 +712,6 @@ func waitForNeighborCount(t *testing.T, ln *LocalNara, minCount int, timeout tim
 	}, timeout, fmt.Sprintf("discover at least %d neighbors", minCount))
 }
 
-// waitForMutualDiscovery waits until all naras in the slice have discovered each other.
-// This is useful when you don't need full key exchange, just neighborhood awareness.
-// Returns true if all naras discovered each other, false on timeout.
-func waitForMutualDiscovery(t *testing.T, naras []*LocalNara, timeout time.Duration) bool {
-	t.Helper()
-	expectedNeighbors := len(naras) - 1
-	return waitForCondition(t, func() bool {
-		for _, ln := range naras {
-			ln.Network.local.mu.Lock()
-			count := len(ln.Network.Neighbourhood)
-			ln.Network.local.mu.Unlock()
-			if count < expectedNeighbors {
-				return false
-			}
-		}
-		return true
-	}, timeout, "mutual discovery")
-}
-
 // waitForObservation waits until a nara has an observation for a specific neighbor
 // where the checker function returns true.
 func waitForObservation(t *testing.T, ln *LocalNara, neighborName types.NaraName, checker func(NaraObservation) bool, timeout time.Duration, description string) bool {
