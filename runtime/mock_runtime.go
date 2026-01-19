@@ -290,6 +290,19 @@ func (m *MockRuntime) Clear() {
 	m.Emitted = make([]*Message, 0)
 }
 
+// WaitForEmittedCount waits until at least count messages have been emitted.
+// Returns true if the count was reached, false on timeout.
+func (m *MockRuntime) WaitForEmittedCount(count int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if len(m.Emitted) >= count {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return false
+}
+
 // === Mock Keypair ===
 
 // MockKeypair is a fake keypair for testing.

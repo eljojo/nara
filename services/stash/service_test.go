@@ -125,7 +125,6 @@ func TestStashStoreAndAck(t *testing.T) {
 }
 
 // TestStashRequestAndResponse tests the request → response flow.
-// TODO(flakey)
 func TestStashRequestAndResponse(t *testing.T) {
 	// Create mock runtimes
 	aliceRT := runtime.NewMockRuntime(t, "alice", "alice-id-123")
@@ -181,11 +180,8 @@ func TestStashRequestAndResponse(t *testing.T) {
 	}()
 
 	// Wait for Alice to emit the request
-	time.Sleep(100 * time.Millisecond)
-
-	// Verify Alice emitted stash:request
-	if aliceRT.EmittedCount() != 1 {
-		t.Fatalf("expected 1 emitted message from alice, got %d", aliceRT.EmittedCount())
+	if !aliceRT.WaitForEmittedCount(1, 2*time.Second) {
+		t.Fatal("timeout waiting for alice to emit request")
 	}
 
 	requestMsg := aliceRT.LastEmitted()

@@ -327,8 +327,7 @@ func TestStashDistribution_Integration(t *testing.T) {
 	t.Logf("✅ End-to-end stash distribution test completed successfully!")
 }
 
-// TestStashUpdate_HTTPWorkflow tests updating stash via HTTP endpoint
-// TODO(flakey)
+// TestStashUpdate_HTTPWorkflow tests updating stash via HTTP endpoint.
 func TestStashUpdate_HTTPWorkflow(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -362,8 +361,12 @@ func TestStashUpdate_HTTPWorkflow(t *testing.T) {
 	// Start HTTP server
 	ownerAddr := ":9501"
 	go owner.Start(true, false, ownerAddr, nil, TransportHybrid)
-	time.Sleep(200 * time.Millisecond)
 	baseURL := fmt.Sprintf("http://localhost%s", ownerAddr)
+
+	// Wait for HTTP server to be ready
+	if !waitForHTTPReady(t, baseURL+"/api/stash/status", 5*time.Second) {
+		t.Fatal("timeout waiting for HTTP server to start")
+	}
 
 	// Initial stash data
 	stashData := map[string]interface{}{
@@ -393,9 +396,6 @@ func TestStashUpdate_HTTPWorkflow(t *testing.T) {
 		t.Fatalf("Update should succeed with 3 confidants. Got: %v", result)
 	}
 
-	// Wait for distribution
-	time.Sleep(300 * time.Millisecond)
-
 	// Update again with different data
 	stashData["counter"] = 2
 	stashData["updated"] = true
@@ -420,8 +420,6 @@ func TestStashUpdate_HTTPWorkflow(t *testing.T) {
 	if !ok || !success2 {
 		t.Fatalf("Second update should succeed. Got: %v", result2)
 	}
-
-	time.Sleep(300 * time.Millisecond)
 
 	// Verify final state via status endpoint
 	resp3, err := http.Get(baseURL + "/api/stash/status")

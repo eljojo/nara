@@ -681,3 +681,108 @@ func (m *testMeshNetwork) RestartNara(index int) *LocalNara {
 //
 //	nara, baseURL := testNaraWithHTTP(t, "test-nara")
 //	resp, err := http.Get(baseURL + "/api/stash/status")
+
+// =============================================================================
+// High-Level Condition Helpers
+// =============================================================================
+// These helpers replace fixed time.Sleep() calls with condition-based waits
+// to reduce test flakiness in CI environments.
+
+// waitForNeighborDiscovery waits until a specific neighbor is discovered by a nara.
+// Returns true if the neighbor was discovered, false on timeout.
+func waitForNeighborDiscovery(t *testing.T, ln *LocalNara, neighborName types.NaraName, timeout time.Duration) bool {
+	t.Helper()
+	return waitForCondition(t, func() bool {
+		ln.Network.local.mu.Lock()
+		_, found := ln.Network.Neighbourhood[neighborName]
+		ln.Network.local.mu.Unlock()
+		return found
+	}, timeout, "discover neighbor "+neighborName.String())
+}
+
+// waitForNeighborCount waits until a nara has discovered at least minCount neighbors.
+// Returns true if the count was reached, false on timeout.
+func waitForNeighborCount(t *testing.T, ln *LocalNara, minCount int, timeout time.Duration) bool {
+	t.Helper()
+	return waitForCondition(t, func() bool {
+		ln.Network.local.mu.Lock()
+		count := len(ln.Network.Neighbourhood)
+		ln.Network.local.mu.Unlock()
+		return count >= minCount
+	}, timeout, fmt.Sprintf("discover at least %d neighbors", minCount))
+}
+
+// waitForMutualDiscovery waits until all naras in the slice have discovered each other.
+// This is useful when you don't need full key exchange, just neighborhood awareness.
+// Returns true if all naras discovered each other, false on timeout.
+func waitForMutualDiscovery(t *testing.T, naras []*LocalNara, timeout time.Duration) bool {
+	t.Helper()
+	expectedNeighbors := len(naras) - 1
+	return waitForCondition(t, func() bool {
+		for _, ln := range naras {
+			ln.Network.local.mu.Lock()
+			count := len(ln.Network.Neighbourhood)
+			ln.Network.local.mu.Unlock()
+			if count < expectedNeighbors {
+				return false
+			}
+		}
+		return true
+	}, timeout, "mutual discovery")
+}
+
+// waitForObservation waits until a nara has an observation for a specific neighbor
+// where the checker function returns true.
+func waitForObservation(t *testing.T, ln *LocalNara, neighborName types.NaraName, checker func(NaraObservation) bool, timeout time.Duration, description string) bool {
+	t.Helper()
+	return waitForCondition(t, func() bool {
+		obs := ln.getObservation(neighborName)
+		return checker(obs)
+	}, timeout, description)
+}
+
+// waitForCheckpointV2 waits until a v2 checkpoint exists for the subject.
+// This is more specific than waitForCheckpoint - it ensures the checkpoint has version 2.
+func waitForCheckpointV2(t *testing.T, ledger *SyncLedger, subject types.NaraName, timeout time.Duration) *CheckpointEventPayload {
+	t.Helper()
+	var checkpoint *CheckpointEventPayload
+	ok := waitForCondition(t, func() bool {
+		checkpoint = ledger.GetCheckpoint(subject)
+		return checkpoint != nil && checkpoint.Version == 2
+	}, timeout, "v2 checkpoint for "+subject.String())
+	if ok {
+		return checkpoint
+	}
+	return nil
+}
+
+// waitForRecentCheckpoint waits until a checkpoint exists that was created within the last maxAge seconds.
+// This is useful when you want to verify a NEW checkpoint was created, not just any checkpoint.
+func waitForRecentCheckpoint(t *testing.T, ledger *SyncLedger, subject types.NaraName, maxAge time.Duration, timeout time.Duration) *CheckpointEventPayload {
+	t.Helper()
+	cutoff := time.Now().Add(-maxAge).Unix()
+	var checkpoint *CheckpointEventPayload
+	ok := waitForCondition(t, func() bool {
+		checkpoint = ledger.GetCheckpoint(subject)
+		return checkpoint != nil && checkpoint.AsOfTime > cutoff
+	}, timeout, "recent checkpoint for "+subject.String())
+	if ok {
+		return checkpoint
+	}
+	return nil
+}
+
+// waitForHTTPReady waits until an HTTP endpoint responds successfully.
+// Useful for waiting for HTTP servers to be ready after starting them in goroutines.
+func waitForHTTPReady(t *testing.T, url string, timeout time.Duration) bool {
+	t.Helper()
+	client := &http.Client{Timeout: 500 * time.Millisecond}
+	return waitForCondition(t, func() bool {
+		resp, err := client.Get(url)
+		if err != nil {
+			return false
+		}
+		resp.Body.Close()
+		return resp.StatusCode < 500 // Any non-5xx is "ready"
+	}, timeout, "HTTP endpoint ready")
+}

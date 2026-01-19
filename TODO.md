@@ -184,9 +184,13 @@ The runtime is the foundation. Everything else builds on it.
 - [ ] Document the two-primitive pattern in code comments
 
 ### Test Improvements [P1]
-- [ ] Refactor tests to use helpers for common patterns
-- [ ] Fix flakey tests (see `TODO(flakey)` markers):
-  - [ ] `presence_howdy_test.go` has multiple flakey tests
+- [x] Refactor tests to use helpers for common patterns (added `waitForNeighborDiscovery`, `waitForNeighborCount`, `waitForMutualDiscovery`, `waitForCheckpointV2`, `waitForRecentCheckpoint`, `waitForHTTPReady` helpers)
+- [x] Fix flakey tests (all `TODO(flakey)` markers removed):
+  - [x] `presence_howdy_test.go` - replaced fixed sleeps with condition-based waits
+  - [x] `vivaldi_test.go` - use deterministic starting coordinates
+  - [x] `integration_checkpoint_v2_test.go` - use waitForCheckpoint helpers
+  - [x] `services/stash/service_test.go` - added `WaitForEmittedCount` to MockRuntime
+  - [x] `integration_stash_http_new_test.go` - use waitForHTTPReady
 - [ ] Add missing integration tests:
   - [ ] `boot_recovery.go`: fetchSyncEventsFromMesh
   - [ ] `gossip_discovery.go`: fetchPublicKeysFromPeers

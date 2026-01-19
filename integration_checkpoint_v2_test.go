@@ -74,7 +74,7 @@ func TestCheckpointV2DivergentReferencePointsNoConsensus(t *testing.T) {
 }
 
 // TestCheckpointV2NetworkDisagreesWithProposer tests that when the proposer has a different
-// reference point than all voters, but voters agree among themselves, checkpoint is still emitted
+// reference point than all voters, but voters agree among themselves, checkpoint is still emitted.
 func TestCheckpointV2NetworkDisagreesWithProposer(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -125,19 +125,10 @@ func TestCheckpointV2NetworkDisagreesWithProposer(t *testing.T) {
 	// Trigger checkpoint proposal
 	proposer.Network.checkpointService.ProposeCheckpoint()
 
-	// Wait for vote window + processing
-	time.Sleep(4 * time.Second) // Increased to 4s to allow more time
-
-	// Verify checkpoint WAS created (voters formed consensus)
-	checkpoint := proposer.SyncLedger.GetCheckpoint("test-proposer")
-
+	// Wait for a recent v2 checkpoint to be created (voters formed consensus)
+	checkpoint := waitForRecentCheckpoint(t, proposer.SyncLedger, "test-proposer", 10*time.Second, 15*time.Second)
 	if checkpoint == nil {
 		t.Fatal("Expected checkpoint to be created with voter consensus")
-	}
-
-	// Verify it's a recent checkpoint (within last 5 seconds)
-	if checkpoint.AsOfTime < time.Now().Unix()-5 {
-		t.Error("Checkpoint is too old, expected recent checkpoint")
 	}
 
 	// Verify it has v2 format with PreviousCheckpointID
@@ -171,8 +162,7 @@ func TestCheckpointV2NetworkDisagreesWithProposer(t *testing.T) {
 	}
 }
 
-// TestCheckpointV1ToV2Chain tests that a new v2 checkpoint correctly points to an existing v1 checkpoint
-// TODO(flakey)
+// TestCheckpointV1ToV2Chain tests that a new v2 checkpoint correctly points to an existing v1 checkpoint.
 func TestCheckpointV1ToV2Chain(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -225,18 +215,10 @@ func TestCheckpointV1ToV2Chain(t *testing.T) {
 	// Trigger new checkpoint proposal (should create v2)
 	testNara.Network.checkpointService.ProposeCheckpoint()
 
-	// Wait for vote window + processing
-	time.Sleep(2 * time.Second)
-
-	// Verify new v2 checkpoint was created
-	newCheckpoint := testNara.SyncLedger.GetCheckpoint("test-nara")
+	// Wait for new v2 checkpoint to be created
+	newCheckpoint := waitForCheckpointV2(t, testNara.SyncLedger, "test-nara", 15*time.Second)
 	if newCheckpoint == nil {
-		t.Fatal("Expected new checkpoint to be created")
-	}
-
-	// Verify it's v2
-	if newCheckpoint.Version != 2 {
-		t.Errorf("Expected v2 checkpoint, got version %d", newCheckpoint.Version)
+		t.Fatal("Expected new v2 checkpoint to be created")
 	}
 
 	// Verify it points to the v1 checkpoint

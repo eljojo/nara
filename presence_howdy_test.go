@@ -13,8 +13,7 @@ import (
 )
 
 // TestHowdy_StartTimeRecovery tests the scenario where a nara goes offline
-// and comes back, recovering its original start time via howdy responses
-// TODO(flakey)
+// and comes back, recovering its original start time via howdy responses.
 func TestHowdy_StartTimeRecovery(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -94,8 +93,7 @@ func TestHowdy_StartTimeRecovery(t *testing.T) {
 	t.Log("✅ Start time/observations recorded")
 }
 
-// TestHowdy_NeighborDiscovery tests that howdy responses include neighbor info
-// TODO(flakey)
+// TestHowdy_NeighborDiscovery tests that howdy responses include neighbor info.
 func TestHowdy_NeighborDiscovery(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -147,11 +145,7 @@ func TestHowdy_NeighborDiscovery(t *testing.T) {
 
 	waitForMQTTConnected(t, nara3, 5*time.Second)
 
-	// Give time for hey-there/howdy exchange to complete
-	// nara3 sends hey-there -> nara1/nara2 respond with howdy -> nara3 processes
-	time.Sleep(3 * time.Second)
-
-	// Wait for nara3 to discover both nara1 and nara2
+	// Wait for nara3 to discover both nara1 and nara2 via hey-there/howdy exchange
 	if !waitForCondition(t, func() bool {
 		nara3.Network.local.mu.Lock()
 		_, hasNara1 := nara3.Network.Neighbourhood["discover-nara-1"]
@@ -176,8 +170,7 @@ func TestHowdy_NeighborDiscovery(t *testing.T) {
 	t.Log("✅ nara3 discovered both neighbors via howdy")
 }
 
-// TestHowdy_SelfSelection tests that only ~10 naras respond to a hey_there
-// TODO(flakey)
+// TestHowdy_SelfSelection tests that only ~10 naras respond to a hey_there.
 func TestHowdy_SelfSelection(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -213,7 +206,10 @@ func TestHowdy_SelfSelection(t *testing.T) {
 	t.Log("✅ Started 14 naras, waiting for them to discover each other")
 
 	// Wait for at least some mutual discovery among the first 14 naras
-	time.Sleep(1000 * time.Millisecond)
+	// We wait until the first nara has at least 5 neighbors, indicating discovery is working
+	if !waitForNeighborCount(t, naras[0], 5, 15*time.Second) {
+		t.Fatal("Timeout: naras failed to discover each other")
+	}
 
 	// Now start the 15th nara - it should trigger howdy responses from up to 10 naras
 	lastNara, err := createTestNara(t, "select-nara-14", 11886)
