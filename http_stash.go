@@ -12,10 +12,10 @@ import (
 
 // GET /api/stash/status - Get current stash data, confidants, and metrics
 func (network *Network) httpStashStatusHandler(w http.ResponseWriter, r *http.Request) {
-	// Get storage limit from runtime (based on memory mode)
-	storageLimit := 5 // Default
-	if network.runtime != nil {
-		storageLimit = network.runtime.StorageLimit()
+	// Get storage limit from stash service (based on memory mode)
+	storageLimit := 5 // Default if service not available
+	if network.stashService != nil {
+		storageLimit = network.stashService.StorageLimit()
 	}
 
 	response := map[string]interface{}{

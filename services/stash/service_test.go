@@ -155,7 +155,7 @@ func TestStashRequestAndResponse(t *testing.T) {
 	// Bob manually stores a stash for Alice (simulating previous store)
 	// Use Alice's runtime for encryption (since only Alice can decrypt)
 	testData := []byte("alice's secret data")
-	nonce, ciphertext, err := aliceRT.Seal(testData)
+	nonce, ciphertext, err := aliceRT.Keypair().Seal(testData)
 	if err != nil {
 		t.Fatalf("failed to encrypt: %v", err)
 	}
@@ -332,6 +332,10 @@ func TestStashStateMarshaling(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MarshalState failed: %v", err)
 	}
+
+	if len(data) == 0 {
+		t.Fatal("expected non-empty marshaled state")
+	}
 }
 
 // TestStashEncryptionDecryption tests the encryption/decryption flow via runtime.
@@ -343,7 +347,7 @@ func TestStashEncryptionDecryption(t *testing.T) {
 	plaintext := []byte("this is a secret message for encryption")
 
 	// Encrypt with Alice's keypair
-	nonce, ciphertext, err := aliceRT.Seal(plaintext)
+	nonce, ciphertext, err := aliceRT.Keypair().Seal(plaintext)
 	if err != nil {
 		t.Fatalf("Seal failed: %v", err)
 	}
@@ -357,7 +361,7 @@ func TestStashEncryptionDecryption(t *testing.T) {
 	}
 
 	// Decrypt with Alice's keypair (owner can decrypt)
-	decrypted, err := aliceRT.Open(nonce, ciphertext)
+	decrypted, err := aliceRT.Keypair().Open(nonce, ciphertext)
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
@@ -368,13 +372,13 @@ func TestStashEncryptionDecryption(t *testing.T) {
 
 	// Test wrong nonce
 	wrongNonce := make([]byte, 24)
-	_, err = aliceRT.Open(wrongNonce, ciphertext)
+	_, err = aliceRT.Keypair().Open(wrongNonce, ciphertext)
 	if err == nil {
 		t.Fatal("expected decryption to fail with wrong nonce")
 	}
 
 	// Test wrong key (Bob can't decrypt Alice's data)
-	_, err = bobRT.Open(nonce, ciphertext)
+	_, err = bobRT.Keypair().Open(nonce, ciphertext)
 	if err == nil {
 		t.Fatal("expected decryption to fail with wrong key")
 	}

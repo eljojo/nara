@@ -16,11 +16,6 @@ type RuntimeInterface interface {
 	Me() *Nara
 	MeID() types.NaraID
 
-	// Public key management
-	LookupPublicKey(id types.NaraID) []byte
-	LookupPublicKeyByName(name types.NaraName) []byte
-	RegisterPublicKey(id types.NaraID, key []byte)
-
 	// Messaging
 	Emit(msg *Message) error
 
@@ -33,11 +28,11 @@ type RuntimeInterface interface {
 	// Network information (for automatic confidant selection)
 	OnlinePeers() []*PeerInfo
 	MemoryMode() string
-	StorageLimit() int
 
-	// Self-encryption (only the owner can decrypt)
-	Seal(plaintext []byte) (nonce, ciphertext []byte, err error)
-	Open(nonce, ciphertext []byte) ([]byte, error)
+	// Object access - callers use these directly instead of pass-through methods.
+	// Runtime guarantees these are always non-nil.
+	Keypair() KeypairInterface
+	Identity() IdentityInterface
 }
 
 // PeerInfo contains information about a network peer.
@@ -69,7 +64,6 @@ type GossipQueueInterface interface {
 type NetworkInfoInterface interface {
 	OnlinePeers() []*PeerInfo
 	MemoryMode() string
-	StorageLimit() int
 }
 
 // KeypairInterface is what sign stages use.

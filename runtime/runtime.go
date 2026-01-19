@@ -127,28 +127,6 @@ func (rt *Runtime) MeID() types.NaraID {
 	return ""
 }
 
-// LookupPublicKey looks up a public key by nara ID.
-func (rt *Runtime) LookupPublicKey(id types.NaraID) []byte {
-	if rt.identity == nil {
-		return nil
-	}
-	return rt.identity.LookupPublicKey(id)
-}
-
-// LookupPublicKeyByName looks up a public key by nara name.
-func (rt *Runtime) LookupPublicKeyByName(name types.NaraName) []byte {
-	if rt.identity == nil {
-		return nil
-	}
-	return rt.identity.LookupPublicKeyByName(name)
-}
-
-// RegisterPublicKey registers a public key for a nara ID.
-func (rt *Runtime) RegisterPublicKey(id types.NaraID, key []byte) {
-	if rt.identity != nil {
-		rt.identity.RegisterPublicKey(id, key)
-	}
-}
 
 // Log returns a logger scoped to the given service.
 func (rt *Runtime) Log(service string) *ServiceLog {
@@ -179,28 +157,17 @@ func (rt *Runtime) MemoryMode() string {
 	return rt.networkInfo.MemoryMode()
 }
 
-// StorageLimit returns the maximum number of stashes based on memory mode.
-func (rt *Runtime) StorageLimit() int {
-	if rt.networkInfo == nil {
-		return 5 // Default to low
-	}
-	return rt.networkInfo.StorageLimit()
+
+// Keypair returns the keypair interface.
+// Runtime guarantees this is always non-nil.
+func (rt *Runtime) Keypair() KeypairInterface {
+	return rt.keypair
 }
 
-// Seal encrypts plaintext using the runtime's keypair.
-func (rt *Runtime) Seal(plaintext []byte) (nonce, ciphertext []byte, err error) {
-	if rt.keypair == nil {
-		return nil, nil, fmt.Errorf("keypair not configured")
-	}
-	return rt.keypair.Seal(plaintext)
-}
-
-// Open decrypts ciphertext using the runtime's keypair.
-func (rt *Runtime) Open(nonce, ciphertext []byte) ([]byte, error) {
-	if rt.keypair == nil {
-		return nil, fmt.Errorf("keypair not configured")
-	}
-	return rt.keypair.Open(nonce, ciphertext)
+// Identity returns the identity interface.
+// Runtime guarantees this is always non-nil.
+func (rt *Runtime) Identity() IdentityInterface {
+	return rt.identity
 }
 
 // === Message handling ===
@@ -393,6 +360,7 @@ func (rt *Runtime) newPipelineContext() *PipelineContext {
 		Transport:   rt.transport,
 		GossipQueue: rt.gossipQueue,
 		Keypair:     rt.keypair,
+		Identity:    rt.identity,
 		Personality: rt.personality,
 		EventBus:    rt.eventBus,
 	}

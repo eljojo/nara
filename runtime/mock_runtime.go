@@ -66,19 +66,6 @@ func (m *MockRuntime) MeID() types.NaraID {
 	return m.id
 }
 
-func (m *MockRuntime) LookupPublicKey(id types.NaraID) []byte {
-	return m.pubKeys[string(id)]
-}
-
-func (m *MockRuntime) LookupPublicKeyByName(name types.NaraName) []byte {
-	// For mock, just use name as ID
-	return m.pubKeys[string(name)]
-}
-
-func (m *MockRuntime) RegisterPublicKey(id types.NaraID, key []byte) {
-	m.pubKeys[string(id)] = key
-}
-
 // Emit captures messages for test assertions.
 func (m *MockRuntime) Emit(msg *Message) error {
 	// Set defaults like real runtime
@@ -119,18 +106,29 @@ func (m *MockRuntime) MemoryMode() string {
 	return "normal" // Mock returns normal mode
 }
 
-func (m *MockRuntime) StorageLimit() int {
-	return 20 // Default storage limit for normal mode
+// Keypair returns the keypair interface.
+func (m *MockRuntime) Keypair() KeypairInterface {
+	return m.keypair
 }
 
-// Seal encrypts plaintext using the keypair.
-func (m *MockRuntime) Seal(plaintext []byte) (nonce, ciphertext []byte, err error) {
-	return m.keypair.Seal(plaintext)
+// Identity returns the identity interface (MockRuntime implements it).
+func (m *MockRuntime) Identity() IdentityInterface {
+	return m // MockRuntime implements IdentityInterface
 }
 
-// Open decrypts ciphertext using the keypair.
-func (m *MockRuntime) Open(nonce, ciphertext []byte) ([]byte, error) {
-	return m.keypair.Open(nonce, ciphertext)
+// === IdentityInterface implementation ===
+
+func (m *MockRuntime) LookupPublicKey(id types.NaraID) []byte {
+	return m.pubKeys[string(id)]
+}
+
+func (m *MockRuntime) LookupPublicKeyByName(name types.NaraName) []byte {
+	// For mock, just use name as ID
+	return m.pubKeys[string(name)]
+}
+
+func (m *MockRuntime) RegisterPublicKey(id types.NaraID, key []byte) {
+	m.pubKeys[string(id)] = key
 }
 
 // === Test helpers ===

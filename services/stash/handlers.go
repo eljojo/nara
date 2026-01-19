@@ -81,6 +81,19 @@ func (s *Service) handleStoreV1(msg *runtime.Message, p *messages.StashStorePayl
 		return
 	}
 
+	// Check storage limit (allow updates for existing owners)
+	if !s.canStore(p.OwnerID) {
+		s.log.Warn("storage limit reached, rejecting store from %s", p.OwnerID)
+
+		_ = s.rt.Emit(msg.Reply("stash:ack", &messages.StashStoreAck{
+			OwnerID:  p.OwnerID,
+			Success:  false,
+			Reason:   "storage limit reached",
+			StoredAt: time.Now().Unix(),
+		}))
+		return
+	}
+
 	// Store the encrypted stash
 	s.store(p.OwnerID, p.Nonce, p.Ciphertext)
 
@@ -178,8 +191,8 @@ func (s *Service) handleResponseV1(msg *runtime.Message, p *messages.StashRespon
 
 // handleRecoveryPayload processes a recovery payload (decryption and storage).
 func (s *Service) handleRecoveryPayload(p *messages.StashResponsePayload) error {
-	// Decrypt using runtime's keypair
-	plaintext, err := s.rt.Open(p.Nonce, p.Ciphertext)
+	// Decrypt using keypair
+	plaintext, err := s.keypair.Open(p.Nonce, p.Ciphertext)
 	if err != nil {
 		return fmt.Errorf("decrypt: %w", err)
 	}

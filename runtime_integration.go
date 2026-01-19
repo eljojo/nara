@@ -212,18 +212,3 @@ func (a *NetworkInfoAdapter) MemoryMode() string {
 	defer a.network.local.mu.Unlock()
 	return a.network.local.Me.Status.MemoryMode
 }
-
-// StorageLimit returns the maximum number of stashes based on memory mode.
-func (a *NetworkInfoAdapter) StorageLimit() int {
-	mode := a.MemoryMode()
-	switch mode {
-	case "low":
-		return 5
-	case "medium":
-		return 20
-	case "high":
-		return 50
-	default:
-		return 5 // Default to low
-	}
-}

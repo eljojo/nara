@@ -20,8 +20,9 @@ import (
 // Naras store their encrypted state with trusted peers (confidants) instead
 // of on disk. Only the owner can decrypt, but confidants hold the ciphertext.
 type Service struct {
-	rt  runtime.RuntimeInterface
-	log *runtime.ServiceLog
+	rt      runtime.RuntimeInterface
+	log     *runtime.ServiceLog
+	keypair runtime.KeypairInterface // Cached from runtime for encryption
 
 	// Stored stashes (we're a confidant for these owners)
 	mu     sync.RWMutex
@@ -72,8 +73,8 @@ func (s *Service) Name() string {
 func (s *Service) Init(rt runtime.RuntimeInterface, log *runtime.ServiceLog) error {
 	s.rt = rt
 	s.log = log
+	s.keypair = rt.Keypair() // Cache keypair reference
 
-	// Encryption is provided by runtime.Seal/Open (no local encryptor needed)
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 
 	s.log.Info("stash service initialized successfully")
@@ -102,8 +103,8 @@ func (s *Service) Stop() error {
 // This is a synchronous call that blocks until the confidant acknowledges
 // receipt or the request times out.
 func (s *Service) StoreWith(confidantID types.NaraID, data []byte) error {
-	// Encrypt the data using runtime's keypair
-	nonce, ciphertext, err := s.rt.Seal(data)
+	// Encrypt the data using keypair
+	nonce, ciphertext, err := s.keypair.Seal(data)
 	if err != nil {
 		return fmt.Errorf("encrypt: %w", err)
 	}
@@ -161,8 +162,8 @@ func (s *Service) RequestFrom(confidantID types.NaraID) ([]byte, error) {
 		return nil, fmt.Errorf("confidant %s has no stash for us", confidantID)
 	}
 
-	// Decrypt using runtime's keypair
-	plaintext, err := s.rt.Open(result.Response.Nonce, result.Response.Ciphertext)
+	// Decrypt using keypair
+	plaintext, err := s.keypair.Open(result.Response.Nonce, result.Response.Ciphertext)
 	if err != nil {
 		return nil, fmt.Errorf("decrypt: %w", err)
 	}
@@ -455,6 +456,23 @@ func (s *Service) HasStashFor(ownerID types.NaraID) bool {
 
 // === Confidant API (for storing others' stashes) ===
 
+// canStore checks if we can store a stash for the given owner.
+// Returns true if:
+// - We already have a stash for this owner (update is allowed)
+// - We haven't hit the storage limit yet
+func (s *Service) canStore(ownerID types.NaraID) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Always allow updates for existing owners
+	if _, exists := s.stored[ownerID]; exists {
+		return true
+	}
+
+	// Check if we have room for a new owner
+	return len(s.stored) < s.StorageLimit()
+}
+
 func (s *Service) store(ownerID types.NaraID, nonce, ciphertext []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -473,6 +491,29 @@ func (s *Service) GetStoredStash(ownerID types.NaraID) *EncryptedStash {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.stored[ownerID]
+}
+
+// StorageLimit returns the maximum number of stashes this nara can store for others.
+// Based on memory mode: low=5, medium=20, high=50.
+func (s *Service) StorageLimit() int {
+	mode := s.rt.MemoryMode()
+	switch mode {
+	case "low":
+		return 5
+	case "medium":
+		return 20
+	case "high":
+		return 50
+	default:
+		return 5 // Default to low
+	}
+}
+
+// StoredCount returns the number of stashes currently stored for other naras.
+func (s *Service) StoredCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.stored)
 }
 
 // MarshalState returns the service's state as JSON for debugging.

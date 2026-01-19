@@ -67,6 +67,7 @@ type PipelineContext struct {
 	Transport   TransportInterface   // For transport stages
 	GossipQueue GossipQueueInterface // For gossip stages
 	Keypair     KeypairInterface     // For signing stages
+	Identity    IdentityInterface    // For verification stages
 	Personality *Personality         // For filtering stages
 	EventBus    EventBusInterface    // For notification stages
 }

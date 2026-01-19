@@ -13,7 +13,7 @@ type DefaultVerifyStage struct{}
 
 func (s *DefaultVerifyStage) Process(msg *Message, ctx *PipelineContext) StageResult {
 	// Look up public key for sender
-	pubKey := ctx.Runtime.LookupPublicKey(msg.FromID)
+	pubKey := ctx.Identity.LookupPublicKey(msg.FromID)
 	if pubKey == nil {
 		return Drop("unknown_sender")
 	}
@@ -44,7 +44,7 @@ func (s *SelfAttestingVerifyStage) Process(msg *Message, ctx *PipelineContext) S
 	}
 
 	// Register the public key for future verification
-	ctx.Runtime.RegisterPublicKey(msg.FromID, pubKey)
+	ctx.Identity.RegisterPublicKey(msg.FromID, pubKey)
 
 	return Continue(msg)
 }
