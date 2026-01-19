@@ -250,16 +250,51 @@ type CallResult struct {
 // Service is what all services implement.
 //
 // Services register with the runtime and get lifecycle callbacks.
+// Services should embed ServiceBase to get RT and Log automatically.
 type Service interface {
 	// Identity
 	Name() string
 
 	// Lifecycle
-	// Init is called by the runtime with the runtime interface and a logger
-	// scoped to this service's name. Services should NOT call rt.Log() themselves.
-	Init(rt RuntimeInterface, log *ServiceLog) error
+	// Init is called after ServiceBase is populated. Use s.RT and s.Log directly.
+	Init() error
 	Start() error
 	Stop() error
+}
+
+// ServiceBase provides common fields that all services need.
+//
+// Embed this in service structs to get RT and Log automatically:
+//
+//	type MyService struct {
+//	    runtime.ServiceBase
+//	    // service-specific fields...
+//	}
+//
+//	func (s *MyService) Init() error {
+//	    // RT and Log are already set by the runtime!
+//	    s.Log.Info("initializing...")
+//	    s.keypair = s.RT.Keypair()
+//	    return nil
+//	}
+//
+// The runtime automatically populates RT and Log before calling Init().
+type ServiceBase struct {
+	RT  RuntimeInterface
+	Log *ServiceLog
+}
+
+// SetBase is called by the runtime to populate RT and Log.
+// Services should NOT call this directly.
+func (b *ServiceBase) SetBase(rt RuntimeInterface, log *ServiceLog) {
+	b.RT = rt
+	b.Log = log
+}
+
+// ServiceBaseAccessor is implemented by services that embed ServiceBase.
+// The runtime uses this to auto-populate RT and Log before Init().
+type ServiceBaseAccessor interface {
+	SetBase(rt RuntimeInterface, log *ServiceLog)
 }
 
 // BehaviorRegistrar is optionally implemented by services that register behaviors.

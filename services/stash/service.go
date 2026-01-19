@@ -1,7 +1,6 @@
 package stash
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -19,9 +18,8 @@ import (
 // Naras store their encrypted state with trusted peers (confidants) instead
 // of on disk. Only the owner can decrypt, but confidants hold the ciphertext.
 type Service struct {
-	rt      runtime.RuntimeInterface
-	log     *runtime.ServiceLog
-	keypair runtime.KeypairInterface // Cached from runtime for encryption
+	runtime.ServiceBase                    // Provides RT and Log (auto-populated by runtime)
+	keypair             runtime.KeypairInterface // Cached from runtime for encryption
 
 	// Stored stashes (we're a confidant for these owners)
 	mu     sync.RWMutex
@@ -34,10 +32,6 @@ type Service struct {
 	// Our own stash data (to be encrypted and distributed to confidants)
 	myStashData      []byte // Arbitrary JSON payload
 	myStashTimestamp int64  // When it was last updated
-
-	// Lifecycle
-	ctx    context.Context
-	cancel context.CancelFunc
 }
 
 // EncryptedStash is what we store for other naras.
@@ -63,28 +57,20 @@ func (s *Service) Name() string {
 	return "stash"
 }
 
-func (s *Service) Init(rt runtime.RuntimeInterface, log *runtime.ServiceLog) error {
-	s.rt = rt
-	s.log = log
-	s.keypair = rt.Keypair() // Cache keypair reference
-
-	s.ctx, s.cancel = context.WithCancel(context.Background())
-
-	s.log.Info("stash service initialized successfully")
+func (s *Service) Init() error {
+	s.keypair = s.RT.Keypair() // Cache keypair reference
+	s.Log.Info("stash service initialized successfully")
 	return nil
 }
 
 func (s *Service) Start() error {
-	s.log.Info("stash service started")
+	s.Log.Info("stash service started")
 	return nil
 }
 
 func (s *Service) Stop() error {
-	if s.cancel != nil {
-		s.cancel()
-	}
-	if s.log != nil {
-		s.log.Info("stash service stopped")
+	if s.Log != nil {
+		s.Log.Info("stash service stopped")
 	}
 	return nil
 }
@@ -108,8 +94,8 @@ func (s *Service) StoreWith(confidantID types.NaraID, data []byte) error {
 		Version: 1,
 		ToID:    confidantID,
 		Payload: &messages.StashStorePayload{
-			OwnerID:    s.rt.MeID(),
-			Owner:      s.rt.Me().Name,
+			OwnerID:    s.RT.MeID(),
+			Owner:      s.RT.Me().Name,
 			Nonce:      nonce,
 			Ciphertext: ciphertext,
 			Timestamp:  time.Now().Unix(),
@@ -117,7 +103,7 @@ func (s *Service) StoreWith(confidantID types.NaraID, data []byte) error {
 	}
 
 	// Send and wait for ack (30 second timeout)
-	result := <-s.rt.Call(msg, 30*time.Second)
+	result := <-s.RT.Call(msg, 30*time.Second)
 	if result.Error != nil {
 		return fmt.Errorf("store request: %w", result.Error)
 	}
@@ -132,7 +118,7 @@ func (s *Service) StoreWith(confidantID types.NaraID, data []byte) error {
 		return fmt.Errorf("store failed: %s", ack.Reason)
 	}
 
-	s.log.Info("stored stash with %s", confidantID)
+	s.Log.Info("stored stash with %s", confidantID)
 	return nil
 }
 
@@ -146,13 +132,13 @@ func (s *Service) RequestFrom(confidantID types.NaraID) ([]byte, error) {
 		Version: 1,
 		ToID:    confidantID,
 		Payload: &messages.StashRequestPayload{
-			OwnerID:   s.rt.MeID(),
+			OwnerID:   s.RT.MeID(),
 			RequestID: "", // Runtime will use msg.ID
 		},
 	}
 
 	// Send and wait for response (30 second timeout)
-	result := <-s.rt.Call(msg, 30*time.Second)
+	result := <-s.RT.Call(msg, 30*time.Second)
 	if result.Error != nil {
 		return nil, fmt.Errorf("request: %w", result.Error)
 	}
@@ -173,7 +159,7 @@ func (s *Service) RequestFrom(confidantID types.NaraID) ([]byte, error) {
 		return nil, fmt.Errorf("decrypt: %w", err)
 	}
 
-	s.log.Info("recovered stash from %s", confidantID)
+	s.Log.Info("recovered stash from %s", confidantID)
 	return plaintext, nil
 }
 
@@ -190,7 +176,7 @@ func (s *Service) RecoverFromAny() ([]byte, error) {
 		if err == nil {
 			return data, nil
 		}
-		s.log.Warn("recovery from %s failed: %v", confidantID, err)
+		s.Log.Warn("recovery from %s failed: %v", confidantID, err)
 	}
 
 	return nil, fmt.Errorf("no confidant had our stash")
@@ -199,7 +185,7 @@ func (s *Service) RecoverFromAny() ([]byte, error) {
 // SetConfidants configures the list of confidants to use.
 func (s *Service) SetConfidants(confidantIDs []types.NaraID) {
 	s.confidants = confidantIDs
-	s.log.Info("configured %d confidants", len(confidantIDs))
+	s.Log.Info("configured %d confidants", len(confidantIDs))
 }
 
 // TargetConfidants returns the target number of confidants.
@@ -230,11 +216,11 @@ func (s *Service) PushTo(ownerID types.NaraID) error {
 		},
 	}
 
-	if err := s.rt.Emit(msg); err != nil {
+	if err := s.RT.Emit(msg); err != nil {
 		return fmt.Errorf("emit stash response: %w", err)
 	}
 
-	s.log.Info("pushed stash to %s (%d bytes)", ownerID, len(stash.Ciphertext))
+	s.Log.Info("pushed stash to %s (%d bytes)", ownerID, len(stash.Ciphertext))
 	return nil
 }
 
@@ -252,28 +238,28 @@ func (s *Service) Confidants() []types.NaraID {
 // Returns error if unable to find 3 willing peers.
 func (s *Service) SelectConfidantsAutomatically() error {
 	// Check if runtime has network info (might not be configured yet)
-	if s.rt == nil {
-		s.log.Error("CRITICAL: Stash service runtime is nil! Init() was never called or failed silently.")
-		s.log.Error("This usually means initRuntime() or startRuntime() failed during startup.")
-		s.log.Error("Check logs for 'Failed to initialize runtime' or 'Failed to start runtime'.")
+	if s.RT == nil {
+		s.Log.Error("CRITICAL: Stash service runtime is nil! Init() was never called or failed silently.")
+		s.Log.Error("This usually means initRuntime() or startRuntime() failed during startup.")
+		s.Log.Error("Check logs for 'Failed to initialize runtime' or 'Failed to start runtime'.")
 		return fmt.Errorf("runtime not initialized - check startup logs for initialization errors")
 	}
 
-	s.log.Info("selecting confidants automatically...")
+	s.Log.Info("selecting confidants automatically...")
 
 	// Get list of online peers from runtime
-	peers := s.rt.OnlinePeers()
+	peers := s.RT.OnlinePeers()
 
-	s.log.Info("auto-selecting confidants: found %d online peers", len(peers))
+	s.Log.Info("auto-selecting confidants: found %d online peers", len(peers))
 	for i, peer := range peers {
-		s.log.Info("  peer %d: %s (%s) uptime=%v", i+1, peer.Name, peer.ID, peer.Uptime)
+		s.Log.Info("  peer %d: %s (%s) uptime=%v", i+1, peer.Name, peer.ID, peer.Uptime)
 	}
 
 	if len(peers) < s.targetConfidants {
 		return fmt.Errorf("need at least %d online peers, only found %d", s.targetConfidants, len(peers))
 	}
 
-	s.log.Info("found %d online peers", len(peers))
+	s.Log.Info("found %d online peers", len(peers))
 
 	// Sort peers by uptime (highest first)
 	sortedPeers := make([]*runtime.PeerInfo, len(peers))
@@ -298,19 +284,19 @@ func (s *Service) SelectConfidantsAutomatically() error {
 		}
 
 		// Skip if already used or is ourselves
-		if used[peer.ID] || peer.ID == s.rt.MeID() {
+		if used[peer.ID] || peer.ID == s.RT.MeID() {
 			continue
 		}
 
 		// Try to store with this peer
 		testData := []byte(fmt.Sprintf(`{"test":"probe","timestamp":%d}`, time.Now().Unix()))
-		s.log.Info("trying peer %s (%s) as first confidant (uptime: %v)...", peer.Name, peer.ID, peer.Uptime)
+		s.Log.Info("trying peer %s (%s) as first confidant (uptime: %v)...", peer.Name, peer.ID, peer.Uptime)
 		if err := s.StoreWith(peer.ID, testData); err != nil {
-			s.log.Warn("peer %s declined: %v", peer.Name, err)
+			s.Log.Warn("peer %s declined: %v", peer.Name, err)
 			continue
 		}
 
-		s.log.Info("peer %s accepted! selected confidant 1/3 (uptime: %s)", peer.Name, peer.Uptime)
+		s.Log.Info("peer %s accepted! selected confidant 1/3 (uptime: %s)", peer.Name, peer.Uptime)
 		selected = append(selected, peer.ID)
 		used[peer.ID] = true
 	}
@@ -322,7 +308,7 @@ func (s *Service) SelectConfidantsAutomatically() error {
 	// Shuffle remaining peers for random selection
 	remainingPeers := make([]*runtime.PeerInfo, 0, len(peers)-1)
 	for _, peer := range peers {
-		if !used[peer.ID] && peer.ID != s.rt.MeID() {
+		if !used[peer.ID] && peer.ID != s.RT.MeID() {
 			remainingPeers = append(remainingPeers, peer)
 		}
 	}
@@ -336,13 +322,13 @@ func (s *Service) SelectConfidantsAutomatically() error {
 		// Try to store with this peer
 		testData := []byte(fmt.Sprintf(`{"test":"probe","timestamp":%d}`, time.Now().Unix()))
 		if err := s.StoreWith(peer.ID, testData); err != nil {
-			s.log.Warn("peer %s declined: %v", peer.ID, err)
+			s.Log.Warn("peer %s declined: %v", peer.ID, err)
 			// Remove from candidates and try next
 			remainingPeers = append(remainingPeers[:idx], remainingPeers[idx+1:]...)
 			continue
 		}
 
-		s.log.Info("selected confidant %d/%d: %s", len(selected)+1, s.targetConfidants, peer.ID)
+		s.Log.Info("selected confidant %d/%d: %s", len(selected)+1, s.targetConfidants, peer.ID)
 		selected = append(selected, peer.ID)
 		used[peer.ID] = true
 
@@ -356,7 +342,7 @@ func (s *Service) SelectConfidantsAutomatically() error {
 
 	// Store the selected confidants
 	s.SetConfidants(selected)
-	s.log.Info("automatically selected %d confidants", s.targetConfidants)
+	s.Log.Info("automatically selected %d confidants", s.targetConfidants)
 
 	return nil
 }
@@ -369,11 +355,11 @@ func (s *Service) SetStashData(data []byte) error {
 	s.myStashTimestamp = time.Now().Unix()
 	s.mu.Unlock()
 
-	s.log.Info("stash data updated (%d bytes)", len(data))
+	s.Log.Info("stash data updated (%d bytes)", len(data))
 
 	// If fewer than target confidants, try to auto-select
 	if len(s.confidants) < s.targetConfidants {
-		s.log.Info("only %d confidants configured (need %d), selecting automatically...", len(s.confidants), s.targetConfidants)
+		s.Log.Info("only %d confidants configured (need %d), selecting automatically...", len(s.confidants), s.targetConfidants)
 		// Clear old confidants before auto-selecting
 		s.confidants = []types.NaraID{}
 		if err := s.SelectConfidantsAutomatically(); err != nil {
@@ -432,7 +418,7 @@ func (s *Service) DistributeToConfidants() error {
 	successCount := 0
 	for _, confidantID := range confidants {
 		if err := s.StoreWith(confidantID, data); err != nil {
-			s.log.Warn("failed to store with %s: %v", confidantID, err)
+			s.Log.Warn("failed to store with %s: %v", confidantID, err)
 			errors = append(errors, fmt.Sprintf("%s: %v", confidantID, err))
 		} else {
 			successCount++
@@ -443,9 +429,9 @@ func (s *Service) DistributeToConfidants() error {
 		return fmt.Errorf("failed to distribute to any confidants: %v", errors)
 	}
 
-	s.log.Info("distributed stash to %d/%d confidants", successCount, len(confidants))
+	s.Log.Info("distributed stash to %d/%d confidants", successCount, len(confidants))
 	if len(errors) > 0 {
-		s.log.Warn("distribution errors: %v", errors)
+		s.Log.Warn("distribution errors: %v", errors)
 	}
 
 	return nil
@@ -489,7 +475,7 @@ func (s *Service) store(ownerID types.NaraID, nonce, ciphertext []byte) {
 		StoredAt:   time.Now(),
 	}
 
-	s.log.Info("stored stash for %s (%d bytes)", ownerID, len(ciphertext))
+	s.Log.Info("stored stash for %s (%d bytes)", ownerID, len(ciphertext))
 }
 
 func (s *Service) GetStoredStash(ownerID types.NaraID) *EncryptedStash {
@@ -501,7 +487,7 @@ func (s *Service) GetStoredStash(ownerID types.NaraID) *EncryptedStash {
 // StorageLimit returns the maximum number of stashes this nara can store for others.
 // Based on memory mode: low=5, medium=20, high=50.
 func (s *Service) StorageLimit() int {
-	mode := s.rt.MemoryMode()
+	mode := s.RT.MemoryMode()
 	switch mode {
 	case "low":
 		return 5

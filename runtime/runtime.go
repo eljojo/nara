@@ -529,9 +529,14 @@ func (rt *Runtime) AddService(svc Service) error {
 // Start starts all services.
 func (rt *Runtime) Start() error {
 	for _, svc := range rt.services {
-		// Automatically provide logger scoped to service name
+		// Auto-populate ServiceBase if service embeds it
 		log := rt.Log(svc.Name())
-		if err := svc.Init(rt, log); err != nil {
+		if accessor, ok := svc.(ServiceBaseAccessor); ok {
+			accessor.SetBase(rt, log)
+		}
+
+		// Call service-specific initialization
+		if err := svc.Init(); err != nil {
 			return fmt.Errorf("init %s: %w", svc.Name(), err)
 		}
 

@@ -232,6 +232,16 @@ func (m *MockRuntime) RegisterBehavior(b *Behavior) {
 	m.behaviors[b.Kind] = b
 }
 
+// InitService initializes a service the same way the real runtime does.
+// It auto-populates ServiceBase (if embedded) and calls Init().
+func (m *MockRuntime) InitService(svc Service) error {
+	log := m.Log(svc.Name())
+	if accessor, ok := svc.(ServiceBaseAccessor); ok {
+		accessor.SetBase(m, log)
+	}
+	return svc.Init()
+}
+
 // Stop cleans up the mock runtime.
 func (m *MockRuntime) Stop() {
 	m.handlers = nil

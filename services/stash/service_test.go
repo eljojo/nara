@@ -25,10 +25,10 @@ func TestStashStoreAndAck(t *testing.T) {
 	bobStash.RegisterBehaviors(bobRT)
 
 	// Initialize services
-	if err := aliceStash.Init(aliceRT, aliceRT.Log("stash")); err != nil {
+	if err := aliceRT.InitService(aliceStash); err != nil {
 		t.Fatalf("failed to init alice stash: %v", err)
 	}
-	if err := bobStash.Init(bobRT, bobRT.Log("stash")); err != nil {
+	if err := bobRT.InitService(bobStash); err != nil {
 		t.Fatalf("failed to init bob stash: %v", err)
 	}
 
@@ -136,10 +136,10 @@ func TestStashRequestAndResponse(t *testing.T) {
 	bobStash.RegisterBehaviors(bobRT)
 
 	// Initialize
-	if err := aliceStash.Init(aliceRT, aliceRT.Log("stash")); err != nil {
+	if err := aliceRT.InitService(aliceStash); err != nil {
 		t.Fatalf("failed to init alice stash: %v", err)
 	}
-	if err := bobStash.Init(bobRT, bobRT.Log("stash")); err != nil {
+	if err := bobRT.InitService(bobStash); err != nil {
 		t.Fatalf("failed to init bob stash: %v", err)
 	}
 
@@ -254,10 +254,10 @@ func TestStashRequestNotFound(t *testing.T) {
 	bobStash.RegisterBehaviors(bobRT)
 
 	// Initialize
-	if err := aliceStash.Init(aliceRT, aliceRT.Log("stash")); err != nil {
+	if err := aliceRT.InitService(aliceStash); err != nil {
 		t.Fatalf("failed to init alice stash: %v", err)
 	}
-	if err := bobStash.Init(bobRT, bobRT.Log("stash")); err != nil {
+	if err := bobRT.InitService(bobStash); err != nil {
 		t.Fatalf("failed to init bob stash: %v", err)
 	}
 
@@ -319,7 +319,7 @@ func TestStashStateMarshaling(t *testing.T) {
 	rt := runtime.NewMockRuntime(t, "test", "test-id-123")
 
 	svc := NewService()
-	if err := svc.Init(rt, rt.Log("stash")); err != nil {
+	if err := rt.InitService(svc); err != nil {
 		t.Fatalf("failed to init: %v", err)
 	}
 
@@ -446,7 +446,7 @@ func TestStashInvalidPayloads(t *testing.T) {
 
 	svc := NewService()
 	svc.RegisterBehaviors(rt) // Register behaviors before Init
-	if err := svc.Init(rt, rt.Log("stash")); err != nil {
+	if err := rt.InitService(svc); err != nil {
 		t.Fatalf("failed to init: %v", err)
 	}
 	if err := svc.Start(); err != nil {
@@ -500,7 +500,7 @@ func TestStashStorageLimit(t *testing.T) {
 
 	svc := NewService()
 	svc.RegisterBehaviors(rt)
-	if err := svc.Init(rt, rt.Log("stash")); err != nil {
+	if err := rt.InitService(svc); err != nil {
 		t.Fatalf("failed to init: %v", err)
 	}
 	if err := svc.Start(); err != nil {

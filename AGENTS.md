@@ -227,6 +227,38 @@ Same events + same personality = same opinions (deterministic).
 
 ---
 
+## AI-First Design Philosophy
+
+**This codebase is designed to be worked on collaboratively with AI.**
+
+When making architectural decisions, prefer:
+
+1. **First-class concepts over repetition**: Create named abstractions (types, interfaces, embedded structs) rather than copying patterns. This reduces token count in context and gives AI clear building blocks to work with.
+
+2. **Composition via embedding**: Go doesn't have inheritance, but embedding provides similar benefits. Use `ServiceBase` for common service fields, letting AI understand "all services have RT and Log" as a single concept.
+
+3. **Explicit interfaces**: Define interfaces for capabilities (e.g., `RuntimeInterface`, `KeypairInterface`). This helps AI understand contracts without reading implementations.
+
+4. **Consistent naming patterns**: Use predictable prefixes (`presence_`, `gossip_`, `stash_`) so AI can find related code and understand domain boundaries.
+
+5. **Document the "why"**: Comments should explain intent and design decisions, not just what code does. AI can read code but benefits from understanding context.
+
+**Example - ServiceBase pattern:**
+```go
+// All services embed ServiceBase for common fields
+type Service struct {
+    runtime.ServiceBase  // Provides RT, Log
+    // Service-specific fields...
+}
+
+// AI learns: "services have RT and Log via ServiceBase"
+// Instead of: "each service defines rt and log fields separately"
+```
+
+This philosophy optimizes for AI understanding and reduces repetitive context.
+
+---
+
 ## Build & Development Commands
 
 **IMPORTANT:** Always use `/usr/bin/make` instead of `make` to avoid shell issues:
