@@ -38,10 +38,10 @@ nara binds human-readable names to cryptographic "souls," enabling decentralized
 
 ## 5. Event Types & Schemas
 Identity is primarily used for signing `SyncEvent` and `Message` envelopes. It is also featured in:
-- `hey-there`: Announces the binding of name, public key, and ID. See **[Presence](/docs/spec/presence/)**.
-- `attestation`: A signed claim about another nara's identity and state. See **[Observations](/docs/spec/observations/)**.
-
-## 6. Algorithms
+### Usage of Identity
+- `hey-there`: Announces the binding of name, public key, and ID for [presence](/docs/spec/presence/).
+- `attestation`: A signed claim about another nara's identity and state, as part of its [observations](/docs/spec/observations/).
+- `signatures`: Every event and message is signed using the `MessageKey`.
 
 ### Hardware Fingerprinting
 `hwFingerprint = SHA256(machine_id)`. This serves as the root of trust for native identities.
@@ -67,8 +67,8 @@ graph TD
 
 ### Derivations
 - **nara ID**: `Base58(SHA256(RawSoulBytes || NameBytes))`
-- **Ed25519 Keypair**: Derived from `Seed` (RFC 8032).
-- **Symmetric Key**: `HKDF(salt="nara:stash:v1", info="symmetric", key=Seed)` for **[Stash](/docs/spec/stash/)** service.
+- **Message Key**: `HKDF(salt="nara:message:v1", info="ed25519", key=Seed)` for signing events.
+- **Symmetric Key**: `HKDF(salt="nara:stash:v1", info="symmetric", key=Seed)` for the [Stash](/docs/spec/features/stash/) service.
 
 ## 7. Failure Modes
 - **Bond Mismatch**: If a provided soul does not match the provided name, the identity is rejected.

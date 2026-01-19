@@ -8,7 +8,7 @@ Coordinates use the Vivaldi algorithm to estimate peer-to-peer latency, creating
 ## 1. Purpose
 - Estimate Round-Trip Time (RTT) between naras without exhaustive full-mesh measurements.
 - Drive proximity-based social behaviors, such as "best friends" and local influence bonuses.
-- Optimize [World Postcard](/docs/spec/world-postcards/) routing by picking peers that are "nearby" in virtual space.
+- Optimize World Postcard routing by picking peers that are "nearby" in virtual space.
 - Enable network visualization (Radar) in the Web UI.
 
 ## 2. Conceptual Model

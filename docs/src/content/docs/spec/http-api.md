@@ -6,8 +6,8 @@ description: Public, private, and introspection endpoints in the nara network.
 The HTTP API is the primary interface for interacting with a nara, providing endpoints for status updates, real-time events, network introspection, and peer communication.
 
 ## 1. Purpose
-- Provide a standardized interface for the [Web UI](/docs/spec/web-ui/) and external tools.
-- Enable high-bandwidth peer-to-peer data exchange via [Mesh HTTP](/docs/spec/mesh-http/).
+- Provide a standardized interface for the [Web UI](/docs/spec/features/web-ui/) and external tools.
+- Enable high-bandwidth peer-to-peer data exchange via [Mesh HTTP](/docs/spec/developer/mesh-http/).
 - Facilitate network debugging and auditing through "Inspector" endpoints.
 - Allow users to trigger manual actions (e.g., starting a journey or updating a stash).
 
@@ -42,9 +42,9 @@ The HTTP API is the primary interface for interacting with a nara, providing end
 - `GET /api/inspector/uptime/{subject}`: The derived uptime timeline for a peer.
 
 ### Mesh API (Default: Port 7433)
-See [Mesh HTTP](/docs/spec/mesh-http/) for authenticated peer endpoints.
 
-## 5. Event Types & Schemas
+[Mesh HTTP](/docs/spec/developer/mesh-http/) provides authenticated peer endpoints.
+
 The `/events` SSE stream uses a specific JSON format:
 ```json
 {
@@ -61,7 +61,7 @@ The `/events` SSE stream uses a specific JSON format:
 
 ### Uptime Timeline Derivation
 Used by the `/api/inspector/uptime/` endpoint:
-1. **Start with Baseline**: Use the `TotalUptime` and `LastRestart` from the latest valid [Checkpoint](/docs/spec/checkpoints/).
+1. **Start with Baseline**: Use the `TotalUptime` and `LastRestart` from the latest valid [Checkpoint](/docs/spec/services/checkpoints/).
 2. **Replay Events**: Process all `ONLINE`, `OFFLINE`, and `MISSING` events in the ledger since the checkpoint.
 3. **Calculate Intervals**: Sum the durations where the nara was in an `ONLINE` state.
 4. **Project to Now**: If the nara is currently `ONLINE`, add the duration since the last recorded state change.

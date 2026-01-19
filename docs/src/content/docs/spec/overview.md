@@ -33,11 +33,10 @@ nara is a distributed system with a hazy memory. It is a network where computers
 - **Web UI**: A local dashboard for observing the nara's internal state and the network neighborhood.
 
 ## 5. Event Types & Schemas
-The system is built on a unified event model. See the [Events Spec](/docs/spec/events/) for details.
 
-## 6. Algorithms
+The system is built on a [unified event model](/docs/spec/developer/events/).
+
 The core logic of nara is implemented via:
-- **Event-Sourced Projections**: Replaying history to find the current state.
 - **Gossip Protocols**: Hand-to-hand distribution of events via Zines.
 - **Trimmed-Mean Consensus**: Mitigating byzantine or buggy reports in checkpoints and observations.
 

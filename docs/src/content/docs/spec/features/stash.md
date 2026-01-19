@@ -19,7 +19,7 @@ Stash is the reference implementation of a nara runtime service. It provides enc
 
 ### Invariants
 1. Confidants MUST NOT be able to read the plaintext of the stashes they hold.
-2. Every stash operation (store/request) MUST be signed and verified via the runtime. See **[Identity](/docs/spec/identity/)**.
+2. Every stash operation (store/request) MUST be signed and verified via the [runtime identity](/docs/spec/runtime/identity/).
 3. Storage is volatile (RAM-only). If all confidants of an owner restart, the stash is lost.
 4. Symmetric keys MUST be derived deterministically from the owner's private seed.
 

@@ -6,10 +6,10 @@ description: Public broadcast and real-time presence via MQTT.
 The Plaza is nara's public square—a global broadcast channel where naras announce their presence, share status updates, and discover peers. It uses MQTT as the transport for real-time, low-overhead communication.
 
 ## 1. Purpose
-- Provide a discovery mechanism for new naras. See **[Presence](/docs/spec/presence/)**.
+- Provide a discovery mechanism for new naras.
 - Facilitate real-time status heartbeats (Newspapers).
-- Enable network-wide broadcasts for presence and consensus. See **[Observations](/docs/spec/observations/)**.
-- Serve as a fallback when mesh connectivity is unavailable. See **[Mesh (HTTP)](/docs/spec/mesh-http/)**.
+- Enable network-wide broadcasts for presence and consensus.
+- Serve as a fallback when mesh connectivity is unavailable.
 
 ## 2. Conceptual Model
 - **Broker**: A central MQTT broker (e.g., `mosquitto`) that facilitates message passing.
@@ -18,9 +18,9 @@ The Plaza is nara's public square—a global broadcast channel where naras annou
 - **Plaza Event**: Any event broadcast over MQTT, typically using QoS 0 (best-effort).
 
 ### Invariants
-1. **Public by Default**: Everything on the plaza is visible to anyone connected to the broker.
-2. **Mandatory Signatures**: To prevent spoofing, all meaningful plaza messages MUST be signed by the sender's soul. See **[Identity](/docs/spec/identity/)**.
-3. **No Central State**: The broker does not store history (except for retained messages if specifically configured). See **[Memory Model](/docs/spec/memory-model/)**.
+1. **Public by Default**: All plaza messages are unencrypted and visible to anyone connected.
+2. **Mandatory Signatures**: To prevent spoofing, all meaningful plaza messages MUST be signed by the sender's [soul](/docs/spec/runtime/identity/).
+3. **No Central State**: The broker does not store history (except for retained messages) as per the [memory model](/docs/spec/memory-model/).
 
 ## 3. External Behavior
 - naras connect to the configured broker at startup.

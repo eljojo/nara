@@ -13,19 +13,19 @@ The runtime is the foundational layer of nara. It acts as an Operating System fo
 
 ## 2. Conceptual Model
 - **Nara OS**: The runtime instance providing shared resources (Identity, Keypair, Ledger, Transport).
-- **Service (App)**: A modular unit of logic that implements the `Service` interface. Services are the "citizens" or "guests" of the runtime. See the **[Developer Guide](/docs/spec/developer-guide/)**.
-- **Message**: The universal envelope with `ID`/`ContentKey`, `Kind`/`Version`, identity, timestamp, payload, and signature. See **[Events](/docs/spec/events/)** for the underlying sync primitives.
-- **Test Fidelity**: Because the runtime abstracts transport and signing, tests can swap a "Real Runtime" for a "Mock Runtime" without changing service code.
+## 2. Conceptual Model
+- **Service (App)**: A modular unit of logic that implements the `Service` interface. Services are the "citizens" or "guests" of the runtime, as described in the [Developer Guide](/docs/spec/developer-guide/).
+- **Message**: The universal envelope with `ID`/`ContentKey`, `Kind`/`Version`, identity, timestamp, payload, and signature, based on [event primitives](/docs/spec/events/).
+- **Pipeline**: A composable sequence of stages that process every outgoing or incoming message.
+1. A service CANNOT send a message without a valid runtime context.
+2. The runtime is the sole authority for generating message IDs and signatures based on the [identity](/docs/spec/identity/) keypair logic.
+3. Every emitted message MUST pass through the [emit pipeline](/docs/spec/developer/pipelines/) before any transport call.
 
-### Invariants
-1. Services MUST NOT interact with the disk or network directly.
-2. The runtime is the sole authority for generating message IDs and signatures. See **[Identity](/docs/spec/identity/)** for the keypair logic.
-3. Every emitted message MUST pass through the emit pipeline before any transport call. See **[Pipelines & Stages](/docs/spec/developer/pipelines/)**.
 4. Test helpers MUST support automatic cleanup of goroutines and state.
 
 ## 3. External Behavior
 - **Orchestration**: The runtime calls `Init`, `Start`, and `Stop` on all registered services.
-- **Message Handling**: Services call `Runtime.Emit(msg)`. The runtime populates defaults, computes `ID`, and signs before execution. See **[Behaviors & Patterns](/docs/spec/developer/behaviors/)**.
+- **Message Handling**: Services call `Runtime.Emit(msg)`. The runtime populates defaults, computes `ID`, and signs before execution following [standard behaviors](/docs/spec/developer/behaviors/).
 - **Self-Encryption**: The runtime provides `Seal`/`Open` primitives for XChaCha20-Poly1305 encryption using the nara's local keypair.
 - **Identity Resolution**: The runtime resolves Nara IDs to public keys and mesh addresses.
 

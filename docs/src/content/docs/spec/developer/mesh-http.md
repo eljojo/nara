@@ -6,14 +6,14 @@ description: Authenticated point-to-point communication over WireGuard.
 Mesh HTTP is the transport layer for sensitive, private, and bulk data exchange in the nara network. It runs over an encrypted WireGuard mesh (e.g., Tailscale or Headscale) and provides authenticated point-to-point links.
 
 ## 1. Purpose
-- Provide an encrypted and authenticated alternative to the public MQTT plaza. See **[Plaza (MQTT)](/docs/spec/plaza-mqtt/)**.
-- Facilitate large data transfers like **[Zines](/docs/spec/zines/)** and **[Sync Protocol](/docs/spec/sync-protocol/)** batches.
-- Power the **[Stash Service](/docs/spec/stash/)** for distributed encrypted storage.
-- Support low-latency routing for **[World Postcards](/docs/spec/world-postcards/)**.
+- Provide an encrypted and authenticated alternative to the public MQTT plaza.
+- Facilitate large data transfers like Zines and Sync Protocol batches.
+- Power the Stash Service for distributed encrypted storage.
+- Support low-latency routing for World Postcards.
 
 ## 2. Conceptual Model
 - **Mesh Network**: A private overlay network where every nara has a stable IP.
-- **Mutual Auth**: Every request and response is signed by the sender's soul. See **[Identity](/docs/spec/identity/)**.
+- **Mutual Auth**: Every request and response is signed by the sender's soul.
 - **Middleware**: A unified authentication layer that verifies identities and discovers public keys on-the-fly.
 
 ### Invariants
@@ -22,7 +22,7 @@ Mesh HTTP is the transport layer for sensitive, private, and bulk data exchange 
 3. **Encryption**: All traffic MUST be encrypted by the underlying mesh transport (WireGuard).
 
 ## 3. External Behavior
-- naras discover each other's mesh IPs via [Plaza](/docs/spec/plaza-mqtt/) or mesh scans.
+- naras discover each other's mesh IPs via [Plaza](/docs/spec/developer/plaza-mqtt/) or mesh scans.
 - When communicating over the mesh, naras perform a cryptographic handshake to verify the other's identity.
 - Unauthenticated access is strictly limited to basic health checks and public key discovery.
 
@@ -40,7 +40,7 @@ Mesh HTTP is the transport layer for sensitive, private, and bulk data exchange 
 - `/mesh/message`: (New Runtime) Unified entry point for all runtime messages.
 
 ## 5. Event Types & Schemas
-The mesh transport carries all event types defined in the [Events Spec](/docs/spec/events/) and all runtime messages.
+The mesh transport carries all event types defined in the [Events Spec](/docs/spec/developer/events/) and all runtime messages.
 
 ## 6. Algorithms
 

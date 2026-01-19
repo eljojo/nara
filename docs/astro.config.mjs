@@ -31,39 +31,29 @@ export default defineConfig({
           ]
         },
         {
-          label: 'Features',
-          items: [
-            { label: 'Zines', link: '/spec/features/zines/' },
-            { label: 'Stash', link: '/spec/features/stash/' },
-            { label: 'World Postcards', link: '/spec/features/world-postcards/' },
-            { label: 'Web UI', link: '/spec/features/web-ui/' }
-          ]
-        },
-        {
           label: 'Specification',
           items: [
             { label: 'Living Spec Home', link: '/spec/' },
             { label: 'Overview & Philosophy', link: '/spec/overview/' },
+            { label: 'Personality', link: '/spec/personality/' },
+            { label: 'Aura & Avatar', link: '/spec/aura-and-avatar/' },
             { label: 'Styleguide', link: '/spec/styleguide/' },
             {
-              label: 'Identity & Being',
+              label: 'Features',
               items: [
-                { label: 'Identity', link: '/spec/runtime/identity/' },
-                { label: 'Personality', link: '/spec/personality/' },
-                { label: 'Aura & Avatar', link: '/spec/aura-and-avatar/' }
+                { label: 'Zines', link: '/spec/features/zines/' },
+                { label: 'Stash', link: '/spec/features/stash/' },
+                { label: 'World Postcards', link: '/spec/features/world-postcards/' },
+                { label: 'Web UI', link: '/spec/features/web-ui/' }
               ]
             },
             {
               label: 'Runtime Architecture',
               items: [
+                { label: 'Identity', link: '/spec/runtime/identity/' },
                 { label: 'Runtime & Primitives', link: '/spec/runtime/runtime/' },
                 { label: 'Pipelines & Stages', link: '/spec/runtime/pipelines/' },
-                { label: 'Behaviours & Patterns', link: '/spec/runtime/behaviours/' }
-              ]
-            },
-            {
-              label: 'Event & Memory',
-              items: [
+                { label: 'Behaviours & Patterns', link: '/spec/runtime/behaviours/' },
                 { label: 'Events', link: '/spec/developer/events/' },
                 { label: 'Projections', link: '/spec/projections/' },
                 { label: 'Memory Model', link: '/spec/memory-model/' }
@@ -77,7 +67,6 @@ export default defineConfig({
                 { label: 'Sync Protocol', link: '/spec/developer/sync/' }
               ]
             },
-
             {
               label: 'Services',
               items: [

@@ -33,7 +33,7 @@ The Boot Sequence orchestrates a nara's transition from startup to full network 
 - `backgroundSync()`: A periodic task that continues the "backfilling" process throughout the nara's lifetime.
 
 ## 5. Event Types & Schemas
-The boot sequence consumes all types defined in the [Events Spec](/docs/spec/events/), specifically prioritizing:
+The boot sequence consumes all types defined in the [Events Spec](/docs/spec/developer/events/), specifically prioritizing:
 - `hey-there` (for peer discovery).
 - `checkpoint` (for historical anchors).
 - `observation:restart` (for identity verification).
@@ -64,14 +64,14 @@ sequenceDiagram
 1. **Discovery Wait**: Wait up to 30 seconds to find initial peers via Plaza or Mesh.
 2. **Parallel Sync**: Divide the `BootRecoveryTargetEvents` (50,000) into batches.
 3. **Neighbor Slicing**: Request interleaved "slices" of the ledger from multiple mesh neighbors simultaneously.
-4. **Anchor Sync**: Explicitly request the most recent [Checkpoints](/docs/spec/checkpoints/) for all discovered peers.
+4. **Anchor Sync**: Explicitly request the most recent [Checkpoints](/docs/spec/services/checkpoints/) for all discovered peers.
 5. **Finalization**: Trigger `bootRecoveryDone`.
 
 ### Background Sync
 To maintain consistency during long uptimes, a `backgroundSync` task runs every 30 minutes (±5m jitter):
 - It fetches the 100 most `recent` events from 1-2 random neighbors.
 - It specifically targets `observation`, `ping`, and `social` events from the last 24 hours.
-- It uses the "recovering" data to refine [Network Coordinates](/docs/spec/coordinates/).
+- It uses the "recovering" data to refine [Network Coordinates](/docs/spec/services/coordinates/).
 
 ## 7. Failure Modes
 - **Isolation**: If no neighbors are found within the discovery window, the nara starts with an empty memory and builds history from scratch.

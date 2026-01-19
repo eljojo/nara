@@ -62,7 +62,7 @@ If `-memory-mode` is set to `auto`:
 - **Broker Unreachable**: If the `MQTT_HOST` is invalid or down, the nara will fallback to mesh-only operation (if transport is `hybrid`).
 
 ## 8. Security / Trust Model
-- **Soul Sovereignty**: The soul is the root of both cryptographic identity and the symmetric key for [Stash](/docs/spec/stash/) decryption.
+- **Soul Sovereignty**: The soul is the root of both cryptographic identity and the symmetric key for [Stash](/docs/spec/features/stash/) decryption.
 - **Environment Gating**: Sensitive credentials should be provided via environment variables rather than CLI flags to prevent them from appearing in process lists.
 
 ## 9. Test Oracle

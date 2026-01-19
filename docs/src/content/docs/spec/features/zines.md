@@ -5,22 +5,22 @@ description: Peer-to-peer gossip and editorial memory in the nara network.
 
 Zines are compact, signed bundles of recent events exchanged point-to-point over Mesh HTTP. They allow naras to propagate history "hand-to-hand" across the network without relying on a central broker.
 
-## 1. Purpose
-- Provide a decentralized gossip mechanism independent of MQTT. See **[Plaza (MQTT)](/docs/spec/plaza-mqtt/)**.
-- Efficiently propagate recent events (typically the last 5 minutes). See **[Sync Protocol](/docs/spec/sync-protocol/)**.
-- Enable peer discovery and mesh connectivity tracking. See **[Presence](/docs/spec/presence/)**.
-- Facilitate the creation of a distributed, collective "hazy" memory. See **[Memory Model](/docs/spec/memory-model/)**.
+## 1. Core Objectives
+- Provide a decentralized gossip mechanism independent of the [Plaza (MQTT)](/docs/spec/developer/plaza-mqtt/).
+- Efficiently propagate recent events (typically the last 5 minutes).
+- Enable peer discovery and mesh connectivity tracking.
+- Facilitate the creation of a distributed, collective "hazy" memory.
 
 ## 2. Conceptual Model
-- **Zine**: A signed container for a batch of `SyncEvent` objects.
+- **The Zine**: A bundle of recently observed `SyncEvent` objects.
 - **Hand-to-Hand**: A bidirectional exchange; sending a zine to a peer triggers receiving their recent events in response.
-- **Mesh Discovery**: The process of finding and validating peers on the private mesh network. See **[Mesh (HTTP)](/docs/spec/mesh-http/)**.
+- **Mesh Discovery**: The process of finding and validating peers on the private [mesh network](/docs/spec/developer/mesh-http/).
 - **Direct Message (DM)**: An optimized delivery mechanism for a single urgent event.
 
 ### Invariants
 1. **Recency**: Zines MUST primarily focus on recent events to prevent redundant data transfer.
 2. **Reciprocity**: A successful zine exchange MUST result in both parties receiving new data.
-3. **Authenticity**: Every zine MUST be signed by the publisher to prevent tampering. See **[Identity](/docs/spec/identity/)**.
+3. **Authenticity**: Every zine MUST be signed by the publisher's [identity](/docs/spec/runtime/identity/) to prevent tampering.
 
 ## 3. External Behavior
 - naras initiate "gossip rounds" at intervals determined by their `Chattiness` parameter.
@@ -68,7 +68,7 @@ sequenceDiagram
 - **Discovery Lag**: Newly joined mesh peers may not be discovered until the next subnet scan or until they broadcast on the plaza.
 
 ## 8. Security / Trust Model
-- **Authenticated Transport**: Zine exchanges are protected by the [Mesh HTTP](/docs/spec/mesh-http/) authentication middleware.
+- **Authenticated Transport**: Zine exchanges are protected by the [Mesh HTTP](/docs/spec/developer/mesh-http/) authentication middleware.
 - **Payload Integrity**: Each event within the zine is individually signed, and the zine itself is signed as a bundle.
 
 ## 9. Test Oracle

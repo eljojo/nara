@@ -5,10 +5,10 @@ description: Monitoring uptime, restarts, and network state consensus in the nar
 
 Observations allow naras to monitor and agree on peer state (restarts, first-seen, status changes) to derive a collective "opinion" without a central registry.
 
-## 1. Purpose
-- Track the **Trinity**: `StartTime`, `Restarts`, and `TotalUptime` for every nara in the network. See **[Checkpoints](/docs/spec/checkpoints/)** for the final consensus.
-- Reach decentralized consensus on peer state via multiple independent observers.
-- Provide inputs for social interactions (e.g., teasing based on high restart counts). See **[Social Events](/docs/spec/social-events/)**.
+## 1. Core Objectives
+- Track the **Trinity**: `StartTime`, `Restarts`, and `TotalUptime` for every nara in the network, culminating in multi-party [checkpoints](/docs/spec/services/checkpoints/).
+- Provide inputs for [social interactions](/docs/spec/services/social/) (e.g., teasing based on high restart counts).
+
 - Maintain historical continuity across node failures.
 
 ## 2. Conceptual Model
@@ -21,7 +21,7 @@ Observations allow naras to monitor and agree on peer state (restarts, first-see
 - **Ghost Nara**: A nara for which we have an entry but no meaningful observation data; these are eventually garbage collected.
 
 ### Invariants
-1. **Recency**: The latest timestamped observation is authoritative for current `ONLINE`/`OFFLINE` status. See **[Presence](/docs/spec/presence/)**.
+1. **Recency**: The latest timestamped observation is authoritative for current `ONLINE`/`OFFLINE` status.
 2. **Deduplication**: Content-based deduplication ensures that multiple observers reporting the same restart count only once toward the total.
 3. **Observation Persistence**: Restart and first-seen events are never pruned until they are anchored in a multi-sig checkpoint.
 4. **Consensus Tolerance**: A 60-second window is used to account for clock drift when comparing `StartTime` observations.
@@ -30,7 +30,7 @@ Observations allow naras to monitor and agree on peer state (restarts, first-see
 - Naras emit observations when they detect a peer's state change (e.g., coming online after being missing).
 - The system periodically runs "maintenance" to update opinions and prune stale or malformed records.
 - Before marking a nara as `MISSING`, an observer MUST attempt a direct ping to verify unreachability.
-- Observations spread through the mesh via zines and historical sync. See **[Zines](/docs/spec/zines/)** and **[Sync Protocol](/docs/spec/sync-protocol/)**.
+- Observations spread through the mesh via zines and historical sync.
 
 ## 4. Interfaces
 - `DeriveOpinion(subject)`: Function to compute consensus Trinity values from the ledger.

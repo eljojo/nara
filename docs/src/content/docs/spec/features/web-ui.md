@@ -14,7 +14,7 @@ The Web UI is an embedded Single Page App (SPA) that provides a human-friendly v
 ## 2. Conceptual Model
 - **Embedded SPA**: The UI is built using Preact and esbuild, and is embedded directly into the Go binary.
 - **Reactive Feed**: The UI reacts to real-time events streamed from the nara via Server-Sent Events (SSE).
-- **Radar Map**: A 2D visualization of the network topology based on [Network Coordinates](/docs/spec/coordinates/).
+- **Radar Map**: A 2D visualization of the network topology based on [Network Coordinates](/docs/spec/services/coordinates/).
 - **The Timeline**: A chronological feed of social and system events.
 
 ### Invariants
@@ -34,9 +34,9 @@ The Web UI is an embedded Single Page App (SPA) that provides a human-friendly v
 - **Real-time Stream**: `GET /events` (SSE)
 
 ## 5. Event Types & Schemas
-The UI consumes UI-formatted events from the SSE stream. See the [HTTP API Spec](/docs/spec/http-api/) for the schema.
 
-## 6. Algorithms
+The UI consumes UI-formatted events from the SSE stream following the [HTTP API Spec](/docs/spec/http-api/).
+
 - **Radar Projection**: Maps `(x, y)` coordinates from the Vivaldi algorithm onto a circular radar display.
 - **D3.js Visualization**: Uses D3 to manage the positioning and transitions of naras on the map.
 - **Event Mapping**: Translates raw `SyncEvent` types into icons and human-readable strings (e.g., `tease` with reason `nice-number` → 😈 "Alice teased Bob about the number 69").

@@ -6,15 +6,15 @@ description: Deterministic, event-sourced views of network state in nara.
 Projections are deterministic, read-only views derived from the event ledger. They transform the stream of facts into actionable, pre-computed state like online status, reputation, and consensus network metrics.
 
 ## 1. Purpose
-- Transform raw event streams into specific state models (e.g., "Is Alice online?"). See **[Events](/docs/spec/events/)**.
-- Reach consensus on peer metrics (The Trinity) without central coordination. See **[Observations](/docs/spec/observations/)**.
+- Transform raw event streams into specific state models (e.g., "Is Alice online?").
+- Reach consensus on peer metrics (The Trinity) without central coordination.
 - Compute complex, computationally expensive metrics like **[Clout](/docs/spec/clout/)** on-the-fly.
 - Decouple interpretation logic from event storage and transport.
 
 ## 2. Conceptual Model
-- **State Function**: `State = f(Events, Personality)`. See **[Personality](/docs/spec/personality/)**.
+- **State Function**: `State = f(Events, Personality)`.
 - **Incremental Processing**: Projections track their current `position` in the ledger and only process new events since the last run.
-- **Auto-Reset**: If the underlying ledger structure changes (e.g., due to pruning), the projection resets its state and replays the entire ledger. See **[Memory Model](/docs/spec/memory-model/)** for pruning logic.
+- **Auto-Reset**: If the underlying ledger structure changes (e.g., due to pruning), the projection resets its state and replays the entire ledger.
 - **Subjectivity**: Some projections (like Clout) are influenced by the local nara's personality.
 
 ### Invariants

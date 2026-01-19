@@ -27,19 +27,19 @@ Presence is how naras discover each other, prove they are alive, and maintain a 
 - If a nara does not hear from a peer for a long period, it marks them as `MISSING`.
 - A gracefully departing nara broadcasts a `chau` event to inform others it is going offline intentionally.
 
-## 4. Interfaces
-- `hey-there`: Event carrying name, public key, and mesh IP. See **[Identity](/docs/spec/identity/)**.
-- `chau`: Event carrying name and a "goodbye" signal.
-- `Newspaper`: Status payload broadcast on the plaza. See **[Plaza (MQTT)](/docs/spec/plaza-mqtt/)**.
-- `OnlineStatusProjection`: The read-model that computes the current status of all peers. See **[Projections](/docs/spec/projections/)**.
+### Key Event Types
+- `hey-there`: Event carrying name, public key, and mesh IP.
+- `howdy`: Response to `hey-there`, carrying the responder's recent observations.
+- `Newspaper`: Status payload broadcast on the plaza.
+- `OnlineStatusProjection`: The read-model that computes the current status of all peers.
 
 ## 5. Event Types & Schemas
-Presence primarily uses Critical importance events. See **[Events](/docs/spec/events/#service-types)**.
+Presence primarily uses Critical importance events.
 
 ### `hey-there` (SyncEvent)
 - `From`: Nara name.
 - `PublicKey`: Ed25519 public key.
-- `MeshIP`: Stable mesh network address. See **[Mesh (HTTP)](/docs/spec/mesh-http/)**.
+- `MeshIP`: Stable mesh network address.
 - `ID`: Nara ID (soul/name bond hash).
 
 ### `chau` (SyncEvent)

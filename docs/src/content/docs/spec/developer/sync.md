@@ -48,7 +48,7 @@ Receives a `SyncRequest` and returns a `SyncResponse`.
 - `sig`: Ed25519 signature over metadata + event IDs.
 
 ## 5. Event Types & Schemas
-The protocol exchanges `SyncEvent` objects as defined in the [Events Spec](/docs/spec/events/).
+The protocol exchanges `SyncEvent` objects as defined in the [Events Spec](/docs/spec/developer/events/).
 
 ## 6. Algorithms
 

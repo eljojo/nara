@@ -6,15 +6,15 @@ description: Hazy memory, event-sourced state, and priority-based forgetting in 
 nara uses a "hazy memory" model: all network state is in-memory (RAM-only) and derived from signed events. Memory is strictly bounded to mimic human-like forgetting and maintain a lightweight footprint.
 
 ## 1. Purpose
-- Maintain a subjective but consistent view of the network state. See **[Projections](/docs/spec/projections/)**.
+- Maintain a subjective but consistent view of the network state.
 - Ensure the software can run on resource-constrained hardware (e.g., small VMs, Raspberry Pis).
 - Model "social forgetting" where non-critical data is naturally lost over time.
 - Rely on collective replication across peers rather than local disk persistence.
-
 ## 2. Conceptual Model
-- **SyncLedger**: The primary in-memory store for all syncable events. See **[Events](/docs/spec/events/)**.
-- **Hazy Memory**: By design, there is no disk persistence for network data. Memory is recovered from peers on restart. See **[Boot Sequence](/docs/spec/boot-sequence/)**.
-- **Subjectivity**: Every nara's memory is unique, shaped by its personality and the specific set of peers it has synced with. See **[Personality](/docs/spec/personality/)**.
+- **SyncLedger**: The primary in-memory store for all [syncable events](/docs/spec/developer/events/).
+- **Hazy Memory**: By design, there is no disk persistence for network data. Memory is recovered from peers during the [boot sequence](/docs/spec/boot-sequence/).
+- **Subjectivity**: Every nara's memory is unique, shaped by its [personality](/docs/spec/personality/) and the specific set of peers it has synced with.
+- **Priority Queues**: Events are kept or pruned based on importance levels.
 - **Volatility**: Once an event is pruned from all ledgers in the network, it is lost forever.
 
 ### Invariants
@@ -39,27 +39,27 @@ The mode is typically detected automatically based on available RAM:
 | **`high`** | 320,000 | 50 | "Historian" mode; high retention for deep network history. |
 
 ## 5. Event Types & Schemas
-Memory management does not define its own events but dictates the lifecycle of all events in the [Events Spec](/docs/spec/events/).
+Memory management does not define its own events but dictates the lifecycle of all events in the [Events Spec](/docs/spec/developer/events/).
 
 ## 6. Algorithms
 
-### Priority-Based Pruning
-When `len(ledger) > MaxEvents`, events are sorted by priority (lowest first) and removed. See **[Events](/docs/spec/events/#service-types)** for the priority levels.
-- **Priority 4 (Lowest)**: `ping` measurements.
+1. If an event is received, it is added to the `SyncLedger`.
+2. When `len(ledger) > MaxEvents`, events are sorted by priority (lowest first) and removed.
+3. Each service defines its own cleanup logic for derived state.
 - **Priority 3**: `seen` proofs-of-contact.
 - **Priority 2**: `social` (teases, gossip).
 - **Priority 1**: `status-change`, `hey-there`, `chau`.
 - **Priority 0 (Never Pruned)**: `checkpoint`, `restart`, `first-seen`.
 
-### Neighbourhood Pruning (Peer Tracking)
-Naras are removed from the local "neighbourhood" map based on their status and age. See **[Observations](/docs/spec/observations/#tiered-neighbourhood-pruning)** for the algorithm.
+Naras are removed from the local "neighbourhood" map based on their status and age following the [pruning algorithm](/docs/spec/services/observations/#tiered-neighbourhood-pruning).
+
 - **Zombies**: Entries seen briefly without meaningful data are purged early.
 - **Newcomers** (< 2 days old): Pruned after 24 hours of being `MISSING`.
 - **Established** (2-30 days old): Pruned after 7 days of being `MISSING`.
 - **Veterans** (>= 30 days old): **Never auto-pruned.** They remain in the neighbourhood indefinitely.
 
 ### Stash Limit
-The [Stash Service](/docs/spec/stash/) limits the number of stashes it will hold for others based on the current Memory Mode (e.g., a `low` mode node will only hold 5 stashes).
+The [Stash Service](/docs/spec/features/stash/) limits the number of stashes it will hold for others based on the current Memory Mode (e.g., a `low` mode node will only hold 5 stashes).
 
 ## 7. Failure Modes
 - **Memory Pressure**: An accumulation of Priority 0 events (which are never pruned) could theoretically lead to Out-of-Memory (OOM) conditions if the ledger isn't carefully monitored.
