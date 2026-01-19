@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/eljojo/nara/identity"
-	"github.com/sirupsen/logrus"
 )
 
 // TestPingVerificationUpdatesProjectionImmediately reproduces the production bug where:
@@ -147,9 +146,6 @@ func TestMarkOnlineFromPingUpdatesProjectionSynchronously(t *testing.T) {
 // observationMaintenanceOnce should sync from projections.
 // For now, we fix by skipping processChauSyncEvents during boot.
 func TestBootTimeChauDoesNotClobberOnlineStatus(t *testing.T) {
-	logrus.SetLevel(logrus.DebugLevel)
-	defer logrus.SetLevel(logrus.WarnLevel)
-
 	// Create a LocalNara that is booting (default state after creation)
 	observer := testLocalNara(t, "observer")
 	network := observer.Network

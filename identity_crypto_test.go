@@ -119,10 +119,6 @@ func TestNewspaperEvent_SignAndVerify(t *testing.T) {
 func TestNewspaperEvent_VerifyUnsigned(t *testing.T) {
 	t.Parallel()
 
-	// Configure logrus for this test (needed because Verify() logs warnings)
-	logrus.SetOutput(os.Stderr)
-	logrus.SetLevel(logrus.WarnLevel)
-
 	event := NewspaperEvent{
 		From:   "alice",
 		Status: NaraStatus{Flair: "test"},

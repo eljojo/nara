@@ -15,10 +15,9 @@ func TestCheckpointIngestionFilter(t *testing.T) {
 	oldCheckpoint := SyncEvent{
 		Service:   ServiceCheckpoint,
 		Timestamp: time.Now().UnixNano(),
-		Emitter:   "r2d2", // Only r2d2's old checkpoints are filtered
 		Checkpoint: &CheckpointEventPayload{
 			Version:   1,
-			Subject:   "alice",
+			Subject:   "r2d2", // Only r2d2's old checkpoints are filtered
 			SubjectID: "test-alice-id",
 			AsOfTime:  CheckpointCutoffTime - 1000, // 1000 seconds before cutoff
 			Observation: NaraObservation{
@@ -85,10 +84,9 @@ func TestCheckpointIngestionFilter(t *testing.T) {
 	oldCheckpoint2 := SyncEvent{
 		Service:   ServiceCheckpoint,
 		Timestamp: time.Now().UnixNano(),
-		Emitter:   "r2d2", // Only r2d2's old checkpoints are filtered
 		Checkpoint: &CheckpointEventPayload{
 			Version:   1,
-			Subject:   "charlie",
+			Subject:   "r2d2", // Only r2d2's old checkpoints are filtered
 			SubjectID: "test-charlie-id",
 			AsOfTime:  CheckpointCutoffTime - 5000, // Way before cutoff
 			Observation: NaraObservation{
@@ -139,10 +137,9 @@ func TestCheckpointCutoffBoundary(t *testing.T) {
 	atCutoff := SyncEvent{
 		Service:   ServiceCheckpoint,
 		Timestamp: time.Now().UnixNano(),
-		Emitter:   "r2d2", // Only r2d2's old checkpoints are filtered
 		Checkpoint: &CheckpointEventPayload{
 			Version:   1,
-			Subject:   "boundary-test",
+			Subject:   "r2d2", // Only r2d2's old checkpoints are filtered
 			SubjectID: "test-id",
 			AsOfTime:  CheckpointCutoffTime, // Exactly at cutoff
 			Observation: NaraObservation{

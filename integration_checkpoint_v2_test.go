@@ -116,8 +116,6 @@ func TestCheckpointV2NetworkDisagreesWithProposer(t *testing.T) {
 	// Give time for checkpoint histories to settle
 	time.Sleep(200 * time.Millisecond)
 
-	// Note: Cannot use logrus.SetLevel in parallel tests (race condition)
-
 	// Trigger checkpoint proposal
 	proposer.Network.checkpointService.ProposeCheckpoint()
 

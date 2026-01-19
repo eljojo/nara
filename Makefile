@@ -1,7 +1,7 @@
 .PHONY: all build test run run2 clean build-nix test-fast lint-report build-web watch-web build-backup format api-docs
 
 # Default target: build and test
-all: format build test lint-report
+all: format test build lint-report
 
 # Build web assets (JS + CSS bundles)
 # Bundles Preact, D3, dayjs - no CDN dependencies
