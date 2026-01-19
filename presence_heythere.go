@@ -302,10 +302,17 @@ func (network *Network) handleHeyThereEvent(event SyncEvent) {
 			}
 			// Get final ID for keyring registration
 			naraID := nara.Status.ID
+			meshIP := nara.Status.MeshIP
 			nara.mu.Unlock()
 			// Register key in keyring (outside lock)
 			if naraID != "" && heyThere.PublicKey != "" {
 				network.RegisterKey(naraID, heyThere.PublicKey)
+			}
+			// Register mesh IP with meshClient so the peer is reachable for stash/runtime messages.
+			// This fixes the race condition where OnlinePeers() returns peers discovered via MQTT
+			// but not yet registered for mesh communication.
+			if naraID != "" && meshIP != "" && network.meshClient != nil {
+				network.meshClient.RegisterPeerIP(naraID, meshIP)
 			}
 			logrus.Infof("📝 Updated %s: PublicKey=%s..., MeshIP=%s, ID=%s",
 				heyThere.From,

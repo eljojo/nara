@@ -187,6 +187,13 @@ func (network *Network) importNara(nara *Nara) {
 		if nara.Status.PublicKey != "" && network.keyring != nil {
 			_ = network.keyring.RegisterBase64(naraID, nara.Status.PublicKey)
 		}
+
+		// Register mesh IP with meshClient so the peer is reachable for stash/runtime messages.
+		// This fixes the race condition where OnlinePeers() returns peers discovered via MQTT
+		// but not yet registered for mesh communication ("peer not registered" errors).
+		if nara.Status.MeshIP != "" && network.meshClient != nil {
+			network.meshClient.RegisterPeerIP(naraID, nara.Status.MeshIP)
+		}
 	}
 }
 
