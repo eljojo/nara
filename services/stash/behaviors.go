@@ -12,45 +12,36 @@ import (
 //
 // Behaviors are registered locally with the runtime for test isolation.
 func (s *Service) RegisterBehaviors(rt runtime.RuntimeInterface) {
-	// Helper to register with runtime's local registry
-	register := func(b *runtime.Behavior) {
-		if reg, ok := rt.(runtime.BehaviorRegistry); ok {
-			reg.RegisterBehavior(b)
-		} else {
-			panic("runtime must implement BehaviorRegistry")
-		}
-	}
-
 	// stash-refresh: Ephemeral MQTT broadcast to trigger recovery
-	register(
+	rt.RegisterBehavior(
 		runtime.Ephemeral("stash-refresh", "Trigger stash recovery from confidants", "nara/plaza/stash_refresh").
 			WithPayload(runtime.PayloadTypeOf[messages.StashRefreshPayload]()).
 			WithHandler(1, s.handleRefreshV1),
 	)
 
 	// stash:store: Direct mesh request to store encrypted data
-	register(
+	rt.RegisterBehavior(
 		runtime.MeshRequest("stash:store", "Store encrypted stash with confidant").
 			WithPayload(runtime.PayloadTypeOf[messages.StashStorePayload]()).
 			WithHandler(1, s.handleStoreV1),
 	)
 
 	// stash:ack: Response to stash:store
-	register(
+	rt.RegisterBehavior(
 		runtime.MeshRequest("stash:ack", "Acknowledge stash storage").
 			WithPayload(runtime.PayloadTypeOf[messages.StashStoreAck]()).
 			WithHandler(1, s.handleStoreAckV1),
 	)
 
 	// stash:request: Request stored data from confidant
-	register(
+	rt.RegisterBehavior(
 		runtime.MeshRequest("stash:request", "Request stored stash").
 			WithPayload(runtime.PayloadTypeOf[messages.StashRequestPayload]()).
 			WithHandler(1, s.handleRequestV1),
 	)
 
 	// stash:response: Return stored data to owner
-	register(
+	rt.RegisterBehavior(
 		runtime.MeshRequest("stash:response", "Return stored stash").
 			WithPayload(runtime.PayloadTypeOf[messages.StashResponsePayload]()).
 			WithHandler(1, s.handleResponseV1),

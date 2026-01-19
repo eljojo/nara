@@ -578,7 +578,7 @@ func (rt *Runtime) Stop() error {
 	return nil
 }
 
-// === BehaviorRegistry implementation ===
+// === Behavior registration ===
 
 // RegisterBehavior registers a behavior locally for this runtime.
 // This allows each runtime to have its own handlers, avoiding conflicts

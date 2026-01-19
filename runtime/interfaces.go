@@ -38,6 +38,9 @@ type RuntimeInterface interface {
 
 	// Request/response (Call emits and waits for a reply)
 	Call(msg *Message, timeout time.Duration) <-chan CallResult
+
+	// Behavior registration (for services to register their message handlers)
+	RegisterBehavior(b *Behavior)
 }
 
 // PeerInfo contains information about a network peer.
@@ -300,13 +303,6 @@ type ServiceBaseAccessor interface {
 // BehaviorRegistrar is optionally implemented by services that register behaviors.
 type BehaviorRegistrar interface {
 	RegisterBehaviors(rt RuntimeInterface)
-}
-
-// BehaviorRegistry is optionally implemented by runtimes that support local behavior registration.
-// The mock runtime implements this to allow per-runtime behavior registration (for tests).
-// The real runtime may delegate to the global registry.
-type BehaviorRegistry interface {
-	RegisterBehavior(b *Behavior)
 }
 
 // CallRegistry manages pending Call requests.
