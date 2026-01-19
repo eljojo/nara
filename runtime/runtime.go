@@ -545,6 +545,7 @@ func (rt *Runtime) Start() error {
 		if err := svc.Init(); err != nil {
 			return fmt.Errorf("init %s: %w", svc.Name(), err)
 		}
+		log.Info("initialized")
 
 		// If service implements BehaviorRegistrar, call it after Init
 		if registrar, ok := svc.(BehaviorRegistrar); ok {
@@ -556,6 +557,7 @@ func (rt *Runtime) Start() error {
 		if err := svc.Start(); err != nil {
 			return fmt.Errorf("start %s: %w", svc.Name(), err)
 		}
+		rt.Log(svc.Name()).Info("started")
 	}
 
 	return nil
@@ -568,6 +570,8 @@ func (rt *Runtime) Stop() error {
 	for _, svc := range rt.services {
 		if err := svc.Stop(); err != nil {
 			logrus.Warnf("[runtime] stop %s: %v", svc.Name(), err)
+		} else {
+			rt.Log(svc.Name()).Info("stopped")
 		}
 	}
 

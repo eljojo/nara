@@ -18,7 +18,7 @@ import (
 // Naras store their encrypted state with trusted peers (confidants) instead
 // of on disk. Only the owner can decrypt, but confidants hold the ciphertext.
 type Service struct {
-	runtime.ServiceBase                    // Provides RT and Log (auto-populated by runtime)
+	runtime.ServiceBase                          // Provides RT and Log (auto-populated by runtime)
 	keypair             runtime.KeypairInterface // Cached from runtime for encryption
 
 	// Stored stashes (we're a confidant for these owners)
@@ -59,19 +59,14 @@ func (s *Service) Name() string {
 
 func (s *Service) Init() error {
 	s.keypair = s.RT.Keypair() // Cache keypair reference
-	s.Log.Info("stash service initialized successfully")
 	return nil
 }
 
 func (s *Service) Start() error {
-	s.Log.Info("stash service started")
 	return nil
 }
 
 func (s *Service) Stop() error {
-	if s.Log != nil {
-		s.Log.Info("stash service stopped")
-	}
 	return nil
 }
 

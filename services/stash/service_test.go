@@ -68,7 +68,9 @@ func TestStashStoreAndAck(t *testing.T) {
 	}
 
 	// Deliver the store message to Bob
-	bobRT.Deliver(storeMsg)
+	if err := bobRT.Deliver(storeMsg); err != nil {
+		t.Fatalf("failed to deliver store message: %v", err)
+	}
 
 	// Bob should emit a stash:ack
 	if bobRT.EmittedCount() != 1 {
@@ -107,7 +109,9 @@ func TestStashStoreAndAck(t *testing.T) {
 	}
 
 	// Deliver the ack back to Alice (will auto-resolve pending Call)
-	aliceRT.Deliver(ackMsg)
+	if err := aliceRT.Deliver(ackMsg); err != nil {
+		t.Fatalf("failed to deliver ack message: %v", err)
+	}
 
 	// Alice's StoreWith should complete
 	select {
@@ -193,7 +197,9 @@ func TestStashRequestAndResponse(t *testing.T) {
 	}
 
 	// Deliver the request to Bob
-	bobRT.Deliver(requestMsg)
+	if err := bobRT.Deliver(requestMsg); err != nil {
+		t.Fatalf("failed to deliver request message: %v", err)
+	}
 
 	// Bob should emit a stash:response
 	if bobRT.EmittedCount() != 1 {
@@ -224,7 +230,9 @@ func TestStashRequestAndResponse(t *testing.T) {
 	}
 
 	// Deliver the response back to Alice (will auto-resolve pending Call)
-	aliceRT.Deliver(responseMsg)
+	if err := aliceRT.Deliver(responseMsg); err != nil {
+		t.Fatalf("failed to deliver response message: %v", err)
+	}
 
 	// Alice's RequestFrom should complete with decrypted data
 	select {
@@ -285,7 +293,9 @@ func TestStashRequestNotFound(t *testing.T) {
 	requestMsg := aliceRT.LastEmitted()
 
 	// Deliver the request to Bob
-	bobRT.Deliver(requestMsg)
+	if err := bobRT.Deliver(requestMsg); err != nil {
+		t.Fatalf("failed to deliver request message: %v", err)
+	}
 
 	// Bob should emit a stash:response with Found=false
 	responseMsg := bobRT.LastEmitted()
@@ -298,7 +308,9 @@ func TestStashRequestNotFound(t *testing.T) {
 	}
 
 	// Deliver the response back to Alice (will auto-resolve pending Call)
-	aliceRT.Deliver(responseMsg)
+	if err := aliceRT.Deliver(responseMsg); err != nil {
+		t.Fatalf("failed to deliver response message: %v", err)
+	}
 
 	// Alice's RequestFrom should return an error
 	select {
@@ -468,7 +480,9 @@ func TestStashInvalidPayloads(t *testing.T) {
 		},
 	}
 
-	rt.Deliver(storeMsg)
+	if err := rt.Deliver(storeMsg); err != nil {
+		t.Fatalf("failed to deliver store message: %v", err)
+	}
 
 	// Service should emit a failure ack
 	if rt.EmittedCount() != 1 {
@@ -547,7 +561,9 @@ func TestStashStorageLimit(t *testing.T) {
 			Timestamp:  time.Now().Unix(),
 		},
 	}
-	rt.Deliver(storeMsg)
+	if err := rt.Deliver(storeMsg); err != nil {
+		t.Fatalf("failed to deliver store message: %v", err)
+	}
 
 	// Should have emitted a rejection ack
 	if rt.EmittedCount() != 1 {

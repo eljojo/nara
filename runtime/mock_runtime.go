@@ -246,7 +246,11 @@ func (m *MockRuntime) InitService(svc Service) error {
 	if accessor, ok := svc.(ServiceBaseAccessor); ok {
 		accessor.SetBase(m, log)
 	}
-	return svc.Init()
+	if err := svc.Init(); err != nil {
+		return err
+	}
+	log.Info("initialized")
+	return nil
 }
 
 // Stop cleans up the mock runtime.
