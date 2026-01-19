@@ -11,6 +11,7 @@ export function ProfileView({ name }) {
   const [error, setError] = useState(null);
   const [checkpoint, setCheckpoint] = useState(null);
   const [checkpointModal, setCheckpointModal] = useState(null);
+  const [payloadExpanded, setPayloadExpanded] = useState(false);
   const pointerRef = useRef({ x: 0, y: 0, active: false });
 
   useEffect(() => {
@@ -47,6 +48,7 @@ export function ProfileView({ name }) {
       const response = await fetch(`/api/inspector/checkpoint/${encodeURIComponent(name)}`);
       const data = await response.json();
       setCheckpointModal(data);
+      setPayloadExpanded(false); // Reset to collapsed when opening modal
     } catch (err) {
       console.error('Failed to fetch checkpoint detail:', err);
     }
@@ -104,6 +106,7 @@ export function ProfileView({ name }) {
   const lastSeen = nara.last_seen || nara.LastSeen || 0;
   const lastRestart = nara.last_restart || nara.LastRestart || 0;
   const restarts = nara.restarts ?? nara.Restarts ?? 0;
+  const startTime = nara.start_time || nara.StartTime || 0;
   const meshIP = nara.mesh_ip || nara.MeshIP || '';
   const transportMode = nara.transport_mode || nara.TransportMode || 'hybrid';
 
@@ -234,8 +237,8 @@ export function ProfileView({ name }) {
               <span className="stat-value">{eventStoreTotal}</span>
             </div>
             <div className="profile-stat">
-              <span className="stat-label">Buzz</span>
-              <span className="stat-value">{buzz}</span>
+              <span className="stat-label">First Seen</span>
+              <span className="stat-value">{startTime ? new Date(startTime * 1000).toLocaleDateString() : '-'}</span>
             </div>
           </div>
 
@@ -448,10 +451,60 @@ export function ProfileView({ name }) {
             <div className="modal-body">
               <div className="detail-section">
                 <div className="detail-label">SUMMARY</div>
-                <div>Version: {checkpointModal.event?.checkpoint?.version || 1}</div>
-                <div>Total Voters: {checkpointModal.summary?.total_voters}</div>
-                <div>Verified: {checkpointModal.summary?.verified_voters}</div>
-                <div>Self-Attestation: {checkpointModal.summary?.is_self_attestation ? 'Yes' : 'No'}</div>
+                <div className="checkpoint-summary-grid">
+                  <div className="summary-item">
+                    <span className="summary-label">As of</span>
+                    <span className="summary-value">
+                      {checkpointModal.event?.checkpoint?.as_of_time
+                        ? new Date(checkpointModal.event.checkpoint.as_of_time * 1000).toLocaleString()
+                        : '-'}
+                    </span>
+                  </div>
+                  <div className="summary-item">
+                    <span className="summary-label">Version</span>
+                    <span className="summary-value">{checkpointModal.event?.checkpoint?.version || 1}</span>
+                  </div>
+                  <div className="summary-item">
+                    <span className="summary-label">Round</span>
+                    <span className="summary-value">{checkpointModal.event?.checkpoint?.round || 1}</span>
+                  </div>
+                  <div className="summary-item">
+                    <span className="summary-label">Voters</span>
+                    <span className="summary-value">
+                      {checkpointModal.summary?.verified_voters} / {checkpointModal.summary?.total_voters} verified
+                    </span>
+                  </div>
+                  <div className="summary-item">
+                    <span className="summary-label">Self-Attestation</span>
+                    <span className="summary-value">{checkpointModal.summary?.is_self_attestation ? 'Yes' : 'No'}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="detail-section">
+                <div className="detail-label">OBSERVATION</div>
+                <div className="checkpoint-summary-grid">
+                  <div className="summary-item">
+                    <span className="summary-label">Restarts</span>
+                    <span className="summary-value">{checkpointModal.event?.checkpoint?.observation?.restarts ?? 0}</span>
+                  </div>
+                  <div className="summary-item">
+                    <span className="summary-label">Total Uptime</span>
+                    <span className="summary-value">
+                      {checkpointModal.event?.checkpoint?.observation?.total_uptime
+                        ? Math.round(checkpointModal.event.checkpoint.observation.total_uptime / 3600) + 'h'
+                        : '-'}
+                    </span>
+                  </div>
+                  <div className="summary-item">
+                    <span className="summary-label">Start Time</span>
+                    <span className="summary-value">
+                      {checkpointModal.event?.checkpoint?.observation?.start_time
+                        ? new Date(checkpointModal.event.checkpoint.observation.start_time * 1000).toLocaleDateString()
+                        : '-'}
+                    </span>
+                  </div>
+                </div>
               </div>
 
               {checkpointModal.event?.checkpoint?.previous_checkpoint_id && (
@@ -483,7 +536,11 @@ export function ProfileView({ name }) {
                 <div className="detail-label">VOTERS</div>
                 <div className="voter-list">
                   {checkpointModal.voters?.map((voter, index) => (
-                    <span key={index} className={`voter-badge ${voter.verified ? 'verified' : 'unverified'}`}>
+                    <span
+                      key={index}
+                      className={`voter-badge ${voter.verified ? 'verified' : 'unverified'}`}
+                      title={voter.signature ? `Signature: ${voter.signature}` : 'No signature'}
+                    >
                       {voter.voter_name}
                     </span>
                   ))}
@@ -491,10 +548,19 @@ export function ProfileView({ name }) {
               </div>
 
               <div className="detail-section">
-                <div className="detail-label">CHECKPOINT PAYLOAD</div>
-                <pre className="json-viewer">
-                  {JSON.stringify(checkpointModal.event?.checkpoint, null, 2)}
-                </pre>
+                <div
+                  className="detail-label"
+                  style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                  onClick={() => setPayloadExpanded(!payloadExpanded)}
+                >
+                  <span>{payloadExpanded ? '▼' : '▶'}</span>
+                  CHECKPOINT PAYLOAD
+                </div>
+                {payloadExpanded && (
+                  <pre className="json-viewer">
+                    {JSON.stringify(checkpointModal.event?.checkpoint, null, 2)}
+                  </pre>
+                )}
               </div>
 
               <div className="detail-section">

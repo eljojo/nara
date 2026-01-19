@@ -780,10 +780,37 @@ body::before {
   margin-bottom: 12px;
 }
 
-.detail-section > div:not(.detail-label):not(.voter-list):not(.json-viewer) {
+.detail-section > div:not(.detail-label):not(.voter-list):not(.json-viewer):not(.checkpoint-summary-grid) {
   font-size: 14px;
   color: #333;
   line-height: 1.6;
+}
+
+.checkpoint-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.summary-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #999;
+}
+
+.summary-value {
+  font-size: 15px;
+  font-weight: 500;
+  color: #333;
 }
 
 .verification-section {

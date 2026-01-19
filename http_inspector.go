@@ -341,6 +341,11 @@ func (ln *LocalNara) inspectorCheckpointDetailHandler(w http.ResponseWriter, r *
 					AsOfTime:    checkpoint.AsOfTime,
 				}
 
+				// For v2, include the previous checkpoint ID as the reference point
+				if version >= 2 {
+					attestation.LastSeenCheckpointID = checkpoint.PreviousCheckpointID
+				}
+
 				signableContent := attestation.SignableContent()
 				if identity.VerifySignatureBase64(pubKey, []byte(signableContent), signature) {
 					verified = true
