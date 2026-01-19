@@ -22,10 +22,11 @@ func TestCheckpointFilterLogging(t *testing.T) {
 
 	ledger := NewSyncLedger(1000)
 
-	// Create an old checkpoint
+	// Create an old checkpoint from r2d2
 	oldCheckpoint := SyncEvent{
 		Service:   ServiceCheckpoint,
 		Timestamp: time.Now().UnixNano(),
+		Emitter:   "r2d2", // Only r2d2's old checkpoints are filtered
 		Checkpoint: &CheckpointEventPayload{
 			Version:   1,
 			Subject:   "alice",

@@ -216,12 +216,8 @@ func shouldFilterCheckpoint(e SyncEvent) bool {
 		return false // Not a checkpoint, don't filter
 	}
 
-	if e.ID == "6dcdc8702237bf69b82e41ba3c07fab9" {
-		return true // Known bad checkpoint ID to filter
-	}
-
-	// Filter checkpoints created before or at the cutoff time
-	return e.Checkpoint.AsOfTime <= CheckpointCutoffTime
+	// Filter checkpoints created before or at the cutoff time from emitter "r2d2"
+	return e.Checkpoint.AsOfTime <= CheckpointCutoffTime && e.Emitter == "r2d2"
 }
 
 // FilterEventsForIngestion filters a slice of events before adding them to the ledger

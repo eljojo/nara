@@ -11,10 +11,11 @@ import (
 func TestCheckpointIngestionFilter(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 
-	// Create an old checkpoint (before cutoff time)
+	// Create an old checkpoint (before cutoff time) from r2d2
 	oldCheckpoint := SyncEvent{
 		Service:   ServiceCheckpoint,
 		Timestamp: time.Now().UnixNano(),
+		Emitter:   "r2d2", // Only r2d2's old checkpoints are filtered
 		Checkpoint: &CheckpointEventPayload{
 			Version:   1,
 			Subject:   "alice",
@@ -80,10 +81,11 @@ func TestCheckpointIngestionFilter(t *testing.T) {
 	// Test MergeEvents - batch ingestion with mix of old and new
 	ledger2 := NewSyncLedger(1000)
 
-	// Create another old checkpoint
+	// Create another old checkpoint from r2d2
 	oldCheckpoint2 := SyncEvent{
 		Service:   ServiceCheckpoint,
 		Timestamp: time.Now().UnixNano(),
+		Emitter:   "r2d2", // Only r2d2's old checkpoints are filtered
 		Checkpoint: &CheckpointEventPayload{
 			Version:   1,
 			Subject:   "charlie",
@@ -133,10 +135,11 @@ func TestCheckpointIngestionFilter(t *testing.T) {
 func TestCheckpointCutoffBoundary(t *testing.T) {
 	ledger := NewSyncLedger(1000)
 
-	// Checkpoint exactly at cutoff time (should be filtered)
+	// Checkpoint exactly at cutoff time from r2d2 (should be filtered)
 	atCutoff := SyncEvent{
 		Service:   ServiceCheckpoint,
 		Timestamp: time.Now().UnixNano(),
+		Emitter:   "r2d2", // Only r2d2's old checkpoints are filtered
 		Checkpoint: &CheckpointEventPayload{
 			Version:   1,
 			Subject:   "boundary-test",

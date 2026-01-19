@@ -95,14 +95,14 @@ func TestCheckpointSpamBug_ShouldInitializeFromLedger(t *testing.T) {
 	service.lastCheckpointTimeMu.RUnlock()
 
 	t.Logf("lastCheckpointTime is: %v", lastCheckpoint)
-	t.Logf("Checkpoint in ledger is from: %v", time.Unix(yesterday, 0))
+	t.Logf("Checkpoint in ledger is from: %v", time.Unix(retrieved.Checkpoint.AsOfTime, 0))
 
 	if lastCheckpoint.IsZero() {
 		t.Fatal("FIX NOT APPLIED: lastCheckpointTime should be initialized from ledger, but is still zero")
 	}
 
-	// Verify it matches the checkpoint from the ledger
-	expectedTime := time.Unix(yesterday, 0)
+	// Verify it matches the checkpoint from the ledger (use actual AsOfTime, not input)
+	expectedTime := time.Unix(retrieved.Checkpoint.AsOfTime, 0)
 	if !lastCheckpoint.Equal(expectedTime) {
 		t.Errorf("Expected lastCheckpointTime=%v (from ledger), got %v", expectedTime, lastCheckpoint)
 	}

@@ -31,7 +31,7 @@ const (
 
 // CheckpointCutoffTime is the Unix timestamp (seconds) before which checkpoints are filtered out
 // Checkpoints created before this time used buggy code that didn't include LastRestart and other fields
-const CheckpointCutoffTime int64 = 1768271051 // 2026-01-12 ~18:24 EST
+const CheckpointCutoffTime int64 = 1768774453 // 2026-01-18 ~17:14 EST
 
 // SyncEvent is the unified container for all syncable data across services
 // This is the fundamental unit of gossip in the nara network

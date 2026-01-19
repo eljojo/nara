@@ -37,9 +37,11 @@ func TestCheckpointV2DivergentReferencePointsNoConsensus(t *testing.T) {
 
 	// Create different checkpoint histories for each nara by manually adding checkpoints
 	// Each nara will have seen a different previous checkpoint
+	// Use NewCheckpointEvent (not NewTestCheckpointEvent) with realistic timestamps
+	// since our filter only affects r2d2's checkpoints, not these test ones
 	for i, ln := range naras {
 		// Create fake previous checkpoint with unique ID for each nara
-		prevCheckpoint := NewTestCheckpointEvent("test-proposer", time.Now().Unix()-100000, time.Now().Unix()-200000, 10, 50000)
+		prevCheckpoint := NewCheckpointEvent("test-proposer", time.Now().Unix()-100000, time.Now().Unix()-200000, 10, 50000)
 		// Modify the event ID to make it unique per nara (simulate different checkpoint history)
 		prevCheckpoint.ID = prevCheckpoint.ID + "-nara-" + string(rune('a'+i))
 		ln.SyncLedger.AddEvent(prevCheckpoint)
@@ -102,13 +104,15 @@ func TestCheckpointV2NetworkDisagreesWithProposer(t *testing.T) {
 	}
 
 	// Give proposer a unique previous checkpoint
-	proposerPrevCheckpoint := NewTestCheckpointEvent("test-proposer", time.Now().Unix()-100000, time.Now().Unix()-200000, 10, 50000)
+	// Use NewCheckpointEvent (not NewTestCheckpointEvent) with realistic timestamps
+	// since our filter only affects r2d2's checkpoints, not these test ones
+	proposerPrevCheckpoint := NewCheckpointEvent("test-proposer", time.Now().Unix()-100000, time.Now().Unix()-200000, 10, 50000)
 	proposerPrevCheckpoint.ID = proposerPrevCheckpoint.ID + "-proposer-unique"
 	proposer.SyncLedger.AddEvent(proposerPrevCheckpoint)
 	logrus.Infof("Added proposer checkpoint %s", proposerPrevCheckpoint.ID)
 
 	// Give all voters the SAME previous checkpoint (different from proposer)
-	voterPrevCheckpoint := NewTestCheckpointEvent("test-proposer", time.Now().Unix()-100000, time.Now().Unix()-200000, 10, 50000)
+	voterPrevCheckpoint := NewCheckpointEvent("test-proposer", time.Now().Unix()-100000, time.Now().Unix()-200000, 10, 50000)
 	voterPrevCheckpoint.ID = voterPrevCheckpoint.ID + "-voter-shared"
 	for _, voter := range voters {
 		voter.SyncLedger.AddEvent(voterPrevCheckpoint)
