@@ -3,6 +3,7 @@
   buildGoModule,
   buildNpmPackage,
   esbuild,
+  bash,
 }:
 
 let
@@ -25,7 +26,7 @@ let
     src = lib.cleanSource ../.;
     #npmDepsHash = lib.fakeHash; # DO NOT REMOVE THIS COMMENT
     npmDepsHash = "sha256-VTGE+l7APw5wOyeOMP3SEIEN5z5nAv+B28f7VEZ4i18=";
-    nativeBuildInputs = [ esbuild gomarkdoc ];
+    nativeBuildInputs = [ esbuild gomarkdoc bash ];
 
     makeCacheWritable = true; # necessary for git pull on mermaid dependency
 
@@ -35,7 +36,7 @@ let
       runHook preBuild
       npm run build
       # Generate API docs from Go source
-      ./scripts/gen-api-docs.sh
+      ${bash}/bin/bash ./scripts/gen-api-docs.sh
       ./node_modules/.bin/astro build --root docs --config astro.config.mjs
       mkdir -p nara-web/public/docs
       cp -r docs/dist/. nara-web/public/docs
