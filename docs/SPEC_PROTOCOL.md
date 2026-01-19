@@ -37,47 +37,64 @@ All spec lives in: `docs/src/content/docs/spec`
 
 ### File structure
 - `index.md` is the top-level overview and table of contents.
-- One feature per file, e.g.:
+- `styleguide.md` -- This is a special file governed by `.claude/commands/docs_styleguide.md`
+- `features/` - explains high levele features, each in its own file:
+  - `web-ui.md`
+  - `zines.md`
+  - `stash.md`
+  - `world-postcards.md`
+- `runtime/` - explains the runtime architecture, behaviours, pipelines, the Nara OS
+  - `runtime.md`
+  - `behaviours.md`
+  - `pipelines.md`
   - `identity.md`
+- `developer/` - this is a special area meant at go developers working on nara, here we explain how to contribute to the project
+  - `mesh-client.md`
+  - `cryptography.md`
+  - `sample-service.md`
   - `events.md`
   - `sync.md`
   - `plaza-mqtt.md`
   - `mesh-http.md`
-  - `zines.md`
-  - `stash.md`
+- `services/` - explains individual services that are relevant for nara development
   - `observations.md`
   - `checkpoints.md`
-  - `world-postcards.md`
   - `social.md`
   - `coordinates.md`
-  - `web-ui.md`
   - etc.
 
-Codex may add new files when needed, but should keep each file:
+Codex may add new files/folders when needed, but should keep each file:
 - focused
 - reasonably sized
 - linked from `index.md`
+
+**The runtime, developer, and services sections are meant for Go developers working on nara.**
 
 ---
 
 ## Mandatory Document Template (for every feature file)
 
-Every spec file MUST follow this structure (in this order), even if some sections are short:
+Write the document as if you were instructing an agency to implement the feature from scratch. Be thorough and precise.
+
+Every spec file SHOULD follow this structure (in this order), even if some sections are short. You can adapt the sections according to what's being documented, but the same equivalent information MUST be present.
 
 1. **Purpose**
-   - What this feature is for (plain English).
+   - What this feature/behaviour is for (plain English).
    - What it enables in the network myth.
 
 2. **Conceptual Model**
    - Entities involved (names, souls, events, peers, etc.)
    - Key invariants as bullet points.
 
-3. **External Behavior**
+3. **How It Works**
+   - human level description of what this feature does and how to use it.
+
+4. **External Behavior**
    - What other parts of the system can assume.
    - What the network observes.
    - Any user-facing behavior (CLI/API/UI) if applicable.
 
-4. **Interfaces**
+5. **Interfaces**
    - List of relevant:
      - CLI flags / env vars
      - HTTP endpoints
@@ -85,30 +102,30 @@ Every spec file MUST follow this structure (in this order), even if some section
      - Public structs / packages (names only; no massive code dumps)
    - For each interface: describe inputs, outputs, and error behavior.
 
-5. **Event Types & Schemas (if relevant)**
+6. **Event Types & Schemas (if relevant)**
    - Enumerate event types this feature emits/consumes.
    - Define required fields and signing expectations.
 
-6. **Algorithms**
+7. **Algorithms**
    - Step-by-step descriptions of derivations, gossip selection, consensus, etc.
    - Include edge cases and “intended weirdness”.
 
-7. **Failure Modes**
+8. **Failure Modes**
    - What happens on partial connectivity, restarts, missing peers, clock skew, etc.
    - Expected degradation behavior.
 
-8. **Security / Trust Model (if relevant)**
+9. **Security / Trust Model (if relevant)**
    - What is signed, what is encrypted, what is unverifiable hearsay.
    - What “authentic” means for this feature.
 
-9. **Test Oracle**
+10. **Test Oracle**
    - The most important part: a list of claims that can be verified by tests.
    - Prefer statements like:
      - “Given X events, projection Y must produce Z.”
      - “A soul bound to name A must be rejected when claiming name B.”
    - Link to the most relevant test files if easy.
 
-10. **Open Questions / TODO**
+11. **Open Questions / TODO**
    - Only if genuinely unknown or intentionally unfinished.
    - If tests/code settle it, it is not an open question—document it.
 
@@ -198,13 +215,7 @@ Update the spec files so they match reality:
   - Social layer
   - UI / APIs
   - Deployment & operations (if applicable)
-
-### Step 5: Report
-Produce a concise report in the Codex output containing:
-- What files changed
-- Why they changed (1–2 sentences each)
-- Any remaining ambiguities
-- Suggested tests to add (only if it materially improves spec authority)
+- Also ensure `docs/astro.config.mjs` lists every documentation file.
 
 ---
 
@@ -234,6 +245,7 @@ This protocol run is complete when:
 - Specs are consistent with tests and code.
 - `index.md` links everything and is navigable.
 - The spec contains enough detail for re-implementation by another agent.
+- Every documentation file is listed on `docs/astro.config.mjs`
 
 ---
 
