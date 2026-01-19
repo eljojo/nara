@@ -207,6 +207,7 @@ func (tw *TestWorld) WaitForCompletion(timeout time.Duration) *WorldMessage {
 }
 
 func TestIntegration_WorldJourney_FourNaras(t *testing.T) {
+	t.Parallel()
 	// Create a test world with 4 naras
 	tw := NewTestWorld([]string{"alice", "bob", "carol", "dave"})
 	defer tw.Close()
@@ -284,6 +285,7 @@ func TestIntegration_WorldJourney_FourNaras(t *testing.T) {
 }
 
 func TestIntegration_WorldJourney_ChainVerification(t *testing.T) {
+	t.Parallel()
 	// Test that signature verification catches tampering
 	tw := NewTestWorld([]string{"alice", "bob", "carol"})
 	defer tw.Close()
@@ -325,6 +327,7 @@ func TestIntegration_WorldJourney_ChainVerification(t *testing.T) {
 }
 
 func TestIntegration_WorldJourney_AllStampsCollected(t *testing.T) {
+	t.Parallel()
 	// Verify that all naras add their stamps
 	tw := NewTestWorld([]string{"alpha", "beta", "gamma", "delta", "epsilon"})
 	defer tw.Close()
@@ -365,6 +368,7 @@ func TestIntegration_WorldJourney_AllStampsCollected(t *testing.T) {
 }
 
 func TestIntegration_WorldJourney_TimingRecorded(t *testing.T) {
+	t.Parallel()
 	// Verify that timestamps are recorded
 	tw := NewTestWorld([]string{"one", "two", "three"})
 	defer tw.Close()
@@ -406,6 +410,7 @@ func TestIntegration_WorldJourney_TimingRecorded(t *testing.T) {
 // ledger events produces sensible journey routing. This validates the full
 // pipeline: events -> DeriveClout -> journey routing.
 func TestIntegration_WorldJourney_DerivedClout(t *testing.T) {
+	t.Parallel()
 	// Create test naras
 	names := []string{"alice", "bob", "carol", "dave"}
 	tw := NewTestWorld(names)

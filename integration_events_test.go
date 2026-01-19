@@ -2,12 +2,9 @@ package nara
 
 import (
 	"fmt"
-	"os"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/sirupsen/logrus"
 
 	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
@@ -16,11 +13,7 @@ import (
 // TestIntegration_EventEmissionNoDuplicates validates that we don't emit duplicate events
 // when a nara comes back online (should emit restart event, not restart + status-change)
 func TestIntegration_EventEmissionNoDuplicates(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
-
-	// Enable observation events for this test
-	os.Setenv("USE_OBSERVATION_EVENTS", "true")
-	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
+	t.Parallel()
 
 	// Create nara with proper Network initialization
 	ln1 := testLocalNaraWithParams(t, "nara-1", 50, 1000)
@@ -82,7 +75,7 @@ func TestIntegration_EventEmissionNoDuplicates(t *testing.T) {
 
 // TestIntegration_NoSelfObservationEvents validates that we never emit observation events about ourselves
 func TestIntegration_NoSelfObservationEvents(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 
 	ln := testLocalNaraWithParams(t, "test-nara", 50, 1000)
 	network := ln.Network
@@ -108,13 +101,8 @@ func TestIntegration_NoSelfObservationEvents(t *testing.T) {
 }
 
 // TestIntegration_SlimNewspapersInEventMode validates that newspapers don't include Observations
-// when USE_OBSERVATION_EVENTS environment variable is set
 func TestIntegration_SlimNewspapersInEventMode(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
-
-	// Set environment variable for event-primary mode
-	os.Setenv("USE_OBSERVATION_EVENTS", "true")
-	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
+	t.Parallel()
 
 	ln := testLocalNaraWithParams(t, "test-nara", 50, 1000)
 	// Add some observations to the local nara
@@ -172,11 +160,7 @@ func TestIntegration_SlimNewspapersInEventMode(t *testing.T) {
 
 // TestIntegration_EventEmissionDuringTransitions validates event emission during various state transitions
 func TestIntegration_EventEmissionDuringTransitions(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
-
-	// Enable observation events for this test
-	os.Setenv("USE_OBSERVATION_EVENTS", "true")
-	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
+	t.Parallel()
 
 	ln := testLocalNaraWithParams(t, "observer", 50, 1000)
 	network := ln.Network
@@ -266,7 +250,7 @@ func TestIntegration_EventEmissionDuringTransitions(t *testing.T) {
 
 // TestIntegration_BackfillDoesNotDuplicate validates that backfill respects deduplication
 func TestIntegration_BackfillDoesNotDuplicate(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 	ledger := NewSyncLedger(1000)
 
 	// Three observers backfill the same historical restart
@@ -301,7 +285,7 @@ func TestIntegration_BackfillDoesNotDuplicate(t *testing.T) {
 // and deduplication work independently without interfering
 // Note: Compaction of restart events only happens when a checkpoint exists
 func TestIntegration_CompactionAndDeduplicationIndependent(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 	ledger := NewSyncLedger(1000)
 
 	// Scenario 1: Compaction without deduplication (using AddEvent)
@@ -393,11 +377,7 @@ func TestIntegration_CompactionAndDeduplicationIndependent(t *testing.T) {
 // This test exposes the bug where a 100-second threshold caused naras to be marked
 // MISSING and then teased for "coming back" when they were never actually offline.
 func TestIntegration_MissingDetectionNotTooSensitive(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
-
-	// Enable observation events for this test
-	os.Setenv("USE_OBSERVATION_EVENTS", "true")
-	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
+	t.Parallel()
 
 	ln1 := testLocalNaraWithParams(t, "observer", 50, 1000)
 	network := ln1.Network
@@ -489,7 +469,7 @@ func TestIntegration_MissingDetectionNotTooSensitive(t *testing.T) {
 // TestIntegration_TeasingDeduplication validates that when multiple naras see the same
 // event triggering a tease, only one of them actually teases (the others see it already happened).
 func TestIntegration_TeasingDeduplication(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 
 	// Create 3 naras that share a sync ledger (simulating they're all seeing the same events)
 	sharedLedger := NewSyncLedger(1000)
@@ -594,7 +574,7 @@ func TestIntegration_TeasingDeduplication(t *testing.T) {
 // This is important because gossip mode relies on periodic zine exchanges which are
 // less frequent than MQTT broadcasts.
 func TestIntegration_GossipModeThreshold(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 
 	// Create the observer nara
 	observer := testLocalNaraWithParams(t, "observer", 100, 1000)
@@ -678,7 +658,7 @@ func TestIntegration_GossipModeThreshold(t *testing.T) {
 // This is because gossip-only naras receive updates less frequently via zine exchanges,
 // so they shouldn't mark others as MISSING too quickly.
 func TestIntegration_GossipObserverThreshold(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 
 	// Create a gossip-only observer
 	observer := testLocalNaraWithParams(t, "gossip-observer", 100, 1000)
@@ -733,6 +713,7 @@ func TestIntegration_GossipObserverThreshold(t *testing.T) {
 
 // TestIntegration_TransportModeString validates the TransportMode.String() method
 func TestIntegration_TransportModeString(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		mode     TransportMode
 		expected string
@@ -757,7 +738,7 @@ func TestIntegration_TransportModeString(t *testing.T) {
 // causing naras to show as online but with stale "Last Ping" times in the UI.
 // FIX: discoverMeshPeers should use recordObservationOnlineNara instead.
 func TestIntegration_MeshPeerDiscoverySetsLastSeen(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 
 	// Create a local nara
 	ln := testLocalNaraWithParams(t, "test-nara", 100, 1000)
@@ -808,7 +789,7 @@ func TestIntegration_MeshPeerDiscoverySetsLastSeen(t *testing.T) {
 // TestIntegration_DirectObservationSetMissingLastSeen demonstrates the bug pattern
 // where setting observation with just Online leaves LastSeen at 0.
 func TestIntegration_DirectObservationSetMissingLastSeen(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 
 	ln := testLocalNaraWithParams(t, "test-nara", 100, 1000)
 	// This is the buggy pattern that was in discoverMeshPeers
@@ -844,11 +825,7 @@ func TestIntegration_DirectObservationSetMissingLastSeen(t *testing.T) {
 // for emitters, so they appear as "unknown" rather than "online" until we
 // directly receive their newspaper.
 func TestIntegration_ZineMergeMarksEmittersAsSeen(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
-
-	// Enable observation events for this test
-	os.Setenv("USE_OBSERVATION_EVENTS", "true")
-	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
+	t.Parallel()
 
 	ln := testLocalNaraWithParams(t, "observer", 50, 1000)
 	network := ln.Network
@@ -911,7 +888,7 @@ func TestIntegration_ZineMergeMarksEmittersAsSeen(t *testing.T) {
 // before marking them as MISSING. This guards against buggy naras spreading false
 // "offline" observations that could be believed by the whole network.
 func TestIntegration_PingVerificationBeforeMarkingMissing(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 
 	ln := testLocalNaraWithParams(t, "observer", 50, 1000)
 	network := ln.Network
@@ -1036,7 +1013,7 @@ func TestIntegration_PingVerificationBeforeMarkingMissing(t *testing.T) {
 // emitter as OFFLINE, but then markEmittersAsSeen would see the chau event's Emitter
 // and incorrectly mark them back as ONLINE.
 func TestIntegration_ChauEventShouldNotMarkOnline(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 
 	// Create observer nara
 	observer := testLocalNara(t, "observer")
@@ -1092,7 +1069,7 @@ func TestIntegration_ChauEventShouldNotMarkOnline(t *testing.T) {
 // markEmittersAsSeen was processing the non-chau events and marking the nara ONLINE,
 // even though they had a chau event in the same batch.
 func TestIntegration_ChauWithOtherEventsFromSameNara(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 
 	// Create observer nara
 	observer := testLocalNara(t, "observer")
@@ -1177,14 +1154,10 @@ func TestIntegration_ChauWithOtherEventsFromSameNara(t *testing.T) {
 }
 
 func TestIntegration_SeenEventsOnlyForQuietNaras(t *testing.T) {
+	t.Parallel()
 	// Seen events should only be emitted for "quiet" naras - those who haven't
 	// emitted any events themselves in the last 5 minutes. Active naras prove
 	// themselves through their own events and don't need vouching.
-
-	logrus.SetLevel(logrus.ErrorLevel)
-
-	os.Setenv("USE_OBSERVATION_EVENTS", "true")
-	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
 
 	ln := testLocalNaraWithParams(t, "observer", 50, 1000)
 	network := ln.Network
@@ -1283,6 +1256,7 @@ func TestIntegration_SeenEventsOnlyForQuietNaras(t *testing.T) {
 }
 
 func TestIntegration_MissingToOnlineViaSeenEvent_NoRestartIncrement(t *testing.T) {
+	t.Parallel()
 	// When a nara goes MISSING → ONLINE via someone else's seen event,
 	// the restart count should NOT increment. The nara never actually restarted,
 	// we just temporarily lost contact with them.
@@ -1292,11 +1266,6 @@ func TestIntegration_MissingToOnlineViaSeenEvent_NoRestartIncrement(t *testing.T
 	// 2. Via recordObservationOnlineNara - would incorrectly increment restarts
 	//
 	// This test verifies that receiving a seen event about a nara uses path #1.
-
-	logrus.SetLevel(logrus.ErrorLevel)
-
-	os.Setenv("USE_OBSERVATION_EVENTS", "true")
-	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
 
 	ln := testLocalNaraWithParams(t, "observer", 50, 1000)
 	network := ln.Network
@@ -1353,7 +1322,9 @@ func TestIntegration_MissingToOnlineViaSeenEvent_NoRestartIncrement(t *testing.T
 		}
 	}
 }
+
 func TestIntegration_NoRedundantSeenEventsForActiveNaras(t *testing.T) {
+	t.Parallel()
 	// Regression test for the seen event leak bug.
 	// When we receive events via gossip that were emitted by other naras,
 	// we should NOT emit seen events for those naras - they're proving themselves
@@ -1364,11 +1335,6 @@ func TestIntegration_NoRedundantSeenEventsForActiveNaras(t *testing.T) {
 	//
 	// After the fix: We only emit seen events for truly quiet naras (haven't
 	// emitted in 5+ minutes), not for naras whose events we just received.
-
-	logrus.SetLevel(logrus.ErrorLevel)
-
-	os.Setenv("USE_OBSERVATION_EVENTS", "true")
-	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
 
 	observer := testLocalNaraWithParams(t, "observer", 50, 1000)
 	network := observer.Network

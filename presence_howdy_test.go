@@ -5,9 +5,6 @@ import (
 	"testing"
 	"time"
 
-	mqttserver "github.com/mochi-mqtt/server/v2"
-	"github.com/mochi-mqtt/server/v2/hooks/auth"
-	"github.com/mochi-mqtt/server/v2/listeners"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,17 +15,15 @@ func TestHowdy_StartTimeRecovery(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
+	t.Parallel()
 
-	// Start embedded MQTT broker on a unique port
-	broker := startHowdyTestBroker(t, 11884)
-	defer broker.Close()
-
-	time.Sleep(200 * time.Millisecond)
+	// Start embedded MQTT broker on dynamic port
+	_, port := startTestMQTTBrokerDynamic(t)
 
 	t.Log("🧪 Testing start time recovery via howdy protocol")
 
 	// Step 1: Boot nara1
-	nara1, err := createTestNara(t, "howdy-nara-1", 11884)
+	nara1, err := createTestNara(t, "howdy-nara-1", port)
 	if err != nil {
 		t.Fatalf("Failed to create test nara: %v", err)
 	}
@@ -39,7 +34,7 @@ func TestHowdy_StartTimeRecovery(t *testing.T) {
 	waitForMQTTConnected(t, nara1, 5*time.Second)
 
 	// Step 2: Boot nara2 - it says hey_there, nara1 responds with howdy
-	nara2, err := createTestNara(t, "howdy-nara-2", 11884)
+	nara2, err := createTestNara(t, "howdy-nara-2", port)
 	if err != nil {
 		t.Fatalf("Failed to create test nara: %v", err)
 	}
@@ -87,17 +82,15 @@ func TestHowdy_NeighborDiscovery(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
+	t.Parallel()
 
-	// Start embedded MQTT broker on a unique port
-	broker := startHowdyTestBroker(t, 11885)
-	defer broker.Close()
-
-	time.Sleep(200 * time.Millisecond)
+	// Start embedded MQTT broker on dynamic port
+	_, port := startTestMQTTBrokerDynamic(t)
 
 	t.Log("🧪 Testing neighbor discovery via howdy protocol")
 
 	// Boot nara1 and nara2 first
-	nara1, err := createTestNara(t, "discover-nara-1", 11885)
+	nara1, err := createTestNara(t, "discover-nara-1", port)
 	if err != nil {
 		t.Fatalf("Failed to create test nara: %v", err)
 	}
@@ -105,7 +98,7 @@ func TestHowdy_NeighborDiscovery(t *testing.T) {
 
 	waitForMQTTConnected(t, nara1, 5*time.Second)
 
-	nara2, err := createTestNara(t, "discover-nara-2", 11885)
+	nara2, err := createTestNara(t, "discover-nara-2", port)
 	if err != nil {
 		t.Fatalf("Failed to create test nara: %v", err)
 	}
@@ -119,7 +112,7 @@ func TestHowdy_NeighborDiscovery(t *testing.T) {
 	}
 
 	// Now boot nara3 - it should learn about both nara1 and nara2 via howdy
-	nara3, err := createTestNara(t, "discover-nara-3", 11885)
+	nara3, err := createTestNara(t, "discover-nara-3", port)
 	if err != nil {
 		t.Fatalf("Failed to create test nara: %v", err)
 	}
@@ -156,12 +149,10 @@ func TestHowdy_SelfSelection(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
+	t.Parallel()
 
-	// Start embedded MQTT broker on a unique port
-	broker := startHowdyTestBroker(t, 11886)
-	defer broker.Close()
-
-	time.Sleep(200 * time.Millisecond)
+	// Start embedded MQTT broker on dynamic port
+	_, port := startTestMQTTBrokerDynamic(t)
 
 	t.Log("🧪 Testing howdy self-selection with 15 naras")
 
@@ -172,7 +163,7 @@ func TestHowdy_SelfSelection(t *testing.T) {
 	for i := 0; i < numNaras-1; i++ {
 		name := fmt.Sprintf("select-nara-%d", i)
 		var err error
-		naras[i], err = createTestNara(t, name, 11886)
+		naras[i], err = createTestNara(t, name, port)
 		if err != nil {
 			t.Fatalf("Failed to create test nara: %v", err)
 		}
@@ -193,7 +184,7 @@ func TestHowdy_SelfSelection(t *testing.T) {
 	}
 
 	// Now start the 15th nara - it should trigger howdy responses from up to 10 naras
-	lastNara, err := createTestNara(t, "select-nara-14", 11886)
+	lastNara, err := createTestNara(t, "select-nara-14", port)
 	if err != nil {
 		t.Fatalf("Failed to create test nara: %v", err)
 	}
@@ -229,33 +220,6 @@ func TestHowdy_SelfSelection(t *testing.T) {
 }
 
 // Helper functions
-
-func startHowdyTestBroker(t *testing.T, port int) *mqttserver.Server {
-	server := mqttserver.New(nil)
-
-	err := server.AddHook(new(auth.AllowHook), nil)
-	if err != nil {
-		t.Fatalf("Failed to create LocalNara: %v", err)
-	}
-
-	tcp := listeners.NewTCP(listeners.Config{
-		ID:      fmt.Sprintf("howdy-test-broker-%d", port),
-		Address: fmt.Sprintf(":%d", port),
-	})
-	err = server.AddListener(tcp)
-	if err != nil {
-		t.Fatalf("Failed to create LocalNara: %v", err)
-	}
-
-	go func() {
-		err := server.Serve()
-		if err != nil {
-			t.Logf("MQTT broker stopped: %v", err)
-		}
-	}()
-
-	return server
-}
 
 func createTestNara(t *testing.T, name string, port int) (*LocalNara, error) {
 	// Use unified testNara with MQTT and howdy test config

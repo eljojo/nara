@@ -3,6 +3,7 @@ package nara
 import (
 	"crypto/sha256"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -209,9 +210,23 @@ func testLocalNaraWithSoulAndParams(t *testing.T, name string, soul string, chat
 	return testNara(t, name, WithSoul(soul), WithParams(chattiness, ledgerCapacity))
 }
 
+// getFreePort returns an available TCP port by binding to :0 and releasing it.
+// This allows tests to run in parallel without port conflicts.
+func getFreePort(t *testing.T) int {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to get free port: %v", err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	listener.Close()
+	return port
+}
+
 // startTestMQTTBroker starts an embedded MQTT broker for testing on the given port.
 // Returns the broker server which should be closed with defer broker.Close() after the test.
 func startTestMQTTBroker(t *testing.T, port int) *mqttserver.Server {
+	t.Helper()
 	server := mqttserver.New(nil)
 
 	err := server.AddHook(new(auth.AllowHook), nil)
@@ -235,13 +250,31 @@ func startTestMQTTBroker(t *testing.T, port int) *mqttserver.Server {
 		}
 	}()
 
+	// Register cleanup
+	t.Cleanup(func() {
+		server.Close()
+	})
+
 	return server
 }
 
+// startTestMQTTBrokerDynamic starts an embedded MQTT broker on a dynamically allocated port.
+// Returns the broker server and the port it's listening on.
+// This is preferred for parallel tests to avoid port conflicts.
+func startTestMQTTBrokerDynamic(t *testing.T) (*mqttserver.Server, int) {
+	t.Helper()
+	port := getFreePort(t)
+	broker := startTestMQTTBroker(t, port)
+	// Small delay to ensure broker is ready
+	time.Sleep(50 * time.Millisecond)
+	return broker, port
+}
+
 // createTestNaraForMQTT creates a LocalNara for MQTT testing with proper test flags.
-// Deprecated: Use testNara(t, name, WithMQTT(port), WithParams(-1, 1000)) instead.
+// Includes WithHowdyTestConfig() to bypass rate limits for faster tests.
+// Deprecated: Use testNara(t, name, WithMQTT(port), WithParams(-1, 1000), WithHowdyTestConfig()) instead.
 func createTestNaraForMQTT(t *testing.T, name string, port int) *LocalNara {
-	return testNara(t, name, WithMQTT(port), WithParams(-1, 1000))
+	return testNara(t, name, WithMQTT(port), WithParams(-1, 1000), WithHowdyTestConfig())
 }
 
 // startTestNaras creates and starts multiple naras, ensuring MQTT connection and full discovery.
@@ -250,26 +283,33 @@ func startTestNaras(t *testing.T, port int, names []string, ensureDiscovery bool
 	t.Helper()
 	naras := make([]*LocalNara, len(names))
 
-	// Create and start all naras
+	// Create all naras first
 	// Note: cleanup is automatically registered by createTestNaraForMQTT() via testNara()
 	for i, name := range names {
 		naras[i] = createTestNaraForMQTT(t, name, port)
-		go naras[i].Start(false, false, "", nil, TransportMQTT)
-		time.Sleep(100 * time.Millisecond) // Small delay between starts
+	}
+
+	// Start all naras concurrently
+	for _, ln := range naras {
+		go ln.Start(false, false, "", nil, TransportMQTT)
 	}
 
 	// Wait for all to connect
 	waitForAllMQTTConnected(t, naras, 15*time.Second)
 
 	if ensureDiscovery {
-		// Wait for initial hey-there cooldown (5s rate limit in heyThere())
-		time.Sleep(5 * time.Second)
+		// Rate limit is bypassed via WithHowdyTestConfig() in createTestNaraForMQTT,
+		// so we can trigger hey-there immediately without waiting 5 seconds.
 
-		// Trigger an extra round of hey-there to ensure late-joiners discover everyone
+		// Trigger hey-there to ensure all naras discover everyone
 		for _, ln := range naras {
 			ln.Network.heyThere()
 		}
-		time.Sleep(2 * time.Second) // Wait for hey-there/howdy exchanges
+
+		// Small delay to allow hey-there messages to propagate via MQTT
+		time.Sleep(200 * time.Millisecond)
+
+		// Wait for full discovery with public keys
 		waitForFullDiscovery(t, naras, 20*time.Second)
 	}
 

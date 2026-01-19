@@ -9,13 +9,12 @@ import (
 
 	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
-	"github.com/sirupsen/logrus"
 )
 
 // TestIntegration_GossipOnlyMode validates that naras can operate in gossip-only mode
 // without MQTT, spreading events purely via P2P zine exchanges using performGossipRound()
 func TestIntegration_GossipOnlyMode(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 
 	// Create 5 naras in gossip-only mode with full mesh topology
 	mesh := testCreateMeshNetwork(t, []string{"gossip-nara-a", "gossip-nara-b", "gossip-nara-c", "gossip-nara-d", "gossip-nara-e"}, 50, 1000, 0)
@@ -56,7 +55,7 @@ func TestIntegration_GossipOnlyMode(t *testing.T) {
 // TestIntegration_HybridMode validates that naras can use both MQTT and gossip simultaneously
 // In hybrid mode, events should propagate via gossip using performGossipRound()
 func TestIntegration_HybridMode(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 
 	// Create 3 naras in hybrid mode with full mesh topology
 	mesh := testCreateMeshNetwork(t, []string{"hybrid-nara-a", "hybrid-nara-b", "hybrid-nara-c"}, 50, 1000, 0)
@@ -90,7 +89,7 @@ func TestIntegration_HybridMode(t *testing.T) {
 // TestIntegration_MixedNetworkTopology validates that gossip-enabled naras (gossip-only and hybrid)
 // can propagate events via performGossipRound(), while MQTT-only naras are excluded from gossip
 func TestIntegration_MixedNetworkTopology(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 
 	tc := NewTestCoordinator(t)
 
@@ -155,7 +154,7 @@ func TestIntegration_MixedNetworkTopology(t *testing.T) {
 // TestIntegration_ZineCreationAndExchange validates zine structure and bidirectional exchange
 // Uses real HTTP servers and the production performGossipRound() code path
 func TestIntegration_ZineCreationAndExchange(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 
 	// Create 2 naras with full mesh topology
 	mesh := testCreateMeshNetwork(t, []string{"alice", "bob"}, 50, 1000, 0)
@@ -216,7 +215,7 @@ func TestIntegration_ZineCreationAndExchange(t *testing.T) {
 // TestIntegration_GossipTargetSelection validates that gossip picks random mesh neighbors
 // Uses the production selectGossipTargets() method instead of test helper
 func TestIntegration_GossipTargetSelection(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 
 	ln := testLocalNaraWithParams(t, "test-nara", 50, 1000)
 	ln.Network.TransportMode = TransportGossip
@@ -250,7 +249,7 @@ func TestIntegration_GossipTargetSelection(t *testing.T) {
 // TestIntegration_GossipEventDeduplication validates that duplicate events arriving
 // via both MQTT and gossip are deduplicated automatically
 func TestIntegration_GossipEventDeduplication(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 
 	ledger := NewSyncLedger(1000)
 
@@ -296,7 +295,7 @@ func (m *MockPeerDiscovery) ScanForPeers(myIP string) []DiscoveredPeer {
 //  4. Production code stores mesh IPs
 //  5. Bootstrap is skipped in test (requires real HTTP mesh)
 func TestIntegration_MeshDiscovery(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 
 	// Create a nara that will discover peers (use testSoul for valid keypair)
 	discoverer := testLocalNaraWithParams(t, "discovery-nara-a", 50, 1000)
@@ -379,7 +378,7 @@ func TestIntegration_MeshDiscovery(t *testing.T) {
 // boot recovery discovers peers via mesh before trying to sync.
 // BUG: Currently boot recovery runs before mesh discovery, so it finds no neighbors.
 func TestIntegration_GossipOnlyBootRecovery(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 
 	// Create a nara in gossip-only mode
 	nara := testLocalNaraWithParams(t, "boot-recovery-nara", 50, 1000)
@@ -418,7 +417,7 @@ func TestIntegration_GossipOnlyBootRecovery(t *testing.T) {
 
 // TestIntegration_SendDM validates that SendDM correctly sends events to another nara
 func TestIntegration_SendDM(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 
 	tc := NewTestCoordinator(t)
 	sender := tc.AddNara("sender", WithHandlers("dm"))
@@ -452,7 +451,7 @@ func TestIntegration_SendDM(t *testing.T) {
 
 // TestIntegration_SendDM_UnreachableTarget validates that SendDM handles unreachable targets gracefully
 func TestIntegration_SendDM_UnreachableTarget(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 
 	sender := testLocalNara(t, "sender")
 	sender.Network.testHTTPClient = &http.Client{Timeout: 100 * time.Millisecond}
@@ -471,7 +470,7 @@ func TestIntegration_SendDM_UnreachableTarget(t *testing.T) {
 
 // TestIntegration_TeaseDM validates the full tease flow using DM instead of MQTT
 func TestIntegration_TeaseDM(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 
 	// Create two naras
 	alice := testLocalNara(t, "alice")
@@ -540,7 +539,7 @@ func TestIntegration_TeaseDM(t *testing.T) {
 
 // TestIntegration_TeaseDM_SpreadViaGossip validates that teases spread via gossip when DM fails
 func TestIntegration_TeaseDM_SpreadViaGossip(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 
 	tc := NewTestCoordinator(t)
 	alice := tc.AddNara("alice", WithHandlers("gossip"), NotBooting())

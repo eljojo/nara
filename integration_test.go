@@ -22,64 +22,55 @@ func TestIntegration_MultiNaraNetwork(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
+	t.Parallel()
 
-	// Start embedded MQTT broker
-	broker := startTestMQTTBroker(t, 11883)
-	defer broker.Close()
-
-	// Give broker time to start
-	time.Sleep(200 * time.Millisecond)
+	// Start embedded MQTT broker on dynamic port
+	_, port := startTestMQTTBrokerDynamic(t)
 
 	const numNaras = 10
-	const testDuration = 10 * time.Second
+	const minNeighbors = 3 // Each nara should discover at least this many
 
-	t.Logf("🧪 Starting integration test with %d naras for %v", numNaras, testDuration)
+	t.Logf("🧪 Starting integration test with %d naras", numNaras)
 
-	// Create and start multiple naras
-	naras := make([]*LocalNara, numNaras)
-
+	// Create nara names
+	names := make([]string, numNaras)
 	for i := 0; i < numNaras; i++ {
-		name := fmt.Sprintf("test-nara-%d", i)
-		hwFingerprint := []byte(fmt.Sprintf("test-hw-fingerprint-%d", i))
-		identity := identity.DetermineIdentity(types.NaraName(""), "", name, hwFingerprint)
+		names[i] = fmt.Sprintf("test-nara-%d", i)
+	}
 
-		// Create LocalNara with embedded MQTT broker address
-		profile := DefaultMemoryProfile()
-		profile.Mode = MemoryModeCustom
-		profile.MaxEvents = 1000
-		ln, err := NewLocalNara(
-			identity,
-			"tcp://127.0.0.1:11883", // embedded broker
-			"",                      // no user
-			"",                      // no pass
-			-1,                      // auto chattiness
-			profile,
-		)
-		if err != nil {
-			t.Fatalf("Failed to create LocalNara: %v", err)
-		}
-		naras[i] = ln
+	// Use test helper to create and start naras with proper cleanup
+	// This also bypasses rate limits for faster discovery
+	naras := startTestNaras(t, port, names, true)
 
-		// Start the nara (this spawns all goroutines)
-		go ln.Start(
-			false,         // don't serve UI
-			false,         // not read-only
-			"",            // no HTTP addr
-			nil,           // no mesh
-			TransportMQTT, // MQTT-only for integration tests (no mesh)
-		)
-
+	for _, ln := range naras {
 		t.Logf("✅ Started %s (personality: A=%d S=%d C=%d)",
-			name,
+			ln.Me.Name,
 			ln.Me.Status.Personality.Agreeableness,
 			ln.Me.Status.Personality.Sociability,
 			ln.Me.Status.Personality.Chill,
 		)
 	}
 
-	// Let the network run and interact
-	t.Logf("🌐 Network running, letting them interact for %v...", testDuration)
-	time.Sleep(testDuration)
+	// Wait for each nara to discover at least minNeighbors
+	t.Logf("🌐 Waiting for naras to discover at least %d neighbors each...", minNeighbors)
+	allDiscovered := waitForCondition(t, func() bool {
+		for _, ln := range naras {
+			ln.Network.local.mu.Lock()
+			count := len(ln.Network.Neighbourhood)
+			ln.Network.local.mu.Unlock()
+			if count < minNeighbors {
+				return false
+			}
+		}
+		return true
+	}, 15*time.Second, "minimum neighbor discovery")
+
+	if !allDiscovered {
+		t.Log("⚠️  Not all naras discovered minimum neighbors, continuing anyway")
+	}
+
+	// Brief additional time for social interactions to occur
+	time.Sleep(500 * time.Millisecond)
 
 	// Stop all naras by disconnecting MQTT
 	t.Log("🛑 Stopping all naras...")
@@ -88,7 +79,7 @@ func TestIntegration_MultiNaraNetwork(t *testing.T) {
 	}
 
 	// Give them a moment to clean up
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	// Now validate the happy path
 	t.Log("")
@@ -276,18 +267,15 @@ func TestIntegration_HeyThereDiscovery(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
+	t.Parallel()
 
-	// Start embedded MQTT broker
-	broker := startTestMQTTBroker(t, 11883)
-	defer broker.Close()
-
-	// Give broker time to start
-	time.Sleep(200 * time.Millisecond)
+	// Start embedded MQTT broker on dynamic port
+	_, port := startTestMQTTBrokerDynamic(t)
 
 	t.Log("🧪 Testing hey_there → announce discovery mechanism")
 
 	// Use test helper to start naras and ensure discovery
-	naras := startTestNaras(t, 11883, []string{"alice", "bob"}, true)
+	naras := startTestNaras(t, port, []string{"alice", "bob"}, true)
 	alice := naras[0]
 	bob := naras[1]
 
@@ -301,11 +289,6 @@ func TestIntegration_HeyThereDiscovery(t *testing.T) {
 	alice.Network.local.mu.Lock()
 	_, aliceKnowsBob := alice.Network.Neighbourhood["bob"]
 	alice.Network.local.mu.Unlock()
-
-	// Cleanup
-	alice.Network.disconnectMQTT()
-	bob.Network.disconnectMQTT()
-	time.Sleep(200 * time.Millisecond)
 
 	if !bobKnowsAlice || !aliceKnowsBob {
 		t.Errorf("❌ Discovery failed. Bob knows Alice: %v, Alice knows Bob: %v",

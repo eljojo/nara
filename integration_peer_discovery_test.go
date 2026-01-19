@@ -11,7 +11,6 @@ import (
 
 	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
-	"github.com/sirupsen/logrus"
 )
 
 // testPeerDiscoverySoul creates a unique soul for peer discovery tests
@@ -24,7 +23,7 @@ func testPeerDiscoverySoul(name string) string {
 // TestIntegration_DiscoverNarasFromEventStream verifies that naras mentioned in
 // events are automatically added to the Neighbourhood, even without their public key.
 func TestIntegration_DiscoverNarasFromEventStream(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 
 	// Setup: alice and bob in full mesh with gossip
 	mesh := testCreateMeshNetwork(t, []string{"alice", "bob"}, 50, 1000, 0)
@@ -54,7 +53,7 @@ func TestIntegration_DiscoverNarasFromEventStream(t *testing.T) {
 // TestIntegration_HeyThereEventPropagation verifies that hey_there events
 // (carrying public key and mesh IP) propagate through the gossip network.
 func TestIntegration_HeyThereEventPropagation(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 
 	tc := NewTestCoordinator(t)
 	alice := tc.AddNara("alice", WithHandlers("gossip"))
@@ -107,7 +106,7 @@ func TestIntegration_HeyThereEventPropagation(t *testing.T) {
 // TestIntegration_PeerResolutionProtocol verifies that when a nara doesn't know
 // another nara's identity, it can query neighbors to discover them.
 func TestIntegration_PeerResolutionProtocol(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 
 	// Setup: alice <-> bob <-> carol, carol knows ghost's identity
 	alice := testLocalNaraWithParams(t, "alice", 50, 1000)
@@ -209,7 +208,7 @@ func TestIntegration_PeerResolutionProtocol(t *testing.T) {
 // emit hey_there sync events on startup via InitGossipIdentity().
 // This tests the same code path that Start() uses in production.
 func TestIntegration_HeyThereSyncEventEmittedOnStartup(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 
 	tc := NewTestCoordinator(t)
 
@@ -283,7 +282,7 @@ func TestIntegration_HeyThereSyncEventEmittedOnStartup(t *testing.T) {
 // TestIntegration_GossipOnlyPeerDiscovery is the full end-to-end test:
 // a nara in gossip-only mode should be discovered by the network.
 func TestIntegration_GossipOnlyPeerDiscovery(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 
 	tc := NewTestCoordinator(t)
 
@@ -345,7 +344,7 @@ func TestIntegration_GossipOnlyPeerDiscovery(t *testing.T) {
 // TestIntegration_ChauSyncEventPropagation verifies that chau (graceful shutdown) events
 // propagate through gossip and mark naras as OFFLINE (not MISSING).
 func TestIntegration_ChauSyncEventPropagation(t *testing.T) {
-	logrus.SetLevel(logrus.DebugLevel)
+	t.Parallel()
 
 	// Setup: alice and bob in full mesh with gossip
 	mesh := testCreateMeshNetwork(t, []string{"alice", "bob"}, 50, 1000, 0)
@@ -384,7 +383,7 @@ func TestIntegration_ChauSyncEventPropagation(t *testing.T) {
 // TestIntegration_ZineVerificationTriggersResolution verifies that receiving a zine
 // from an unknown nara triggers active resolution of their public key.
 func TestIntegration_ZineVerificationTriggersResolution(t *testing.T) {
-	logrus.SetLevel(logrus.ErrorLevel)
+	t.Parallel()
 
 	// Setup: alice <-> bob <-> carol
 	alice := testLocalNaraWithSoulAndParams(t, "alice", testPeerDiscoverySoul("alice-zv"), 50, 1000)
@@ -470,7 +469,7 @@ func TestIntegration_ZineVerificationTriggersResolution(t *testing.T) {
 // TestIntegration_WorldJourneyTriggersResolution verifies that receiving a world journey
 // from an unknown nara triggers active resolution of their public key for verification.
 func TestIntegration_WorldJourneyTriggersResolution(t *testing.T) {
-	logrus.SetLevel(logrus.DebugLevel)
+	t.Parallel()
 
 	// Setup: alice <-> bob <-> carol
 	alice := testLocalNaraWithSoulAndParams(t, "alice", testPeerDiscoverySoul("alice-wj"), 50, 1000)
@@ -598,7 +597,7 @@ func TestIntegration_WorldJourneyTriggersResolution(t *testing.T) {
 // TestIntegration_MeshAuthTriggersResolution verifies that mesh authentication
 // triggers resolution for unknown senders.
 func TestIntegration_MeshAuthTriggersResolution(t *testing.T) {
-	logrus.SetLevel(logrus.DebugLevel)
+	t.Parallel()
 
 	// Setup: alice <-> bob <-> carol
 	alice := testLocalNaraWithSoulAndParams(t, "alice", testPeerDiscoverySoul("alice-ma"), 50, 1000)

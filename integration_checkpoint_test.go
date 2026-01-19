@@ -7,8 +7,6 @@ import (
 
 	"github.com/eljojo/nara/identity"
 	"github.com/eljojo/nara/types"
-
-	"github.com/sirupsen/logrus"
 )
 
 // TestIntegration_CheckpointConsensus tests the two-round checkpoint consensus mechanism
@@ -22,19 +20,12 @@ func TestIntegration_CheckpointConsensus(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
+	t.Parallel()
 
-	// Start embedded MQTT broker
-	broker := startTestMQTTBroker(t, 11883)
-	defer broker.Close()
-
-	// Give broker time to start
-	time.Sleep(200 * time.Millisecond)
+	// Start embedded MQTT broker on dynamic port
+	_, port := startTestMQTTBrokerDynamic(t)
 
 	t.Log("🧪 Testing checkpoint consensus mechanism")
-
-	// Enable debug logging for checkpoint operations
-	logrus.SetLevel(logrus.DebugLevel)
-	defer logrus.SetLevel(logrus.WarnLevel)
 
 	// Need MinVotersRequired + 1 naras (1 proposer + MinVotersRequired voters)
 	const numNaras = MinVotersRequired + 1
@@ -47,12 +38,12 @@ func TestIntegration_CheckpointConsensus(t *testing.T) {
 
 	// Start all naras with full discovery
 	// Note: cleanup is automatically registered by startTestNaras()
-	naras := startTestNaras(t, 11883, names, true)
+	naras := startTestNaras(t, port, names, true)
 
-	// Configure checkpoint services
+	// Configure checkpoint services with longer vote window for CI stability
 	for _, ln := range naras {
 		if ln.Network.checkpointService != nil {
-			ln.Network.checkpointService.voteWindow = 3 * time.Second
+			ln.Network.checkpointService.voteWindow = 2 * time.Second
 			// Ensure checkpoint service has MQTT client reference
 			if ln.Network.Mqtt != nil {
 				ln.Network.checkpointService.SetMQTTClient(ln.Network.Mqtt)
@@ -154,16 +145,15 @@ func TestIntegration_CheckpointRound2(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
+	t.Parallel()
 
-	// Start embedded MQTT broker
-	broker := startTestMQTTBroker(t, 11883)
-	defer broker.Close()
-
-	time.Sleep(200 * time.Millisecond)
+	// Start embedded MQTT broker on dynamic port
+	_, port := startTestMQTTBrokerDynamic(t)
 
 	t.Log("🧪 Testing checkpoint round 2 fallback")
 
 	const numNaras = 4
+	mqttAddr := fmt.Sprintf("tcp://127.0.0.1:%d", port)
 
 	naras := make([]*LocalNara, numNaras)
 	for i := 0; i < numNaras; i++ {
@@ -176,7 +166,7 @@ func TestIntegration_CheckpointRound2(t *testing.T) {
 		profile.MaxEvents = 1000
 		ln, err := NewLocalNara(
 			identity,
-			"tcp://127.0.0.1:11883",
+			mqttAddr,
 			"", "",
 			-1,
 			profile,
@@ -188,6 +178,8 @@ func TestIntegration_CheckpointRound2(t *testing.T) {
 		ln.Network.testSkipJitter = true
 		ln.Network.testSkipBootRecovery = true
 		ln.Network.testSkipCoordinateWait = true
+		ln.Network.testSkipHeyThereSleep = true
+		ln.Network.testSkipHeyThereRateLimit = true
 		delay := time.Duration(0)
 		ln.Network.testObservationDelay = &delay
 
@@ -203,16 +195,25 @@ func TestIntegration_CheckpointRound2(t *testing.T) {
 	// Start all naras
 	for i, ln := range naras {
 		go ln.Start(false, false, "", nil, TransportMQTT)
-		time.Sleep(300 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond) // Small delay between starts
 
 		if ln.Network.checkpointService != nil {
-			ln.Network.checkpointService.voteWindow = 2 * time.Second
+			ln.Network.checkpointService.voteWindow = 2 * time.Second // Longer for CI stability
 		}
 		t.Logf("✅ Started %s (nara %d)", ln.Me.Name, i)
 	}
 
-	// Wait for discovery
+	// Wait for MQTT connection
 	waitForAllMQTTConnected(t, naras, 10*time.Second)
+
+	// Trigger hey-there for discovery
+	for _, ln := range naras {
+		ln.Network.heyThere()
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	// Wait for full discovery with public keys
+	waitForFullDiscovery(t, naras, 10*time.Second)
 
 	// Add DIFFERENT observation data to each nara to force disagreement in round 1
 	// This should trigger the trimmed mean calculation in round 2
@@ -242,12 +243,11 @@ func TestIntegration_CheckpointRound2(t *testing.T) {
 	t.Logf("📤 %s proposing checkpoint (expecting round 2 due to disagreement)...", proposer.Me.Name)
 	proposer.Network.checkpointService.ProposeCheckpoint()
 
-	// Wait for round 1 + round 2 (2 vote windows)
-	t.Log("⏳ Waiting for round 1 + round 2 (4+ seconds)...")
-	time.Sleep(6 * time.Second)
-
-	// Check results
-	checkpoint := proposer.SyncLedger.GetCheckpoint(proposer.Me.Name)
+	// Wait for checkpoint to be finalized
+	// Vote window is 2 seconds for CI stability, so 2 rounds = ~4-5 seconds max
+	// Add extra buffer for message propagation
+	t.Log("⏳ Waiting for checkpoint finalization...")
+	checkpoint := waitForCheckpoint(t, proposer.SyncLedger, proposer.Me.Name, 8*time.Second)
 
 	t.Log("")
 	t.Log("═══════════════════════════════════════")
@@ -267,29 +267,21 @@ func TestIntegration_CheckpointSignatureVerification(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
+	t.Parallel()
 
-	// Start embedded MQTT broker
-	broker := startTestMQTTBroker(t, 11883)
-	defer broker.Close()
-
-	time.Sleep(200 * time.Millisecond)
+	// Start embedded MQTT broker on dynamic port
+	_, port := startTestMQTTBrokerDynamic(t)
 
 	t.Log("🧪 Testing checkpoint signature verification")
 
 	// Create 2 naras using the standard test helper
 	names := []string{"alice-sig", "bob-sig"}
-	naras := startTestNaras(t, 11883, names, true)
-	defer func() {
-		for _, ln := range naras {
-			ln.Network.Shutdown()
-			ln.Network.disconnectMQTT()
-		}
-	}()
+	naras := startTestNaras(t, port, names, true)
 
 	alice := naras[0]
 	bob := naras[1]
 
-	// Configure short vote window
+	// Configure vote window for CI stability
 	if alice.Network.checkpointService != nil {
 		alice.Network.checkpointService.voteWindow = 2 * time.Second
 	}
@@ -313,11 +305,8 @@ func TestIntegration_CheckpointSignatureVerification(t *testing.T) {
 		alice.Network.checkpointService.ProposeCheckpoint()
 	}
 
-	// Wait for vote window
-	time.Sleep(4 * time.Second)
-
-	// Check if Bob voted (if he knows Alice's public key)
-	checkpoint := alice.SyncLedger.GetCheckpoint(alice.Me.Name)
+	// Wait for checkpoint to be finalized (uses condition-based polling instead of fixed sleep)
+	checkpoint := waitForCheckpoint(t, alice.SyncLedger, alice.Me.Name, 10*time.Second)
 
 	t.Log("")
 	t.Log("═══════════════════════════════════════")
@@ -338,18 +327,12 @@ func TestIntegration_CheckpointTop10Voters(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
+	t.Parallel()
 
-	// Start embedded MQTT broker
-	broker := startTestMQTTBroker(t, 11883)
-	defer broker.Close()
-
-	time.Sleep(200 * time.Millisecond)
+	// Start embedded MQTT broker on dynamic port
+	_, port := startTestMQTTBrokerDynamic(t)
 
 	t.Log("🧪 Testing checkpoint top 10 voters limit")
-
-	// Enable debug logging for checkpoint operations
-	logrus.SetLevel(logrus.DebugLevel)
-	defer logrus.SetLevel(logrus.WarnLevel)
 
 	// Create 15 naras (more than the 10 signature limit)
 	const numNaras = 15
@@ -358,18 +341,12 @@ func TestIntegration_CheckpointTop10Voters(t *testing.T) {
 		names[i] = fmt.Sprintf("top10-test-%d", i)
 	}
 
-	naras := startTestNaras(t, 11883, names, true)
-	defer func() {
-		for _, ln := range naras {
-			ln.Network.Shutdown()
-			ln.Network.disconnectMQTT()
-		}
-	}()
+	naras := startTestNaras(t, port, names, true)
 
-	// Configure checkpoint vote windows and ensure MQTT clients are set
+	// Configure checkpoint vote windows for CI stability
 	for _, ln := range naras {
 		if ln.Network.checkpointService != nil {
-			ln.Network.checkpointService.voteWindow = 3 * time.Second
+			ln.Network.checkpointService.voteWindow = 2 * time.Second
 			// Ensure checkpoint service has MQTT client reference
 			if ln.Network.Mqtt != nil {
 				ln.Network.checkpointService.SetMQTTClient(ln.Network.Mqtt)

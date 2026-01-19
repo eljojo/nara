@@ -11,16 +11,14 @@ import (
 	"time"
 
 	"github.com/eljojo/nara/identity"
-	"github.com/sirupsen/logrus"
 )
 
 // TestIntegration_EventImport_ValidSoul tests importing events with matching soul
 func TestIntegration_EventImport_ValidSoul(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test")
 	}
-
-	logrus.SetLevel(logrus.ErrorLevel)
 
 	// Create test nara with known soul
 	soulStr := testSoul("test-nara")
@@ -94,11 +92,10 @@ func TestIntegration_EventImport_ValidSoul(t *testing.T) {
 
 // TestIntegration_EventImport_InvalidSoul tests that wrong soul is rejected
 func TestIntegration_EventImport_InvalidSoul(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test")
 	}
-
-	logrus.SetLevel(logrus.ErrorLevel)
 
 	// Create test nara with one soul
 	soulStr := testSoul("test-nara")
@@ -157,11 +154,10 @@ func TestIntegration_EventImport_InvalidSoul(t *testing.T) {
 
 // TestIntegration_EventImport_ExpiredTimestamp tests replay protection
 func TestIntegration_EventImport_ExpiredTimestamp(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test")
 	}
-
-	logrus.SetLevel(logrus.ErrorLevel)
 
 	soulStr := testSoul("test-nara")
 	ln := testNara(t, "test-nara", WithSoul(soulStr))
@@ -209,11 +205,10 @@ func TestIntegration_EventImport_ExpiredTimestamp(t *testing.T) {
 
 // TestIntegration_EventImport_Deduplication tests that duplicate events are handled
 func TestIntegration_EventImport_Deduplication(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test")
 	}
-
-	logrus.SetLevel(logrus.ErrorLevel)
 
 	soulStr := testSoul("test-nara")
 	ln := testNara(t, "test-nara", WithSoul(soulStr))

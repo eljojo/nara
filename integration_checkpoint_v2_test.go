@@ -16,23 +16,20 @@ func TestCheckpointV2DivergentReferencePointsNoConsensus(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
+	t.Parallel()
 
-	// Start embedded MQTT broker
-	port := 11887
-	broker := startTestMQTTBroker(t, port)
-	defer broker.Close()
-
-	// Give broker time to start
-	time.Sleep(200 * time.Millisecond)
+	// Start embedded MQTT broker on dynamic port
+	_, port := startTestMQTTBrokerDynamic(t)
 
 	naraNames := []string{"test-proposer", "voter1", "voter2", "voter3", "voter4", "voter5"}
 
 	// Start all naras
 	naras := startTestNaras(t, port, naraNames, true)
 
-	// Set shorter vote window for faster testing
+	// Set vote window for CI stability
+	voteWindow := 2 * time.Second
 	for _, ln := range naras {
-		ln.Network.checkpointService.voteWindow = 3 * time.Second
+		ln.Network.checkpointService.voteWindow = voteWindow
 	}
 
 	// Create different checkpoint histories for each nara by manually adding checkpoints
@@ -55,8 +52,9 @@ func TestCheckpointV2DivergentReferencePointsNoConsensus(t *testing.T) {
 	proposer := naras[0]
 	proposer.Network.checkpointService.ProposeCheckpoint()
 
-	// Wait for vote window + processing
-	time.Sleep(2 * time.Second)
+	// Wait for vote window to complete (need to wait > voteWindow to ensure voting finished)
+	// This test expects NO consensus, so we must wait long enough to be confident
+	time.Sleep(voteWindow + 500*time.Millisecond)
 
 	// Verify NO checkpoint was created (no consensus reached)
 	checkpoint := proposer.SyncLedger.GetCheckpoint("test-proposer")
@@ -81,14 +79,10 @@ func TestCheckpointV2NetworkDisagreesWithProposer(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
+	t.Parallel()
 
-	// Start embedded MQTT broker
-	port := 11888
-	broker := startTestMQTTBroker(t, port)
-	defer broker.Close()
-
-	// Give broker time to start
-	time.Sleep(200 * time.Millisecond)
+	// Start embedded MQTT broker on dynamic port
+	_, port := startTestMQTTBrokerDynamic(t)
 
 	naraNames := []string{"test-proposer", "voter1", "voter2", "voter3", "voter4", "voter5"}
 
@@ -100,7 +94,7 @@ func TestCheckpointV2NetworkDisagreesWithProposer(t *testing.T) {
 
 	// Set shorter vote window for faster testing
 	for _, ln := range naras {
-		ln.Network.checkpointService.voteWindow = 3 * time.Second
+		ln.Network.checkpointService.voteWindow = 1 * time.Second
 	}
 
 	// Give proposer a unique previous checkpoint
@@ -122,9 +116,7 @@ func TestCheckpointV2NetworkDisagreesWithProposer(t *testing.T) {
 	// Give time for checkpoint histories to settle
 	time.Sleep(200 * time.Millisecond)
 
-	// Enable debug logging to see what's happening
-	logrus.SetLevel(logrus.DebugLevel)
-	defer logrus.SetLevel(logrus.WarnLevel)
+	// Note: Cannot use logrus.SetLevel in parallel tests (race condition)
 
 	// Trigger checkpoint proposal
 	proposer.Network.checkpointService.ProposeCheckpoint()
@@ -171,23 +163,19 @@ func TestCheckpointV1ToV2Chain(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
+	t.Parallel()
 
-	// Start embedded MQTT broker
-	port := 11889
-	broker := startTestMQTTBroker(t, port)
-	defer broker.Close()
-
-	// Give broker time to start
-	time.Sleep(200 * time.Millisecond)
+	// Start embedded MQTT broker on dynamic port
+	_, port := startTestMQTTBrokerDynamic(t)
 
 	naraNames := []string{"test-nara", "voter1", "voter2", "voter3", "voter4", "voter5"}
 
 	// Start all naras
 	naras := startTestNaras(t, port, naraNames, true)
 
-	// Set shorter vote window for faster testing
+	// Set vote window for CI stability
 	for _, ln := range naras {
-		ln.Network.checkpointService.voteWindow = 3 * time.Second
+		ln.Network.checkpointService.voteWindow = 2 * time.Second
 	}
 
 	testNara := naras[0]

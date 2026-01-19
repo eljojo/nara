@@ -1,12 +1,10 @@
 package nara
 
 import (
-	"os"
 	"testing"
 	"time"
 
 	"github.com/eljojo/nara/types"
-	"github.com/sirupsen/logrus"
 )
 
 // TestDelayedMissingReporting validates that multiple observers don't all report MISSING events
@@ -15,12 +13,6 @@ func TestDelayedMissingReporting(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping slow test in short mode (requires delays)")
 	}
-
-	logrus.SetLevel(logrus.ErrorLevel)
-
-	// Enable observation events
-	os.Setenv("USE_OBSERVATION_EVENTS", "true")
-	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
 
 	// Create shared ledger for all observers
 	sharedLedger := NewSyncLedger(1000)
@@ -91,12 +83,6 @@ func TestDelayedMissingReporting_NoRedundancy(t *testing.T) {
 		t.Skip("skipping slow test in short mode (requires delays)")
 	}
 
-	logrus.SetLevel(logrus.DebugLevel)
-
-	// Enable observation events
-	os.Setenv("USE_OBSERVATION_EVENTS", "true")
-	defer os.Unsetenv("USE_OBSERVATION_EVENTS")
-
 	sharedLedger := NewSyncLedger(1000)
 
 	// Create first observer who reports immediately
@@ -166,8 +152,6 @@ func TestDelayedRestartReporting(t *testing.T) {
 		t.Skip("skipping slow test in short mode (requires delays)")
 	}
 
-	logrus.SetLevel(logrus.ErrorLevel)
-
 	sharedLedger := NewSyncLedger(1000)
 
 	observers := make([]*LocalNara, 5)
@@ -220,8 +204,6 @@ func TestDelayedRestartReporting_NoRedundancy(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping slow test in short mode (requires delays)")
 	}
-
-	logrus.SetLevel(logrus.DebugLevel)
 
 	sharedLedger := NewSyncLedger(1000)
 

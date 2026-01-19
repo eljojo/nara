@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/eljojo/nara/types"
-	"github.com/sirupsen/logrus"
 )
 
 // TestStashDistribution_Integration tests the complete stash distribution workflow.
@@ -23,14 +22,15 @@ import (
 //
 // This is a true end-to-end integration test that verifies the entire stash system works.
 func TestStashDistribution_Integration(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	logrus.SetLevel(logrus.DebugLevel)
-	// Create mesh with 4 naras
+	// Create mesh with 4 naras using dynamic port
+	mqttPort := getFreePort(t)
 	names := []string{"owner", "confidant-a", "confidant-b", "confidant-c"}
-	mesh := testCreateMeshNetwork(t, names, 50, 1000, 11892)
+	mesh := testCreateMeshNetwork(t, names, 50, 1000, mqttPort)
 
 	owner := mesh.Get(0)
 	confidantA := mesh.Get(1)
@@ -131,10 +131,11 @@ func TestStashDistribution_Integration(t *testing.T) {
 	}
 
 	// Test HTTP endpoints
-	httpAddr := ":9500"
+	httpPort := getFreePort(t)
+	httpAddr := fmt.Sprintf(":%d", httpPort)
 	go owner.Start(true, false, httpAddr, nil, TransportHybrid)
 	time.Sleep(200 * time.Millisecond)
-	baseURL := fmt.Sprintf("http://localhost%s", httpAddr)
+	baseURL := fmt.Sprintf("http://localhost:%d", httpPort)
 
 	// Test GET /api/stash/status
 	t.Run("http_status_endpoint", func(t *testing.T) {
@@ -250,10 +251,11 @@ func TestStashDistribution_Integration(t *testing.T) {
 		t.Logf("✅ Rebooted nara has empty stash and empty confidant list")
 
 		// Start HTTP server on rebooted nara
-		rebootedAddr := ":9502"
+		rebootedPort := getFreePort(t)
+		rebootedAddr := fmt.Sprintf(":%d", rebootedPort)
 		go rebooted.Start(true, false, rebootedAddr, nil, TransportHybrid)
 		time.Sleep(300 * time.Millisecond)
-		rebootedURL := fmt.Sprintf("http://localhost%s", rebootedAddr)
+		rebootedURL := fmt.Sprintf("http://localhost:%d", rebootedPort)
 
 		// Send hey-there announcement (in real system, this happens automatically on boot)
 		// Confidants detect the hey-there and automatically push stash back
@@ -329,14 +331,15 @@ func TestStashDistribution_Integration(t *testing.T) {
 
 // TestStashUpdate_HTTPWorkflow tests updating stash via HTTP endpoint.
 func TestStashUpdate_HTTPWorkflow(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	logrus.SetLevel(logrus.WarnLevel)
-	// Create mesh with 4 naras
+	// Create mesh with 4 naras using dynamic port
+	mqttPort := getFreePort(t)
 	names := []string{"owner", "conf-1", "conf-2", "conf-3"}
-	mesh := testCreateMeshNetwork(t, names, 50, 1000, 11891)
+	mesh := testCreateMeshNetwork(t, names, 50, 1000, mqttPort)
 
 	owner := mesh.Get(0)
 
@@ -359,9 +362,10 @@ func TestStashUpdate_HTTPWorkflow(t *testing.T) {
 	})
 
 	// Start HTTP server
-	ownerAddr := ":9501"
+	httpPort := getFreePort(t)
+	ownerAddr := fmt.Sprintf(":%d", httpPort)
 	go owner.Start(true, false, ownerAddr, nil, TransportHybrid)
-	baseURL := fmt.Sprintf("http://localhost%s", ownerAddr)
+	baseURL := fmt.Sprintf("http://localhost:%d", httpPort)
 
 	// Wait for HTTP server to be ready
 	if !waitForHTTPReady(t, baseURL+"/api/stash/status", 5*time.Second) {
