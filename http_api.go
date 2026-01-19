@@ -64,19 +64,35 @@ func (network *Network) httpProfileJsonHandler(w http.ResponseWriter, r *http.Re
 
 	naraName := types.NaraName(name)
 
-	network.local.mu.Lock()
-	nara, exists := network.Neighbourhood[naraName]
-	network.local.mu.Unlock()
-	if !exists {
-		http.NotFound(w, r)
-		return
+	// Check if requesting profile for local nara (me)
+	var nara *Nara
+	var isLocalNara bool
+	if naraName == network.local.Me.Name {
+		nara = network.local.Me
+		isLocalNara = true
+	} else {
+		// Look in neighbourhood
+		network.local.mu.Lock()
+		var exists bool
+		nara, exists = network.Neighbourhood[naraName]
+		network.local.mu.Unlock()
+		if !exists {
+			http.NotFound(w, r)
+			return
+		}
 	}
 
 	nara.mu.Lock()
 	status := nara.Status
 	nara.mu.Unlock()
 
-	obs := network.local.getObservation(naraName)
+	// For local nara, use self observation; for others, use neighbourhood observation
+	var obs NaraObservation
+	if isLocalNara {
+		obs = network.local.getMeObservation()
+	} else {
+		obs = network.local.getObservation(naraName)
+	}
 
 	// Event store stats
 	var eventStoreByService map[string]int
