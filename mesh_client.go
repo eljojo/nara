@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"github.com/eljojo/nara/identity"
+	"github.com/eljojo/nara/runtime"
 	"github.com/eljojo/nara/types"
+	"github.com/sirupsen/logrus"
 	"tailscale.com/ipn/store/mem"
 	"tailscale.com/tsnet"
 )
@@ -470,30 +472,47 @@ func (m *MeshClient) PingIP(ctx context.Context, meshIP string) (time.Duration, 
 
 // SendRuntimeMessage sends a raw runtime message to a peer via POST /mesh/message
 // This is used by the runtime's transport adapter for direct message delivery.
-func (m *MeshClient) SendRuntimeMessage(ctx context.Context, naraID types.NaraID, msgBytes []byte) error {
+// Returns piggybacked response messages from the HTTP response body.
+func (m *MeshClient) SendRuntimeMessage(ctx context.Context, naraID types.NaraID, msgBytes []byte) ([]*runtime.Message, error) {
 	url, err := m.buildURL(naraID, "/mesh/message")
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(msgBytes))
 	if err != nil {
-		return fmt.Errorf("create request: %w", err)
+		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	m.signRequest(req)
 
 	resp, err := m.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("server returned %d", resp.StatusCode)
+		return nil, fmt.Errorf("server returned %d", resp.StatusCode)
 	}
 
-	return nil
+	// Parse piggybacked responses from body
+	var responses []*runtime.Message
+	if resp.ContentLength > 0 || resp.Header.Get("Content-Type") == "application/json" {
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			logrus.Warnf("[mesh] Failed to read response body: %v", err)
+			return nil, nil // Non-fatal - request succeeded
+		}
+		if len(body) > 0 {
+			if err := json.Unmarshal(body, &responses); err != nil {
+				logrus.Warnf("[mesh] Failed to decode responses: %v", err)
+				// Non-fatal - request succeeded even if we can't parse responses
+			}
+		}
+	}
+
+	return responses, nil
 }
 
 // Note: Additional mesh client methods can be added as needed.

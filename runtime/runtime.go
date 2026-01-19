@@ -255,24 +255,25 @@ func (rt *Runtime) Call(msg *Message, timeout time.Duration) <-chan CallResult {
 }
 
 // Receive processes an incoming message through the receive pipeline.
-func (rt *Runtime) Receive(raw []byte) error {
+// Returns any response messages from handlers for piggybacking in HTTP responses.
+func (rt *Runtime) Receive(raw []byte) ([]*Message, error) {
 	// Deserialize using behavior's PayloadType
 	msg, err := rt.deserialize(raw)
 	if err != nil {
-		return fmt.Errorf("deserialize: %w", err)
+		return nil, fmt.Errorf("deserialize: %w", err)
 	}
 
 	// Check if this is a response to a pending Call (Chapter 3)
 	if msg.InReplyTo != "" {
 		if rt.calls.Resolve(msg.InReplyTo, msg) {
-			return nil // Handled as call response
+			return nil, nil // Handled as call response
 		}
 		// Not a pending call - fall through to normal handling
 	}
 
 	behavior := rt.LookupBehavior(msg.Kind)
 	if behavior == nil {
-		return fmt.Errorf("unknown message kind: %s", msg.Kind)
+		return nil, fmt.Errorf("unknown message kind: %s", msg.Kind)
 	}
 
 	logrus.Infof("[runtime] processing %s (from: %s, InReplyTo: %s)", msg.Kind, msg.FromID, msg.InReplyTo)
@@ -286,18 +287,69 @@ func (rt *Runtime) Receive(raw []byte) error {
 	// Handle result
 	if result.Error != nil {
 		rt.applyErrorStrategy(msg, "receive", result.Error, behavior.Receive.OnError)
-		return result.Error
+		return nil, result.Error
 	}
 	if result.Message == nil {
 		logrus.Debugf("[runtime] message %s dropped in receive: %s", msg.Kind, result.Reason)
-		return nil
+		return nil, nil
 	}
 
 	logrus.Infof("[runtime] invoking handler for %s", msg.Kind)
-	// Invoke version-specific handler
-	rt.invokeHandler(msg, behavior)
+	// Invoke version-specific handler - now returns response messages
+	responseMessages := rt.invokeHandler(msg, behavior)
 
-	return nil
+	// Prepare each message for piggybacking (ID + Sign, no transport)
+	var prepared []*Message
+	for _, resp := range responseMessages {
+		if p, err := rt.prepareForPiggyback(resp); err == nil {
+			prepared = append(prepared, p)
+		} else {
+			logrus.Warnf("[runtime] failed to prepare piggyback response: %v", err)
+		}
+	}
+
+	return prepared, nil
+}
+
+// prepareForPiggyback runs ID + Sign stages but skips transport.
+// This prepares a message to be included in HTTP response body.
+func (rt *Runtime) prepareForPiggyback(msg *Message) (*Message, error) {
+	// Set timestamp if not set
+	if msg.Timestamp.IsZero() {
+		msg.Timestamp = time.Now()
+	}
+
+	// Set FromID if not set
+	if msg.FromID == "" {
+		msg.FromID = rt.MeID()
+	}
+	if msg.From == "" && rt.me != nil {
+		msg.From = rt.me.Name
+	}
+
+	behavior := rt.LookupBehavior(msg.Kind)
+	if behavior == nil {
+		return nil, fmt.Errorf("unknown kind: %s", msg.Kind)
+	}
+
+	// Set version to current if not specified
+	if msg.Version == 0 {
+		msg.Version = behavior.CurrentVersion
+		if msg.Version == 0 {
+			msg.Version = 1
+		}
+	}
+
+	// Build minimal pipeline: ID -> Sign (no store, no gossip, no transport)
+	stages := []Stage{&IDStage{}, &DefaultSignStage{}}
+	pipeline := Pipeline(stages)
+	ctx := rt.newPipelineContext()
+
+	result := pipeline.Run(msg, ctx)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return result.Message, nil
 }
 
 // === Pipeline building ===
@@ -484,25 +536,33 @@ func (rt *Runtime) deserialize(raw []byte) (*Message, error) {
 
 // === Handler invocation ===
 
-func (rt *Runtime) invokeHandler(msg *Message, behavior *Behavior) {
+// invokeHandler calls the version-specific handler and returns any response messages.
+// Handlers have signature: func(*Message, *PayloadType) ([]*Message, error)
+func (rt *Runtime) invokeHandler(msg *Message, behavior *Behavior) []*Message {
 	handler := behavior.Handlers[msg.Version]
 	if handler == nil {
 		logrus.Warnf("[runtime] no handler for %s v%d", msg.Kind, msg.Version)
-		return
+		return nil
 	}
 
-	// Reflection call: handler(msg, msg.Payload) -> error
+	// Reflection call: handler(msg, msg.Payload) -> ([]*Message, error)
 	handlerVal := reflect.ValueOf(handler)
 	results := handlerVal.Call([]reflect.Value{
 		reflect.ValueOf(msg),
 		reflect.ValueOf(msg.Payload),
 	})
 
-	// Check for error return
+	// results[0] = []*Message, results[1] = error
+	var messages []*Message
 	if len(results) > 0 && !results[0].IsNil() {
-		err := results[0].Interface().(error)
+		messages = results[0].Interface().([]*Message)
+	}
+	if len(results) > 1 && !results[1].IsNil() {
+		err := results[1].Interface().(error)
 		rt.applyErrorStrategy(msg, "handler", err, behavior.Receive.OnError)
 	}
+
+	return messages
 }
 
 // === Error handling ===

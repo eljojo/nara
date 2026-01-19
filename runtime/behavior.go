@@ -34,7 +34,8 @@ type Behavior struct {
 	PayloadTypes   map[int]reflect.Type // Payload type per version (required)
 
 	// Version-specific handlers (typed via TypedHandler helper)
-	// Each handler has signature: func(*Message, *PayloadType) error
+	// Each handler has signature: func(*Message, *PayloadType) ([]*Message, error)
+	// Handlers return response messages for the runtime to emit (can be nil/empty).
 	Handlers map[int]any
 
 	// ContentKey derivation (nil = no content key)
@@ -193,7 +194,8 @@ func (b *Behavior) WithHandler(version int, fn any) *Behavior {
 }
 
 // TypedHandler wraps a typed handler function for the registry.
-func TypedHandler[T any](fn func(*Message, *T) error) any {
+// Handlers return response messages for the runtime to emit (can be nil/empty).
+func TypedHandler[T any](fn func(*Message, *T) ([]*Message, error)) any {
 	return fn
 }
 

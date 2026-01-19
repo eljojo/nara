@@ -21,6 +21,10 @@ type RuntimeInterface interface {
 	// Messaging
 	Emit(msg *Message) error
 
+	// Receive processes an incoming message through the receive pipeline.
+	// Returns any response messages from handlers for piggybacking.
+	Receive(raw []byte) ([]*Message, error)
+
 	// Logging (runtime primitive, not a service)
 	Log(service string) *ServiceLog
 
@@ -60,7 +64,8 @@ type LedgerInterface interface {
 // TransportInterface is what transport stages use.
 type TransportInterface interface {
 	PublishMQTT(topic string, data []byte) error
-	TrySendDirect(targetID types.NaraID, msg *Message) error
+	// TrySendDirect sends a message directly via mesh and returns piggybacked responses.
+	TrySendDirect(targetID types.NaraID, msg *Message) ([]*Message, error)
 }
 
 // GossipQueueInterface is what gossip stages use.

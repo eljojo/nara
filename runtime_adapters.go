@@ -21,16 +21,17 @@ func NewTransportAdapter(network *Network) *TransportAdapter {
 }
 
 // TrySendDirect sends a message directly to a target nara via mesh.
-func (a *TransportAdapter) TrySendDirect(targetID types.NaraID, msg *runtime.Message) error {
+// Returns piggybacked response messages from the HTTP response.
+func (a *TransportAdapter) TrySendDirect(targetID types.NaraID, msg *runtime.Message) ([]*runtime.Message, error) {
 	// Check if meshClient is available
 	if a.network.meshClient == nil {
-		return fmt.Errorf("mesh client not initialized")
+		return nil, fmt.Errorf("mesh client not initialized")
 	}
 
 	// Marshal message
 	msgBytes, err := msg.Marshal()
 	if err != nil {
-		return fmt.Errorf("marshal message: %w", err)
+		return nil, fmt.Errorf("marshal message: %w", err)
 	}
 
 	// Send via meshClient (which handles test mode automatically)

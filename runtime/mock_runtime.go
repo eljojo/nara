@@ -178,13 +178,25 @@ func (m *MockRuntime) RegisterPublicKey(id types.NaraID, key []byte) {
 
 // === Test helpers ===
 
+// Receive processes an incoming message (for RuntimeInterface compliance).
+// Returns response messages from handlers. In MockRuntime, responses are also
+// added to Emitted for test assertions.
+func (m *MockRuntime) Receive(raw []byte) ([]*Message, error) {
+	// This is a simplified mock - just return nil for now
+	// Real tests should use Deliver() which is more flexible
+	return nil, nil
+}
+
 // Deliver simulates receiving a message (calls behavior handlers).
 //
 // If the message has InReplyTo set, it first checks if there's a pending
 // Call waiting for that response (simulating how the real runtime works).
 // If the call is resolved, the handler is NOT invoked.
 //
-// Returns the error from the handler (if any) so tests can assert on it.
+// Response messages from handlers are automatically emitted (added to Emitted list)
+// to maintain backward compatibility with tests that check the Emitted list.
+//
+// Returns nil on success, or the handler error.
 // Use this to test how a service reacts to incoming messages.
 func (m *MockRuntime) Deliver(msg *Message) error {
 	// Check if this is a response to a pending Call (same as real runtime)
@@ -210,7 +222,7 @@ func (m *MockRuntime) Deliver(msg *Message) error {
 	}
 
 	// Invoke handler using reflection (same as real runtime)
-	// Handler signature: func(*Message, *PayloadType) error
+	// Handler signature: func(*Message, *PayloadType) ([]*Message, error)
 	defer func() {
 		if r := recover(); r != nil {
 			m.t.Fatalf("handler panicked for %s: %v", msg.Kind, r)
@@ -222,11 +234,22 @@ func (m *MockRuntime) Deliver(msg *Message) error {
 		reflect.ValueOf(msg.Payload),
 	})
 
-	// Return handler error (if any)
+	// results[0] = []*Message, results[1] = error
+	var messages []*Message
 	if len(results) > 0 && !results[0].IsNil() {
-		return results[0].Interface().(error)
+		messages = results[0].Interface().([]*Message)
 	}
-	return nil
+	var handlerErr error
+	if len(results) > 1 && !results[1].IsNil() {
+		handlerErr = results[1].Interface().(error)
+	}
+
+	// Auto-emit response messages (maintains test compatibility)
+	for _, respMsg := range messages {
+		_ = m.Emit(respMsg)
+	}
+
+	return handlerErr
 }
 
 // Subscribe registers a handler for a message kind.

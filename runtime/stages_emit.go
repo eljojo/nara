@@ -3,6 +3,8 @@ package runtime
 import (
 	"errors"
 	"fmt"
+
+	"github.com/sirupsen/logrus"
 )
 
 // === ID Stage ===
@@ -136,6 +138,8 @@ func (s *NoTransportStage) Process(msg *Message, ctx *PipelineContext) StageResu
 // MeshOnlyStage sends the message directly via mesh to a specific target.
 //
 // Fails if the target is unreachable. Used by stash for direct peer communication.
+// Piggybacked responses from the HTTP response are routed through the receive
+// pipeline for verification and handler invocation.
 type MeshOnlyStage struct{}
 
 func (s *MeshOnlyStage) Process(msg *Message, ctx *PipelineContext) StageResult {
@@ -147,8 +151,31 @@ func (s *MeshOnlyStage) Process(msg *Message, ctx *PipelineContext) StageResult 
 		return Fail(errors.New("no transport configured"))
 	}
 
-	if err := ctx.Transport.TrySendDirect(msg.ToID, msg); err != nil {
+	responses, err := ctx.Transport.TrySendDirect(msg.ToID, msg)
+	if err != nil {
 		return Fail(fmt.Errorf("mesh send to %s: %w", msg.ToID, err))
+	}
+
+	// Route piggybacked responses through full receive pipeline.
+	// This ensures: (1) signature verification, (2) CallRegistry/handler routing.
+	for _, resp := range responses {
+		respBytes, err := resp.Marshal()
+		if err != nil {
+			logrus.Warnf("[runtime] failed to marshal piggybacked response: %v", err)
+			continue
+		}
+		// Receive handles: verify -> CallRegistry OR handler
+		returnedMsgs, err := ctx.Runtime.Receive(respBytes)
+		if err != nil {
+			logrus.Warnf("[runtime] failed to process piggybacked response: %v", err)
+			continue
+		}
+		// Emit any messages returned by handlers (e.g., Alice's handler sends to Dan)
+		for _, outMsg := range returnedMsgs {
+			if emitErr := ctx.Runtime.Emit(outMsg); emitErr != nil {
+				logrus.Warnf("[runtime] failed to emit message from piggybacked handler: %v", emitErr)
+			}
+		}
 	}
 
 	return Continue(msg)

@@ -1,6 +1,7 @@
 package nara
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 
@@ -13,8 +14,12 @@ import (
 // messages directly to other naras. Messages are serialized as JSON
 // and delivered to the runtime's Receive pipeline.
 //
+// Response messages from handlers are piggybacked in the HTTP response body,
+// eliminating the need for a separate HTTP call.
+//
 // Endpoint: POST /mesh/message
 // Body: JSON-serialized runtime.Message
+// Response: JSON array of response messages (can be empty)
 func (n *Network) httpMeshMessageHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -36,10 +41,21 @@ func (n *Network) httpMeshMessageHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := n.runtime.Receive(body); err != nil {
+	responses, err := n.runtime.Receive(body)
+	if err != nil {
 		logrus.Warnf("[mesh] Failed to process message: %v", err)
 		// Still return 200 - the message was received, just not processed
 		// (this matches the behavior of other mesh endpoints)
+	}
+
+	// Write piggybacked responses to body
+	if len(responses) > 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if err := json.NewEncoder(w).Encode(responses); err != nil {
+			logrus.Warnf("[mesh] Failed to encode responses: %v", err)
+		}
+		return
 	}
 
 	w.WriteHeader(http.StatusOK)
