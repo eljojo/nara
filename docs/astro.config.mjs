@@ -35,54 +35,81 @@ export default defineConfig({
           items: [
             { label: 'Living Spec Home', link: '/spec/' },
             { label: 'Overview & Philosophy', link: '/spec/overview/' },
-            { label: 'Identity', link: '/spec/identity/' },
+            { label: 'Styleguide', link: '/spec/styleguide/' }
+          ]
+        },
+        {
+          label: 'Identity & Being',
+          items: [
+            { label: 'Identity', link: '/spec/runtime/identity/' },
             { label: 'Personality', link: '/spec/personality/' },
-            { label: 'Aura & Avatar', link: '/spec/aura-and-avatar/' },
-            { label: 'Events', link: '/spec/events/' },
+            { label: 'Aura & Avatar', link: '/spec/aura-and-avatar/' }
+          ]
+        },
+        {
+          label: 'Runtime Architecture',
+          items: [
+            { label: 'Runtime & Primitives', link: '/spec/runtime/runtime/' },
+            { label: 'Pipelines & Stages', link: '/spec/runtime/pipelines/' },
+            { label: 'Behaviours & Patterns', link: '/spec/runtime/behaviours/' }
+          ]
+        },
+        {
+          label: 'Event & Memory',
+          items: [
+            { label: 'Events', link: '/spec/developer/events/' },
             { label: 'Projections', link: '/spec/projections/' },
-            { label: 'Memory Model', link: '/spec/memory-model/' },
-            { label: 'Plaza MQTT', link: '/spec/plaza-mqtt/' },
-            { label: 'Mesh HTTP', link: '/spec/mesh-http/' },
-            { label: 'Zines', link: '/spec/zines/' },
-            { label: 'Sync Protocol', link: '/spec/sync-protocol/' },
+            { label: 'Memory Model', link: '/spec/memory-model/' }
+          ]
+        },
+        {
+          label: 'Transport & Sync',
+          items: [
+            { label: 'Plaza MQTT', link: '/spec/developer/plaza-mqtt/' },
+            { label: 'Mesh HTTP', link: '/spec/developer/mesh-http/' },
+            { label: 'Sync Protocol', link: '/spec/developer/sync/' }
+          ]
+        },
+        {
+          label: 'Features',
+          items: [
+            { label: 'Zines', link: '/spec/features/zines/' },
+            { label: 'Stash', link: '/spec/features/stash/' },
+            { label: 'World Postcards', link: '/spec/features/world-postcards/' },
+            { label: 'Web UI', link: '/spec/features/web-ui/' }
+          ]
+        },
+        {
+          label: 'Services',
+          items: [
             { label: 'Presence', link: '/spec/presence/' },
-            { label: 'Observations', link: '/spec/observations/' },
-            { label: 'Checkpoints', link: '/spec/checkpoints/' },
-            { label: 'Stash', link: '/spec/stash/' },
-            { label: 'Social Events', link: '/spec/social-events/' },
+            { label: 'Observations', link: '/spec/services/observations/' },
+            { label: 'Checkpoints', link: '/spec/services/checkpoints/' },
+            { label: 'Social Events', link: '/spec/services/social/' },
             { label: 'Clout', link: '/spec/clout/' },
-            { label: 'World Postcards', link: '/spec/world-postcards/' },
-            { label: 'Coordinates (Spec)', link: '/spec/coordinates/' },
+            { label: 'Network Coordinates', link: '/spec/services/coordinates/' }
+          ]
+        },
+        {
+          label: 'Operations & UI',
+          items: [
             { label: 'HTTP API', link: '/spec/http-api/' },
-            { label: 'Web UI', link: '/spec/web-ui/' },
             { label: 'Boot Sequence', link: '/spec/boot-sequence/' },
             { label: 'Configuration', link: '/spec/configuration/' },
-            { label: 'Deployment', link: '/spec/deployment/' },
-            { label: 'Styleguide', link: '/spec/styleguide/' }
+            { label: 'Deployment', link: '/spec/deployment/' }
           ]
         },
         {
           label: 'Developer Section',
           items: [
             { label: 'Developer Guide', link: '/spec/developer-guide/' },
-            { label: 'Runtime & Test Helpers', link: '/spec/developer/runtime/' },
-            { label: 'Pipelines & Stages', link: '/spec/developer/pipelines/' },
-            { label: 'Behaviors & Patterns', link: '/spec/developer/behaviors/' },
+            { label: 'Events Reference', link: '/spec/developer/events/' },
+            { label: 'Sync Protocol', link: '/spec/developer/sync/' },
+            { label: 'Plaza MQTT', link: '/spec/developer/plaza-mqtt/' },
+            { label: 'Mesh HTTP', link: '/spec/developer/mesh-http/' },
             { label: 'Cryptography (Keyring)', link: '/spec/developer/cryptography/' },
             { label: 'Mesh Client', link: '/spec/developer/mesh-client/' },
             { label: 'Sample Service (Stash)', link: '/spec/developer/sample-service/' }
-          ]
-        },
-        {
-          label: 'Concepts',
-          items: [
-            { label: 'Events', link: '/concepts/events/' },
-            { label: 'Sync', link: '/concepts/sync/' },
-            { label: 'Observations', link: '/concepts/observations/' },
-            { label: 'Stash', link: '/concepts/stash/' },
-            { label: 'World Journeys', link: '/concepts/world/' },
-            { label: 'Coordinates', link: '/concepts/coordinates/' },
-            { label: 'Backup & Restore', link: '/concepts/backup/' }
           ]
         },
         {

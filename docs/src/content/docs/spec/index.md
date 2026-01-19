@@ -20,38 +20,40 @@ This document is the **authoritative, re-implementation-grade** specification fo
 ### 1. Identity & Being
 - **[Overview](/docs/spec/overview/)**: Network myth and principles.
 - **[Styleguide](/docs/spec/styleguide/)**: Terminology and aesthetics.
-- **[Identity](/docs/spec/identity/)**: Names, souls, and Ed25519 bonds.
+- **[Identity](/docs/spec/runtime/identity/)**: Names, souls, and Ed25519 bonds.
 - **[Personality](/docs/spec/personality/)**: Deterministic character traits.
 - **[Aura & Avatar](/docs/spec/aura-and-avatar/)**: Visual representation.
 
-### 2. Runtime & Services
-- **[Runtime & Primitives](/docs/spec/developer/runtime/)**: Message primitives, Nara OS, and adapters.
-- **[Stash Service](/docs/spec/stash/)**: Reference implementation for encrypted distributed storage.
+### 2. Runtime Architecture
+- **[Runtime & Primitives](/docs/spec/runtime/runtime/)**: Message primitives, nara OS, and adapters.
+- **[Pipelines & Stages](/docs/spec/runtime/pipelines/)**: Composable message processing.
+- **[Behaviours & Patterns](/docs/spec/runtime/behaviours/)**: Declarative Kind configuration.
 
 ### 3. Event & Memory Model
-- **[Events](/docs/spec/events/)**: Immutable signed facts and ledger.
+- **[Events](/docs/spec/developer/events/)**: Immutable signed facts and ledger.
 - **[Projections](/docs/spec/projections/)**: Deriving state from event streams.
 - **[Memory Model](/docs/spec/memory-model/)**: Pruning, recovery, and forgetting.
 
 ### 4. Transport & Sync
-- **[Plaza (MQTT)](/docs/spec/plaza-mqtt/)**: Public broadcasts and discovery.
-- **[Mesh (HTTP)](/docs/spec/mesh-http/)**: P2P authenticated transport.
-- **[Zines](/docs/spec/zines/)**: Hand-to-hand gossip bundles.
-- **[Sync Protocol](/docs/spec/sync-protocol/)**: Historical reconciliation.
+- **[Plaza (MQTT)](/docs/spec/developer/plaza-mqtt/)**: Public broadcasts and discovery.
+- **[Mesh (HTTP)](/docs/spec/developer/mesh-http/)**: P2P authenticated transport.
+- **[Sync Protocol](/docs/spec/developer/sync/)**: Historical reconciliation.
 
-### 5. Presence & Consensus
+### 5. Features
+- **[Zines](/docs/spec/features/zines/)**: Hand-to-hand gossip bundles.
+- **[Stash](/docs/spec/features/stash/)**: Distributed encrypted storage.
+- **[World Postcards](/docs/spec/features/world-postcards/)**: Signature-chained messages.
+- **[Web UI](/docs/spec/features/web-ui/)**: Real-time dashboard and inspection.
+
+### 6. Services
 - **[Presence](/docs/spec/presence/)**: Discovery and liveness.
-- **[Observations](/docs/spec/observations/)**: Distributed state monitoring.
-- **[Checkpoints](/docs/spec/checkpoints/)**: Multi-sig historical anchors.
-
-### 6. Social & World
-- **[Social Events](/docs/spec/social-events/)**: Teasing, trends, and buzz.
+- **[Observations](/docs/spec/services/observations/)**: Distributed state monitoring.
+- **[Checkpoints](/docs/spec/services/checkpoints/)**: Multi-sig historical anchors.
+- **[Social Events](/docs/spec/services/social/)**: Teasing, trends, and buzz.
 - **[Clout](/docs/spec/clout/)**: Subjective reputation ranking.
-- **[World Postcards](/docs/spec/world-postcards/)**: Signature-chained messages.
-- **[Network Coordinates](/docs/spec/coordinates/)**: Vivaldi latency mapping.
+- **[Network Coordinates](/docs/spec/services/coordinates/)**: Vivaldi latency mapping.
 
 ### 7. Operations & UI
-- **[Web UI](/docs/spec/web-ui/)**: Real-time dashboard and inspection.
 - **[HTTP API](/docs/spec/http-api/)**: Public and Inspector endpoints.
 - **[Boot Sequence](/docs/spec/boot-sequence/)**: Transition to steady-state.
 - **[Configuration](/docs/spec/configuration/)**: Flags and environment variables.
@@ -59,9 +61,10 @@ This document is the **authoritative, re-implementation-grade** specification fo
 
 ### 8. Developer Section
 - **[Developer Guide](/docs/spec/developer-guide/)**: Vision and building services.
-- **[Runtime & Test Helpers](/docs/spec/developer/runtime/)**: The Nara OS and MockRuntime.
-- **[Pipelines & Stages](/docs/spec/developer/pipelines/)**: Composable message processing.
-- **[Behaviors & Patterns](/docs/spec/developer/behaviors/)**: Declarative Kind configuration.
+- **[Events Reference](/docs/spec/developer/events/)**: Event types and structure.
+- **[Sync Protocol](/docs/spec/developer/sync/)**: Sync internals.
+- **[Plaza MQTT](/docs/spec/developer/plaza-mqtt/)**: MQTT implementation details.
+- **[Mesh HTTP](/docs/spec/developer/mesh-http/)**: HTTP mesh details.
 - **[Cryptography (Keyring)](/docs/spec/developer/cryptography/)**: Identity, signing, and self-encryption.
 - **[Mesh Client](/docs/spec/developer/mesh-client/)**: Authenticated P2P HTTP communication.
 - **[Sample Service (Stash)](/docs/spec/developer/sample-service/)**: Reference implementation deep-dive.
