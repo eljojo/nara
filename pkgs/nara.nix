@@ -25,7 +25,7 @@ let
     version = "latest";
     src = lib.cleanSource ../.;
     #npmDepsHash = lib.fakeHash; # DO NOT REMOVE THIS COMMENT
-    npmDepsHash = "sha256-VTGE+l7APw5wOyeOMP3SEIEN5z5nAv+B28f7VEZ4i18=";
+    npmDepsHash = "sha256-G8A/csiE482MOjnuRp/J3np/P9YgEMctQK/5BK41nOk=";
     nativeBuildInputs = [ esbuild gomarkdoc bash ];
 
     makeCacheWritable = true; # necessary for git pull on mermaid dependency
