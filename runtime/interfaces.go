@@ -83,7 +83,6 @@ type KeypairInterface interface {
 // IdentityInterface provides public key lookups for message verification.
 type IdentityInterface interface {
 	LookupPublicKey(id types.NaraID) []byte
-	LookupPublicKeyByName(name types.NaraName) []byte
 	RegisterPublicKey(id types.NaraID, key []byte)
 }
 

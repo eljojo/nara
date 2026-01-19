@@ -25,8 +25,6 @@ func (network *Network) initRuntime() error {
 	transportAdapter := NewTransportAdapter(network)
 	keypairAdapter := NewKeypairAdapter(network.local.Keypair)
 	eventBusAdapter := NewEventBusAdapter()
-	// Identity adapter is available but not yet wired into runtime (will be in Chapter 2)
-	_ = NewIdentityAdapter(network)
 
 	// Create ledger adapter (uses existing sync ledger)
 	ledgerAdapter := &LedgerAdapter{

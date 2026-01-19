@@ -125,11 +125,6 @@ func (a *IdentityAdapter) LookupPublicKey(id types.NaraID) []byte {
 	return a.network.getPublicKeyForNaraID(id)
 }
 
-// LookupPublicKeyByName looks up a public key by nara name.
-func (a *IdentityAdapter) LookupPublicKeyByName(name types.NaraName) []byte {
-	return a.network.getPublicKeyForNara(name)
-}
-
 // RegisterPublicKey registers a public key for a nara ID.
 //
 // This updates the network's neighbourhood map.
