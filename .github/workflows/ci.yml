@@ -24,7 +24,6 @@ jobs:
   build:
     name: Build with Nix
     runs-on: ubuntu-latest
-    needs: test
     if: github.ref != 'refs/heads/main' || github.event_name != 'push'
     steps:
       - uses: actions/checkout@v6
@@ -55,7 +54,6 @@ jobs:
   publish-and-deploy:
     name: Publish & Deploy
     runs-on: ubuntu-latest
-    needs: test
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     permissions:
       contents: read
