@@ -113,20 +113,12 @@ func (s *Service) handleStoreV1(msg *runtime.Message, p *messages.StashStorePayl
 
 // handleStoreAckV1 handles stash:ack responses.
 //
-// This is called when a confidant acknowledges our store request.
-// We use the correlator to match this to the pending request.
+// Note: Most acks are handled automatically by the runtime's CallRegistry
+// (when the ack is a response to our Call() request). This handler only
+// runs for acks that don't match a pending call.
 func (s *Service) handleStoreAckV1(msg *runtime.Message, p *messages.StashStoreAck) {
-	s.log.Info("received store ack from %s (InReplyTo: %s, Success: %v)", msg.FromID, msg.InReplyTo, p.Success)
-
-	// Match to pending request via correlator
-	// The correlator uses msg.InReplyTo to find the original request
-	matched := s.storeCorrelator.Receive(msg.InReplyTo, *p)
-
-	if !matched {
-		s.log.Warn("received unexpected store ack from %s (no pending request, InReplyTo: %s)", msg.FromID, msg.InReplyTo)
-	} else {
-		s.log.Info("successfully matched ack to pending request %s", msg.InReplyTo)
-	}
+	// This should rarely happen - acks are normally handled by CallRegistry
+	s.log.Debug("received unexpected store ack from %s (InReplyTo: %s, Success: %v)", msg.FromID, msg.InReplyTo, p.Success)
 }
 
 // handleRequestV1 handles stash:request messages.
@@ -157,19 +149,16 @@ func (s *Service) handleRequestV1(msg *runtime.Message, p *messages.StashRequest
 
 // handleResponseV1 handles stash:response messages.
 //
-// This is called when a confidant sends us our stash back.
+// Note: Most responses are handled automatically by the runtime's CallRegistry
+// (when the response is to our Call() request). This handler only runs for
+// responses that don't match a pending call - typically proactive recovery
+// from the "hey-there" flow.
 func (s *Service) handleResponseV1(msg *runtime.Message, p *messages.StashResponsePayload) {
 	s.log.Debug("received response from %s (found=%v)", msg.FromID, p.Found)
 
-	// Try to match to pending request via correlator first
-	// This handles explicit RequestFrom() calls
-	matched := s.requestCorrelator.Receive(msg.InReplyTo, *p)
-	if matched {
-		return
-	}
-
-	// If not matched, check if it's a proactive recovery (hey-there flow)
-	// If we have no stash, we accept authoritative pushes from confidants
+	// This handler only runs for responses that didn't match a pending Call.
+	// Check if it's a proactive recovery (hey-there flow).
+	// If we have no stash, we accept authoritative pushes from confidants.
 	if !s.HasStashData() && p.Found && len(p.Ciphertext) > 0 {
 		s.log.Info("received proactive stash recovery from %s", msg.FromID)
 
@@ -180,12 +169,9 @@ func (s *Service) handleResponseV1(msg *runtime.Message, p *messages.StashRespon
 		return
 	}
 
-	// Only warn if we're not in recovery mode and it wasn't a proactive push
-	if !s.HasStashData() {
-		// matches proactive push criteria but failed something?
-		// actually if it didn't match proactive criteria (e.g. not found or empty), we might just ignore it
-	} else {
-		s.log.Warn("received unexpected response from %s (no pending request)", msg.FromID)
+	// Not a proactive recovery - this is unexpected
+	if s.HasStashData() {
+		s.log.Debug("received unexpected response from %s (we already have stash data)", msg.FromID)
 	}
 }
 

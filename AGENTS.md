@@ -63,7 +63,7 @@ Code is organized by **domain prefix** in a flat directory structure. All Go fil
 | `memory_` | Memory management | `memory.go` |
 | `runtime/` | Runtime system (NEW) | `runtime.go`, `message.go`, `behavior.go`, `pipeline.go`, `interfaces.go`, `mock_runtime.go` |
 | `services/` | Runtime-based services | `services/stash/` |
-| `utilities/` | Service utilities | `utilities/encryptor.go`, `utilities/correlator.go`, `utilities/id.go` |
+| `utilities/` | Service utilities | `utilities/keyring/` |
 | `messages/` | Message payloads | `messages/stash.go` |
 | `runtime_*.go` | Runtime integration | `runtime_integration.go`, `runtime_adapters.go` |
 
@@ -77,7 +77,7 @@ Code is organized by **domain prefix** in a flat directory structure. All Go fil
 - **Messages**: Universal primitive for all communication (events, requests, internal messages)
 - **Behaviors**: Declarative configuration for how each message kind is handled
 - **Pipelines**: Composable chains of stages (ID → Sign → Store → Transport)
-- **Utilities**: Shared helpers like Encryptor, Correlator, ID generation
+- **Call**: Request/response primitive built into runtime (replaces Correlator)
 
 **What's implemented:**
 - ✅ Runtime foundation (`runtime/`)

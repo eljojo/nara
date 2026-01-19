@@ -7,6 +7,7 @@ import (
 	"io"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/eljojo/nara/types"
 	"golang.org/x/crypto/chacha20poly1305"
@@ -29,6 +30,7 @@ type MockRuntime struct {
 	env        Environment
 	behaviors  map[string]*Behavior
 	memoryMode string // Configurable for tests (default: "normal")
+	calls      *CallRegistry
 }
 
 // NewMockRuntime creates a mock runtime with auto-cleanup via t.Cleanup().
@@ -45,6 +47,7 @@ func NewMockRuntime(t *testing.T, name types.NaraName, id types.NaraID) *MockRun
 		pubKeys:   make(map[string][]byte),
 		env:       EnvTest,
 		behaviors: make(map[string]*Behavior),
+		calls:     NewCallRegistry(),
 	}
 
 	t.Cleanup(func() {
@@ -125,6 +128,34 @@ func (m *MockRuntime) Identity() IdentityInterface {
 	return m // MockRuntime implements IdentityInterface
 }
 
+// Call emits a message and tracks for response correlation.
+func (m *MockRuntime) Call(msg *Message, timeout time.Duration) <-chan CallResult {
+	ch := make(chan CallResult, 1)
+
+	// Ensure message has an ID
+	if msg.ID == "" {
+		msg.ID = ComputeID(msg)
+	}
+
+	// Register the pending call
+	m.calls.Register(msg.ID, ch, timeout)
+
+	// Emit the message (captures for assertions)
+	if err := m.Emit(msg); err != nil {
+		m.calls.Cancel(msg.ID)
+		ch <- CallResult{Error: err}
+		return ch
+	}
+
+	return ch
+}
+
+// ResolveCall allows tests to simulate a response arriving.
+// Call this after checking Emitted to simulate the response.
+func (m *MockRuntime) ResolveCall(inReplyTo string, response *Message) bool {
+	return m.calls.Resolve(inReplyTo, response)
+}
+
 // === IdentityInterface implementation ===
 
 func (m *MockRuntime) LookupPublicKey(id types.NaraID) []byte {
@@ -144,8 +175,20 @@ func (m *MockRuntime) RegisterPublicKey(id types.NaraID, key []byte) {
 
 // Deliver simulates receiving a message (calls behavior handlers).
 //
+// If the message has InReplyTo set, it first checks if there's a pending
+// Call waiting for that response (simulating how the real runtime works).
+// If the call is resolved, the handler is NOT invoked.
+//
 // Use this to test how a service reacts to incoming messages.
 func (m *MockRuntime) Deliver(msg *Message) {
+	// Check if this is a response to a pending Call (same as real runtime)
+	if msg.InReplyTo != "" {
+		if m.calls.Resolve(msg.InReplyTo, msg) {
+			return // Handled as call response, don't invoke handler
+		}
+		// Not a pending call - fall through to normal handling
+	}
+
 	// Look up behavior in local registry
 	behavior := m.behaviors[msg.Kind]
 	if behavior == nil {

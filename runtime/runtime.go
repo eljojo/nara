@@ -105,7 +105,7 @@ func NewRuntime(cfg RuntimeConfig) *Runtime {
 		env:            env,
 		ctx:            ctx,
 		cancel:         cancel,
-		calls:          &CallRegistry{pending: make(map[string]*pendingCall)},
+		calls:          NewCallRegistry(),
 		localBehaviors: make(map[string]*Behavior),
 	}
 
@@ -215,6 +215,38 @@ func (rt *Runtime) Emit(msg *Message) error {
 	}
 
 	return nil
+}
+
+// Call emits a message and waits for a reply.
+//
+// This is the request/response primitive. The message is emitted, and the
+// runtime tracks it so that when a response arrives (via InReplyTo), the
+// caller gets notified.
+func (rt *Runtime) Call(msg *Message, timeout time.Duration) <-chan CallResult {
+	ch := make(chan CallResult, 1)
+
+	// Ensure timestamp is set (required for ID computation)
+	if msg.Timestamp.IsZero() {
+		msg.Timestamp = time.Now()
+	}
+
+	// Ensure message has an ID before registering
+	if msg.ID == "" {
+		msg.ID = ComputeID(msg)
+	}
+
+	// Register the pending call
+	rt.calls.Register(msg.ID, ch, timeout)
+
+	// Emit the message
+	if err := rt.Emit(msg); err != nil {
+		// Failed to emit - cancel pending and return error
+		rt.calls.Cancel(msg.ID)
+		ch <- CallResult{Error: err}
+		return ch
+	}
+
+	return ch
 }
 
 // Receive processes an incoming message through the receive pipeline.

@@ -20,7 +20,11 @@ Opt-in utilities that services can use. These are NOT baked into the runtime - s
 
 ## Phase 5 Utilities (Needed for Stash)
 
-### 1. Correlator (Request/Response)
+### 1. ~~Correlator~~ → CallRegistry (Request/Response)
+
+> **IMPLEMENTED:** Correlator has been replaced by `CallRegistry` in the runtime.
+> Services now use `rt.Call(msg, timeout)` instead of a separate Correlator utility.
+> See `runtime/interfaces.go` for CallRegistry implementation.
 
 **Purpose:** Track pending requests and match responses.
 

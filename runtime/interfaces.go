@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"errors"
+	"sync"
 	"time"
 
 	"github.com/eljojo/nara/types"
@@ -33,6 +35,9 @@ type RuntimeInterface interface {
 	// Runtime guarantees these are always non-nil.
 	Keypair() KeypairInterface
 	Identity() IdentityInterface
+
+	// Request/response (Call emits and waits for a reply)
+	Call(msg *Message, timeout time.Duration) <-chan CallResult
 }
 
 // PeerInfo contains information about a network peer.
@@ -214,26 +219,85 @@ type BehaviorRegistry interface {
 	RegisterBehavior(b *Behavior)
 }
 
-// CallRegistry manages pending Call requests (Chapter 3).
+// CallRegistry manages pending Call requests.
+//
+// This is the central request/response correlation system. When a service
+// calls rt.Call(msg, timeout), the registry tracks the pending request and
+// matches incoming responses via InReplyTo.
 type CallRegistry struct {
-	// Implementation in Chapter 3
 	pending map[string]*pendingCall
+	mu      sync.Mutex
 }
 
 type pendingCall struct {
-	ch      chan CallResult //nolint:unused // Will be used in Chapter 3
-	expires time.Time       //nolint:unused // Will be used in Chapter 3
+	ch      chan CallResult
+	sentAt  time.Time
+	expires time.Time
 }
 
+// NewCallRegistry creates a new call registry.
+func NewCallRegistry() *CallRegistry {
+	r := &CallRegistry{
+		pending: make(map[string]*pendingCall),
+	}
+	go r.reapLoop()
+	return r
+}
+
+// Register adds a pending call to track.
 func (r *CallRegistry) Register(id string, ch chan CallResult, timeout time.Duration) {
-	// Implementation in Chapter 3
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.pending[id] = &pendingCall{
+		ch:      ch,
+		sentAt:  time.Now(),
+		expires: time.Now().Add(timeout),
+	}
 }
 
+// Resolve matches an incoming response to a pending call.
+// Returns true if a pending call was found and resolved.
 func (r *CallRegistry) Resolve(inReplyTo string, response *Message) bool {
-	// Implementation in Chapter 3
+	r.mu.Lock()
+	pending, ok := r.pending[inReplyTo]
+	if ok {
+		delete(r.pending, inReplyTo)
+	}
+	r.mu.Unlock()
+
+	if ok {
+		pending.ch <- CallResult{Response: response}
+		return true
+	}
+
 	return false
 }
 
+// Cancel removes a pending call without resolving it.
 func (r *CallRegistry) Cancel(id string) {
-	// Implementation in Chapter 3
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.pending, id)
 }
+
+// reapLoop cleans up timed-out requests.
+func (r *CallRegistry) reapLoop() {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		r.mu.Lock()
+		now := time.Now()
+		for id, req := range r.pending {
+			if now.After(req.expires) {
+				req.ch <- CallResult{Error: ErrCallTimeout}
+				delete(r.pending, id)
+			}
+		}
+		r.mu.Unlock()
+	}
+}
+
+// ErrCallTimeout is returned when a call times out.
+var ErrCallTimeout = errors.New("call timed out")

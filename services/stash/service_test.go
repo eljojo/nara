@@ -106,7 +106,7 @@ func TestStashStoreAndAck(t *testing.T) {
 		t.Fatal("ciphertext is empty")
 	}
 
-	// Deliver the ack back to Alice
+	// Deliver the ack back to Alice (will auto-resolve pending Call)
 	aliceRT.Deliver(ackMsg)
 
 	// Alice's StoreWith should complete
@@ -223,7 +223,7 @@ func TestStashRequestAndResponse(t *testing.T) {
 		t.Fatalf("expected OwnerID=alice-id-123, got %s", respPayload.OwnerID)
 	}
 
-	// Deliver the response back to Alice
+	// Deliver the response back to Alice (will auto-resolve pending Call)
 	aliceRT.Deliver(responseMsg)
 
 	// Alice's RequestFrom should complete with decrypted data
@@ -297,7 +297,7 @@ func TestStashRequestNotFound(t *testing.T) {
 		t.Fatal("expected Found=false")
 	}
 
-	// Deliver the response back to Alice
+	// Deliver the response back to Alice (will auto-resolve pending Call)
 	aliceRT.Deliver(responseMsg)
 
 	// Alice's RequestFrom should return an error

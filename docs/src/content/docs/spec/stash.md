@@ -7,14 +7,14 @@ Stash is the reference implementation of a nara runtime service. It provides enc
 
 ## 1. Purpose
 - Enable naras to survive restarts without local disk persistence by "stashing" their state on peers. See the **[Memory Model](/docs/spec/memory-model/)** for the "Hazy Memory" context.
-- Provide a blueprint for runtime services using typed messages, correlators, and versioned handlers. See **[Behaviors & Patterns](/docs/spec/developer/behaviors/)**.
+- Provide a blueprint for runtime services using typed messages, Call() for request/response, and versioned handlers. See **[Behaviors & Patterns](/docs/spec/developer/behaviors/)**.
 - Ensure that only the owner of a stash can ever decrypt it.
 
 ## 2. Conceptual Model
 - **Owner**: The nara whose state is being stored.
 - **Confidant**: A peer that holds an `EncryptedStash` for an owner.
 - **EncryptedStash**: A record containing `OwnerID`, `Nonce`, `Ciphertext`, and a `StoredAt` timestamp.
-- **Correlator**: A utility to track asynchronous request/response pairs (e.g., `store` -> `ack`).
+- **Call**: Runtime primitive for request/response pairs (e.g., `store` -> `ack`). Services call `rt.Call(msg, timeout)` and receive responses via `InReplyTo` matching.
 - **Encryptor**: Derived from the owner's seed; uses XChaCha20-Poly1305.
 
 ### Invariants
@@ -71,12 +71,12 @@ Stash is the reference implementation of a nara runtime service. It provides enc
   - Seed: 32-byte private seed (derived from Ed25519 key).
 - **Encryption**: `Seal(plaintext)` generates a random 24-byte nonce and appends the Poly1305 tag to the ciphertext.
 
-### Correlation (Request/Response)
-- Every request generates a `Message.ID`.
-- The `Correlator` stores a channel keyed by this `ID`.
+### Request/Response (Call)
+- Services use `rt.Call(msg, timeout)` for request/response patterns.
+- The runtime's `CallRegistry` tracks pending calls by `Message.ID`.
 - The response MUST set `InReplyTo` to the request's `ID`.
-- The `Correlator` resolves the response to the waiting channel.
-- Timeout: 30 seconds.
+- When a response arrives, the runtime matches `InReplyTo` and resolves the pending call.
+- Default timeout: 30 seconds.
 
 ### Recovery Workflow
 1. Emit `stash-refresh` on MQTT.
@@ -84,7 +84,7 @@ Stash is the reference implementation of a nara runtime service. It provides enc
 3. Owner receives `stash:response`, matches via `InReplyTo` (or direct handling), and decrypts.
 
 ## 7. Failure Modes
-- **Transport Error**: If the mesh target is unreachable, the correlator times out.
+- **Transport Error**: If the mesh target is unreachable, the Call times out.
 - **Decryption Error**: If the owner's seed changes or ciphertext is corrupted, `Open` fails.
 - **Missing Stash**: If a confidant doesn't have the requested record, it replies with `Found: false`.
 - **Invalid Payload**: malformed store/request payloads result in failure acks or ignored messages.

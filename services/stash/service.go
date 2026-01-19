@@ -10,7 +10,6 @@ import (
 	"github.com/eljojo/nara/messages"
 	"github.com/eljojo/nara/runtime"
 	"github.com/eljojo/nara/types"
-	"github.com/eljojo/nara/utilities"
 )
 
 // NOTE: Encryption is provided by runtime.Seal/Open which delegates to NaraKeypair.
@@ -36,10 +35,6 @@ type Service struct {
 	myStashData      []byte // Arbitrary JSON payload
 	myStashTimestamp int64  // When it was last updated
 
-	// Request/response correlation
-	storeCorrelator   *utilities.Correlator[messages.StashStoreAck]
-	requestCorrelator *utilities.Correlator[messages.StashResponsePayload]
-
 	// Lifecycle
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -56,11 +51,9 @@ type EncryptedStash struct {
 // NewService creates a new stash service.
 func NewService() *Service {
 	return &Service{
-		stored:            make(map[types.NaraID]*EncryptedStash),
-		confidants:        make([]types.NaraID, 0),
-		targetConfidants:  3, // Default: 3 confidants for redundancy
-		storeCorrelator:   utilities.NewCorrelator[messages.StashStoreAck](30 * time.Second),
-		requestCorrelator: utilities.NewCorrelator[messages.StashResponsePayload](30 * time.Second),
+		stored:           make(map[types.NaraID]*EncryptedStash),
+		confidants:       make([]types.NaraID, 0),
+		targetConfidants: 3, // Default: 3 confidants for redundancy
 	}
 }
 
@@ -123,14 +116,20 @@ func (s *Service) StoreWith(confidantID types.NaraID, data []byte) error {
 		},
 	}
 
-	// Send and wait for ack
-	result := <-s.storeCorrelator.Send(s.rt, msg)
-	if result.Err != nil {
-		return fmt.Errorf("store request: %w", result.Err)
+	// Send and wait for ack (30 second timeout)
+	result := <-s.rt.Call(msg, 30*time.Second)
+	if result.Error != nil {
+		return fmt.Errorf("store request: %w", result.Error)
 	}
 
-	if !result.Response.Success {
-		return fmt.Errorf("store failed: %s", result.Response.Reason)
+	// Extract payload from response
+	ack, ok := result.Response.Payload.(*messages.StashStoreAck)
+	if !ok {
+		return fmt.Errorf("unexpected response type: %T", result.Response.Payload)
+	}
+
+	if !ack.Success {
+		return fmt.Errorf("store failed: %s", ack.Reason)
 	}
 
 	s.log.Info("stored stash with %s", confidantID)
@@ -148,22 +147,28 @@ func (s *Service) RequestFrom(confidantID types.NaraID) ([]byte, error) {
 		ToID:    confidantID,
 		Payload: &messages.StashRequestPayload{
 			OwnerID:   s.rt.MeID(),
-			RequestID: "", // Correlator will use msg.ID
+			RequestID: "", // Runtime will use msg.ID
 		},
 	}
 
-	// Send and wait for response
-	result := <-s.requestCorrelator.Send(s.rt, msg)
-	if result.Err != nil {
-		return nil, fmt.Errorf("request: %w", result.Err)
+	// Send and wait for response (30 second timeout)
+	result := <-s.rt.Call(msg, 30*time.Second)
+	if result.Error != nil {
+		return nil, fmt.Errorf("request: %w", result.Error)
 	}
 
-	if !result.Response.Found {
+	// Extract payload from response
+	resp, ok := result.Response.Payload.(*messages.StashResponsePayload)
+	if !ok {
+		return nil, fmt.Errorf("unexpected response type: %T", result.Response.Payload)
+	}
+
+	if !resp.Found {
 		return nil, fmt.Errorf("confidant %s has no stash for us", confidantID)
 	}
 
 	// Decrypt using keypair
-	plaintext, err := s.keypair.Open(result.Response.Nonce, result.Response.Ciphertext)
+	plaintext, err := s.keypair.Open(resp.Nonce, resp.Ciphertext)
 	if err != nil {
 		return nil, fmt.Errorf("decrypt: %w", err)
 	}

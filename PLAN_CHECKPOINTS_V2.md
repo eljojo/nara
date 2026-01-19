@@ -1,5 +1,9 @@
 # Implementation Plan: Nara Runtime Architecture
 
+> **STATUS UPDATE (2026-01):** Chapter 1 is complete. The `Correlator` utility has been replaced
+> by `CallRegistry` built into the runtime. Services now use `rt.Call(msg, timeout)` instead of
+> separate Correlator instances. The `utilities/correlator.go` file has been deleted.
+
 A step-by-step guide for implementing the runtime architecture defined in `DESIGN_NARA_RUNTIME.md`.
 
 ---

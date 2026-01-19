@@ -919,9 +919,13 @@ func (s *ImportanceFilterStage) Process(msg *Message, ctx *PipelineContext) Stag
 
 Utilities that services can opt into. Not part of the runtime core, but provided to make common patterns easy.
 
-### Correlator: Request/Response Pattern
+### ~~Correlator~~ → CallRegistry: Request/Response Pattern
 
-For services that need request/response semantics (like stash), the `Correlator` tracks pending requests and matches responses:
+> **IMPLEMENTED:** Correlator has been replaced by `CallRegistry` built into the runtime.
+> Services now use `rt.Call(msg, timeout)` which returns `<-chan CallResult`.
+> The runtime automatically matches responses via `InReplyTo`.
+
+For services that need request/response semantics (like stash), the runtime's `CallRegistry` tracks pending requests and matches responses:
 
 ```go
 // correlator.go - a utility, not part of runtime core
@@ -1067,7 +1071,7 @@ func (s *StashService) handleStoreRequest(msg *Message) {
 **Key properties:**
 - **Opt-in** — services choose to use it
 - **Type-safe** — generic over response type
-- **Timeouts built-in** — configurable per correlator
+- **Timeouts built-in** — configurable per Call
 - **Non-blocking option** — use channel select for async
 - **No runtime changes** — just a utility library
 
@@ -1813,7 +1817,7 @@ sequenceDiagram
     Bob->>BRT: rt.Emit(stash:ack)
     BRT->>HTTP: POST /mesh/message
     HTTP->>ART: Receive ack
-    ART->>ART: Match InReplyTo → correlator
+    ART->>ART: Match InReplyTo → CallRegistry
     ART->>Alice: Resolve pending request
     Alice->>Alice: StoreWith() returns success
 ```
@@ -2401,7 +2405,7 @@ build-web: docs
   - Seal() and Open() methods
   - Seed-based key derivation
 
-- ✅ **Correlator** (`utilities/correlator.go`)
+- ✅ **CallRegistry** (`runtime/interfaces.go`) - replaces Correlator
   - Generic request/response correlation
   - Timeout-based expiration
   - Send() with channel-based response
@@ -2466,12 +2470,12 @@ build-web: docs
 2. **Services can register behaviors** with declarative configuration
 3. **Messages flow through pipelines** with explicit stage results
 4. **Encryption is handled by utilities** independent of transport
-5. **Request/response correlation** works via Correlator utility
+5. **Request/response correlation** works via `rt.Call()` and CallRegistry
 6. **Tests isolate properly** with behavior registry clearing
 
 #### Known Limitations
 
-1. **Tests partially complete** - Some stash tests timeout due to correlator integration issues with mock runtime
+1. **Tests complete** - MockRuntime.Deliver() auto-resolves pending Call() requests via InReplyTo
 2. **Receive pipeline stubbed** - Full receive pipeline implementation deferred to Chapter 2
 3. **Transport stages incomplete** - MQTT/mesh transport integration deferred to Chapter 2
 4. **Ledger integration minimal** - LedgerAdapter Add/HasID methods stubbed
