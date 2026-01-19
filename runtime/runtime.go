@@ -491,12 +491,18 @@ func (rt *Runtime) invokeHandler(msg *Message, behavior *Behavior) {
 		return
 	}
 
-	// Reflection call: handler(msg, msg.Payload)
+	// Reflection call: handler(msg, msg.Payload) -> error
 	handlerVal := reflect.ValueOf(handler)
-	handlerVal.Call([]reflect.Value{
+	results := handlerVal.Call([]reflect.Value{
 		reflect.ValueOf(msg),
 		reflect.ValueOf(msg.Payload),
 	})
+
+	// Check for error return
+	if len(results) > 0 && !results[0].IsNil() {
+		err := results[0].Interface().(error)
+		rt.applyErrorStrategy(msg, "handler", err, behavior.Receive.OnError)
+	}
 }
 
 // === Error handling ===

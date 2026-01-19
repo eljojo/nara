@@ -37,14 +37,14 @@ func buildStashResponse(ownerID types.NaraID, requestID string, stash *Encrypted
 //
 // When someone broadcasts a refresh request, we check if we have their stash
 // and if so, we send it back to them directly via mesh.
-func (s *Service) handleRefreshV1(msg *runtime.Message, p *messages.StashRefreshPayload) {
+func (s *Service) handleRefreshV1(msg *runtime.Message, p *messages.StashRefreshPayload) error {
 	s.Log.Debug("received refresh request from %s", p.OwnerID)
 
 	// Check if we have a stash for this owner
 	stash := s.GetStoredStash(p.OwnerID)
 	if stash == nil {
 		s.Log.Debug("no stash for %s", p.OwnerID)
-		return
+		return nil
 	}
 
 	// Send the stash back via mesh
@@ -55,16 +55,17 @@ func (s *Service) handleRefreshV1(msg *runtime.Message, p *messages.StashRefresh
 	}
 
 	if err := s.RT.Emit(response); err != nil {
-		s.Log.Error("failed to send stash response: %v", err)
-	} else {
-		s.Log.Info("sent stash to %s (%d bytes)", p.OwnerID, len(stash.Ciphertext))
+		return fmt.Errorf("send stash response: %w", err)
 	}
+
+	s.Log.Info("sent stash to %s (%d bytes)", p.OwnerID, len(stash.Ciphertext))
+	return nil
 }
 
 // handleStoreV1 handles stash:store requests.
 //
 // Someone wants to store their encrypted stash with us (we're their confidant).
-func (s *Service) handleStoreV1(msg *runtime.Message, p *messages.StashStorePayload) {
+func (s *Service) handleStoreV1(msg *runtime.Message, p *messages.StashStorePayload) error {
 	s.Log.Info("received store request from %s (msgID: %s)", p.OwnerID, msg.ID)
 
 	// Validate payload
@@ -78,9 +79,9 @@ func (s *Service) handleStoreV1(msg *runtime.Message, p *messages.StashStorePayl
 			Reason:   err.Error(),
 			StoredAt: time.Now().Unix(),
 		})); emitErr != nil {
-			s.Log.Error("failed to send validation failure ack: %v", emitErr)
+			return fmt.Errorf("send validation failure ack: %w", emitErr)
 		}
-		return
+		return nil // Validation error is not a handler error - we handled it
 	}
 
 	// Check storage limit (allow updates for existing owners)
@@ -93,9 +94,9 @@ func (s *Service) handleStoreV1(msg *runtime.Message, p *messages.StashStorePayl
 			Reason:   "storage limit reached",
 			StoredAt: time.Now().Unix(),
 		})); err != nil {
-			s.Log.Error("failed to send storage limit ack: %v", err)
+			return fmt.Errorf("send storage limit ack: %w", err)
 		}
-		return
+		return nil // Limit reached is not a handler error - we handled it
 	}
 
 	// Store the encrypted stash
@@ -103,16 +104,16 @@ func (s *Service) handleStoreV1(msg *runtime.Message, p *messages.StashStorePayl
 
 	s.Log.Info("sending success ack to %s (InReplyTo: %s)", p.OwnerID, msg.ID)
 	// Send success ack
-	err := s.RT.Emit(msg.Reply("stash:ack", &messages.StashStoreAck{
+	if err := s.RT.Emit(msg.Reply("stash:ack", &messages.StashStoreAck{
 		OwnerID:  p.OwnerID,
 		Success:  true,
 		StoredAt: time.Now().Unix(),
-	}))
-	if err != nil {
-		s.Log.Error("failed to send ack: %v", err)
-	} else {
-		s.Log.Info("ack sent successfully to %s", p.OwnerID)
+	})); err != nil {
+		return fmt.Errorf("send success ack: %w", err)
 	}
+
+	s.Log.Info("ack sent successfully to %s", p.OwnerID)
+	return nil
 }
 
 // handleStoreAckV1 handles stash:ack responses.
@@ -120,42 +121,43 @@ func (s *Service) handleStoreV1(msg *runtime.Message, p *messages.StashStorePayl
 // Note: Most acks are handled automatically by the runtime's CallRegistry
 // (when the ack is a response to our Call() request). This handler only
 // runs for acks that don't match a pending call.
-func (s *Service) handleStoreAckV1(msg *runtime.Message, p *messages.StashStoreAck) {
+func (s *Service) handleStoreAckV1(msg *runtime.Message, p *messages.StashStoreAck) error {
 	// This should rarely happen - acks are normally handled by CallRegistry
 	s.Log.Debug("received unexpected store ack from %s (InReplyTo: %s, Success: %v)", msg.FromID, msg.InReplyTo, p.Success)
+	return nil
 }
 
 // handleRequestV1 handles stash:request messages.
 //
 // Someone is asking for their stash that we're storing.
-func (s *Service) handleRequestV1(msg *runtime.Message, p *messages.StashRequestPayload) {
+func (s *Service) handleRequestV1(msg *runtime.Message, p *messages.StashRequestPayload) error {
 	s.Log.Debug("received request from %s", p.OwnerID)
 
 	// Validate
 	if err := p.Validate(); err != nil {
 		s.Log.Warn("invalid request from %s: %v", p.OwnerID, err)
 		if emitErr := s.RT.Emit(msg.Reply("stash:response", buildStashResponse(p.OwnerID, p.RequestID, nil))); emitErr != nil {
-			s.Log.Error("failed to send validation failure response: %v", emitErr)
+			return fmt.Errorf("send validation failure response: %w", emitErr)
 		}
-		return
+		return nil // Validation error handled
 	}
 
 	stash := s.GetStoredStash(p.OwnerID)
 	if stash == nil {
 		s.Log.Warn("request failed: no stash found for %s", p.OwnerID)
 		if emitErr := s.RT.Emit(msg.Reply("stash:response", buildStashResponse(p.OwnerID, p.RequestID, nil))); emitErr != nil {
-			s.Log.Error("failed to send not-found response: %v", emitErr)
+			return fmt.Errorf("send not-found response: %w", emitErr)
 		}
-		return
+		return nil // Not-found handled
 	}
 
 	// Send the stash back
 	if err := s.RT.Emit(msg.Reply("stash:response", buildStashResponse(p.OwnerID, p.RequestID, stash))); err != nil {
-		s.Log.Error("failed to send stash response: %v", err)
-		return
+		return fmt.Errorf("send stash response: %w", err)
 	}
 
 	s.Log.Info("sent stash to %s (%d bytes)", p.OwnerID, len(stash.Ciphertext))
+	return nil
 }
 
 // handleResponseV1 handles stash:response messages.
@@ -164,7 +166,7 @@ func (s *Service) handleRequestV1(msg *runtime.Message, p *messages.StashRequest
 // (when the response is to our Call() request). This handler only runs for
 // responses that don't match a pending call - typically proactive recovery
 // from the "hey-there" flow.
-func (s *Service) handleResponseV1(msg *runtime.Message, p *messages.StashResponsePayload) {
+func (s *Service) handleResponseV1(msg *runtime.Message, p *messages.StashResponsePayload) error {
 	s.Log.Debug("received response from %s (found=%v)", msg.FromID, p.Found)
 
 	// This handler only runs for responses that didn't match a pending Call.
@@ -175,15 +177,16 @@ func (s *Service) handleResponseV1(msg *runtime.Message, p *messages.StashRespon
 
 		// Decrypt and set as our local stash
 		if err := s.handleRecoveryPayload(p); err != nil {
-			s.Log.Error("failed to process proactive recovery: %v", err)
+			return fmt.Errorf("process proactive recovery: %w", err)
 		}
-		return
+		return nil
 	}
 
 	// Not a proactive recovery - this is unexpected
 	if s.HasStashData() {
 		s.Log.Debug("received unexpected response from %s (we already have stash data)", msg.FromID)
 	}
+	return nil
 }
 
 // handleRecoveryPayload processes a recovery payload (decryption and storage).

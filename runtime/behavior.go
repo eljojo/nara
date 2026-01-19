@@ -34,7 +34,7 @@ type Behavior struct {
 	PayloadTypes   map[int]reflect.Type // Payload type per version (required)
 
 	// Version-specific handlers (typed via TypedHandler helper)
-	// Each handler has signature: func(*Message, *PayloadType)
+	// Each handler has signature: func(*Message, *PayloadType) error
 	Handlers map[int]any
 
 	// ContentKey derivation (nil = no content key)
@@ -62,7 +62,7 @@ type ReceiveBehavior struct {
 	RateLimit Stage         // Rate limiting (optional)
 	Filter    Stage         // Personality filter (optional)
 	Store     Stage         // How to store (can differ from emit!)
-	OnError   ErrorStrategy // What to do on failure
+	OnError   ErrorStrategy // What to do on pipeline or handler failure
 }
 
 // === Base Defaults (copy and override) ===
@@ -193,7 +193,7 @@ func (b *Behavior) WithHandler(version int, fn any) *Behavior {
 }
 
 // TypedHandler wraps a typed handler function for the registry.
-func TypedHandler[T any](fn func(*Message, *T)) any {
+func TypedHandler[T any](fn func(*Message, *T) error) any {
 	return fn
 }
 

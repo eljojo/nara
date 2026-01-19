@@ -184,12 +184,13 @@ func (m *MockRuntime) RegisterPublicKey(id types.NaraID, key []byte) {
 // Call waiting for that response (simulating how the real runtime works).
 // If the call is resolved, the handler is NOT invoked.
 //
+// Returns the error from the handler (if any) so tests can assert on it.
 // Use this to test how a service reacts to incoming messages.
-func (m *MockRuntime) Deliver(msg *Message) {
+func (m *MockRuntime) Deliver(msg *Message) error {
 	// Check if this is a response to a pending Call (same as real runtime)
 	if msg.InReplyTo != "" {
 		if m.calls.Resolve(msg.InReplyTo, msg) {
-			return // Handled as call response, don't invoke handler
+			return nil // Handled as call response, don't invoke handler
 		}
 		// Not a pending call - fall through to normal handling
 	}
@@ -198,28 +199,34 @@ func (m *MockRuntime) Deliver(msg *Message) {
 	behavior := m.behaviors[msg.Kind]
 	if behavior == nil {
 		m.t.Fatalf("no behavior registered for kind %s", msg.Kind)
-		return
+		return nil
 	}
 
 	// Find version-specific handler
 	handler := behavior.Handlers[msg.Version]
 	if handler == nil {
 		m.t.Fatalf("no handler for %s v%d", msg.Kind, msg.Version)
-		return
+		return nil
 	}
 
 	// Invoke handler using reflection (same as real runtime)
-	// Handler signature: func(*Message, *PayloadType)
+	// Handler signature: func(*Message, *PayloadType) error
 	defer func() {
 		if r := recover(); r != nil {
 			m.t.Fatalf("handler panicked for %s: %v", msg.Kind, r)
 		}
 	}()
 	handlerVal := reflect.ValueOf(handler)
-	handlerVal.Call([]reflect.Value{
+	results := handlerVal.Call([]reflect.Value{
 		reflect.ValueOf(msg),
 		reflect.ValueOf(msg.Payload),
 	})
+
+	// Return handler error (if any)
+	if len(results) > 0 && !results[0].IsNil() {
+		return results[0].Interface().(error)
+	}
+	return nil
 }
 
 // Subscribe registers a handler for a message kind.
