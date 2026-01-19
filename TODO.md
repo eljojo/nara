@@ -159,6 +159,30 @@ The runtime is the foundation. Everything else builds on it.
 
 ## 6. Cleanup & Maintenance
 
+### Logging Consolidation [P1]
+> *Two primitives: `runtime.Logger` for services, `LogService` for event batching*
+
+**Goal**: All logging should use one of two patterns:
+1. **Service logging** → `s.log.Info("message")` via `runtime.ServiceLog`
+2. **Event presentation** → `LogService.Push()` / `BatchXXX()` for aggregated output
+
+**Migrate to runtime.Logger**:
+- [ ] Audit all `logrus.Infof/Debugf/Warnf/Errorf` calls
+- [ ] Services should use `s.log.Info()` (injected via `Init()`)
+- [ ] Runtime-internal code should use scoped loggers (e.g., `rt.Log("runtime")`)
+- [ ] Network/transport code should use consistent service names
+
+**Quiet tests by default**:
+- [ ] Create shared test logger that disables noisy services
+- [ ] Add to `TestMain` or test helpers: `logger.Disable("stash", "presence", ...)`
+- [ ] Keep errors/warnings visible for debugging
+- [ ] Document pattern in `CLAUDE.md` for AI assistants
+
+**Clean up LogService**:
+- [ ] Remove `LogService.Info/Warn/Error` convenience methods (they just call logrus)
+- [ ] Keep only `Push()` and `BatchXXX()` for event aggregation
+- [ ] Document the two-primitive pattern in code comments
+
 ### Test Improvements [P1]
 - [ ] Refactor tests to use helpers for common patterns
 - [ ] Fix flakey tests (see `TODO(flakey)` markers):

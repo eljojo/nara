@@ -163,25 +163,81 @@ type LoggerInterface interface {
 
 // Logger is the default logger implementation that logs to logrus.
 // This is used when no custom logger is provided.
-type Logger struct{}
+//
+// Supports per-service filtering via Disable/Enable methods.
+type Logger struct {
+	mu       sync.RWMutex
+	disabled map[string]bool // service names to suppress
+}
+
+// NewLogger creates a new logger with optional disabled services.
+func NewLogger(disabledServices ...string) *Logger {
+	l := &Logger{
+		disabled: make(map[string]bool),
+	}
+	for _, s := range disabledServices {
+		l.disabled[s] = true
+	}
+	return l
+}
+
+// Disable suppresses logging for the given service names.
+func (l *Logger) Disable(services ...string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.disabled == nil {
+		l.disabled = make(map[string]bool)
+	}
+	for _, s := range services {
+		l.disabled[s] = true
+	}
+}
+
+// Enable re-enables logging for the given service names.
+func (l *Logger) Enable(services ...string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, s := range services {
+		delete(l.disabled, s)
+	}
+}
+
+// isEnabled checks if logging is enabled for a service (internal, lock-free check).
+func (l *Logger) isEnabled(service string) bool {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.disabled == nil || !l.disabled[service]
+}
 
 // Debug logs a debug message.
 func (l *Logger) Debug(service string, format string, args ...any) {
+	if !l.isEnabled(service) {
+		return
+	}
 	logrus.Debugf("[%s] "+format, append([]any{service}, args...)...)
 }
 
 // Info logs an info message.
 func (l *Logger) Info(service string, format string, args ...any) {
+	if !l.isEnabled(service) {
+		return
+	}
 	logrus.Infof("[%s] "+format, append([]any{service}, args...)...)
 }
 
 // Warn logs a warning message.
 func (l *Logger) Warn(service string, format string, args ...any) {
+	if !l.isEnabled(service) {
+		return
+	}
 	logrus.Warnf("[%s] "+format, append([]any{service}, args...)...)
 }
 
 // Error logs an error message.
 func (l *Logger) Error(service string, format string, args ...any) {
+	if !l.isEnabled(service) {
+		return
+	}
 	logrus.Errorf("[%s] "+format, append([]any{service}, args...)...)
 }
 
