@@ -72,12 +72,14 @@ func (s *Service) handleStoreV1(msg *runtime.Message, p *messages.StashStorePayl
 		s.log.Warn("invalid store payload from %s: %v", p.OwnerID, err)
 
 		// Send failure ack
-		_ = s.rt.Emit(msg.Reply("stash:ack", &messages.StashStoreAck{
+		if emitErr := s.rt.Emit(msg.Reply("stash:ack", &messages.StashStoreAck{
 			OwnerID:  p.OwnerID,
 			Success:  false,
 			Reason:   err.Error(),
 			StoredAt: time.Now().Unix(),
-		}))
+		})); emitErr != nil {
+			s.log.Error("failed to send validation failure ack: %v", emitErr)
+		}
 		return
 	}
 
@@ -85,12 +87,14 @@ func (s *Service) handleStoreV1(msg *runtime.Message, p *messages.StashStorePayl
 	if !s.canStore(p.OwnerID) {
 		s.log.Warn("storage limit reached, rejecting store from %s", p.OwnerID)
 
-		_ = s.rt.Emit(msg.Reply("stash:ack", &messages.StashStoreAck{
+		if err := s.rt.Emit(msg.Reply("stash:ack", &messages.StashStoreAck{
 			OwnerID:  p.OwnerID,
 			Success:  false,
 			Reason:   "storage limit reached",
 			StoredAt: time.Now().Unix(),
-		}))
+		})); err != nil {
+			s.log.Error("failed to send storage limit ack: %v", err)
+		}
 		return
 	}
 
@@ -130,19 +134,26 @@ func (s *Service) handleRequestV1(msg *runtime.Message, p *messages.StashRequest
 	// Validate
 	if err := p.Validate(); err != nil {
 		s.log.Warn("invalid request from %s: %v", p.OwnerID, err)
-		_ = s.rt.Emit(msg.Reply("stash:response", buildStashResponse(p.OwnerID, p.RequestID, nil)))
+		if emitErr := s.rt.Emit(msg.Reply("stash:response", buildStashResponse(p.OwnerID, p.RequestID, nil))); emitErr != nil {
+			s.log.Error("failed to send validation failure response: %v", emitErr)
+		}
 		return
 	}
 
 	stash := s.GetStoredStash(p.OwnerID)
 	if stash == nil {
 		s.log.Warn("request failed: no stash found for %s", p.OwnerID)
-		_ = s.rt.Emit(msg.Reply("stash:response", buildStashResponse(p.OwnerID, p.RequestID, nil)))
+		if emitErr := s.rt.Emit(msg.Reply("stash:response", buildStashResponse(p.OwnerID, p.RequestID, nil))); emitErr != nil {
+			s.log.Error("failed to send not-found response: %v", emitErr)
+		}
 		return
 	}
 
 	// Send the stash back
-	_ = s.rt.Emit(msg.Reply("stash:response", buildStashResponse(p.OwnerID, p.RequestID, stash)))
+	if err := s.rt.Emit(msg.Reply("stash:response", buildStashResponse(p.OwnerID, p.RequestID, stash))); err != nil {
+		s.log.Error("failed to send stash response: %v", err)
+		return
+	}
 
 	s.log.Info("sent stash to %s (%d bytes)", p.OwnerID, len(stash.Ciphertext))
 }

@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/eljojo/nara/types"
@@ -40,7 +41,7 @@ type Message struct {
 //
 // The ID is deterministic but always unique per message instance because
 // it includes the timestamp with nanosecond precision.
-func ComputeID(msg *Message) string {
+func ComputeID(msg *Message) (string, error) {
 	h := sha256.New()
 	h.Write([]byte(msg.Kind))
 	h.Write([]byte(msg.FromID))
@@ -48,17 +49,20 @@ func ComputeID(msg *Message) string {
 
 	// Include payload hash for additional uniqueness
 	if msg.Payload != nil {
-		payloadBytes, _ := json.Marshal(msg.Payload)
+		payloadBytes, err := json.Marshal(msg.Payload)
+		if err != nil {
+			return "", fmt.Errorf("marshal payload for ID: %w", err)
+		}
 		h.Write(payloadBytes)
 	}
 
-	return base58.Encode(h.Sum(nil))[:16]
+	return base58.Encode(h.Sum(nil))[:16], nil
 }
 
 // SignableContent returns the canonical bytes to be signed.
 //
 // This ensures consistent signing across the network.
-func (m *Message) SignableContent() []byte {
+func (m *Message) SignableContent() ([]byte, error) {
 	data := struct {
 		ID        string       `json:"id"`
 		Kind      string       `json:"kind"`
@@ -75,8 +79,11 @@ func (m *Message) SignableContent() []byte {
 		Payload:   m.Payload,
 	}
 
-	bytes, _ := json.Marshal(data)
-	return bytes
+	bytes, err := json.Marshal(data)
+	if err != nil {
+		return nil, fmt.Errorf("marshal signable content: %w", err)
+	}
+	return bytes, nil
 }
 
 // VerifySignature checks if the signature is valid for this message.
@@ -87,13 +94,20 @@ func (m *Message) VerifySignature(pubKey []byte) bool {
 	if len(pubKey) != ed25519.PublicKeySize {
 		return false
 	}
-	return ed25519.Verify(pubKey, m.SignableContent(), m.Signature)
+	content, err := m.SignableContent()
+	if err != nil {
+		return false // If we can't get signable content, signature is invalid
+	}
+	return ed25519.Verify(pubKey, content, m.Signature)
 }
 
 // Marshal serializes the message for network transport.
-func (m *Message) Marshal() []byte {
-	bytes, _ := json.Marshal(m)
-	return bytes
+func (m *Message) Marshal() ([]byte, error) {
+	bytes, err := json.Marshal(m)
+	if err != nil {
+		return nil, fmt.Errorf("marshal message: %w", err)
+	}
+	return bytes, nil
 }
 
 // Reply creates a response message linked to the original.

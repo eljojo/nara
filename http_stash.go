@@ -31,7 +31,9 @@ func (network *Network) httpStashStatusHandler(w http.ResponseWriter, r *http.Re
 
 	if network.stashService == nil {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		_ = json.NewEncoder(w).Encode(response)
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			logrus.Errorf("Failed to encode stash status response: %v", err)
+		}
 		return
 	}
 
@@ -110,7 +112,9 @@ func (network *Network) httpStashStatusHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_ = json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logrus.Errorf("Failed to encode stash status response: %v", err)
+	}
 }
 
 // POST /api/stash/update - Update stash data and distribute to confidants
@@ -136,18 +140,22 @@ func (network *Network) httpStashUpdateHandler(w http.ResponseWriter, r *http.Re
 	if err := network.stashService.SetStashData(data); err != nil {
 		logrus.Errorf("📦 Failed to update stash: %v", err)
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		if encErr := json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": fmt.Sprintf("Failed to distribute stash: %v", err),
-		})
+		}); encErr != nil {
+			logrus.Errorf("Failed to encode stash update error response: %v", encErr)
+		}
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"message": "Stash updated and distributed to confidants",
-	})
+	}); err != nil {
+		logrus.Errorf("Failed to encode stash update success response: %v", err)
+	}
 }
 
 // POST /api/stash/recover - Trigger manual stash recovery from confidants
@@ -177,10 +185,12 @@ func (network *Network) httpStashRecoverHandler(w http.ResponseWriter, r *http.R
 	}()
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"message": "Stash recovery initiated from confidants",
-	})
+	}); err != nil {
+		logrus.Errorf("Failed to encode stash recovery response: %v", err)
+	}
 }
 
 // GET /api/stash/confidants - Get list of confidants with details
@@ -228,7 +238,9 @@ func (network *Network) httpStashConfidantsHandler(w http.ResponseWriter, r *htt
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"confidants": confidants,
-	})
+	}); err != nil {
+		logrus.Errorf("Failed to encode stash confidants response: %v", err)
+	}
 }

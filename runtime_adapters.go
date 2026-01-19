@@ -30,7 +30,10 @@ func (a *TransportAdapter) TrySendDirect(targetID types.NaraID, msg *runtime.Mes
 	}
 
 	// Marshal message
-	msgBytes := msg.Marshal()
+	msgBytes, err := msg.Marshal()
+	if err != nil {
+		return fmt.Errorf("marshal message: %w", err)
+	}
 
 	// Send via meshClient (which handles test mode automatically)
 	ctx := a.network.Context()

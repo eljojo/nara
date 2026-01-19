@@ -15,7 +15,11 @@ type IDStage struct{}
 
 func (s *IDStage) Process(msg *Message, ctx *PipelineContext) StageResult {
 	if msg.ID == "" {
-		msg.ID = ComputeID(msg)
+		id, err := ComputeID(msg)
+		if err != nil {
+			return Fail(fmt.Errorf("compute ID: %w", err))
+		}
+		msg.ID = id
 	}
 	return Continue(msg)
 }
@@ -26,7 +30,11 @@ func (s *IDStage) Process(msg *Message, ctx *PipelineContext) StageResult {
 type DefaultSignStage struct{}
 
 func (s *DefaultSignStage) Process(msg *Message, ctx *PipelineContext) StageResult {
-	msg.Signature = ctx.Keypair.Sign(msg.SignableContent())
+	content, err := msg.SignableContent()
+	if err != nil {
+		return Fail(fmt.Errorf("get signable content: %w", err))
+	}
+	msg.Signature = ctx.Keypair.Sign(content)
 	return Continue(msg)
 }
 
@@ -156,7 +164,12 @@ func (s *MQTTStage) Process(msg *Message, ctx *PipelineContext) StageResult {
 		return Fail(errors.New("no transport configured"))
 	}
 
-	if err := ctx.Transport.PublishMQTT(s.Topic, msg.Marshal()); err != nil {
+	data, err := msg.Marshal()
+	if err != nil {
+		return Fail(fmt.Errorf("marshal message: %w", err))
+	}
+
+	if err := ctx.Transport.PublishMQTT(s.Topic, data); err != nil {
 		return Fail(fmt.Errorf("mqtt publish to %s: %w", s.Topic, err))
 	}
 
@@ -173,8 +186,13 @@ func (s *MQTTPerNaraStage) Process(msg *Message, ctx *PipelineContext) StageResu
 		return Fail(errors.New("no transport configured"))
 	}
 
+	data, err := msg.Marshal()
+	if err != nil {
+		return Fail(fmt.Errorf("marshal message: %w", err))
+	}
+
 	topic := fmt.Sprintf(s.TopicPattern, msg.From)
-	if err := ctx.Transport.PublishMQTT(topic, msg.Marshal()); err != nil {
+	if err := ctx.Transport.PublishMQTT(topic, data); err != nil {
 		return Fail(fmt.Errorf("mqtt publish to %s: %w", topic, err))
 	}
 

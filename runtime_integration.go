@@ -78,7 +78,9 @@ func (network *Network) initRuntime() error {
 	stashService.RegisterBehaviors(rt)
 
 	// Add service to runtime
-	_ = rt.AddService(stashService)
+	if err := rt.AddService(stashService); err != nil {
+		return err
+	}
 
 	// Store runtime and stash service in network
 	network.runtime = rt

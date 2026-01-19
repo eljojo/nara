@@ -232,7 +232,12 @@ func (rt *Runtime) Call(msg *Message, timeout time.Duration) <-chan CallResult {
 
 	// Ensure message has an ID before registering
 	if msg.ID == "" {
-		msg.ID = ComputeID(msg)
+		id, err := ComputeID(msg)
+		if err != nil {
+			ch <- CallResult{Error: fmt.Errorf("compute message ID: %w", err)}
+			return ch
+		}
+		msg.ID = id
 	}
 
 	// Register the pending call

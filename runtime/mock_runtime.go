@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	"fmt"
 	"io"
 	"reflect"
 	"testing"
@@ -74,7 +75,11 @@ func (m *MockRuntime) MeID() types.NaraID {
 func (m *MockRuntime) Emit(msg *Message) error {
 	// Set defaults like real runtime
 	if msg.ID == "" {
-		msg.ID = ComputeID(msg)
+		id, err := ComputeID(msg)
+		if err != nil {
+			return fmt.Errorf("compute ID: %w", err)
+		}
+		msg.ID = id
 	}
 	if msg.FromID == "" {
 		msg.FromID = m.id
@@ -134,7 +139,12 @@ func (m *MockRuntime) Call(msg *Message, timeout time.Duration) <-chan CallResul
 
 	// Ensure message has an ID
 	if msg.ID == "" {
-		msg.ID = ComputeID(msg)
+		id, err := ComputeID(msg)
+		if err != nil {
+			ch <- CallResult{Error: fmt.Errorf("compute ID: %w", err)}
+			return ch
+		}
+		msg.ID = id
 	}
 
 	// Register the pending call
