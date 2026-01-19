@@ -22,8 +22,9 @@ type RuntimeInterface interface {
 	Emit(msg *Message) error
 
 	// Receive processes an incoming message through the receive pipeline.
-	// Returns any response messages from handlers for piggybacking.
-	Receive(raw []byte) ([]*Message, error)
+	// Response handling depends on opts - see ReceiveOptions documentation.
+	// Returns piggybacked messages when opts.CanPiggyback=true and message uses MeshOnly.
+	Receive(raw []byte, opts ReceiveOptions) ([]*Message, error)
 
 	// Logging (runtime primitive, not a service)
 	Log(service string) *ServiceLog

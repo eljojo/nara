@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/eljojo/nara/runtime"
 	"github.com/sirupsen/logrus"
 )
 
@@ -41,7 +42,8 @@ func (n *Network) httpMeshMessageHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	responses, err := n.runtime.Receive(body)
+	// CanPiggyback: true - we can include MeshOnly responses in HTTP response body
+	responses, err := n.runtime.Receive(body, runtime.ReceiveOptions{CanPiggyback: true})
 	if err != nil {
 		logrus.Warnf("[mesh] Failed to process message: %v", err)
 		// Still return 200 - the message was received, just not processed

@@ -75,6 +75,73 @@ type RuntimeConfig struct {
 	Environment Environment          // Default: EnvProduction
 }
 
+// ReceiveOptions controls how Receive() handles response messages from handlers.
+//
+// # Background: The Piggybacking Optimization
+//
+// When handlers process incoming messages, they often return response messages
+// (e.g., stash:store handler returns an ack). These responses need to be delivered
+// back to the sender somehow.
+//
+// For HTTP-based transport (mesh), we can "piggyback" responses in the HTTP response
+// body, eliminating a separate round-trip:
+//
+//	Without piggybacking (2 HTTP calls):
+//	  Alice → Bob: POST /mesh/message [store]
+//	  Bob → Alice: POST /mesh/message [ack]   ← separate HTTP call
+//
+//	With piggybacking (1 HTTP call):
+//	  Alice → Bob: POST /mesh/message [store]
+//	  Bob → Alice: HTTP 200 + [ack] in body   ← piggybacked!
+//
+// For MQTT (broadcast), there's no response to piggyback on - responses must be
+// emitted via normal transport.
+//
+// # How It Works
+//
+// When Receive() processes a message and the handler returns responses:
+//
+//   - If CanPiggyback=true AND response uses MeshOnly transport:
+//     → Prepare message (ID + Sign) and return it for piggybacking
+//     → Caller includes it in HTTP response body
+//
+//   - If CanPiggyback=false OR response uses non-MeshOnly transport:
+//     → Emit message via normal transport (Emit() → behavior's transport stage)
+//     → Message is delivered separately
+//
+// # When to Use Each Mode
+//
+//	CanPiggyback: true   - HTTP mesh handlers (httpMeshMessageHandler)
+//	                     - Processing piggybacked responses (MeshOnlyStage)
+//
+//	CanPiggyback: false  - MQTT handlers
+//	                     - Any context without a response channel
+//
+// # Example
+//
+//	// HTTP handler - can piggyback MeshOnly responses
+//	func httpHandler(w http.ResponseWriter, r *http.Request) {
+//	    responses, _ := runtime.Receive(body, ReceiveOptions{CanPiggyback: true})
+//	    json.Encode(w, responses)  // Include in HTTP response
+//	}
+//
+//	// MQTT handler - cannot piggyback, responses emitted normally
+//	func mqttHandler(payload []byte) {
+//	    runtime.Receive(payload, ReceiveOptions{CanPiggyback: false})
+//	    // Responses already emitted via their declared transport
+//	}
+type ReceiveOptions struct {
+	// CanPiggyback indicates whether MeshOnly response messages can be
+	// piggybacked in the caller's response (e.g., HTTP response body).
+	//
+	// When true: MeshOnly responses are prepared (ID + Sign) and returned
+	// for the caller to include in their response. They are NOT emitted.
+	//
+	// When false: All responses are emitted via normal transport, regardless
+	// of their transport type. Nothing is returned for piggybacking.
+	CanPiggyback bool
+}
+
 // NewRuntime creates a new runtime with the given configuration.
 func NewRuntime(cfg RuntimeConfig) *Runtime {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -255,8 +322,13 @@ func (rt *Runtime) Call(msg *Message, timeout time.Duration) <-chan CallResult {
 }
 
 // Receive processes an incoming message through the receive pipeline.
-// Returns any response messages from handlers for piggybacking in HTTP responses.
-func (rt *Runtime) Receive(raw []byte) ([]*Message, error) {
+//
+// Response messages from handlers are either piggybacked (returned) or emitted
+// depending on opts.CanPiggyback and the message's transport type.
+// See ReceiveOptions documentation for details.
+//
+// Returns piggybacked messages (only when opts.CanPiggyback=true and message uses MeshOnly).
+func (rt *Runtime) Receive(raw []byte, opts ReceiveOptions) ([]*Message, error) {
 	// Deserialize using behavior's PayloadType
 	msg, err := rt.deserialize(raw)
 	if err != nil {
@@ -295,20 +367,48 @@ func (rt *Runtime) Receive(raw []byte) ([]*Message, error) {
 	}
 
 	logrus.Infof("[runtime] invoking handler for %s", msg.Kind)
-	// Invoke version-specific handler - now returns response messages
+	// Invoke version-specific handler - returns response messages
 	responseMessages := rt.invokeHandler(msg, behavior)
 
-	// Prepare each message for piggybacking (ID + Sign, no transport)
-	var prepared []*Message
+	// Process each response message: piggyback or emit
+	var piggybacked []*Message
 	for _, resp := range responseMessages {
-		if p, err := rt.prepareForPiggyback(resp); err == nil {
-			prepared = append(prepared, p)
+		// Look up the response message's behavior to check its transport
+		respBehavior := rt.LookupBehavior(resp.Kind)
+
+		// Can we piggyback this message?
+		// Conditions: caller supports piggybacking AND message uses MeshOnly transport
+		canPiggybackThis := opts.CanPiggyback && rt.isMeshOnlyTransport(respBehavior)
+
+		if canPiggybackThis {
+			// Prepare for piggybacking (ID + Sign, no transport)
+			if p, err := rt.prepareForPiggyback(resp); err == nil {
+				piggybacked = append(piggybacked, p)
+				logrus.Debugf("[runtime] piggybacking %s response", resp.Kind)
+			} else {
+				logrus.Warnf("[runtime] failed to prepare piggyback response: %v", err)
+			}
 		} else {
-			logrus.Warnf("[runtime] failed to prepare piggyback response: %v", err)
+			// Emit via normal transport
+			if err := rt.Emit(resp); err != nil {
+				logrus.Warnf("[runtime] failed to emit response %s: %v", resp.Kind, err)
+			} else {
+				logrus.Debugf("[runtime] emitted %s response via normal transport", resp.Kind)
+			}
 		}
 	}
 
-	return prepared, nil
+	return piggybacked, nil
+}
+
+// isMeshOnlyTransport checks if a behavior uses MeshOnly transport.
+// Only MeshOnly messages can be piggybacked (they're point-to-point HTTP).
+func (rt *Runtime) isMeshOnlyTransport(b *Behavior) bool {
+	if b == nil || b.Emit.Transport == nil {
+		return false
+	}
+	_, ok := b.Emit.Transport.(*MeshOnlyStage)
+	return ok
 }
 
 // prepareForPiggyback runs ID + Sign stages but skips transport.

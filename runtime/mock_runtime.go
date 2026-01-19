@@ -179,9 +179,10 @@ func (m *MockRuntime) RegisterPublicKey(id types.NaraID, key []byte) {
 // === Test helpers ===
 
 // Receive processes an incoming message (for RuntimeInterface compliance).
-// Returns response messages from handlers. In MockRuntime, responses are also
-// added to Emitted for test assertions.
-func (m *MockRuntime) Receive(raw []byte) ([]*Message, error) {
+//
+// In MockRuntime, this is a simplified implementation that ignores opts.
+// For full control over message delivery in tests, use Deliver() instead.
+func (m *MockRuntime) Receive(raw []byte, opts ReceiveOptions) ([]*Message, error) {
 	// This is a simplified mock - just return nil for now
 	// Real tests should use Deliver() which is more flexible
 	return nil, nil

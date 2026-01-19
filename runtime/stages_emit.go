@@ -158,6 +158,10 @@ func (s *MeshOnlyStage) Process(msg *Message, ctx *PipelineContext) StageResult 
 
 	// Route piggybacked responses through full receive pipeline.
 	// This ensures: (1) signature verification, (2) CallRegistry/handler routing.
+	//
+	// CanPiggyback: true - if the handler returns more responses, they can also
+	// be piggybacked since we're still in an HTTP context. However, we emit them
+	// here since we don't have a way to return them to the original HTTP response.
 	for _, resp := range responses {
 		respBytes, err := resp.Marshal()
 		if err != nil {
@@ -165,12 +169,14 @@ func (s *MeshOnlyStage) Process(msg *Message, ctx *PipelineContext) StageResult 
 			continue
 		}
 		// Receive handles: verify -> CallRegistry OR handler
-		returnedMsgs, err := ctx.Runtime.Receive(respBytes)
+		// CanPiggyback: false here because we can't return to the original HTTP response
+		returnedMsgs, err := ctx.Runtime.Receive(respBytes, ReceiveOptions{CanPiggyback: false})
 		if err != nil {
 			logrus.Warnf("[runtime] failed to process piggybacked response: %v", err)
 			continue
 		}
-		// Emit any messages returned by handlers (e.g., Alice's handler sends to Dan)
+		// Any messages from handlers were already emitted by Receive since CanPiggyback=false
+		// But if any were somehow returned, emit them
 		for _, outMsg := range returnedMsgs {
 			if emitErr := ctx.Runtime.Emit(outMsg); emitErr != nil {
 				logrus.Warnf("[runtime] failed to emit message from piggybacked handler: %v", emitErr)
