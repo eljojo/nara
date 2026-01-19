@@ -127,7 +127,6 @@ func (rt *Runtime) MeID() types.NaraID {
 	return ""
 }
 
-
 // Log returns a logger scoped to the given service.
 func (rt *Runtime) Log(service string) *ServiceLog {
 	return &ServiceLog{
@@ -156,7 +155,6 @@ func (rt *Runtime) MemoryMode() string {
 	}
 	return rt.networkInfo.MemoryMode()
 }
-
 
 // Keypair returns the keypair interface.
 // Runtime guarantees this is always non-nil.

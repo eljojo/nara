@@ -23,11 +23,12 @@ type MockRuntime struct {
 	id      types.NaraID
 	Emitted []*Message // Captured Emit() calls for assertions
 
-	handlers  map[string][]func(*Message)
-	keypair   *MockKeypair
-	pubKeys   map[string][]byte
-	env       Environment
-	behaviors map[string]*Behavior
+	handlers   map[string][]func(*Message)
+	keypair    *MockKeypair
+	pubKeys    map[string][]byte
+	env        Environment
+	behaviors  map[string]*Behavior
+	memoryMode string // Configurable for tests (default: "normal")
 }
 
 // NewMockRuntime creates a mock runtime with auto-cleanup via t.Cleanup().
@@ -103,7 +104,15 @@ func (m *MockRuntime) OnlinePeers() []*PeerInfo {
 }
 
 func (m *MockRuntime) MemoryMode() string {
-	return "normal" // Mock returns normal mode
+	if m.memoryMode != "" {
+		return m.memoryMode
+	}
+	return "normal" // Default
+}
+
+// SetMemoryMode sets the memory mode for testing (low/medium/high).
+func (m *MockRuntime) SetMemoryMode(mode string) {
+	m.memoryMode = mode
 }
 
 // Keypair returns the keypair interface.

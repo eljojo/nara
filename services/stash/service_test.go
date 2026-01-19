@@ -1,6 +1,7 @@
 package stash
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -488,5 +489,80 @@ func TestStashInvalidPayloads(t *testing.T) {
 	}
 	if ackPayload.Reason == "" {
 		t.Fatal("expected Reason to be set")
+	}
+}
+
+// TestStashStorageLimit tests that the storage limit is enforced.
+func TestStashStorageLimit(t *testing.T) {
+	// Create runtime with "low" memory mode (limit of 5)
+	rt := runtime.NewMockRuntime(t, "confidant", "confidant-id")
+	rt.SetMemoryMode("low")
+
+	svc := NewService()
+	svc.RegisterBehaviors(rt)
+	if err := svc.Init(rt, rt.Log("stash")); err != nil {
+		t.Fatalf("failed to init: %v", err)
+	}
+	if err := svc.Start(); err != nil {
+		t.Fatalf("failed to start: %v", err)
+	}
+	defer func() { _ = svc.Stop() }()
+
+	// Verify storage limit is 5 for low mode
+	if svc.StorageLimit() != 5 {
+		t.Fatalf("expected storage limit 5 for low mode, got %d", svc.StorageLimit())
+	}
+
+	// Fill up storage to the limit
+	for i := 0; i < 5; i++ {
+		ownerID := types.NaraID(fmt.Sprintf("owner-%d", i))
+		svc.store(ownerID, []byte("nonce"), []byte("ciphertext"))
+	}
+
+	if svc.StoredCount() != 5 {
+		t.Fatalf("expected 5 stored stashes, got %d", svc.StoredCount())
+	}
+
+	// Try to store for a new owner - should be rejected
+	if svc.canStore("new-owner") {
+		t.Fatal("expected canStore to return false when at limit")
+	}
+
+	// Updates to existing owners should still be allowed
+	if !svc.canStore("owner-0") {
+		t.Fatal("expected canStore to return true for existing owner")
+	}
+
+	// Test via handler - new owner should get rejection ack
+	rt.Clear()
+	storeMsg := &runtime.Message{
+		ID:      "test-msg-id",
+		Kind:    "stash:store",
+		Version: 1,
+		FromID:  "new-owner-id",
+		Payload: &messages.StashStorePayload{
+			OwnerID:    "new-owner-id",
+			Nonce:      make([]byte, 24),
+			Ciphertext: []byte("secret data"),
+			Timestamp:  time.Now().Unix(),
+		},
+	}
+	rt.Deliver(storeMsg)
+
+	// Should have emitted a rejection ack
+	if rt.EmittedCount() != 1 {
+		t.Fatalf("expected 1 emitted message, got %d", rt.EmittedCount())
+	}
+
+	ackMsg := rt.LastEmitted()
+	ackPayload, ok := ackMsg.Payload.(*messages.StashStoreAck)
+	if !ok {
+		t.Fatalf("expected StashStoreAck, got %T", ackMsg.Payload)
+	}
+	if ackPayload.Success {
+		t.Fatal("expected Success=false when storage limit reached")
+	}
+	if ackPayload.Reason != "storage limit reached" {
+		t.Fatalf("expected reason 'storage limit reached', got %q", ackPayload.Reason)
 	}
 }
