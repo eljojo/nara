@@ -226,6 +226,11 @@ function NaraTable({ naras }) {
     }
   };
 
+  const formatLastRestart = (nara) => {
+    if (!nara.LastRestart || nara.LastRestart === 0) return 'never';
+    return timeAgo(nara.LastRestart);
+  };
+
   return (
     <div className="narae-table-container">
       <table className="narae-table">
@@ -234,10 +239,9 @@ function NaraTable({ naras }) {
             <th>#</th>
             <th>Name</th>
             <th>Status</th>
-            <th>Trend</th>
-            <th>Clout</th>
-            <th>Chattiness</th>
+            <th>Restarts</th>
             <th>Uptime</th>
+            <th>Last Restart</th>
             <th>Last Seen</th>
           </tr>
         </thead>
@@ -251,18 +255,19 @@ function NaraTable({ naras }) {
 
             const cardLink = `/nara/${nara.Name}`;
 
-            // Handle clout - might be undefined or NaN
-            const cloutDisplay = (nara.Clout !== undefined && isFinite(nara.Clout))
-              ? Math.round(nara.Clout)
-              : '?';
-
-            // Handle chattiness - might be undefined
-            const chattinessDisplay = (nara.Chattiness !== undefined && nara.Chattiness !== null)
-              ? `${nara.Chattiness}%`
-              : '?';
+            const handleRowClick = (e) => {
+              // Don't navigate if clicking on an interactive element
+              if (e.target.closest('a, button')) return;
+              globalNavigate(cardLink);
+            };
 
             return (
-              <tr key={nara.Name} className={`narae-table-row ${statusClass}`}>
+              <tr
+                key={nara.Name}
+                className={`narae-table-row ${statusClass}`}
+                onClick={handleRowClick}
+                style={{ cursor: 'pointer' }}
+              >
                 <td className="narae-table-entry">{index + 1}</td>
                 <td className="narae-table-name">
                   <Link href={cardLink} className="narae-table-link" style={{ '--row-hue': hue }}>
@@ -270,21 +275,14 @@ function NaraTable({ naras }) {
                   </Link>
                 </td>
                 <td className={`narae-table-status ${statusClass}`}>
-                  <span className="status-dot"></span>
-                  {statusText}
+                  <span className="status-indicator">
+                    <span className="status-dot"></span>
+                    <span className="status-text">{statusText}</span>
+                  </span>
                 </td>
-                <td className="narae-table-trend">
-                  {nara.Trend ? (
-                    <span className="trend-badge" style={{ backgroundColor: stringToColor(nara.Trend) }}>
-                      {nara.Trend}
-                    </span>
-                  ) : (
-                    <span className="trend-badge neutral">NO STYLE</span>
-                  )}
-                </td>
-                <td className="narae-table-stat">{cloutDisplay}</td>
-                <td className="narae-table-stat">{chattinessDisplay}</td>
+                <td className="narae-table-stat">{nara.Restarts || 0}</td>
                 <td className="narae-table-time">{formatUptime(nara)}</td>
+                <td className="narae-table-time">{formatLastRestart(nara)}</td>
                 <td className="narae-table-time">
                   {nara.LastSeen > 0 ? timeAgo(nara.LastSeen) : 'never'}
                 </td>
