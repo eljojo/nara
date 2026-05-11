@@ -32,7 +32,7 @@
     "d3": "^7.9.0",
     "dayjs": "^1.11.19",
     "iconoir": "^7.11.0",
-    "mermaid": "^11.12.2",
+    "mermaid": "^11.15.0",
     "preact": "^10.28.2"
   },
   "devDependencies": {
